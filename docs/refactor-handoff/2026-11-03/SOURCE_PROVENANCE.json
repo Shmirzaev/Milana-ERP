@@ -1,0 +1,49 @@
+{
+  "base": "75cf9c53930bdf3508e0d8a38f755a0aa6737a0b",
+  "status": "INCOMPLETE_DRAFT_NOT_ACCEPTANCE",
+  "preserved_merged_prs": [
+    370,
+    371
+  ],
+  "operation_sources": {
+    "item_update": "originalroot exact HEADdelta and3tests",
+    "size_delete": "originalroot minus CREATE-only c6source,4tests",
+    "parent_get": "scope-candidate-v1 minus CREATE-only c6source,2tests+golden",
+    "production": "OptionA frozenv2 exact scoped4pathpatch fromf9",
+    "sales": "combined-candidate-v2 fivepathpatch plus archived5drafttestfiles",
+    "purchase_approve": "originalroot verificationtest only; no appdelta"
+  },
+  "sha256_by_candidate_path": {
+    "backend/app/api/routes/catalog.py": "6425c359692e1db77df7205ec671daf41391acfc6792e2fdf8dcd353fae486f2",
+    "backend/app/api/routes/usluga.py": "0f69814479fa27764b8a7f67a4b0f6a5488880e3e3d38aebf536a7fb7357307c",
+    "backend/app/libs/types/inventory.py": "66abb16be047c7777357e642ffd39b18544ed8cb9c2bbce6a986b8afb242a57d",
+    "backend/app/libs/types/sales_order.py": "16b66fdabe9433fbfdad1729f792345fca390637a112c20df63261fd51196456",
+    "backend/app/models/catalog/models_service.py": "337544642548769abe32b2d5af034e01cf491b2d762edd5df187e324afc4fe57",
+    "backend/app/models/cutting_sewing_factory_service.py": "4de112e18ca047e8d67eb5689cbadec631fdbcda413faf8303b45b9ba29243c1",
+    "backend/app/models/inventory/stock_service.py": "864b1dd16b86c89e1bd19c63b652d2ec24e8301d07f05823652a9ac07ee51f79",
+    "backend/app/models/sales/orders_service.py": "0b35808803e5fccf537519321cfa129002fba219acd4b3f4b22910d330097c02",
+    "backend/app/schemas/catalog/model_size_persistence.py": "b4615b99c13309466f73c6027496ed2dd02e6d7a72fef1e8f0d3316bb1a8d3a5",
+    "backend/app/schemas/inventory/item_persistence.py": "02f76e9ce70604c860c654d33a2da423637d40db633ea7253151e0854813aa86",
+    "backend/app/schemas/production/factory_routing.py": "56d91104e325a2aead89e4867c83271fe49092d2e7fc1881136aefd99a2e693c",
+    "backend/app/tests/data/catalog_parent_get_contract.json": "e8d5ad83665dc9610be20e093cab6c2135314acb88ed4c148d11cb49c686e937",
+    "backend/app/tests/test_catalog_parent_get_contract.py": "cd687243317d09366bfa8ee9bae8b167ea9e263075a677a9b74bd00a4a29e975",
+    "backend/app/tests/test_catalog_parent_get_scope_operation.py": "c93296bbc1db7fd1793d91856cb33de0beb2bd9b8f507ff1c149cb13d5adec16",
+    "backend/app/tests/test_item_update_operation.py": "9159743f464877c48bae2b97e186b85df54edc00537a9d8e71af5fe2f84afe99",
+    "backend/app/tests/test_item_update_operation_postgres.py": "081c9a751cfcc11cc3d499b43fd0693be52ccad7298dedefbc0b2ac75d142f87",
+    "backend/app/tests/test_item_update_persistence_boundary.py": "88031e39efd2c15958a9dccc25d7fb3335833bf0cf6d0f7dcd287805cca22f2e",
+    "backend/app/tests/test_modelsize_delete_baseline.py": "d0543fb29069892180ac31a858bffb7eebb37365d9dca5925e53bfa437298661",
+    "backend/app/tests/test_modelsize_delete_http.py": "8a03f5cef89b82f58d3b6fd8dc7797887d19350b7425f51a2b5526ab3cd5b647",
+    "backend/app/tests/test_modelsize_delete_postgres.py": "d51dd099afb074b5cbb117656c04135d62d0e110adbcc27b2b7080e4bb0aaac7",
+    "backend/app/tests/test_modelsize_delete_qr_baseline.py": "15b8097ac029aa6cd5de17e9ab0f68d8ca66d149eff680f0df68550f0a53b0c7",
+    "backend/app/tests/test_purchase_request_approval_postgres.py": "c8ce2b2943209a6b5f6b91349546775efc2e61f036095b5b21721bef874cd9dd",
+    "backend/app/tests/test_whole_order_factory_baseline.py": "23e255d0a07e015af8a5376c88c973f81db7033ceb1c744b0a341e4f96450a9a",
+    "backend/app/tests/test_whole_order_factory_persistence.py": "4f3f7d1e7b663d12e87f2e01670a3584f3bba0407159f251800e70b1322c37b9",
+    "docs/PROJECT_CONTEXT.md": "3a9d697bf20cacf61235cf87f37eab290bd5ed2a1c38a6a0fab712755111e366",
+    "frontend/scripts/test-sales-enum-contracts.mjs": "f66c816978e9fd1a4567e881a6af0b96a31af9fd8b5f0a1f2dfedf176d589dfe",
+    "frontend/src/app/(app)/planning/page.tsx": "de814af0453aae5442232e4cb00b55521b380908cf2766c3465fc23ebb8bcf37",
+    "frontend/src/lib/salesOrderContracts.ts": "f19cf8ec5e48463a8cec12844b8c8588e9ce82550a368bda153ae581ec65b3cf",
+    "scripts/refactor_pg_required_cases.json": "2eab59a49d142dd61d8c77de902c5eadcb9917756cc689ecc6904f86f836db91",
+    "scripts/run_refactor_pg_gate.py": "3256ee18f7c04268c63f5cfc85b6942aeb08e45ec1cc1afe5dc688dce40fec51",
+    "scripts/test_refactor_pg_gate.py": "8f2bc54d8b5ba5c27c68fc553389c80f7579b4b42f5ed8eb991e5807147fbc07"
+  }
+}

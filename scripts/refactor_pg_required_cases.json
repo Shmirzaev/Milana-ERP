@@ -220,6 +220,50 @@
         "test_pg_bounded_concurrent_independent_and_duplicate_values",
         "test_pg_canonical_scope_accepted"
       ]
+    },
+    "test_item_update_operation_postgres": {
+      "revision": "DRAFT incomplete combined handoff based on clone_main 75cf9c53930bdf3508e0d8a38f755a0aa6737a0b; verification not complete",
+      "candidate_file_sha256": "081c9a751cfcc11cc3d499b43fd0693be52ccad7298dedefbc0b2ac75d142f87",
+      "selected_functions": [
+        "test_pg_update_fields_same_session_and_chain",
+        "test_pg_update_audit_failure_rolls_back_then_retry",
+        "test_pg_two_conflicting_sku_updates_preserve_unique_index"
+      ]
+    },
+    "test_modelsize_delete_postgres": {
+      "revision": "DRAFT incomplete combined handoff based on clone_main 75cf9c53930bdf3508e0d8a38f755a0aa6737a0b; verification not complete",
+      "candidate_file_sha256": "d51dd099afb074b5cbb117656c04135d62d0e110adbcc27b2b7080e4bb0aaac7",
+      "selected_functions": [
+        "test_delete_exact_id_and_audit",
+        "test_delete_audit_failure_rolls_back_then_retry",
+        "test_report_declared_incoming_fks",
+        "test_pg_eco_and_wrong_scope_are_isolated",
+        "test_pg_failure_rollback_retry",
+        "test_pg_two_session_delete_observed_outcomes",
+        "test_pg_before_commit_audit_finalization_failure_rolls_back_and_retries",
+        "test_pg_concurrent_http_post_delete_and_failure_partial_commit"
+      ]
+    },
+    "test_purchase_request_approval_postgres": {
+      "revision": "DRAFT incomplete combined handoff based on clone_main 75cf9c53930bdf3508e0d8a38f755a0aa6737a0b; verification not complete",
+      "candidate_file_sha256": "c8ce2b2943209a6b5f6b91349546775efc2e61f036095b5b21721bef874cd9dd",
+      "selected_functions": [
+        "test_approval_commits_actual_rows_audit_and_recipients",
+        "test_late_real_item_denial_rolls_back_flushed_participants_then_retry",
+        "test_later_line_failure_rolls_back_first_line_then_retry",
+        "test_public_approved_retry_ignores_invalid_lines_but_enforces_late_access",
+        "test_empty_request_distinct_from_missing_lines",
+        "test_fault_after_real_participant_rolls_back_and_retries",
+        "test_observed_row_lock_contention",
+        "test_no_active_recipient_and_actor_exclusion",
+        "test_full_audit_hash_chain",
+        "test_invalid_payload_rolls_back_and_preserves_rows",
+        "test_invalid_status_precedes_invalid_lines",
+        "test_missing_request_precedes_line_validation",
+        "test_unknown_locked_status_stub_not_stored_pg_proof",
+        "test_http_permission_denial_preserves_all_state",
+        "test_audit_finalization_failure_rollback_and_retry"
+      ]
     }
   },
   "cases": {
@@ -439,6 +483,54 @@
       "test_pg_bounded_concurrent_independent_and_duplicate_values[False]",
       "test_pg_canonical_scope_accepted[standard-standard]",
       "test_pg_canonical_scope_accepted[usluga-eco]"
+    ],
+    "test_item_update_operation_postgres": [
+      "test_pg_update_fields_same_session_and_chain",
+      "test_pg_update_audit_failure_rolls_back_then_retry[enqueue]",
+      "test_pg_update_audit_failure_rolls_back_then_retry[finalize]",
+      "test_pg_update_audit_failure_rolls_back_then_retry[commit]",
+      "test_pg_two_conflicting_sku_updates_preserve_unique_index"
+    ],
+    "test_modelsize_delete_postgres": [
+      "test_delete_exact_id_and_audit",
+      "test_delete_audit_failure_rolls_back_then_retry",
+      "test_report_declared_incoming_fks",
+      "test_pg_eco_and_wrong_scope_are_isolated",
+      "test_pg_failure_rollback_retry[flush]",
+      "test_pg_failure_rollback_retry[commit]",
+      "test_pg_two_session_delete_observed_outcomes[True]",
+      "test_pg_two_session_delete_observed_outcomes[False]",
+      "test_pg_before_commit_audit_finalization_failure_rolls_back_and_retries",
+      "test_pg_concurrent_http_post_delete_and_failure_partial_commit"
+    ],
+    "test_purchase_request_approval_postgres": [
+      "test_approval_commits_actual_rows_audit_and_recipients[draft]",
+      "test_approval_commits_actual_rows_audit_and_recipients[pending_approval]",
+      "test_late_real_item_denial_rolls_back_flushed_participants_then_retry",
+      "test_later_line_failure_rolls_back_first_line_then_retry",
+      "test_public_approved_retry_ignores_invalid_lines_but_enforces_late_access",
+      "test_empty_request_distinct_from_missing_lines",
+      "test_fault_after_real_participant_rolls_back_and_retries[apply_purchase_request_line_approval]",
+      "test_fault_after_real_participant_rolls_back_and_retries[apply_purchase_request_approval]",
+      "test_fault_after_real_participant_rolls_back_and_retries[log_action]",
+      "test_fault_after_real_participant_rolls_back_and_retries[notify_department]",
+      "test_observed_row_lock_contention[approve]",
+      "test_observed_row_lock_contention[reject]",
+      "test_no_active_recipient_and_actor_exclusion",
+      "test_full_audit_hash_chain",
+      "test_invalid_payload_rolls_back_and_preserves_rows[missing]",
+      "test_invalid_payload_rolls_back_and_preserves_rows[duplicate]",
+      "test_invalid_payload_rolls_back_and_preserves_rows[wrong]",
+      "test_invalid_payload_rolls_back_and_preserves_rows[blank_name]",
+      "test_invalid_payload_rolls_back_and_preserves_rows[blank_photo]",
+      "test_invalid_payload_rolls_back_and_preserves_rows[supplier_zero]",
+      "test_invalid_payload_rolls_back_and_preserves_rows[supplier_absent]",
+      "test_invalid_status_precedes_invalid_lines[rejected]",
+      "test_invalid_status_precedes_invalid_lines[converted]",
+      "test_missing_request_precedes_line_validation",
+      "test_unknown_locked_status_stub_not_stored_pg_proof",
+      "test_http_permission_denial_preserves_all_state",
+      "test_audit_finalization_failure_rollback_and_retry"
     ]
   },
   "isolated_supplemental_cases": [

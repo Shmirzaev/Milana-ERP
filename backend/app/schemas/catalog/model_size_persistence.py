@@ -1,4 +1,4 @@
-"""Model size insertion on the caller's session; transaction stays in service."""
+"""Model size persistence on the caller's session; transaction stays in service."""
 
 from sqlalchemy.orm import Session
 
@@ -11,3 +11,7 @@ def insert_model_size(db: Session, command: ModelSizeCreateCommand) -> ModelSize
     db.add(row)
     db.flush()
     return row
+
+
+def delete_model_size(db: Session, row: ModelSize) -> None:
+    db.delete(row)

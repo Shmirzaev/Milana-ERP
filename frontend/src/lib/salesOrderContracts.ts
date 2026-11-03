@@ -46,18 +46,23 @@ export type SalesOrderSummary = {
 export type SalesOrderItem = {
   id: number;
   model_id: number;
+  brand_id?: number | null;
   model_code?: string | null;
   model_name?: string | null;
   color: string;
   size: string;
   quantity: number;
   unit_price: number;
+  printing_required: boolean;
   source_type: SalesOrderItemSourceType;
   model?: { id: number; code: string; name: string; translations?: Record<string, string> | null } | null;
 };
 
 /** List-only stored piece total; unallocated pack lines contribute zero. */
-export type SalesOrderListRow = SalesOrderSummary & { total_quantity: number };
+export type SalesOrderListRow = SalesOrderSummary & {
+  total_quantity: number;
+  customer?: { id: number; name: string } | null;
+};
 
 export type SalesOrderDetail = SalesOrderSummary & {
   customer?: { id: number; name: string } | null;

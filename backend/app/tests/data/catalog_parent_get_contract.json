@@ -1,0 +1,1122 @@
+{
+  "openapi_components": {
+    "#/components/schemas/HTTPValidationError": {
+      "properties": {
+        "detail": {
+          "items": {
+            "$ref": "#/components/schemas/ValidationError"
+          },
+          "title": "Detail",
+          "type": "array"
+        }
+      },
+      "title": "HTTPValidationError",
+      "type": "object"
+    },
+    "#/components/schemas/ItemComposition": {
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "percentage": {
+          "maximum": 100.0,
+          "minimum": 0.0,
+          "title": "Percentage",
+          "type": "number"
+        }
+      },
+      "required": [
+        "name",
+        "percentage"
+      ],
+      "title": "ItemComposition",
+      "type": "object"
+    },
+    "#/components/schemas/ItemOut": {
+      "properties": {
+        "category": {
+          "title": "Category",
+          "type": "string"
+        },
+        "composition": {
+          "items": {
+            "$ref": "#/components/schemas/ItemComposition"
+          },
+          "title": "Composition",
+          "type": "array"
+        },
+        "default_cost": {
+          "title": "Default Cost",
+          "type": "number"
+        },
+        "id": {
+          "title": "Id",
+          "type": "integer"
+        },
+        "image_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Image Url"
+        },
+        "is_active": {
+          "title": "Is Active",
+          "type": "boolean"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "reorder_level": {
+          "title": "Reorder Level",
+          "type": "number"
+        },
+        "sku": {
+          "title": "Sku",
+          "type": "string"
+        },
+        "track_batch": {
+          "title": "Track Batch",
+          "type": "boolean"
+        },
+        "unit": {
+          "title": "Unit",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "sku",
+        "name",
+        "category",
+        "unit",
+        "default_cost",
+        "reorder_level",
+        "track_batch",
+        "is_active"
+      ],
+      "title": "ItemOut",
+      "type": "object"
+    },
+    "#/components/schemas/ModelBOMOut": {
+      "properties": {
+        "color": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Color"
+        },
+        "id": {
+          "title": "Id",
+          "type": "integer"
+        },
+        "item": {
+          "anyOf": [
+            {
+              "$ref": "#/components/schemas/ItemOut"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "item_id": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Item Id"
+        },
+        "material_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Material Name"
+        },
+        "material_role": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Material Role"
+        },
+        "photo_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Photo Url"
+        },
+        "quantity_per_piece": {
+          "title": "Quantity Per Piece",
+          "type": "number"
+        },
+        "size": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Size"
+        },
+        "stock_batch_color": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Stock Batch Color"
+        },
+        "stock_batch_id": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Stock Batch Id"
+        },
+        "stock_batch_image_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Stock Batch Image Url"
+        },
+        "stock_batch_no": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Stock Batch No"
+        },
+        "unit": {
+          "title": "Unit",
+          "type": "string"
+        },
+        "waste_percent": {
+          "title": "Waste Percent",
+          "type": "number"
+        }
+      },
+      "required": [
+        "id",
+        "quantity_per_piece",
+        "unit",
+        "waste_percent"
+      ],
+      "title": "ModelBOMOut",
+      "type": "object"
+    },
+    "#/components/schemas/ModelColorOut": {
+      "properties": {
+        "color_code": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Color Code"
+        },
+        "color_name": {
+          "title": "Color Name",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "color_name"
+      ],
+      "title": "ModelColorOut",
+      "type": "object"
+    },
+    "#/components/schemas/ModelDetail": {
+      "properties": {
+        "approved_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Approved At"
+        },
+        "approved_by": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Approved By"
+        },
+        "bom": {
+          "default": [],
+          "items": {
+            "$ref": "#/components/schemas/ModelBOMOut"
+          },
+          "title": "Bom",
+          "type": "array"
+        },
+        "brand_id": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Brand Id"
+        },
+        "category": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Category"
+        },
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "collection_id": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Collection Id"
+        },
+        "colors": {
+          "default": [],
+          "items": {
+            "$ref": "#/components/schemas/ModelColorOut"
+          },
+          "title": "Colors",
+          "type": "array"
+        },
+        "constructor_employee_id": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Constructor Employee Id"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "created_by": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Created By"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Description"
+        },
+        "designer_employee_id": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Designer Employee Id"
+        },
+        "details_json": {
+          "anyOf": [
+            {
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Details Json"
+        },
+        "id": {
+          "title": "Id",
+          "type": "integer"
+        },
+        "images": {
+          "default": [],
+          "items": {
+            "$ref": "#/components/schemas/ModelImageOut"
+          },
+          "title": "Images",
+          "type": "array"
+        },
+        "material_composition": {
+          "items": {
+            "$ref": "#/components/schemas/ItemComposition"
+          },
+          "title": "Material Composition",
+          "type": "array"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "primary_image": {
+          "anyOf": [
+            {
+              "$ref": "#/components/schemas/ModelImageOut"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "primary_image_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Primary Image Url"
+        },
+        "product_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Product Type"
+        },
+        "sam_minutes": {
+          "default": 0,
+          "title": "Sam Minutes",
+          "type": "number"
+        },
+        "season": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Season"
+        },
+        "selling_price": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Selling Price"
+        },
+        "selling_price_currency": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Selling Price Currency"
+        },
+        "selling_price_request_id": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Selling Price Request Id"
+        },
+        "selling_price_source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Selling Price Source"
+        },
+        "selling_price_updated_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Selling Price Updated At"
+        },
+        "sizes": {
+          "default": [],
+          "items": {
+            "$ref": "#/components/schemas/ModelSizeOut"
+          },
+          "title": "Sizes",
+          "type": "array"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "variant_picture_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Variant Picture Url"
+        }
+      },
+      "required": [
+        "id",
+        "code",
+        "name",
+        "status",
+        "created_at"
+      ],
+      "title": "ModelDetail",
+      "type": "object"
+    },
+    "#/components/schemas/ModelImageOut": {
+      "properties": {
+        "content_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Content Type"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "file_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "File Name"
+        },
+        "file_url": {
+          "title": "File Url",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "integer"
+        },
+        "image_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Image Type"
+        },
+        "is_primary": {
+          "title": "Is Primary",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "file_url",
+        "is_primary",
+        "created_at"
+      ],
+      "title": "ModelImageOut",
+      "type": "object"
+    },
+    "#/components/schemas/ModelSizeOut": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "integer"
+        },
+        "measurement_json": {
+          "anyOf": [
+            {
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Measurement Json"
+        },
+        "size": {
+          "title": "Size",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "size"
+      ],
+      "title": "ModelSizeOut",
+      "type": "object"
+    },
+    "#/components/schemas/ValidationError": {
+      "properties": {
+        "ctx": {
+          "title": "Context",
+          "type": "object"
+        },
+        "input": {
+          "title": "Input"
+        },
+        "loc": {
+          "items": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ]
+          },
+          "title": "Location",
+          "type": "array"
+        },
+        "msg": {
+          "title": "Message",
+          "type": "string"
+        },
+        "type": {
+          "title": "Error Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "loc",
+        "msg",
+        "type"
+      ],
+      "title": "ValidationError",
+      "type": "object"
+    }
+  },
+  "openapi_operations": {
+    "/api/models/{mid}": {
+      "effective_security": [
+        {
+          "OAuth2PasswordBearer": []
+        }
+      ],
+      "get": {
+        "operationId": "get_model_api_models__mid__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mid",
+            "required": true,
+            "schema": {
+              "title": "Mid",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Get Model",
+        "tags": [
+          "catalog"
+        ]
+      },
+      "path_parameters": [],
+      "security_source": "operation"
+    },
+    "/api/usluga/models/{mid}": {
+      "effective_security": [
+        {
+          "OAuth2PasswordBearer": []
+        }
+      ],
+      "get": {
+        "operationId": "get_usluga_model_api_usluga_models__mid__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mid",
+            "required": true,
+            "schema": {
+              "title": "Mid",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "summary": "Get Usluga Model",
+        "tags": [
+          "usluga"
+        ]
+      },
+      "path_parameters": [],
+      "security_source": "operation"
+    }
+  },
+  "responses": {
+    "standard": {
+      "approved_at": null,
+      "approved_by": null,
+      "bom": [
+        {
+          "color": null,
+          "id": 874001,
+          "item": null,
+          "item_id": null,
+          "material_name": "Материал",
+          "material_role": null,
+          "photo_url": null,
+          "quantity_per_piece": 1.25,
+          "size": null,
+          "stock_batch_color": null,
+          "stock_batch_id": null,
+          "stock_batch_image_url": null,
+          "stock_batch_no": null,
+          "unit": "m",
+          "waste_percent": 0.0
+        },
+        {
+          "color": null,
+          "id": 874002,
+          "item": null,
+          "item_id": null,
+          "material_name": "Cotton",
+          "material_role": "secondary",
+          "photo_url": null,
+          "quantity_per_piece": 2.5,
+          "size": null,
+          "stock_batch_color": null,
+          "stock_batch_id": null,
+          "stock_batch_image_url": null,
+          "stock_batch_no": null,
+          "unit": "m",
+          "waste_percent": 1.0
+        }
+      ],
+      "brand_id": null,
+      "category": null,
+      "code": "FULL-CONTRACT-standard",
+      "collection_id": null,
+      "colors": [
+        {
+          "color_code": null,
+          "color_name": "  Qizil-Красный  ",
+          "id": 872001
+        },
+        {
+          "color_code": " #ff0000 ",
+          "color_name": "РРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРР",
+          "id": 872002
+        }
+      ],
+      "constructor_employee_id": null,
+      "created_at": "2020-02-03T04:05:06",
+      "created_by": null,
+      "description": null,
+      "designer_employee_id": null,
+      "details_json": {
+        "note": " O‘z 🧵 ",
+        "paid_operations": [
+          {
+            "code": "MIL",
+            "id": "mil",
+            "name": "mil",
+            "rate": "100",
+            "section": "sewing",
+            "selected": true,
+            "sewingFactory": "milana"
+          },
+          {
+            "code": "BST",
+            "id": "bst",
+            "name": "bst",
+            "rate": "100",
+            "section": "sewing",
+            "selected": true,
+            "sewingFactory": "besttex"
+          },
+          {
+            "code": "ECO",
+            "id": "eco",
+            "name": "eco",
+            "rate": "100",
+            "section": "sewing",
+            "selected": true,
+            "sewingFactory": "eco_cotton"
+          }
+        ]
+      },
+      "id": 870001,
+      "images": [
+        {
+          "content_type": "image/png",
+          "created_at": "2020-02-03T04:05:06",
+          "file_name": "model.png",
+          "file_url": "/synthetic/model.png",
+          "id": 873001,
+          "image_type": "model",
+          "is_primary": true
+        },
+        {
+          "content_type": null,
+          "created_at": "2020-02-03T04:05:06",
+          "file_name": null,
+          "file_url": "/synthetic/secondary.png",
+          "id": 873002,
+          "image_type": "model",
+          "is_primary": false
+        }
+      ],
+      "material_composition": [],
+      "name": "Full standard",
+      "primary_image": {
+        "content_type": "image/png",
+        "created_at": "2020-02-03T04:05:06",
+        "file_name": "model.png",
+        "file_url": "/synthetic/model.png",
+        "id": 873001,
+        "image_type": "model",
+        "is_primary": true
+      },
+      "primary_image_url": "/synthetic/model.png",
+      "product_type": null,
+      "sam_minutes": 0.0,
+      "season": null,
+      "selling_price": null,
+      "selling_price_currency": null,
+      "selling_price_request_id": null,
+      "selling_price_source": null,
+      "selling_price_updated_at": null,
+      "sizes": [
+        {
+          "id": 871001,
+          "measurement_json": {
+            "chest": 12.5,
+            "other": null
+          },
+          "size": "  M 🧵  "
+        },
+        {
+          "id": 871002,
+          "measurement_json": null,
+          "size": " XL "
+        }
+      ],
+      "status": "draft",
+      "variant_picture_url": null
+    },
+    "usluga": {
+      "approved_at": null,
+      "approved_by": null,
+      "bom": [
+        {
+          "color": null,
+          "id": 874003,
+          "item": null,
+          "item_id": null,
+          "material_name": "Материал",
+          "material_role": null,
+          "photo_url": null,
+          "quantity_per_piece": 1.25,
+          "size": null,
+          "stock_batch_color": null,
+          "stock_batch_id": null,
+          "stock_batch_image_url": null,
+          "stock_batch_no": null,
+          "unit": "m",
+          "waste_percent": 0.0
+        },
+        {
+          "color": null,
+          "id": 874004,
+          "item": null,
+          "item_id": null,
+          "material_name": "Cotton",
+          "material_role": "secondary",
+          "photo_url": null,
+          "quantity_per_piece": 2.5,
+          "size": null,
+          "stock_batch_color": null,
+          "stock_batch_id": null,
+          "stock_batch_image_url": null,
+          "stock_batch_no": null,
+          "unit": "m",
+          "waste_percent": 1.0
+        }
+      ],
+      "brand_id": null,
+      "category": null,
+      "code": "FULL-CONTRACT-usluga",
+      "collection_id": null,
+      "colors": [
+        {
+          "color_code": null,
+          "color_name": "  Qizil-Красный  ",
+          "id": 872003
+        },
+        {
+          "color_code": " #ff0000 ",
+          "color_name": "РРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРРР",
+          "id": 872004
+        }
+      ],
+      "constructor_employee_id": null,
+      "created_at": "2020-02-03T04:05:06",
+      "created_by": null,
+      "description": null,
+      "designer_employee_id": null,
+      "details_json": {
+        "note": " O‘z 🧵 ",
+        "paid_operations": [
+          {
+            "code": "ECO",
+            "id": "eco",
+            "name": "eco",
+            "rate": "100",
+            "section": "sewing",
+            "selected": true,
+            "sewingFactory": "eco_cotton"
+          }
+        ]
+      },
+      "id": 870002,
+      "images": [
+        {
+          "content_type": "image/png",
+          "created_at": "2020-02-03T04:05:06",
+          "file_name": "model.png",
+          "file_url": "/synthetic/model.png",
+          "id": 873003,
+          "image_type": "model",
+          "is_primary": true
+        },
+        {
+          "content_type": null,
+          "created_at": "2020-02-03T04:05:06",
+          "file_name": null,
+          "file_url": "/synthetic/secondary.png",
+          "id": 873004,
+          "image_type": "model",
+          "is_primary": false
+        }
+      ],
+      "material_composition": [],
+      "name": "Full usluga",
+      "primary_image": {
+        "content_type": "image/png",
+        "created_at": "2020-02-03T04:05:06",
+        "file_name": "model.png",
+        "file_url": "/synthetic/model.png",
+        "id": 873003,
+        "image_type": "model",
+        "is_primary": true
+      },
+      "primary_image_url": "/synthetic/model.png",
+      "product_type": null,
+      "sam_minutes": 0.0,
+      "season": null,
+      "selling_price": null,
+      "selling_price_currency": null,
+      "selling_price_request_id": null,
+      "selling_price_source": null,
+      "selling_price_updated_at": null,
+      "sizes": [
+        {
+          "id": 871003,
+          "measurement_json": {
+            "chest": 12.5,
+            "other": null
+          },
+          "size": "  M 🧵  "
+        },
+        {
+          "id": 871004,
+          "measurement_json": null,
+          "size": " XL "
+        }
+      ],
+      "status": "draft",
+      "variant_picture_url": null
+    }
+  },
+  "security_schemes": {
+    "OAuth2PasswordBearer": {
+      "flows": {
+        "password": {
+          "scopes": {},
+          "tokenUrl": "/api/auth/token"
+        }
+      },
+      "type": "oauth2"
+    }
+  }
+}

@@ -20,6 +20,8 @@ import { statusLabel } from "@/components/StagePipeline";
 import { useT } from "@/lib/i18n";
 import { numberOrFallback, numberOrZero, parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
 import { InventoryQcStatus, inventoryQcStatus } from "@/lib/inventoryQcStatus";
+import { SalesOrderStatus } from "@/lib/salesOrderEnums";
+import type { SalesOrderDetail, SalesOrderListRow } from "@/lib/salesOrderContracts";
 
 type FabricBatch = {
   id: number;
@@ -335,7 +337,7 @@ export default function PlanningDashboard() {
   const searchParams = useSearchParams();
   const { me } = useMe();
   const { data: dash } = useSWR<any>("/api/dashboard/planning", fetcher);
-  const { data: orders } = useSWR<any[]>("/api/sales-orders?order_type=client_order&page_size=200", fetcher);
+  const { data: orders } = useSWR<SalesOrderListRow[]>("/api/sales-orders?order_type=client_order&page_size=200", fetcher);
   const { data: productionOrders, mutate: mutateProductionOrders } = useSWR<any[]>("/api/production-orders?page_size=100", fetcher);
   const { data: brands, mutate: mutateBrands } = useSWR<Brand[]>("/api/brands", fetcher);
   const { data: fabricBatches } = useSWR<FabricBatch[]>("/api/inventory/batches?group=materials&hide_empty=true&page_size=1000", fetcher);
@@ -395,7 +397,7 @@ export default function PlanningDashboard() {
     fetcher,
   );
 
-  const planningOrders = (orders || []).filter((o) => ["confirmed", "pending_sales_approval", "planning_approved"].includes(o.status));
+  const planningOrders = (orders || []).filter((o) => [SalesOrderStatus.CONFIRMED, SalesOrderStatus.PENDING_SALES_APPROVAL, SalesOrderStatus.PLANNING_APPROVED].includes(o.status));
   const brandedTotalQty = brandedForm.lines.reduce((sum, line) => sum + Number(line.quantity || 0), 0);
   const brandedPrintingLineCount = brandedForm.lines.filter((line) => Boolean(line.printing_required)).length;
   const brandedHasPrintingSelected = brandedPrintingLineCount > 0;
@@ -684,8 +686,8 @@ export default function PlanningDashboard() {
   async function createPOForSO(soId: number, batches?: BatchPlanRow[], material?: MaterialEstimatePayload) {
     setBusyOrderId(soId);
     try {
-      const so = await api.get(`/api/sales-orders/${soId}`);
-      const items = (so.items || []).map((i: any) => ({
+      const so = await api.get<SalesOrderDetail>(`/api/sales-orders/${soId}`);
+      const items = (so.items || []).map((i) => ({
         model_id: i.model_id,
         color: i.color,
         size: i.size,
@@ -705,7 +707,7 @@ export default function PlanningDashboard() {
         production_type: "client_order",
         sales_order_id: soId,
         model_id: so.items?.[0]?.model_id,
-        planned_quantity: items.reduce((s: number, i: any) => s + i.planned_quantity, 0),
+        planned_quantity: items.reduce((s: number, i) => s + i.planned_quantity, 0),
         // Carry the customer deadline through to the production order so the
         // process tracker shows a meaningful "due by" value.
         deadline: so.deadline ?? null,
@@ -724,9 +726,9 @@ export default function PlanningDashboard() {
     }
   }
 
-  async function materialEstimateForSalesOrder(so: any): Promise<MaterialEstimateDraft> {
+  async function materialEstimateForSalesOrder(so: SalesOrderDetail): Promise<MaterialEstimateDraft> {
     const modelIds = Array.from(new Set((so.items || [])
-      .map((row: any) => Number(row.model_id || 0))
+      .map((row) => Number(row.model_id || 0))
       .filter((modelId: number) => modelId > 0)));
     const modelDetails = await Promise.all(modelIds.map((modelId) => api.get<BrandedModelDetail>(`/api/models/${modelId}`)));
     const fabricItemIds = Array.from(new Set(modelDetails.flatMap((model) => modelFabricItemIds(model))));
@@ -740,11 +742,11 @@ export default function PlanningDashboard() {
     );
   }
 
-  async function openMaterialEstimateForSO(order: any) {
+  async function openMaterialEstimateForSO(order: SalesOrderListRow) {
     setBusyOrderId(Number(order.id));
     setMaterialEstimateErr("");
     try {
-      const so = await api.get(`/api/sales-orders/${order.id}`);
+      const so = await api.get<SalesOrderDetail>(`/api/sales-orders/${order.id}`);
       setMaterialEstimate({
         orderId: Number(order.id),
         orderNo: order.order_no || `#${order.id}`,
@@ -774,8 +776,8 @@ export default function PlanningDashboard() {
     setBusyOrderId(soId);
     setBatchPlanErr("");
     try {
-      const so = await api.get(`/api/sales-orders/${soId}`);
-      const totalQty = (so.items || []).reduce((sum: number, row: any) => sum + Number(row.quantity || 0), 0);
+      const so = await api.get<SalesOrderDetail>(`/api/sales-orders/${soId}`);
+      const totalQty = (so.items || []).reduce((sum: number, row) => sum + Number(row.quantity || 0), 0);
       const maxPerBatch = 600;
       setBatchPlan({
         orderId: soId,

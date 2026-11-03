@@ -1,5 +1,7 @@
 # Milana ERP: current working context
 
+> 3 November 2026 — Remaining Ismail/Mirshoir-takeover refactor is an **unfinished draft handoff**, not acceptance. See [scope, blockers and continuation](refactor-handoff/2026-11-03/README.md).
+
 ## Guidance publication and runtime scope
 
 The 26 October guidance publication on `clone_main` at `b92ee8f` was

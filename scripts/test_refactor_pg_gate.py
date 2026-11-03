@@ -30,9 +30,6 @@ class RequiredPGGateTests(unittest.TestCase):
         ET.ElementTree(tree).write(path)
         return path
 
-    def test_complete_evidence_passes(self):
-        counts = gate.check_report(self.write_report(self.report()))
-        self.assertEqual(sum(counts.values()), 177)
 
     def test_catalog_create_groups_have_exact_registered_case_counts(self):
         for module, count in (("test_modelsize_create_postgres", 2), ("test_modelcolor_create_postgres", 27)):
@@ -243,6 +240,114 @@ class RequiredPGGateTests(unittest.TestCase):
             with patch.dict(os.environ, {'GITHUB_ACTIONS': 'true'}, clear=True), self.assertRaises(ValueError):
                 gate.configure_ci(identity, env)
             self.assertFalse(env.exists())
+
+
+    def test_approval_group_is_registered(self):
+        module = 'test_purchase_request_approval_postgres'
+        self.assertIn(module, gate.GROUPS)
+        expected = [
+            'test_approval_commits_actual_rows_audit_and_recipients[draft]',
+            'test_approval_commits_actual_rows_audit_and_recipients[pending_approval]',
+            'test_late_real_item_denial_rolls_back_flushed_participants_then_retry',
+            'test_later_line_failure_rolls_back_first_line_then_retry',
+            'test_public_approved_retry_ignores_invalid_lines_but_enforces_late_access',
+            'test_empty_request_distinct_from_missing_lines',
+            'test_fault_after_real_participant_rolls_back_and_retries[apply_purchase_request_line_approval]',
+            'test_fault_after_real_participant_rolls_back_and_retries[apply_purchase_request_approval]',
+            'test_fault_after_real_participant_rolls_back_and_retries[log_action]',
+            'test_fault_after_real_participant_rolls_back_and_retries[notify_department]',
+            'test_observed_row_lock_contention[approve]',
+            'test_observed_row_lock_contention[reject]',
+            'test_no_active_recipient_and_actor_exclusion',
+            'test_full_audit_hash_chain',
+            'test_invalid_payload_rolls_back_and_preserves_rows[missing]',
+            'test_invalid_payload_rolls_back_and_preserves_rows[duplicate]',
+            'test_invalid_payload_rolls_back_and_preserves_rows[wrong]',
+            'test_invalid_payload_rolls_back_and_preserves_rows[blank_name]',
+            'test_invalid_payload_rolls_back_and_preserves_rows[blank_photo]',
+            'test_invalid_payload_rolls_back_and_preserves_rows[supplier_zero]',
+            'test_invalid_payload_rolls_back_and_preserves_rows[supplier_absent]',
+            'test_invalid_status_precedes_invalid_lines[rejected]',
+            'test_invalid_status_precedes_invalid_lines[converted]',
+            'test_missing_request_precedes_line_validation',
+            'test_unknown_locked_status_stub_not_stored_pg_proof',
+            'test_http_permission_denial_preserves_all_state',
+            'test_audit_finalization_failure_rollback_and_retry',
+        ]
+        self.assertEqual(gate.REQUIRED_CASES[module], expected)
+        self.assertEqual(gate.GROUPS[module], (len(expected), ()))
+
+    def test_complete_evidence_passes(self):
+        counts = gate.check_report(self.write_report(self.report()))
+        self.assertEqual(sum(counts.values()), 219)
+
+    def test_new_operation_groups_have_exact_required_identities(self):
+        expected = {
+            'test_item_update_operation_postgres': {
+                'test_pg_update_fields_same_session_and_chain',
+                'test_pg_update_audit_failure_rolls_back_then_retry[enqueue]',
+                'test_pg_update_audit_failure_rolls_back_then_retry[finalize]',
+                'test_pg_update_audit_failure_rolls_back_then_retry[commit]',
+                'test_pg_two_conflicting_sku_updates_preserve_unique_index',
+            },
+            'test_modelsize_create_postgres': {
+                'test_pg_create_atomic_audit_and_failure_retry',
+                'test_pg_concurrent_duplicate_creates',
+            },
+        }
+        for module, identities in expected.items():
+            with self.subTest(module=module):
+                self.assertIn(module, gate.GROUPS)
+                self.assertEqual(set(gate.REQUIRED_CASES[module]), identities)
+                self.assertEqual(gate.GROUPS[module][0], len(identities))
+
+    def test_modelsize_delete_exact_required_identities(self):
+        expected = {
+            'test_delete_exact_id_and_audit',
+            'test_delete_audit_failure_rolls_back_then_retry',
+            'test_report_declared_incoming_fks',
+            'test_pg_eco_and_wrong_scope_are_isolated',
+            'test_pg_failure_rollback_retry[flush]',
+            'test_pg_failure_rollback_retry[commit]',
+            'test_pg_two_session_delete_observed_outcomes[True]',
+            'test_pg_two_session_delete_observed_outcomes[False]',
+            'test_pg_before_commit_audit_finalization_failure_rolls_back_and_retries',
+            'test_pg_concurrent_http_post_delete_and_failure_partial_commit',
+        }
+        module = 'test_modelsize_delete_postgres'
+        self.assertIn(module, gate.GROUPS)
+        self.assertEqual(set(gate.REQUIRED_CASES[module]), expected)
+        self.assertEqual(gate.GROUPS[module][0], len(expected))
+
+    def test_new_operation_missing_or_unsuccessful_evidence_fails(self):
+        modules = ('test_item_update_operation_postgres', 'test_modelsize_create_postgres',
+                   'test_modelsize_delete_postgres', 'test_purchase_request_approval_postgres',
+                   'test_modelcolor_create_postgres')
+        for module in modules:
+            for alteration in ('module', 'case', 'skipped', 'failure', 'error'):
+                with self.subTest(module=module, alteration=alteration):
+                    tree = self.report()
+                    suite = next(tree.iter('testsuite'))
+                    selected = [c for c in tree.iter('testcase')
+                                if c.get('classname') == f'app.tests.{module}']
+                    self.assertTrue(selected, f'missing registered module {module}')
+                    if alteration == 'module':
+                        for case in selected:
+                            suite.remove(case)
+                    elif alteration == 'case':
+                        selected[0].set('name', 'unrelated_replacement_case')
+                    else:
+                        ET.SubElement(selected[0], alteration)
+                    with self.assertRaises(ValueError):
+                        gate.check_report(self.write_report(tree))
+
+    def test_duplicate_approval_identity_is_rejected(self):
+        tree = self.report()
+        cases = [c for c in tree.iter('testcase')
+                 if c.get('classname') == 'app.tests.test_purchase_request_approval_postgres']
+        cases[1].set('name', cases[0].get('name'))
+        with self.assertRaisesRegex(ValueError, 'duplicate'):
+            gate.check_report(self.write_report(tree))
 
 
 if __name__ == '__main__':

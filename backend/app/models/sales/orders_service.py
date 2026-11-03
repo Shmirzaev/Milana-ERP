@@ -12,7 +12,7 @@ Contract for the order operations:
 """
 import os
 from datetime import date
-from typing import Iterable
+from typing import Iterable, Literal, cast, overload
 from uuid import uuid4
 
 from fastapi import HTTPException, UploadFile
@@ -36,7 +36,10 @@ from app.libs.dto.sales.sales_order_output import SalesOrderDetail, SalesOrderLi
 from app.libs.dto.sales.sales_stock_output import SalesStockReservationOut
 from app.libs.dto.sales.sales_order_update import SalesOrderUpdate
 from app.libs.enums.sales import SalesOrderItemSourceType, SalesOrderStatus, SalesOrderType
-from app.libs.types.sales_order import SalesOrderHeaderChanges, StoredSalesAttachment
+from app.libs.types.sales_order import (
+    SalesOrderDetailPayload, SalesOrderHeaderChanges, SalesOrderListEnvelope,
+    SalesOrderListPayload, SalesOrderSummaryPayload, StoredSalesAttachment,
+)
 from app.models.audit_service import log_action
 from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response
 from app.models.numbering_service import next_sales_order_no
@@ -100,13 +103,27 @@ def _customer_name_map(db: Session, customer_ids: set[int]) -> dict[int, str]:
     return {int(customer_id): name for customer_id, name in rows}
 
 
+@overload
+def _serialize_sales_order(
+    db: Session, so: SalesOrder, *, include_items: Literal[False] = False,
+    customer_names: dict[int, str] | None = None,
+) -> SalesOrderSummaryPayload: ...
+
+
+@overload
+def _serialize_sales_order(
+    db: Session, so: SalesOrder, *, include_items: Literal[True],
+    customer_names: dict[int, str] | None = None,
+) -> SalesOrderDetailPayload: ...
+
+
 def _serialize_sales_order(
     db: Session,
     so: SalesOrder,
     *,
     include_items: bool = False,
     customer_names: dict[int, str] | None = None,
-) -> dict:
+) -> SalesOrderSummaryPayload | SalesOrderDetailPayload:
     """Shape sales-order payloads with customer/model names for frontend display."""
     schema_cls = SalesOrderDetail if include_items else SalesOrderOut
     payload = schema_cls.model_validate(so).model_dump()
@@ -155,7 +172,9 @@ def _serialize_sales_order(
             item["model_name"] = model_ref["name"] if model_ref else None
             item["model"] = model_ref
 
-    return payload
+    if include_items:
+        return cast(SalesOrderDetailPayload, payload)
+    return cast(SalesOrderSummaryPayload, payload)
 
 
 def first_grade_options(db: Session):
@@ -226,7 +245,7 @@ def list_sales_orders(
     page: int = 1,
     page_size: int = 50,
     include_total: bool = False,
-):
+) -> list[SalesOrderListPayload] | SalesOrderListEnvelope:
     qry = db.query(SalesOrder).outerjoin(Customer, Customer.id == SalesOrder.customer_id)
     if status: qry = qry.filter(SalesOrder.status == status)
     if order_type: qry = qry.filter(SalesOrder.order_type == order_type)
@@ -280,7 +299,7 @@ def list_sales_orders(
         for so in rows
     ]
     # Keep the legacy list/envelope shape for existing direct callers.
-    payload = [row.model_dump() for row in typed_rows]
+    payload = [cast(SalesOrderListPayload, row.model_dump()) for row in typed_rows]
     if include_total:
         return {"rows": payload, "total": total, "page": safe_page, "page_size": safe_size}
     return payload
@@ -382,7 +401,7 @@ def create_sales_order(payload: SalesOrderIn, db: Session, current: User) -> Sal
     return SalesOrderDetail.model_validate(_serialize_sales_order(db, so, include_items=True))
 
 
-def get_sales_order(sid: int, db: Session):
+def get_sales_order(sid: int, db: Session) -> SalesOrderDetailPayload:
     so = db.query(SalesOrder).options(joinedload(SalesOrder.items)).filter(SalesOrder.id == sid).first()
     if not so: raise HTTPException(404, "Sales order not found")
     return _serialize_sales_order(db, so, include_items=True)
@@ -420,10 +439,14 @@ def update_sales_order(
     return SalesOrderOut.model_validate(_serialize_sales_order(db, so, include_items=False))
 
 
-def confirm_sales_order(sid: int, db: Session, current: User):
+def confirm_sales_order(sid: int, db: Session, current: User) -> SalesOrderSummaryPayload:
     so = db.get(SalesOrder, sid)
     if not so: raise HTTPException(404, "Sales order not found")
-    if so.status != "draft":
+    try:
+        status = SalesOrderStatus(so.status)
+    except ValueError:
+        raise HTTPException(400, f"Cannot confirm order in status '{so.status}'") from None
+    if status is not SalesOrderStatus.DRAFT:
         raise HTTPException(400, f"Cannot confirm order in status '{so.status}'")
     set_sales_order_status(db, so, SalesOrderStatus.CONFIRMED)
     notify_department(

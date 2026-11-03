@@ -9,6 +9,10 @@ from app.schemas import (
 from app.models.audit_service import log_action
 from app.models.cutting_batch_guard_service import require_cutting_batch_mutable
 from app.models.factory_scope_service import PACKAGING_DEPARTMENTS
+from app.schemas.production.factory_routing import (
+    assign_batch_work_order, assign_bundle_factory, assign_packaging_department,
+    cancel_unused_assignment,
+)
 
 
 def change_sewing_factory(db, work, factory, current, batch_ids=None):
@@ -80,21 +84,15 @@ def _change(db, work, factory, current):
     sewing_dept_ids = {departments[code].id for code in ("MIL", "BST", "ECO", "SEW") if code in departments}
     packaging_dept_ids = {departments[code].id for code in ("PKG", "BPK", "ECP") if code in departments}
     for bundle in live_bundles:
-        bundle.sewing_factory_code = factory
-        if bundle.current_department_id in sewing_dept_ids:
-            bundle.current_department_id = target.id
-        if bundle.next_department_id in sewing_dept_ids:
-            bundle.next_department_id = target.id
-        elif bundle.next_department_id in packaging_dept_ids:
-            bundle.next_department_id = target_packaging.id
+        assign_bundle_factory(bundle, factory, target.id, target_packaging.id,
+                              sewing_dept_ids, packaging_dept_ids)
     for row in sewing:
-        row.department_id = target.id
-        row.sewing_flow_id = None
+        assign_batch_work_order(row, target.id)
     for row in packaging:
-        row.department_id = target_packaging.id
+        assign_packaging_department(row, target_packaging.id)
     for assignment in assignments:
         if assignment.status not in {"cancelled", "transferred"}:
-            assignment.status = "cancelled"
+            cancel_unused_assignment(assignment)
     db.flush()
     log_action(db, current, "change_sewing_factory", "ProductionOrder", order.id,
                old_value=before, new_value={**snapshot(), "sewing_factory_code": factory})

@@ -44,3 +44,19 @@ class ItemInsertCommand:
     is_active: bool
     image_url: str | None
     composition_json: list[ItemCompositionValue]
+
+
+@dataclass(frozen=True)
+class ItemUpdateCommand:
+    """Normalized full-replacement values after Item update checks."""
+
+    sku: str
+    name: str
+    category: str
+    unit: str
+    default_cost: Decimal
+    reorder_level: Decimal
+    track_batch: bool
+    is_active: bool
+    image_url: str | None
+    composition_json: list[ItemCompositionValue]

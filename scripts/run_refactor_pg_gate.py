@@ -18,6 +18,9 @@ import xml.etree.ElementTree as ET
 # Minimum collected counts pin the current parameterized business cases. Adding
 # cases is allowed; removing a required case needs an explicit ledger change.
 GROUPS = {
+    'test_purchase_request_approval_postgres': (27, ()),
+    'test_modelsize_delete_postgres': (10, ('test_delete_exact_id_and_audit', 'test_delete_audit_failure_rolls_back_then_retry', 'test_report_declared_incoming_fks', 'test_pg_eco_and_wrong_scope_are_isolated', 'test_pg_failure_rollback_retry', 'test_pg_two_session_delete_observed_outcomes', 'test_pg_before_commit_audit_finalization_failure_rolls_back_and_retries', 'test_pg_concurrent_http_post_delete_and_failure_partial_commit')),
+    'test_item_update_operation_postgres': (5, ('test_pg_update_fields_same_session_and_chain', 'test_pg_update_audit_failure_rolls_back_then_retry', 'test_pg_two_conflicting_sku_updates_preserve_unique_index')),
     'test_customer_delete_postgres': (9, ('test_pg_delete_route_success_repeat_and_missing', 'test_pg_delete_route_auth_denials_preserve_customer', 'test_pg_delete_reference_refusal_preserves_customer', 'test_pg_delete_precommit_failure_rolls_back_then_retry', 'test_pg_delete_distinct_rows_concurrently_preserves_audit_chain')),
     'test_customer_delete_extra_fk_postgres': (3, ('test_pg_existing_customer_fk_blocks_delete_then_retry',)),
     'test_customer_delete_reference_race_postgres': (2, ('test_pg_payment_commit_after_guards_before_delete_flush', 'test_pg_delete_flush_blocks_payment_until_commit')),

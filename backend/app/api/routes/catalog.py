@@ -229,9 +229,8 @@ def get_model(
     mid: int,
     db: DbSession,
     current: CurrentUser,
-    catalog_scope: str = Depends(_standard_catalog_scope),
 ):
-    return models_service.get_model(current, db, mid, catalog_scope)
+    return models_service.get_model(current, db, mid, CatalogScope.STANDARD)
 
 
 @router.post("/models/{mid}/clone", response_model=ModelOut, status_code=201)
@@ -392,7 +391,7 @@ def delete_size(
     size_id: int,
     db: DbSession,
     current: User = Depends(require_permissions("modeling.models", "*")),
-    catalog_scope: str = Depends(_standard_catalog_scope),
+    catalog_scope: CatalogScope = Depends(_standard_size_catalog_scope),
 ):
     return models_service.delete_size(current, db, mid, size_id, catalog_scope)
 

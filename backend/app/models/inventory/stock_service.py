@@ -38,7 +38,7 @@ from app.libs.dto.inventory.stock_quantity_adjustment_input import StockQuantity
 from app.libs.dto.inventory.stock_quantity_adjustment_output import StockQuantityAdjustmentOut
 from app.libs.dto.inventory.warehouse_input import WarehouseIn
 from app.libs.enums.inventory import StockBatchQcStatus, StockMovementType
-from app.libs.types.inventory import ItemInsertCommand
+from app.libs.types.inventory import ItemInsertCommand, ItemUpdateCommand
 from app.models import inventory_access_service as inventory_access
 from app.models.audit_service import log_action
 from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response
@@ -298,7 +298,7 @@ def create_item(db, payload: ItemIn, current: User) -> Item:
     return it
 
 
-def update_item(db, item_id: int, payload: ItemIn, current: User) -> Item:
+def update_item(db: Session, item_id: int, payload: ItemIn, current: User) -> Item:
     inventory_access.require_item(db, current, item_id)
     inventory_access.require_category(current, payload.category)
     it = db.get(Item, item_id)
@@ -316,8 +316,7 @@ def update_item(db, item_id: int, payload: ItemIn, current: User) -> Item:
         "unit": it.unit,
         "is_active": it.is_active,
     }
-    for k, v in data.items():
-        setattr(it, k, v)
+    item_persistence.update_item(db, it, ItemUpdateCommand(**data))
     log_action(db, current, "update", "Item", it.id, old_value=old_value, new_value={"sku": it.sku, "name": it.name})
     db.commit(); db.refresh(it)
     return it

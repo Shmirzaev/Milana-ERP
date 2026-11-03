@@ -22,6 +22,10 @@ def assign_batch_work_order(row: WorkOrder, department_id: int) -> None:
     row.sewing_flow_id = None
 
 
+def assign_packaging_department(row: WorkOrder, department_id: int) -> None:
+    row.department_id = department_id
+
+
 def reduce_shared_plan(row: WorkOrder, quantity: int) -> None:
     floor = max(row.actual_output_qty, row.passed_qty + row.failed_qty)
     row.planned_input_qty = max(floor, row.planned_input_qty - quantity)
