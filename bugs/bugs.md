@@ -1,5 +1,20 @@
 # Team bug tracker — clone_main
 
+## TURNSTILE-EDIT-RECOVERY-20261104 — simulator profile edit and accepted-request recovery
+
+- **AI_VERIFIED_AWAITING_HUMAN; human acceptance pending; not deployed.**
+  People owner Dilmurod, reviewer Mirshoir; AI implementers/reviewer and exact
+  source are in the [operation packet](../docs/TURNSTILE_EDIT_DETAILS_20261103.md).
+- EDIT changes only the explicitly reviewed simulator name; per-device identity
+  and photos are retained. Guarded PostgreSQL baseline/CAS, lease fencing and
+  scoped idempotency receipts prevent stale/foreign operation adoption or blind
+  resend after uncertain completion. Pending-request hydration and aged-history
+  readback are covered.
+- Focused97 tests, real PostgreSQL races/recovery, full frontend checks and actual
+  desktop/EN/RU/UZ phone workflows passed. Full backend Ruff and independent boundary review passed. Keep this entry active until recorded human production
+  verification. Existing attendance and both-system policy remain intact.
+
+
 ## FRONTEND-PROXY-RESET-20261103 — one anonymous auth check returned 500 before the outage
 
 - **Watch · shared frontend infrastructure · Dilmurod.** In the isolated

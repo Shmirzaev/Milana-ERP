@@ -24,9 +24,18 @@ See [DTO rules](../README.md), [business services](../../../models/README.md),
 [database definitions](../../../schemas/README.md) and
 [ownership](../../../../../docs/TEAM_OWNERSHIP.md).
 
-Turnstile enrollment uses [turnstile_input.py](turnstile_input.py),
+Turnstile enrollment and edit use [turnstile_input.py](turnstile_input.py),
 [turnstile_output.py](turnstile_output.py) and
 [turnstile_context_output.py](turnstile_context_output.py).
 Fixed state/action/mode/error fields use canonical enums. ENROLL requires the
 operator-reviewed stored employee number, scoped technical-valid photo, selected
 device IDs and manual review attestation. This is not automated identity validation.
+
+EDIT accepts the reviewed employee number and nonblank name plus unique selected device
+IDs with expected revision and lower-hex profile hash; callers cannot provide profile
+snapshots. Context exposes a nullable trusted edit baseline (revision, profile hash and
+prior name) per eligible binding. EDIT output has a null photo asset and target baseline
+references; ENROLL retains its required photo. The actor-scoped request receipt lookup
+returns the operation for the saved idempotency key, enabling read-only reconciliation
+without matching an unanchored history entry. These contracts are for the private
+simulator, not live hardware. See the [EDIT evidence packet](../../../../../docs/TURNSTILE_EDIT_DETAILS_20261103.md).

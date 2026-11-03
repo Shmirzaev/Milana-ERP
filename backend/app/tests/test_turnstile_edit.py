@@ -1,4 +1,3 @@
-from datetime import timedelta
 import pytest
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -7,7 +6,7 @@ from app.libs.enums.turnstile import GateTargetState, GateErrorCode
 from app.models.people import turnstile_access_service as access, turnstile_simulator_service as sim
 from app.schemas.people.turnstile import GateOperation, GateTarget, GateSimulatorPerson
 from app.schemas.people import turnstile_persistence as persistence
-from app.tests.test_turnstile_simulator import case, snapshot
+from app.tests.test_turnstile_simulator import case as case, snapshot
 
 
 def prepare(case):
@@ -162,7 +161,6 @@ def test_edit_audit_failure_rolls_back_everything(case, monkeypatch):
 
 def test_edit_refuses_archived_alias_and_missing(case):
     from app.schemas import Employee, SystemSetting
-    from app.libs.enums.turnstile import GateAction
     factory, actor, employee_id, refs = prepare(case)
     with factory() as db:
         before = db.query(GateOperation).count()

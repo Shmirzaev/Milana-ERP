@@ -11,7 +11,7 @@ this checkout, a new combined candidate or deployed production. Inspect current
 code and the operation ledger before advancing a gate. Schema-owned writers,
 system-wide enum/type adoption and human acceptance remain incomplete.
 
-Last updated 2026-11-03. Keep this file short: current decisions, release pointers and
+Last updated 2026-11-04. Keep this file short: current decisions, release pointers and
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
@@ -51,15 +51,17 @@ invalidindexes0; disk78.72%backend/78.54%frontend remains above70%alert/below80%
 Owned locks are released and task QA services stopped. See [release/incident evidence](archive/PACK_CUSTOMER_FG_RELEASE_2026-11-03.md)
 and [machine-readable record](archive/PACK_CUSTOMER_FG_RELEASE_2026-11-03.json).
 
-## Turnstile enrollment development (3 November)
+## Turnstile development (4 November)
 
-The owner approved the frontend and authorized low-reasoning Terra backend workers.
-The [Add access task packet](TURNSTILE_ACCESS_BACKEND_20261103.md) records the isolated
-simulator candidate, mentor boundaries, review fixes and synthetic PostgreSQL/browser
-evidence. Existing attendance reading and both ERP writers remain required. No live
-adapter or production change is included. The owner authorized source publication on
-clone_main after visual checks; migration0151 follows the upstream0150. Edit, photo
-replacement, revoke, adoption and hardware policy remain separate pending operations.
+The [Add access packet](TURNSTILE_ACCESS_BACKEND_20261103.md) preserves the ENROLL
+simulator evidence. The [Edit details packet](TURNSTILE_EDIT_DETAILS_20261103.md)
+records the next bounded operation: explicit reviewed name changes with per-device
+photo/identity preservation, baseline conflict checks and actor-scoped recovery.
+Owned VM107 synthetic PostgreSQL, desktop and EN/RU/UZ phone checks passed;
+human acceptance is pending. Migration0152 follows0151 and refuses downgrade once
+EDIT history exists. This is development source only; production active/rollback
+records above are unchanged. PHOTO, REVOKE, adoption, live hardware writes and the
+remaining system-wide refactor/type audit remain pending.
 
 ## Identity policy-helper prerequisite (3 November)
 

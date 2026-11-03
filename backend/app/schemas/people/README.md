@@ -58,11 +58,18 @@ See [schema migration rules](../README.md), [DTO conventions](../../libs/dto/REA
 [the business plan](../../../../docs/REFACTOR_PLAN.md) and
 [team ownership](../../../../docs/TEAM_OWNERSHIP.md).
 
-## Simulator-only turnstile enrollment
-[turnstile.py](turnstile.py) defines scoped photo assets, immutable enrollment snapshots,
+## Simulator-only turnstile enrollment and edit
+[turnstile.py](turnstile.py) defines scoped photo assets, immutable operation snapshots,
 employee/device bindings, per-device targets and independent simulator records.
 [turnstile_persistence.py](turnstile_persistence.py) owns typed mutations using the
-caller's Session; it never commits. Migration0151 adds these tables plus prerequisite
-employee/device composite keys. Target names are snapshotted for historical display.
-Existing attendance tables retain their behavior; no mirrored profile or event writer
-was replaced. See the [operation ledger](../../../../docs/TURNSTILE_ACCESS_BACKEND_20261103.md).
+caller's Session; it never commits. Migration 0151 adds the original tables and
+prerequisite employee/device composite keys. Migration 0152 permits EDIT's null photo
+asset and stores immutable per-target baseline and desired references, with constraints
+on their presence and shape. Its downgrade refuses when EDIT or baseline data exists;
+it does not discard history.
+
+The EDIT conditional update matches the complete frozen simulator evidence and changes
+only name, accepted revision/hash and write count. A mismatch cannot overwrite drifted
+identity or photo. Existing attendance tables retain their behavior; no mirrored profile
+or event writer was replaced. See the historical [ENROLL ledger](../../../../docs/TURNSTILE_ACCESS_BACKEND_20261103.md)
+and the [EDIT evidence packet](../../../../docs/TURNSTILE_EDIT_DETAILS_20261103.md).
