@@ -25,6 +25,16 @@ only adds the release ledger. No order-edit freeze was added. Production remains
 green `20261102_063110`, rollback blue `20261031_092951`, schema `0149`.
 This candidate is not merged or deployed; human acceptance remains pending.
 
+## FG model-number prefix candidate (3 November)
+
+The [FG numbering change](archive/FG_MODEL_PREFIX_2026-11-03.md), based on the
+user-approved `clone_main`, adds FG to the existing dynamic selector and starts
+its sequence at FG202001. Focused tests, independent AI review, actual local
+browser save/reload and bounded SQLite integrity checks passed. Real PostgreSQL
+concurrency/recovery remains blocked by unavailable local infrastructure; no
+AI-verified status, human acceptance, merge or deployment is claimed. Both live
+source manifests remain verified at `20261102_063110`; production data is untouched.
+
 ## Identity policy-helper prerequisite (3 November)
 
 The [approved policy-only split](archive/ACCESS_POLICY_HELPER_SPLIT_2026-11-03.md)
