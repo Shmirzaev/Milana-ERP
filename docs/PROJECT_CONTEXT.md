@@ -26,9 +26,10 @@ ECO BSO accessory approval reserves stock; issuing deducts it. Target-factory
 handoff checks preserve mixed-factory and non-BSO Usluga behavior. Reapproval
 before ECO sewing retains issued evidence and releases only unused allocations.
 Seven additive tables use migrations `0150`/`0151`; no production migration,
-business-data conversion, role grants, merge or deployment occurred. PostgreSQL
-concurrency and full role/browser acceptance remain release gates, not inferred
-from SQLite tests. [Scope, evidence and local checklist](archive/ECO_INVENTORY_PACKAGE_UPDATES_2026-11-03.md).
+business-data conversion, role grants, merge or deployment occurred. The explicit
+ECO PostgreSQL migration/transfer-concurrency CI step passed on `bda49987`;
+full role/browser and remaining database acceptance stay release gates.
+[Scope, evidence and local checklist](archive/ECO_INVENTORY_PACKAGE_UPDATES_2026-11-03.md).
 Recorded active/rollback releases below are unchanged and were not freshly
 verified through SSH in this task.
 
