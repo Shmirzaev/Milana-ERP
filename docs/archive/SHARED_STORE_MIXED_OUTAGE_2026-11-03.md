@@ -105,10 +105,9 @@ browser-results.json}` plus four screenshots. These reports contain no secret va
 
 Independent read-only Codex review (`/root/acceptance_people_recipe`) found no
 source, focused-test or three-minute-evidence blockers. Full-suite completion is blocked by the lifecycle hold and remains
-a separate gate. Connected Chrome checks and human acceptance remain **PENDING**. A separate local
-browser window will begin at least ten minutes after handoff, with a timed three-minute
-fault and automatic restoration; its exact plan and subsequent logs stay beside this
-run's evidence. The stack remains running for that checker until explicitly stopped.
+a separate gate. Connected Chrome result is **PARTIAL**; human acceptance remains **PENDING**. The scheduled local
+browser window completed with a timed three-minute fault and automatic restoration;
+its exact plan and logs stay beside this run's evidence. The stack remains running for that checker until explicitly stopped.
 This is not AI verification, acceptance, merge or deployment authorization.
 
 Current base readiness checks PostgreSQL only. #311's proposed store-sensitive
@@ -120,3 +119,71 @@ unavailable during the fault, while login/reset refuse service.
 
 No production host, shared application, secret store or real business data was
 accessed. Production active/rollback release records are unchanged.
+
+## Connected Chrome evidence received — PARTIAL
+
+[Supplied browser report](evidence/PR373_2026-11-03/PR373_BROWSER_RESULTS_2026-11-03.md)
+and its three screenshots are retained unchanged; all screenshots were inspected:
+[17:35 baseline](evidence/PR373_2026-11-03/pr373_1735_login_baseline.jpg),
+[17:39 login refused](evidence/PR373_2026-11-03/pr373_1739_login_refused_503.jpg),
+[17:42 invalid login restored](evidence/PR373_2026-11-03/pr373_1742_login_recovered_401.jpg).
+
+The checker never had a signed-in session. Login and reset request returned clean
+JSON 503 during the scheduled fault; anonymous me returned 401 throughout 157
+samples, and invalid login recovered to 401. **Signed-in `/profile`, Tasks drawer,
+`/api/auth/me` and task-list 200 during outage were not covered in connected Chrome.**
+The browser result is **PARTIAL**, not verified or accepted. Earlier automated
+Chromium/API evidence remains separate and does not fill this connected-browser gap.
+The isolated copy stays running for a redo; no additional outage window is armed.
+
+The controller's second real outage logged baseline `08:35:01.075786Z`, fault
+`08:39:00.300073Z`, original-store restore `08:42:00.711708Z` and recovery
+`08:42:01.722743Z` (all 3 November). The 36 signed-in API samples were all me/tasks
+200 and login 503; both reset refusals were 503. Restored integrity/sentinel and
+worker PID 8/container start identity were unchanged. These are controller results,
+not connected Chrome's missing signed-in results.
+
+### One earlier anonymous me 500: frontend proxy reset
+
+The label-checked backend log window `08:33:45Z–08:34:30Z` has no 500, traceback
+or counter-store warning. It records normal me 401s at `08:34:13.288709Z`,
+`08:34:24.718144Z`, and `08:34:29.338967Z`; no completed backend me request at the
+reported `08:34:06Z`. The frontend log instead records
+`Failed to proxy http://127.0.0.1:63150/api/auth/me Error: socket hang up`,
+`code: ECONNRESET`. Thus the observed 500 is consistent with Next's proxy failure,
+not a backend-generated HTTP 500. The frontend log has no absolute timestamps, so
+its exact correspondence is inferred from the lone matching proxy failure and the
+backend window; the underlying transport reset cannot be proven from these logs.
+The controller was waiting until baseline and changed the store only at 08:39:00Z;
+there was no early store fault. A transient dev-proxy connection failure remains a
+follow-up; no speculative retry/proxy change is made here.
+
+### Login formatting and retry follow-up (outside this PR's runtime scope)
+
+`frontend/src/lib/api.ts:144–195` uses three login attempts for 500/502/503/504.
+Its sleeps are 1,200 ms then 2,400 ms (3.6 seconds total), plus response/connection
+and rendering time. This explains the prolonged Signing in state; exact extra
+latency in the reported 6–10 seconds cannot be apportioned without browser timing.
+At line 180 it saves `503: <detail>`; line 195 wraps that in `new ApiError(503, ...)`;
+`frontend/src/lib/errorMessages.ts:174` prefixes the status again. The login page
+renders `err.message` at `frontend/src/app/login/page.tsx:107`. That produces the
+observed `503: 503:`. These frontend files are unchanged by #373. The retry/status
+accumulation dates to `9fb7f1fc`/`4a9c98a3`, with the ApiError wrapping at `c88524c7`.
+Keep the detail raw with its status stored separately; decide whether a deliberate
+store-unavailable 503 should be shown immediately rather than retried. Both remain
+follow-ups, not fixes in this backend-only policy PR.
+
+### Requested S-09 register and stale-branch cleanup
+
+The register published by #367 now explicitly records S-09's source fix in
+`7f6d9e18638b49d7f416bd3ded54fb53488febdd`, an ancestor of current `clone_main`.
+Compared the sole stale-branch commit `b415c382` and its three changed files with
+the integrated typed `ProductionOrderUpdateIn(extra="forbid")`, reference checks,
+workflow-status 409 guard and integrated regression coverage. The branch's internal
+field protection is superseded. Its printing-metadata rejection and permissive
+raw-status positive test are obsolete API differences, not missing security fixes:
+printing metadata is explicitly validated/editable, and status transitions must use
+workflow actions. Current integrated regressions: **43 passed / 0 failed/errors/skipped**.
+`codex/s09-production-patch` was checked out in no worktree and had identical local
+and remote tips; both refs were deleted as requested after recording this proof.
+No production or business-data change; broader related findings retain their own gates.

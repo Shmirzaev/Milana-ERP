@@ -23,6 +23,8 @@ own their UI/routes; shared platform/tests have Dilmurod as coordinator. No sour
 fix, deployment, production access, independent/human acceptance or bug closure
 is performed by this register update. Existing IDs and historical evidence remain.
 
+- **S-09:** Production-order PATCH mass assignment and direct workflow-status changes are fixed in source by [`7f6d9e18`](https://github.com/Shmirzaev/Milana-ERP/commit/7f6d9e18638b49d7f416bd3ded54fb53488febdd) (typed field allow-list, reference validation and workflow guard); the stale `codex/s09-production-patch` is superseded. Human acceptance remains separate.
+
 ### Acceptance checklist reference
 
 The 33 original-fix rows below are **merged, awaiting acceptance**, backed by their
