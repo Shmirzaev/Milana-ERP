@@ -30,3 +30,20 @@ permitted before cutover. Candidate and compatibility containers require zero OO
 Local gate: compilation, Ruff, digest/default-CMD/foreign-cleanup controls and
 workflow structure. Actual image recovery runs in immutable-release CI because
 local Docker is unavailable. This preparation does not itself activate a release.
+
+
+Initial CI41620483143 passed 4,886 backend cases, frontend gates and the earlier
+PostgreSQL gates, then stopped with175passes/1failure in the schema-contract job.
+The old application intentionally does not map the new ledger, so migration0150
+adds exactly one reviewed extra table. No image was built or production source,
+locks, routing or containers changed during that failed run. The failure is retained.
+
+The correction changes only test_fresh_migration_bootstrap.py: the shared94-entry
+baseline remains exact, with one explicit compatibility-only supplement gated by
+old-feature absence, source hashes and head0150. It separately reflects every ledger
+column/type/null/default/timezone, primary key, both foreign keys includingCASCADE,
+quantity check and absence of extra unique constraints/indexes. Negative tests reject
+unreviewed schema or normalized drift. Committed LF source hashes also work with
+Windows CRLF checkouts. Independent review and actual isolated PostgreSQL36cases
+passed before rerunning the complete immutable-release workflow. Application,
+frontend, migration, dependencies and image command remain unchanged.
