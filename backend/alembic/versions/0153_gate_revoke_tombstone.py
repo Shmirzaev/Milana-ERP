@@ -25,7 +25,7 @@ def downgrade():
     bind = op.get_bind()
     operations = bind.execute(sa.text("SELECT EXISTS (SELECT 1 FROM gate_operations WHERE action = 'revoke')")).scalar()
     tombstones = bind.execute(sa.text("SELECT EXISTS (SELECT 1 FROM gate_simulator_people WHERE present = false)")).scalar()
-    evidence = bind.execute(sa.text("SELECT EXISTS (SELECT 1 FROM gate_targets WHERE observed_evidence IS NOT NULL AND CAST(observed_evidence AS TEXT) LIKE '%revoke%')")).scalar()
+    evidence = bind.execute(sa.text("SELECT EXISTS (SELECT 1 FROM gate_targets WHERE observed_evidence ->> 'action' = 'revoke')")).scalar()
     if operations or tombstones or evidence:
         raise RuntimeError("Cannot downgrade revocation history or evidence")
     op.drop_constraint("ck_gate_operation_photo_action", "gate_operations", type_="check")

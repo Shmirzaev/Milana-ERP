@@ -123,3 +123,38 @@ def test_revoke_route_openapi_contract():
     route = schema["paths"]["/turnstile-access/employees/{employee_id}/revoke"]["post"]
     assert route["responses"]["202"]["content"]["application/json"]["schema"]["$ref"].endswith("/GateOperationOutput")
     assert route["requestBody"]["content"]["application/json"]["schema"]["$ref"].endswith("/GateRevokeInput")
+
+
+@pytest.mark.parametrize("action,present,evidence,blocked", [
+    ("enroll", True, '{"full_name":"Revoke specialist"}', False),
+    ("enroll", True, '{"action":"revoke","present":false}', True),
+    ("revoke", True, None, True),
+    ("enroll", False, None, True),
+])
+def test_downgrade_guard_checks_action_not_profile_text(monkeypatch, action, present, evidence, blocked):
+    import importlib.util
+    from pathlib import Path
+    from sqlalchemy import create_engine, text
+    path = Path(__file__).resolve().parents[2] / "alembic/versions/0153_gate_revoke_tombstone.py"
+    spec = importlib.util.spec_from_file_location("gate_revoke_migration", path)
+    migration = importlib.util.module_from_spec(spec); spec.loader.exec_module(migration)
+    engine = create_engine("sqlite://")
+    with engine.begin() as connection:
+        connection.execute(text("CREATE TABLE gate_operations (action TEXT)"))
+        connection.execute(text("CREATE TABLE gate_simulator_people (present BOOLEAN)"))
+        connection.execute(text("CREATE TABLE gate_targets (observed_evidence JSON)"))
+        connection.execute(text("INSERT INTO gate_operations VALUES (:action)"), {"action": action})
+        connection.execute(text("INSERT INTO gate_simulator_people VALUES (:present)"), {"present": present})
+        connection.execute(text("INSERT INTO gate_targets VALUES (:evidence)"), {"evidence": evidence})
+        ddl = []
+        monkeypatch.setattr(migration.op, "get_bind", lambda: connection)
+        monkeypatch.setattr(migration.op, "drop_constraint", lambda *a, **kw: ddl.append("drop_constraint"))
+        monkeypatch.setattr(migration.op, "create_check_constraint", lambda *a, **kw: ddl.append("create_constraint"))
+        monkeypatch.setattr(migration.op, "drop_column", lambda *a, **kw: ddl.append("drop_column"))
+        if blocked:
+            with pytest.raises(RuntimeError): migration.downgrade()
+            assert ddl == []
+        else:
+            migration.downgrade()
+            assert ddl == ["drop_constraint", "create_constraint", "drop_column"]
+    engine.dispose()
