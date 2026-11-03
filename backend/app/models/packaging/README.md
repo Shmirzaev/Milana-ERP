@@ -9,6 +9,15 @@ describe later approved operation extractions.
 `print_runs_service.py` owns read-only print-run history queries: existing department
 scope, full-history search/date/receipt filters, bounded paging and legacy list compatibility.
 
+`package_origin_service.py` owns read-only business model/variant numbers and sewing-origin
+projections for package scans, lists and Warehouse Inventory. Legacy sticker numbers
+come from immutable receipt fields when present. Sewing origin uses positive sewing
+records at the package batch/allocation grain, resolving the recorded assignment line
+or its sewing department; packaging destination and planned routing are not evidence.
+Mixed batch origins remain a list; missing evidence remains unknown. Factory filtering
+runs before list counts/paging, and response projection loads origins in 400-row chunks.
+No inventory or production data is changed by this projection.
+
 **Purpose:** Own package creation, contents/allocation, identity, change approval and production of valid labels.
 
 **Engineering owner:** Mirshoir. **Reviewer:** Ismail.

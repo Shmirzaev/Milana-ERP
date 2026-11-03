@@ -1,5 +1,7 @@
 "use client";
 
+import SewingFactoryFilter from "@/components/SewingFactoryFilter";
+import { packageIdentityText, sewingFactoryLabel, type SewingOrigin } from "@/lib/packageIdentity";
 import { formatModelVariantCode } from "@/lib/variantDisplay";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
@@ -20,7 +22,7 @@ import { storageThumbnailUrl } from "@/lib/modelImages";
 import { modelSearchIncludes } from "@/lib/modelCode";
 import { formatOrderReference, rawOrderReference } from "@/lib/orderRef";
 
-type StoragePlacement = {
+type StoragePlacement = SewingOrigin & {
   id: number;
   package_no: string;
   barcode?: string | null;
@@ -58,6 +60,7 @@ type DetailRow = {
   model_code?: string | null;
   model_name?: string | null;
   model_image_url?: string | null;
+  sewing_factory_codes?: string[];
   order_no: string;
   section: string;
   storage_cell: string;
@@ -108,6 +111,8 @@ function packageListText(packages: DetailRow["packages"], packageCount: number) 
 
 export default function WarehouseStockPage() {
   const { t, lang } = useT();
+  const identityText = packageIdentityText[lang];
+  const [sewingFactory, setSewingFactory] = useState("");
   const copy = firstGradeText[lang];
   const search = useSearchParams();
   const [stockKind, setStockKind] = useState(["first_grade", "second_grade"].includes(search.get("stock_kind") || "") ? search.get("stock_kind")! : "standard");
@@ -115,18 +120,19 @@ export default function WarehouseStockPage() {
   const canTraceability = can(me, "traceability.view");
   const [query, setQuery] = useState("");
   const [visibleCount, setVisibleCount] = useState(50);
-  useEffect(() => { setVisibleCount(50); }, [query, stockKind]);
+  useEffect(() => { setVisibleCount(50); }, [query, stockKind, sewingFactory]);
   const [createdFrom, setCreatedFrom] = useState("");
   const [createdTo, setCreatedTo] = useState("");
   const stockUrl = useMemo(() => {
     const params = new URLSearchParams();
     params.set("include_unplaced", "true");
     params.set("stock_kind", stockKind);
+    if (sewingFactory) params.set("sewing_factory_code", sewingFactory);
     if (createdFrom) params.set("created_from", createdFrom);
     if (createdTo) params.set("created_to", createdTo);
     const qs = params.toString();
     return `/api/packages/storage-map${qs ? `?${qs}` : ""}`;
-  }, [createdFrom, createdTo, stockKind]);
+  }, [createdFrom, createdTo, stockKind, sewingFactory]);
   const { data, isLoading, error } = useSWR<StorageMapResponse>(stockUrl, fetcher);
 
   const placements = useMemo(() => data?.placements || [], [data?.placements]);
@@ -234,6 +240,7 @@ export default function WarehouseStockPage() {
         shelf,
         row.color || "-",
         row.status || "-",
+        (row.sewing_factory_codes || []).join(","),
       ].join("|");
       const existing = map.get(key) || {
         key,
@@ -241,6 +248,7 @@ export default function WarehouseStockPage() {
         model_code: row.model_code,
         model_name: row.model_name,
         model_image_url: row.model_image_url,
+        sewing_factory_codes: row.sewing_factory_codes,
         order_no: orderNo,
         section,
         storage_cell: row.storage_cell || "-",
@@ -334,6 +342,7 @@ export default function WarehouseStockPage() {
               />
             </div>
           </div>
+          <SewingFactoryFilter value={sewingFactory} onChange={setSewingFactory} />
           <label className="block">
             <span className="label">{t("common.createdFrom")}</span>
             <input className="input" type="date" value={createdFrom} onChange={(e) => setCreatedFrom(e.target.value)} />
@@ -403,6 +412,7 @@ export default function WarehouseStockPage() {
               <tr>
                 <th>{t("field.modelPicture")}</th>
                 <th>{t("field.modelNumber")}</th>
+                <th>{identityText.factory}</th>
                 <th>{t("field.orderNo")}</th>
                 <th>{t("field.section")}</th>
                 <th>{t("field.cell")}</th>
@@ -431,6 +441,7 @@ export default function WarehouseStockPage() {
                     <div className="mono font-semibold text-[#14110b]"><a className="underline" target="_blank" rel="noreferrer" href={`/warehouse-stock/models/${row.model_id}?stock_kind=${stockKind}`}>{formatModelVariantCode(row.model_code) || row.model_id || "-"}</a></div>
                     <div className="max-w-[220px] truncate text-xs text-[#8a8472]">{row.model_name || "-"}</div>
                   </td>
+                  <td>{sewingFactoryLabel(row, identityText.unknown)}</td>
                   <td className="mono">{formatOrderReference(row.order_no)}</td>
                   <td className="mono font-semibold text-[#14110b]">{row.section}</td>
                   <td className="mono">{row.storage_cell}</td>
@@ -467,7 +478,7 @@ export default function WarehouseStockPage() {
               ))}
               {detailRows.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="text-sm text-slate-400">
+                  <td colSpan={11} className="text-sm text-slate-400">
                     {isLoading ? t("common.loading") : t("page.warehouseStock.noPackages")}
                   </td>
                 </tr>
