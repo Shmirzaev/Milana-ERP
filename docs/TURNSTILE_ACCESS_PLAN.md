@@ -292,7 +292,7 @@ limitations and human checklist belong in the [EDIT task packet](TURNSTILE_EDIT_
 ## Simulator PHOTO replacement candidate — 2026-11-04
 
 The owner authorized continuation to the private simulator PHOTO slice. Verification is
-**IN_PROGRESS**; the earlier ENROLL and EDIT evidence remains historical and prior human
+**AI_VERIFIED_AWAITING_HUMAN**; the earlier ENROLL and EDIT evidence remains historical and prior human
 acceptance gates are unrecorded. The candidate requires a validated immutable photo asset,
 manual review attestation and explicit Apply to selected verified bindings. It shares
 `GateEditTargetInput` and the context `edit_baseline` revision/profile-hash review
@@ -306,6 +306,6 @@ no new migration is required. The 0152 downgrade guard retains PHOTO baseline hi
 Unknown acceptance is reconciled by readback, and the actor/factory/employee/action-scoped
 receipt lookup matches the saved key, photo asset and exact target baseline references.
 HR Save and archive remain separate; existing attendance reading and both ERP writers
-continue. REVOKE, adoption and live hardware remain outside this slice. The forthcoming
+continue. REVOKE, adoption and live hardware remain outside this slice. The
 [PHOTO task packet](TURNSTILE_PHOTO_REPLACEMENT_20261104.md) records source, evidence,
 remaining gates and the human checklist; no production or human acceptance is inferred.
