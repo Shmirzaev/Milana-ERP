@@ -1,0 +1,49 @@
+name: Isolated rollback image recovery QA
+
+on:
+  push:
+    branches: [codex/pack-customer-fg-rollback-20261103]
+  workflow_dispatch:
+    inputs:
+      backend_image:
+        description: Exact previously published backend image digest
+        required: true
+        type: string
+      image_source_revision:
+        description: Full source revision on the image label
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: read
+
+env:
+  BACKEND_IMAGE: ${{ inputs.backend_image || 'ghcr.io/shmirzaev/milana-erp-backend@sha256:75ff2b4e749990075061a423608fdd4752dc38d88e14c481c60b54b4f020a5a5' }}
+  IMAGE_SOURCE_REVISION: ${{ inputs.image_source_revision || '975fca92f73b00c0eb45435d49a11612b2cc339e' }}
+
+jobs:
+  recovery-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Verify owned digest and unchanged application source
+        run: |
+          [[ "$BACKEND_IMAGE" =~ ^ghcr\.io/shmirzaev/milana-erp-backend@sha256:[a-f0-9]{64}$ ]]
+          [[ "$IMAGE_SOURCE_REVISION" =~ ^[a-f0-9]{40}$ ]]
+          test ! -e backend/app/models/fulfillment/package_customer_service.py
+          git merge-base --is-ancestor "$IMAGE_SOURCE_REVISION" "$GITHUB_SHA"
+          git diff --exit-code "$IMAGE_SOURCE_REVISION" "$GITHUB_SHA" -- \
+            backend ':!backend/app/tests' frontend
+      - name: Authenticate to this repository's GHCR image
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$GH_TOKEN" | docker login ghcr.io -u '${{ github.actor }}' --password-stdin
+      - name: Exercise published image with corrected isolated test configuration
+        run: python scripts/test_rollback_image_schema_0150.py --image "$BACKEND_IMAGE" --revision "$IMAGE_SOURCE_REVISION"

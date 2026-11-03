@@ -35,16 +35,17 @@ def authorize_gate_employee(db: Session, actor: User, employee_id: int, *, lock:
 from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError
 from app.core.config import settings
-from app.libs.dto.people.turnstile_input import GateEnrollmentInput
+from app.libs.types.turnstile_simulator import SimulatorEvidence
+from app.libs.dto.people.turnstile_input import GateEnrollmentInput, GateEditInput, GatePhotoReplacementInput, GateEditTargetInput
 from app.libs.dto.people.turnstile_output import GateOperationOutput
 from app.libs.dto.people.turnstile_context_output import GateEmployeeContextOutput
-from app.libs.enums.turnstile import GateAction, GateBindingState, GateMode, GatePhotoValidation
+from app.libs.enums.turnstile import GateAction, GateBindingState, GateMode, GatePhotoValidation, GateTargetState
 from app.models.audit_service import log_action
 from app.models.idempotency_service import (bind_idempotency_identity, normalize_idempotency_key,
-    replay_idempotent_response, request_fingerprint, store_idempotent_response)
+    replay_idempotent_response, request_fingerprint, store_idempotent_response, lookup_idempotent_response)
 from app.schemas.people.attendance import AttendanceDevice, AttendancePerson
-from app.schemas.people.turnstile import GateEmployeeDevice, GateOperation, GatePhotoAsset, GateSimulatorDevice
-from app.schemas.people.turnstile_persistence import insert_binding, insert_operation, insert_target
+from app.schemas.people.turnstile import GateEmployeeDevice, GateOperation, GatePhotoAsset, GateSimulatorDevice, GateSimulatorPerson, GateTarget
+from app.schemas.people.turnstile_persistence import insert_binding, insert_operation, insert_target, update_binding_state_revision
 
 
 def _simulator_enabled() -> bool:
@@ -60,6 +61,27 @@ def get_gate_operation(db: Session, actor: User, operation_id: int) -> GateOpera
     return GateOperationOutput.model_validate(operation)
 
 
+def _trusted_baseline(db: Session, binding: GateEmployeeDevice, *, lock: bool = False) -> SimulatorEvidence | None:
+    if binding.state != GateBindingState.ACTIVE:
+        return None
+    targets = (db.query(GateTarget).filter_by(binding_id=binding.id)
+               .order_by(GateTarget.revision.desc(), GateTarget.id.desc()).all())
+    if any(t.state in (GateTargetState.QUEUED, GateTargetState.PROCESSING, GateTargetState.VERIFYING,
+                       GateTargetState.WAITING, GateTargetState.UNCERTAIN) for t in targets):
+        return None
+    target = next((t for t in targets if t.revision == binding.desired_revision and t.state == GateTargetState.SUCCEEDED), None)
+    person_query = db.query(GateSimulatorPerson).filter_by(binding_id=binding.id)
+    person = (person_query.with_for_update() if lock else person_query).first()
+    if target is None or person is None:
+        return None
+    evidence: SimulatorEvidence = {"revision": person.accepted_revision, "payload_hash": person.accepted_payload_hash,
+                "full_name": person.full_name, "external_person_id": person.external_person_id,
+                "photo_sha256": person.photo_sha256}
+    if (evidence != target.observed_evidence or evidence["revision"] != binding.desired_revision
+            or evidence["external_person_id"] != binding.external_person_id):
+        return None
+    return evidence
+
 def get_gate_context(db: Session, actor: User, employee_id: int) -> GateEmployeeContextOutput:
     employee = authorize_gate_employee(db, actor, employee_id)
     factory = selected_factory_code(actor)
@@ -69,10 +91,10 @@ def get_gate_context(db: Session, actor: User, employee_id: int) -> GateEmployee
                 GateSimulatorDevice.mode == GateMode.SIMULATOR).order_by(AttendanceDevice.id).all())
     bindings = db.query(GateEmployeeDevice).filter_by(employee_id=employee.id, factory_code=factory).order_by(GateEmployeeDevice.device_id).all()
     operations = db.query(GateOperation).filter_by(employee_id=employee.id, factory_code=factory).order_by(GateOperation.revision.desc()).limit(20).all()
-    return GateEmployeeContextOutput.model_validate({"employee_id": employee.id, "employee_no": employee.employee_no, "supported_actions": [GateAction.ENROLL],
+    return GateEmployeeContextOutput.model_validate({"employee_id": employee.id, "employee_no": employee.employee_no, "supported_actions": [GateAction.ENROLL, GateAction.EDIT, GateAction.PHOTO] if _simulator_enabled() else [],
             "simulator_enabled": _simulator_enabled(),
             "devices": [{"id": d.id, "name": d.name, "device_key": d.device_key, "online": config.online} for d, config in devices],
-            "bindings": [{"device_id": b.device_id, "state": b.state, "desired_revision": b.desired_revision} for b in bindings],
+            "bindings": [{"device_id": b.device_id, "state": b.state, "desired_revision": b.desired_revision, "edit_baseline": ({"revision": evidence["revision"], "profile_hash": request_fingerprint(evidence), "full_name": evidence["full_name"]} if (evidence := _trusted_baseline(db, b)) else None)} for b in bindings],
             "operations": [GateOperationOutput.model_validate(o) for o in operations]})
 
 
@@ -154,3 +176,168 @@ def enroll_gate_employee(db: Session, actor: User, employee_id: int, payload: Ga
     except Exception:
         db.rollback()
         raise
+
+
+
+def _reviewed_bindings(db: Session, employee: Employee, factory: str, expected_employee_no: str, targets: list[GateEditTargetInput]) -> tuple[str, list[int], list[AttendanceDevice], list[GateEmployeeDevice], dict[int, GateEditTargetInput]]:
+    number = (employee.employee_no or "").strip()
+    if employee.status != "active" or not number or number != employee.employee_no or expected_employee_no != number:
+        raise HTTPException(409, "Employee identity is inactive or changed")
+    prior = db.query(GateEmployeeDevice).filter_by(employee_id=employee.id, factory_code=factory).all()
+    if any(b.external_person_id != number for b in prior):
+        raise HTTPException(409, "Existing turnstile identity requires separate reconciliation")
+    aliases = db.query(SystemSetting.value_json).filter(SystemSetting.key == f"employee_merge_aliases:{factory}").scalar()
+    if isinstance(aliases, dict) and (str(employee.id) in aliases.get("ids", {}) or number in aliases.get("numbers", {})):
+        raise HTTPException(409, "Employee identity is reserved by a reviewed merge")
+    refs = {t.device_id: t for t in targets}
+    ids = sorted(refs)
+    devices = (db.query(AttendanceDevice).filter(AttendanceDevice.id.in_(ids), AttendanceDevice.factory_code == factory)
+           .order_by(AttendanceDevice.id).with_for_update().all())
+    if len(devices) != len(ids):
+        raise HTTPException(404, "Device not found")
+    configs = db.query(GateSimulatorDevice).filter(GateSimulatorDevice.device_id.in_(ids), GateSimulatorDevice.factory_code == factory, GateSimulatorDevice.mode == GateMode.SIMULATOR).all()
+    if len(configs) != len(ids) or any(not d.sync_enabled or not d.read_only for d in devices):
+        raise HTTPException(409, "Every target must be an enabled read-only simulator device")
+    bindings = (db.query(GateEmployeeDevice).filter(GateEmployeeDevice.device_id.in_(ids), GateEmployeeDevice.employee_id == employee.id, GateEmployeeDevice.factory_code == factory)
+            .order_by(GateEmployeeDevice.device_id).with_for_update().all())
+    if len(bindings) != len(ids):
+        raise HTTPException(409, "Every target must have a verified binding")
+    return number, ids, devices, bindings, refs
+
+def edit_gate_employee(db: Session, actor: User, employee_id: int, payload: GateEditInput, idempotency_key: str | None) -> GateOperationOutput:
+    """Freeze verified per-device baselines in one transaction without device IO."""
+    try:
+        employee = authorize_gate_employee(db, actor, employee_id, lock=True)
+        if not _simulator_enabled():
+            raise HTTPException(403, "Simulator provisioning is disabled")
+        key = normalize_idempotency_key(idempotency_key)
+        if not key:
+            raise HTTPException(400, "Idempotency-Key is required")
+        factory = selected_factory_code(actor)
+        bind_idempotency_identity(db, actor)
+        scope = f"turnstile:employee:{employee_id}:edit"
+        body = payload.model_dump(mode="json")
+        replay = replay_idempotent_response(db, scope=scope, key=key, payload=body)
+        if replay is not None:
+            result = get_gate_operation(db, actor, replay["operation_id"])
+            db.rollback()
+            return result
+        number, ids, devices, bindings, refs = _reviewed_bindings(db, employee, factory, payload.expected_employee_no, payload.targets)
+        frozen: list[tuple[GateEmployeeDevice, SimulatorEvidence, str, str]] = []
+        for binding in bindings:
+            evidence = _trusted_baseline(db, binding, lock=True)
+            ref = refs[binding.device_id]
+            if evidence is None or ref.expected_revision != evidence["revision"] or ref.expected_profile_hash != request_fingerprint(evidence):
+                raise HTTPException(409, "Device profile changed; review the current baseline")
+            profile_hash = request_fingerprint(evidence)
+            desired_hash = request_fingerprint({"external_person_id": evidence["external_person_id"], "full_name": payload.reviewed_name,
+                                                "photo_sha256": evidence["photo_sha256"], "access_policy": "SIMULATOR_ONLY"})
+            frozen.append((binding, evidence, profile_hash, desired_hash))
+        revision = (db.query(func.max(GateOperation.revision)).filter_by(employee_id=employee.id, factory_code=factory).scalar() or 0) + 1
+        snapshot_hash = request_fingerprint({"external_person_id": number, "full_name": payload.reviewed_name,
+            "targets": [{"device_id": b.device_id, "baseline_profile_hash": h, "desired_payload_hash": d} for b, _, h, d in frozen]})
+        operation = insert_operation(db, employee_id=employee.id, factory_code=factory, requested_by=actor.id,
+            action=GateAction.EDIT, mode=GateMode.SIMULATOR, revision=revision, full_name=payload.reviewed_name,
+            photo_asset_id=None, external_person_id=number, snapshot_hash=snapshot_hash)
+        names = {d.id: d.name for d in devices}
+        for binding, evidence, profile_hash, desired_hash in frozen:
+            update_binding_state_revision(db, binding, state=GateBindingState.PENDING, desired_revision=revision)
+            insert_target(db, operation_id=operation.id, binding_id=binding.id, device_id=binding.device_id,
+                device_name=names[binding.device_id], factory_code=factory, employee_id=employee.id, revision=revision,
+                baseline=evidence, baseline_profile_hash=profile_hash, desired_payload_hash=desired_hash)
+        log_action(db, actor, "turnstile.edit", "gate_operation", operation.id,
+                   new_value={"employee_id": employee.id, "device_ids": ids, "revision": revision})
+        store_idempotent_response(db, scope=scope, key=key, payload=body, response={"operation_id": operation.id}, user=actor, status_code=202)
+        result = GateOperationOutput.model_validate(operation)
+        db.commit()
+        return result
+    except IntegrityError as exc:
+        db.rollback()
+        constraint = getattr(getattr(exc.orig, "diag", None), "constraint_name", None)
+        if constraint in {"uq_gate_target_operation_device"}:
+            raise HTTPException(409, "Concurrent device binding conflict") from exc
+        raise
+    except Exception:
+        db.rollback()
+        raise
+
+
+
+def replace_gate_photo(db: Session, actor: User, employee_id: int, payload: GatePhotoReplacementInput, idempotency_key: str | None) -> GateOperationOutput:
+    """Freeze verified per-device baselines in one transaction without device IO."""
+    try:
+        employee = authorize_gate_employee(db, actor, employee_id, lock=True)
+        if not _simulator_enabled():
+            raise HTTPException(403, "Simulator provisioning is disabled")
+        key = normalize_idempotency_key(idempotency_key)
+        if not key:
+            raise HTTPException(400, "Idempotency-Key is required")
+        factory = selected_factory_code(actor)
+        bind_idempotency_identity(db, actor)
+        scope = f"turnstile:employee:{employee_id}:photo"
+        body = payload.model_dump(mode="json")
+        replay = replay_idempotent_response(db, scope=scope, key=key, payload=body)
+        if replay is not None:
+            result = get_gate_operation(db, actor, replay["operation_id"])
+            db.rollback()
+            return result
+        number, ids, devices, bindings, refs = _reviewed_bindings(db, employee, factory, payload.expected_employee_no, payload.targets)
+        photo = db.query(GatePhotoAsset).filter_by(id=payload.photo_asset_id, employee_id=employee.id, factory_code=factory).first()
+        if photo is None or photo.validation != GatePhotoValidation.TECHNICAL_VALIDATED:
+            raise HTTPException(422, "A validated photo belonging to this employee is required")
+        frozen: list[tuple[GateEmployeeDevice, SimulatorEvidence, str, str]] = []
+        for binding in bindings:
+            evidence = _trusted_baseline(db, binding, lock=True)
+            ref = refs[binding.device_id]
+            if evidence is None or ref.expected_revision != evidence["revision"] or ref.expected_profile_hash != request_fingerprint(evidence):
+                raise HTTPException(409, "Device profile changed; review the current baseline")
+            profile_hash = request_fingerprint(evidence)
+            desired_hash = request_fingerprint({"external_person_id": evidence["external_person_id"], "full_name": evidence["full_name"],
+                                                "photo_sha256": photo.sha256, "access_policy": "SIMULATOR_ONLY"})
+            frozen.append((binding, evidence, profile_hash, desired_hash))
+        revision = (db.query(func.max(GateOperation.revision)).filter_by(employee_id=employee.id, factory_code=factory).scalar() or 0) + 1
+        snapshot_hash = request_fingerprint({"action": GateAction.PHOTO, "external_person_id": number, "photo_asset_id": photo.id, "photo_sha256": photo.sha256,
+            "targets": [{"device_id": b.device_id, "baseline_profile_hash": h, "desired_payload_hash": d} for b, _, h, d in frozen]})
+        operation = insert_operation(db, employee_id=employee.id, factory_code=factory, requested_by=actor.id,
+            action=GateAction.PHOTO, mode=GateMode.SIMULATOR, revision=revision, full_name=employee.full_name,
+            photo_asset_id=photo.id, external_person_id=number, snapshot_hash=snapshot_hash)
+        names = {d.id: d.name for d in devices}
+        for binding, evidence, profile_hash, desired_hash in frozen:
+            update_binding_state_revision(db, binding, state=GateBindingState.PENDING, desired_revision=revision)
+            insert_target(db, operation_id=operation.id, binding_id=binding.id, device_id=binding.device_id,
+                device_name=names[binding.device_id], factory_code=factory, employee_id=employee.id, revision=revision,
+                baseline=evidence, baseline_profile_hash=profile_hash, desired_payload_hash=desired_hash)
+        log_action(db, actor, "turnstile.photo", "gate_operation", operation.id,
+                   new_value={"employee_id": employee.id, "device_ids": ids, "revision": revision})
+        store_idempotent_response(db, scope=scope, key=key, payload=body, response={"operation_id": operation.id}, user=actor, status_code=202)
+        result = GateOperationOutput.model_validate(operation)
+        db.commit()
+        return result
+    except IntegrityError as exc:
+        db.rollback()
+        constraint = getattr(getattr(exc.orig, "diag", None), "constraint_name", None)
+        if constraint in {"uq_gate_target_operation_device"}:
+            raise HTTPException(409, "Concurrent device binding conflict") from exc
+        raise
+    except Exception:
+        db.rollback()
+        raise
+
+
+def get_gate_request(db: Session, actor: User, employee_id: int, action: GateAction, idempotency_key: str | None) -> GateOperationOutput | None:
+    """Resolve only this actor's committed request; absence never proves no work is in flight."""
+    authorize_gate_employee(db, actor, employee_id)
+    if action not in (GateAction.ENROLL, GateAction.EDIT, GateAction.PHOTO):
+        raise HTTPException(422, "Unsupported turnstile request action")
+    bind_idempotency_identity(db, actor)
+    receipt = lookup_idempotent_response(db, scope=f"turnstile:employee:{employee_id}:{action.value}", key=idempotency_key)
+    if receipt is None:
+        return None
+    operation_id = receipt.get("operation_id")
+    if type(operation_id) is not int or operation_id <= 0:
+        raise HTTPException(409, "Saved request receipt is inconsistent")
+    operation = db.get(GateOperation, operation_id)
+    if (operation is None or operation.requested_by != actor.id or operation.employee_id != employee_id
+            or operation.factory_code != selected_factory_code(actor) or operation.action != action):
+        raise HTTPException(409, "Saved request receipt scope is inconsistent")
+    return get_gate_operation(db, actor, operation.id)

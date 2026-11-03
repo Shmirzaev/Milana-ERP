@@ -35,7 +35,7 @@ class GateEmployeeDevice(Base, PkMixin):
 
 class GateOperation(Base, PkMixin):
     __tablename__ = "gate_operations"
-    __table_args__ = (UniqueConstraint("id", "employee_id", "factory_code", "revision", name="uq_gate_operation_scope"), ForeignKeyConstraint(["employee_id", "factory_code"], ["employees.id", "employees.factory_code"]), ForeignKeyConstraint(["photo_asset_id", "employee_id", "factory_code"], ["gate_photo_assets.id", "gate_photo_assets.employee_id", "gate_photo_assets.factory_code"]), CheckConstraint("revision > 0", name="ck_gate_operation_revision"))
+    __table_args__ = (UniqueConstraint("id", "employee_id", "factory_code", "revision", name="uq_gate_operation_scope"), ForeignKeyConstraint(["employee_id", "factory_code"], ["employees.id", "employees.factory_code"]), ForeignKeyConstraint(["photo_asset_id", "employee_id", "factory_code"], ["gate_photo_assets.id", "gate_photo_assets.employee_id", "gate_photo_assets.factory_code"]), CheckConstraint("revision > 0", name="ck_gate_operation_revision"), CheckConstraint("(action = 'edit' AND photo_asset_id IS NULL) OR (action <> 'edit' AND photo_asset_id IS NOT NULL)", name="ck_gate_operation_photo_action"))
     employee_id: Mapped[int] = mapped_column(Integer, nullable=False)
     factory_code: Mapped[str] = mapped_column(String(3), nullable=False)
     requested_by: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
@@ -43,7 +43,7 @@ class GateOperation(Base, PkMixin):
     mode: Mapped[GateMode] = mapped_column(enum_type(GateMode), nullable=False)
     revision: Mapped[int] = mapped_column(Integer, nullable=False)
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
-    photo_asset_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    photo_asset_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     external_person_id: Mapped[str] = mapped_column(String(64), nullable=False)
     snapshot_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
@@ -51,7 +51,7 @@ class GateOperation(Base, PkMixin):
 
 class GateTarget(Base, PkMixin):
     __tablename__ = "gate_targets"
-    __table_args__ = (UniqueConstraint("operation_id", "device_id", name="uq_gate_target_operation_device"), ForeignKeyConstraint(["operation_id", "employee_id", "factory_code", "revision"], ["gate_operations.id", "gate_operations.employee_id", "gate_operations.factory_code", "gate_operations.revision"]), ForeignKeyConstraint(["binding_id", "employee_id", "factory_code", "device_id"], ["gate_employee_devices.id", "gate_employee_devices.employee_id", "gate_employee_devices.factory_code", "gate_employee_devices.device_id"]), CheckConstraint("revision > 0 AND attempts >= 0", name="ck_gate_target_counters"))
+    __table_args__ = (UniqueConstraint("operation_id", "device_id", name="uq_gate_target_operation_device"), ForeignKeyConstraint(["operation_id", "employee_id", "factory_code", "revision"], ["gate_operations.id", "gate_operations.employee_id", "gate_operations.factory_code", "gate_operations.revision"]), ForeignKeyConstraint(["binding_id", "employee_id", "factory_code", "device_id"], ["gate_employee_devices.id", "gate_employee_devices.employee_id", "gate_employee_devices.factory_code", "gate_employee_devices.device_id"]), CheckConstraint("revision > 0 AND attempts >= 0", name="ck_gate_target_counters"), CheckConstraint("(baseline_revision IS NULL AND baseline_payload_hash IS NULL AND baseline_full_name IS NULL AND baseline_external_person_id IS NULL AND baseline_photo_sha256 IS NULL AND baseline_profile_hash IS NULL AND desired_payload_hash IS NULL) OR (baseline_revision IS NOT NULL AND baseline_revision > 0 AND baseline_payload_hash IS NOT NULL AND length(baseline_payload_hash) = 64 AND baseline_full_name IS NOT NULL AND baseline_external_person_id IS NOT NULL AND baseline_photo_sha256 IS NOT NULL AND length(baseline_photo_sha256) = 64 AND baseline_profile_hash IS NOT NULL AND length(baseline_profile_hash) = 64 AND desired_payload_hash IS NOT NULL AND length(desired_payload_hash) = 64)", name="ck_gate_target_edit_baseline"))
     operation_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
     binding_id: Mapped[int] = mapped_column(Integer, nullable=False)
     device_id: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -64,6 +64,13 @@ class GateTarget(Base, PkMixin):
     error_code: Mapped[GateErrorCode | None] = mapped_column(enum_type(GateErrorCode))
     lease_token: Mapped[str | None] = mapped_column(String(64))
     lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    baseline_revision: Mapped[int | None] = mapped_column(Integer)
+    baseline_payload_hash: Mapped[str | None] = mapped_column(String(64))
+    baseline_full_name: Mapped[str | None] = mapped_column(String(255))
+    baseline_external_person_id: Mapped[str | None] = mapped_column(String(64))
+    baseline_photo_sha256: Mapped[str | None] = mapped_column(String(64))
+    baseline_profile_hash: Mapped[str | None] = mapped_column(String(64))
+    desired_payload_hash: Mapped[str | None] = mapped_column(String(64))
     observed_evidence: Mapped[SimulatorEvidence | None] = mapped_column(JSON)
     operation: Mapped[GateOperation] = relationship(back_populates="targets")
 
