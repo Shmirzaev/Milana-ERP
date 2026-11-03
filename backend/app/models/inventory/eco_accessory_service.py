@@ -245,6 +245,9 @@ def approve_plan(db: Session, current, order_id: int, payload: EcoAccessoryDecis
         if not item or not item.is_active or item.unit != req.unit or item.category not in {"accessory", "packaging"}:
             raise HTTPException(409, "ecoAccessories.accessoryRequired")
         for batch in batches:
+            from app.models.inventory.eco_inventory_service import quality_passed
+            if not quality_passed(batch):
+                continue
             if batch.item_id != req.item_id or batch.unit != req.unit:
                 continue
             quantity = min(remaining, batch.quantity - batch.reserved_quantity)

@@ -1,9 +1,10 @@
-"""Serve a disposable, loopback-only demo for PR #375 local review.
+"""Serve a persistent, loopback-only local workspace for PR #375 review.
 
 Run with the repository's test Python environment. This deliberately uses the
 isolated test fixtures (never a configured production database or .env). Login
 uses the existing demo admin fixture from backend/app/tests/conftest.py. All
-changes made in this demo are temporary and disappear when a fresh run starts.
+Local entries are stored in outputs/eco-review/local-review.sqlite and survive
+restarts. The test fixtures initialize a new local database only once.
 """
 from datetime import datetime, timezone
 from pathlib import Path
@@ -18,11 +19,36 @@ def main():
     import secrets
     from app.tests import conftest as fixtures
     from app.core.config import settings
+    from app.db import session as session_module
+    from sqlalchemy import create_engine, inspect
+    from app.db.base import Base
+    import sqlite3
+    local_dir = ROOT / "outputs" / "eco-review"
+    local_dir.mkdir(parents=True, exist_ok=True)
+    database_file = local_dir / "local-review.sqlite"
+    key_file = local_dir / "local-session.key"
+    if not key_file.exists():
+        key_file.write_text(secrets.token_urlsafe(48), encoding="utf-8")
     settings.CORS_ORIGINS = "http://127.0.0.1:13085"
     # Cookies are shared across localhost ports. Do not collide with another
     # engineer's local preview or the user's existing local ERP session.
     settings.AUTH_COOKIE_NAME = "erp_eco_review"
-    settings.JWT_SECRET = secrets.token_urlsafe(48)
+    settings.JWT_SECRET = key_file.read_text(encoding="utf-8").strip()
+    if database_file.exists():
+        fixtures.test_engine.dispose()
+        engine = create_engine(f"sqlite:///{database_file.as_posix()}", connect_args={"check_same_thread": False})
+        fixtures.TestSessionLocal.configure(bind=engine)
+        session_module.engine = engine
+        session_module.SessionLocal = fixtures.TestSessionLocal
+        Base.metadata.create_all(engine)
+        # This local SQLite workspace predates 0154. Production uses Alembic.
+        with engine.begin() as connection:
+            for table in ("eco_material_batches", "factory_fabric_transfer_lines"):
+                if "receipt_details" not in {column["name"] for column in inspect(connection).get_columns(table)}:
+                    connection.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN receipt_details JSON NOT NULL DEFAULT '{{}}'")
+        print(f"Persistent local review database: {database_file}")
+        uvicorn.run(fixtures.app, host="127.0.0.1", port=18085, log_level="warning")
+        return
     from app.schemas import BrandedPlanningOrder, CuttingPassport, Department, Item, Model, ProductionOrder, StockBatch, User, Warehouse, WorkOrder
     from app.schemas.inventory.eco_inventory import EcoMaterialBatch
     setup = fixtures.setup_db.__wrapped__()
@@ -53,7 +79,15 @@ def main():
     # mixed-origin package to inspect with the new warehouse factory filter.
     from app.tests.test_package_origin import _seed
     _seed()
-    print("Disposable local review API: http://127.0.0.1:18085 (no production connection)")
+    # Preserve the initialized local workspace, then serve the persistent copy.
+    fixtures.test_engine.dispose()
+    with sqlite3.connect(fixtures._test_db_path) as source, sqlite3.connect(database_file) as target:
+        source.backup(target)
+    engine = create_engine(f"sqlite:///{database_file.as_posix()}", connect_args={"check_same_thread": False})
+    fixtures.TestSessionLocal.configure(bind=engine)
+    session_module.engine = engine
+    session_module.SessionLocal = fixtures.TestSessionLocal
+    print(f"Persistent local review database: {database_file}")
     uvicorn.run(fixtures.app, host="127.0.0.1", port=18085, log_level="warning")
 
 

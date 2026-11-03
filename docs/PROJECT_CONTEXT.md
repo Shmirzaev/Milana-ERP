@@ -33,6 +33,17 @@ full role/browser and remaining database acceptance stay release gates.
 Recorded active/rollback releases below are unchanged and were not freshly
 verified through SSH in this task.
 
+The user's local review requested usable catalog/receiving parity with Milana.
+The follow-up exposes shared material/supplier master data from ECO, including
+category, unit, SKU, composition and cost; ECO receipts capture opening stock or
+deliveries, ECO warehouse, supplier/document/date, fabric codes/measurements,
+roll weights/lengths, pictures, cost and quality. Quality-held stock cannot be
+allocated or consumed. Migration `0154` preserves typed receipt snapshots in two
+existing ECO tables and merges both existing `0151` heads after current
+`clone_main` integration; earlier PR revision identities are retained. The local
+review workspace now persists entered data across restarts. Production and role
+grants are unchanged; new-candidate CI and operator acceptance are still required.
+
 ## Pack customer restriction and admin release candidate (3 November)
 
 The [local feature candidate](archive/PACK_CUSTOMER_RELEASE_2026-11-03.md) blocks

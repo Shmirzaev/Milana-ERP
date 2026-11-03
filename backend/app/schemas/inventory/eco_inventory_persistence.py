@@ -7,10 +7,24 @@ from app.schemas.inventory.eco_inventory import EcoMaterialBatch, EcoMaterialMov
 
 
 def insert_batch(db: Session, *, item_id: int, kind: EcoMaterialKind, batch_no: str, color: str | None,
-                 unit: str, quantity: Decimal, created_by: int, source_stock_batch_id: int | None = None) -> EcoMaterialBatch:
+                 unit: str, quantity: Decimal, created_by: int, source_stock_batch_id: int | None = None,
+                 receipt_details: dict | None = None) -> EcoMaterialBatch:
     row = EcoMaterialBatch(item_id=item_id, kind=kind.value, batch_no=batch_no, color=color,
                            unit=unit, quantity=quantity, reserved_quantity=Decimal(0), created_by=created_by,
-                           source_stock_batch_id=source_stock_batch_id)
+                           source_stock_batch_id=source_stock_batch_id, receipt_details=receipt_details or {})
+    db.add(row)
+    db.flush()
+    return row
+
+
+def set_receipt_details(db: Session, batch: EcoMaterialBatch, details: dict) -> None:
+    batch.receipt_details = details
+
+
+def insert_eco_warehouse(db: Session, *, name: str, kind: EcoMaterialKind, department_id: int):
+    from app.schemas import Warehouse
+    row = Warehouse(name=name, type="fabric_storage" if kind == EcoMaterialKind.FABRIC else "accessory_storage",
+                    department_id=department_id)
     db.add(row)
     db.flush()
     return row
@@ -41,10 +55,10 @@ def insert_transfer(db: Session, *, created_by: int, notes: str | None) -> Facto
 
 def insert_transfer_line(db: Session, *, transfer_id: int, source_batch_id: int, item_id: int,
                          item_name: str, batch_no: str, color: str | None, unit: str,
-                         quantity: Decimal) -> FactoryFabricTransferLine:
+                         quantity: Decimal, receipt_details: dict | None = None) -> FactoryFabricTransferLine:
     row = FactoryFabricTransferLine(transfer_id=transfer_id, source_batch_id=source_batch_id, item_id=item_id,
                                     item_name=item_name, batch_no=batch_no, color=color, unit=unit,
-                                    quantity=quantity, received_quantity=Decimal(0))
+                                    quantity=quantity, received_quantity=Decimal(0), receipt_details=receipt_details or {})
     db.add(row)
     db.flush()
     return row

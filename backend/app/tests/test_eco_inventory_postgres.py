@@ -12,13 +12,48 @@ from sqlalchemy import create_engine, func
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 from app.db.base import Base
-from app.libs.dto.inventory.eco_inventory_input import FactoryFabricDispatchIn, FactoryFabricReceiptIn
+from app.libs.dto.inventory.eco_inventory_input import FactoryFabricDispatchIn, FactoryFabricReceiptIn, EcoMaterialReceiveIn
 from app.models.factory_scope_service import bind_session_factory
 from app.models.idempotency_service import bind_idempotency_identity
 from app.models.inventory import factory_fabric_transfers_service as transfers
 from app.schemas import Item, Role, StockBatch, User, Warehouse
 from app.schemas.inventory.eco_inventory import EcoMaterialBatch, EcoMaterialMovement, FactoryFabricTransferLine
 from app.tests.test_eco_schema_migrations import NEW_TABLES, migration
+
+
+def test_first_accessory_receipt_serializes_with_catalog_unit_edit(pg_case):
+    from app.libs.dto.inventory.item_input import ItemIn
+    from app.models.inventory import eco_inventory_service as eco, stock_service
+    sessions, (user_id, _) = pg_case
+    with sessions() as db:
+        item = Item(sku="PG-ECO-UNIT", name="Race button", category="accessory", unit="pcs")
+        db.add(item); db.commit(); item_id = item.id
+    barrier = Barrier(2)
+    def operation(receive):
+        with sessions() as db:
+            user = actor(db, user_id, "ECO")
+            barrier.wait(timeout=10)
+            try:
+                if receive:
+                    eco.receive_stock(db, EcoMaterialReceiveIn(request_key="first-accessory", item_id=item_id,
+                        kind="accessory", batch_no="FIRST", unit="pcs", quantity="5"), user)
+                else:
+                    stock_service.update_item(db, item_id, ItemIn(sku="PG-ECO-UNIT", name="Race button",
+                        category="accessory", unit="kg"), user)
+                return True
+            except HTTPException as failure:
+                db.rollback()
+                assert failure.status_code in {400, 409}
+                return False
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(operation, (True, False)))
+    assert sum(results) == 1
+    with sessions() as db:
+        stock = db.query(EcoMaterialBatch).filter_by(item_id=item_id).first()
+        if stock:
+            assert stock.unit == db.get(Item, item_id).unit == "pcs"
+        else:
+            assert db.get(Item, item_id).unit == "kg"
 
 
 @pytest.fixture
@@ -40,6 +75,7 @@ def pg_case():
             with Operations.context(MigrationContext.configure(connection)):
                 migration("0150_eco_inventory_transfers.py").upgrade()
                 migration("0151_eco_accessory_approval.py").upgrade()
+                migration("0154_eco_receipt_details.py").upgrade()
         sessions = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
         with sessions() as db:
             role = Role(name="Super Admin", permissions=["*"])

@@ -65,6 +65,7 @@ const SECTIONS: Section[] = [
     items: [
       { href: "/eco-inventory?kind=fabric", labelKey: "ecoMaterials.fabric", perms: ["eco_inventory.read"], icon: Warehouse },
       { href: "/eco-inventory?kind=accessory", labelKey: "ecoMaterials.accessory", perms: ["eco_inventory.read"], icon: PackageSearch },
+      { href: "/eco-inventory/catalog", labelKey: "nav.masterData", perms: ["storage.items", "storage.suppliers"], icon: Database },
       { href: "/eco-accessories", labelKey: "ecoMaterials.approval", perms: ["eco_accessories.read", "eco_accessories.manage", "eco_accessories.approve", "eco_accessories.issue"], icon: ClipboardList },
       { href: "/factory-fabric-transfers", labelKey: "ecoMaterials.incoming", perms: ["factory_fabric_transfers.read", "factory_fabric_transfers.receive"], icon: Truck },
     ],

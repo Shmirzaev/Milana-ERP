@@ -2,6 +2,7 @@
 
 import { isMaterialsOnly } from "@/lib/access";
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import { Edit3, Plus, Search, Trash2, X } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
@@ -163,13 +164,14 @@ function lc(value: unknown) {
 }
 
 export default function InventoryMasterDataPage() {
+  const searchParams = useSearchParams();
   const { t } = useT();
   const dialogs = useDialogs();
   const { me } = useMe();
-  const [tab, setTab] = useState<TabKey>("materials");
+  const [tab, setTab] = useState<TabKey>(searchParams.get("group") === "suppliers" ? "suppliers" : searchParams.get("group") === "accessories" ? "accessories" : "materials");
   const [query, setQuery] = useState("");
   const [message, setMessage] = useState("");
-  const [itemForm, setItemForm] = useState<ItemForm>(EMPTY_MATERIAL);
+  const [itemForm, setItemForm] = useState<ItemForm>(searchParams.get("group") === "accessories" ? EMPTY_ACCESSORY : EMPTY_MATERIAL);
   const [supplierForm, setSupplierForm] = useState<SupplierForm>(EMPTY_SUPPLIER);
   const [saving, setSaving] = useState(false);
   const canEditItems = can(me, "storage.items", "*");
@@ -202,7 +204,7 @@ export default function InventoryMasterDataPage() {
     [accessories, materials, tab],
   );
   const filteredItems = useMemo(
-    () => activeItems.filter((item) => !query.trim() || [item.name, formatComposition(item.composition)].some((value) => lc(value).includes(lc(query)))),
+    () => activeItems.filter((item) => !query.trim() || [item.name, item.sku, item.unit, formatComposition(item.composition)].some((value) => lc(value).includes(lc(query)))),
     [activeItems, query],
   );
   const filteredSuppliers = useMemo(
@@ -438,7 +440,7 @@ export default function InventoryMasterDataPage() {
                 <tbody>
                   {filteredItems.map((item) => (
                     <tr key={item.id}>
-                      <td>{item.name}</td>
+                      <td>{item.name}<div className="text-xs text-[var(--erp-muted)]">{item.sku} · {item.unit}</div></td>
                       {tab === "materials" && (
                         <td className="max-w-[280px] text-xs text-[#56503f]">
                           {formatComposition(item.composition) || "-"}
@@ -482,6 +484,7 @@ export default function InventoryMasterDataPage() {
                 <label className="label">{t("common.name")}</label>
                 <input className="input" value={supplierForm.name} onChange={(event) => setSupplierForm({ ...supplierForm, name: event.target.value })} required />
               </div>
+
               <div>
                 <label className="label">{t("field.phone")}</label>
                 <input className="input" value={supplierForm.phone} onChange={(event) => setSupplierForm({ ...supplierForm, phone: event.target.value })} />
@@ -516,6 +519,13 @@ export default function InventoryMasterDataPage() {
               <div>
                 <label className="label">{t("common.name")}</label>
                 <input className="input" value={itemForm.name} onChange={(event) => setItemForm({ ...itemForm, name: event.target.value })} required />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <label className="label">SKU<input className="input" maxLength={64} value={itemForm.sku} onChange={event => setItemForm({...itemForm, sku:event.target.value})} /></label>
+                <label className="label">{t("field.category")}<select className="input" value={itemForm.category} onChange={event => setItemForm({...itemForm, category:event.target.value})}>{(tab === "accessories" ? ["accessory", "packaging"] : ["fabric", "semi_finished"]).map(value => <option key={value} value={value}>{t(`itemCategory.${value}`)}</option>)}</select></label>
+                <label className="label">{t("field.unit")}<input className="input" required maxLength={32} value={itemForm.unit} onChange={event => setItemForm({...itemForm, unit:event.target.value})} /></label>
+                <label className="label">{t("field.cost")}<input className="input" type="number" min="0" step="0.0001" value={itemForm.default_cost} onChange={event => setItemForm({...itemForm, default_cost:event.target.value})} /></label>
+                <label className="label">{t("page.masterData.reorderLevel")}<input className="input" type="number" min="0" step="0.0001" value={itemForm.reorder_level} onChange={event => setItemForm({...itemForm, reorder_level:event.target.value})} /></label>
               </div>
               {tab === "materials" && (
                 <div className="space-y-2 rounded-md border border-[#ecebe3] bg-[#fbfaf6] p-3">

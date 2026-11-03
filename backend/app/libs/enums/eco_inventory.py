@@ -7,6 +7,12 @@ class EcoMaterialKind(str, Enum):
     ACCESSORY = "accessory"
 
 
+class EcoReceiptSource(str, Enum):
+    PURCHASE = "purchase"
+    OPENING_BALANCE = "opening_balance"
+    OTHER = "other"
+
+
 class EcoMaterialMovementKind(str, Enum):
     RECEIVE = "receive"
     TRANSFER_RECEIPT = "transfer_receipt"

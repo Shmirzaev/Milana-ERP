@@ -15,8 +15,8 @@ from sqlalchemy.orm import Session, lazyload
 
 from app.libs.dto.inventory.eco_inventory_input import FactoryFabricDispatchIn, FactoryFabricReceiptIn
 from app.libs.dto.inventory.eco_inventory_output import FactoryFabricSourceBatchOut, FactoryFabricTransferLineOut, FactoryFabricTransferOut
-from app.libs.enums.eco_inventory import EcoMaterialKind, EcoMaterialMovementKind, FactoryFabricTransferStatus
-from app.libs.enums.inventory import StockMovementType
+from app.libs.enums.eco_inventory import EcoMaterialKind, EcoMaterialMovementKind, FactoryFabricTransferStatus, EcoReceiptSource
+from app.libs.enums.inventory import StockMovementType, StockBatchQcStatus
 from app.models.audit_service import log_action
 from app.models.factory_scope_service import require_factory_access, selected_factory_code
 from app.core.dt import as_utc
@@ -141,7 +141,14 @@ def dispatch(db: Session, payload: FactoryFabricDispatchIn, current: User) -> Fa
             raise HTTPException(409, f"Transfer exceeds available stock for batch {batch.batch_no}")
         persistence.insert_transfer_line(db, transfer_id=transfer.id, source_batch_id=batch.id, item_id=item.id,
                                           item_name=item.name, batch_no=batch.batch_no, color=batch.color,
-                                          unit=batch.unit, quantity=quantity)
+                                          unit=batch.unit, quantity=quantity, receipt_details={
+                                              "source": EcoReceiptSource.OTHER.value, "unit": batch.unit, "qc_status": StockBatchQcStatus.PASSED.value,
+                                              "cost_per_unit": str(batch.cost_per_unit or 0), "old_code": batch.old_code,
+                                              "color_code": batch.color_code, "color_status": batch.color_status,
+                                              "width": str(batch.width) if batch.width else None,
+                                              "gsm": str(batch.gsm) if batch.gsm else None,
+                                              "processes": batch.processes, "image_url": batch.image_url,
+                                          })
         stock_movement_persistence.set_batch_quantity(db, batch, Decimal(batch.quantity) - quantity)
         stock_movement_persistence.insert_stock_movement(db, movement_type=StockMovementType.ISSUE,
              item_id=item.id, batch_id=batch.id, from_warehouse_id=batch.warehouse_id, to_warehouse_id=None,
@@ -178,7 +185,8 @@ def receive(db: Session, transfer_id: int, payload: FactoryFabricReceiptIn, curr
         line = by_id[receipt.line_id]
         batch = persistence.insert_batch(db, item_id=line.item_id, kind=EcoMaterialKind.FABRIC,
              batch_no=line.batch_no, color=line.color, unit=line.unit, quantity=receipt.quantity,
-             created_by=current.id, source_stock_batch_id=line.source_batch_id)
+             created_by=current.id, source_stock_batch_id=line.source_batch_id,
+             receipt_details={**(line.receipt_details or {}), "document_no": f"MEC-{transfer.id:06d}"})
         persistence.insert_movement(db, batch_id=batch.id, kind=EcoMaterialMovementKind.TRANSFER_RECEIPT,
              quantity=receipt.quantity, created_by=current.id, reference_type="FactoryFabricTransfer",
              reference_id=transfer.id, notes=payload.notes)

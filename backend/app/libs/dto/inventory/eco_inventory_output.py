@@ -2,6 +2,17 @@ from datetime import datetime
 from decimal import Decimal
 from pydantic import BaseModel, ConfigDict
 from app.libs.enums.eco_inventory import EcoMaterialKind, EcoMaterialMovementKind, FactoryFabricTransferStatus
+from app.libs.dto.inventory.eco_inventory_input import EcoReceiptDetails
+
+
+class EcoReceiptDetailsOut(EcoReceiptDetails):
+    supplier_name: str | None = None
+    warehouse_name: str | None = None
+
+
+class EcoNamedOptionOut(BaseModel):
+    id: int
+    name: str
 
 
 class EcoMaterialItemOut(BaseModel):
@@ -30,6 +41,7 @@ class EcoMaterialBatchOut(BaseModel):
     reserved_quantity: Decimal
     available_quantity: Decimal
     received_at: datetime
+    receipt_details: EcoReceiptDetailsOut = EcoReceiptDetailsOut()
 
 
 class EcoMaterialMovementOut(BaseModel):

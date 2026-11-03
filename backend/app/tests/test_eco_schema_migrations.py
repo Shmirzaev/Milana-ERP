@@ -27,10 +27,12 @@ def test_new_upgrade_shapes_and_safe_empty_downgrade():
             stock = migration("0150_eco_inventory_transfers.py")
             approval = migration("0151_eco_accessory_approval.py")
             stock.upgrade(); approval.upgrade()
+            details = migration("0154_eco_receipt_details.py")
+            details.upgrade()
             actual = inspect(connection)
             for name in NEW_TABLES:
                 assert {c["name"] for c in actual.get_columns(name)} == set(Base.metadata.tables[name].columns.keys())
-            approval.downgrade(); stock.downgrade()
+            details.downgrade(); approval.downgrade(); stock.downgrade()
             assert not NEW_TABLES.intersection(inspect(connection).get_table_names())
     engine.dispose()
 

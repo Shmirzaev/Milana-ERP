@@ -109,12 +109,12 @@ business rules/transaction ownership in services and HTTP binding in routes.
 
 ## Local review
 
-The currently running disposable preview is `http://127.0.0.1:13085`. It uses
-its own `erp_eco_review` cookie and temporary SQLite database; no production
+The local preview is `http://127.0.0.1:13085`. It uses
+its own `erp_eco_review` cookie and persistent local SQLite database; no production
 credentials or data are needed. Local screenshots/driver workbook, when created,
 are under ignored `outputs/eco-review/`.
 
-To start a fresh disposable session, use two terminals in this worktree:
+To start the local workspace, use two terminals in this worktree:
 
 ```powershell
 # Terminal 1: backend (uses the installed repository test environment)
@@ -132,7 +132,11 @@ npm run dev -- --hostname 127.0.0.1 --port 13085
 Use the existing disposable demo-admin fixture credentials in
 `backend/app/tests/conftest.py`, selecting Milana or Eco Cotton on the login page.
 They are test fixtures, not production accounts. Stop an existing preview before
-reusing its ports. Restarting the demo creates fresh disposable records.
+reusing its ports. Entered records now survive restarts in ignored
+`outputs/eco-review/local-review.sqlite`. Existing local review records were
+copied into that workspace; original temporary files were preserved. The local
+runner creates initial fixture data only when no workspace exists. Its bounded
+SQLite column initialization is for local review; real installations use Alembic.
 
 1. Milana → Cutting Passports: export the filtered local passport and inspect
    both sheets, dimensions, quantities, model/variant, operator and notes.
@@ -156,3 +160,63 @@ Grant only the appropriate new permission keys in an isolated review database:
 and `eco_accessories.read/manage/approve/issue`. Inventory/transfer screens require
 their read permission plus the relevant action permission. Materials-only accounts
 still cannot access accessories. No existing user's grants were changed.
+
+## Receiving correction after local operator review
+
+The user explicitly requested material-type entry and receiving functionality
+like Milana, ready to enter all ECO stock instead of the minimal demo form.
+The follow-up integrates `clone_main` at `d6c2edd8` and preserves its customer-pack
+and HR work. The old ECO revision IDs remain valid; `0154_eco_receipt_details`
+merges `0151_eco_accessory_approval` and `0151_gate_enrollment` and adds receipt
+JSON snapshots to batches and transfer lines. No reset/stamp or old stock
+conversion is required. Direct field/enum DTOs validate the JSON before writes.
+
+- ECO **Materials and suppliers** uses Milana's existing master-data operation.
+  Create/edit fabrics, semi-finished material, accessories or packaging; enter
+  SKU (or generate it), name, unit, cost, reorder level and fabric composition.
+  Supplier creation/editing remains on its existing tab. These catalog records
+  are shared; stock is separate. Existing `storage.items` / `storage.suppliers`
+  permissions control these actions; no new grants were assigned.
+- **Receive materials** supports Opening stock, Supplier delivery and Other
+  receipt; material, batch/color, date/document, supplier, ECO warehouse creation,
+  quantity/unit/cost, QC, order link, image upload, notes and fabric measurements,
+  color/old codes and process details. Fabric accepts individual weighed rolls,
+  total kg or total m. Accessories retain the chosen catalog unit.
+- Stock displays quality, valuation/receipt details and per-roll readback.
+  Pending/failed/held/rejected stock is unavailable to consumption/allocation;
+  quality release is authorized and audited. Allocated stock must be released
+  before a hold. Batch unit/category cannot be changed through catalog edits;
+  first receipt and catalog mutation serialize on the shared Item lock.
+- Materials-only accounts cannot view/select accessory warehouses. Source
+  Milana warehouses cannot receive ECO stock. Transfer receipt retains the cost
+  and fabric-code snapshot taken at dispatch, including partial receipts.
+- Search filters all stock on the server before paging. Shared-item deletion
+  includes ECO stock/requirements evidence, preserving linked records.
+
+Bounded independent review identified and corrected accessory deep-link defaults,
+unit mismatch, materials-only warehouse scope and a first-receipt/catalog-edit
+race. The reviewer confirmed these fixes without a remaining actionable blocker.
+Earlier PostgreSQL evidence above belongs to `bda49987`; the new candidate adds
+a fourth PostgreSQL race case and must obtain its own CI evidence.
+
+Local Uzbek browser checks created `QA-ECO-RIB-01` with Cotton 100% and cost4.25,
+created an ECO warehouse and received12.5kg opening stock, then created
+`QA-ECO-ZIP-25` directly under accessories. Database readback confirms categories,
+units, receipt reference, cost, warehouse snapshot and quantity. These are local
+QA examples, not factory inventory or production data.
+
+Local review additions:
+
+1. From either inventory choose **Materials and suppliers**; create the actual
+   material types and suppliers. Use the appropriate category and stock unit.
+2. Choose **Receive materials → Opening stock** for each physical batch already
+   at ECO, or **Supplier delivery** for a new external receipt. Create/select an
+   ECO warehouse and enter the full receipt. Milana dispatches still use incoming
+   transfers so stock is not received twice.
+3. Reopen receipt details and history; verify individual rolls, costs and totals.
+   Place unallocated stock on hold and release it; test refusal to consume on hold.
+4. Restart the local API and verify the same entries remain. Local SQLite proves
+   persistence and operator flow; complete PostgreSQL/role/handoff acceptance is
+   still a separate release gate.
+
+Follow-up automated evidence: 148 focused receipt/approval/sewing/package/query-growth cases pass; Ruff, compileall, normal TypeScript, strict TypeScript and lint pass. Optimized frontend build and inherited build contracts pass on the receiving candidate. The final small UI changes are being rebuilt; no full backend or full final CI pass is asserted.

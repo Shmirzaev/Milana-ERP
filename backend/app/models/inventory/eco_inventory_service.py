@@ -6,18 +6,19 @@ issue; its caller verifies allocation ownership and owns commit/idempotency.
 from decimal import Decimal
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, or_
 from sqlalchemy.orm import Session
 
 from app.core.deps import user_permissions
 from app.core.dt import as_utc
-from app.libs.dto.inventory.eco_inventory_input import EcoMaterialConsumeIn, EcoMaterialReceiveIn
-from app.libs.dto.inventory.eco_inventory_output import EcoMaterialBatchOut, EcoMaterialItemOut, EcoMaterialMovementOut, EcoMaterialMutationOut, EcoMaterialOrderOut
+from app.libs.dto.inventory.eco_inventory_input import EcoMaterialConsumeIn, EcoMaterialReceiveIn, EcoReceiptDetails, EcoQualityIn, EcoWarehouseIn
+from app.libs.dto.inventory.eco_inventory_output import EcoMaterialBatchOut, EcoMaterialItemOut, EcoMaterialMovementOut, EcoMaterialMutationOut, EcoMaterialOrderOut, EcoNamedOptionOut
+from app.libs.enums.inventory import StockBatchQcStatus
 from app.libs.enums.eco_inventory import EcoMaterialKind, EcoMaterialMovementKind
 from app.models.audit_service import log_action
 from app.models.factory_scope_service import require_factory_access
 from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response
-from app.schemas import Bundle, Department, Item, ProductionOrder, User, WorkOrder
+from app.schemas import Bundle, Department, Item, ProductionOrder, Supplier, User, Warehouse, WorkOrder
 from app.schemas.inventory.eco_inventory import EcoMaterialBatch, EcoMaterialMovement
 from app.schemas.inventory import eco_inventory_persistence as persistence
 from app.models.inventory_access_service import materials_only, require_accessories
@@ -60,7 +61,52 @@ def batch_output(db: Session, batch: EcoMaterialBatch, item: Item | None = None)
     return EcoMaterialBatchOut(id=batch.id, item_id=batch.item_id, item_name=item.name, sku=item.sku,
                                kind=EcoMaterialKind(batch.kind), batch_no=batch.batch_no, color=batch.color,
                                unit=batch.unit, quantity=batch.quantity, reserved_quantity=batch.reserved_quantity,
-                               available_quantity=batch.quantity - batch.reserved_quantity, received_at=as_utc(batch.received_at))
+                               available_quantity=batch.quantity - batch.reserved_quantity if quality_passed(batch) else Decimal(0),
+                               received_at=as_utc(batch.received_at), receipt_details=batch.receipt_details or {})
+
+
+def quality_passed(batch: EcoMaterialBatch) -> bool:
+    return (batch.receipt_details or {}).get("qc_status", "passed") == StockBatchQcStatus.PASSED.value
+
+
+def receipt_options(db: Session, current: User, *, suppliers: bool = False) -> list[EcoNamedOptionOut]:
+    require_eco(current, "eco_inventory.read")
+    rows = db.query(Supplier).order_by(Supplier.name).all() if suppliers else db.query(Warehouse).join(
+        Department, Department.id == Warehouse.department_id).filter(Department.code.in_(("ECO", "ECT", "ECP"))).order_by(Warehouse.name).all()
+    return [EcoNamedOptionOut(id=row.id, name=row.name) for row in rows
+            if suppliers or not materials_only(current) or row.type != "accessory_storage"]
+
+
+def create_warehouse(db: Session, current: User, payload: EcoWarehouseIn) -> EcoNamedOptionOut:
+    require_eco(current, "eco_inventory.receive")
+    scoped_kind(current, payload.kind)
+    department = db.query(Department).filter_by(code="ECO").one()
+    existing = db.query(Warehouse).filter(Warehouse.department_id == department.id,
+        Warehouse.name == payload.name).first()
+    if existing:
+        return EcoNamedOptionOut(id=existing.id, name=existing.name)
+    row = persistence.insert_eco_warehouse(db, name=payload.name, kind=payload.kind, department_id=department.id)
+    log_action(db, current, "create", "Warehouse", row.id, new_value={"name": row.name, "factory": "ECO"})
+    db.commit()
+    return EcoNamedOptionOut(id=row.id, name=row.name)
+
+
+def update_quality(db: Session, current: User, batch_id: int, payload: EcoQualityIn) -> EcoMaterialBatchOut:
+    require_eco(current, "eco_inventory.receive")
+    batch = db.execute(select(EcoMaterialBatch).where(EcoMaterialBatch.id == batch_id).with_for_update()).scalar_one_or_none()
+    if not batch:
+        raise HTTPException(404, "Eco Cotton material batch not found")
+    scoped_kind(current, EcoMaterialKind(batch.kind))
+    if batch.reserved_quantity and payload.qc_status != StockBatchQcStatus.PASSED:
+        raise HTTPException(409, "Release approved allocations before placing this batch on hold")
+    details = dict(batch.receipt_details or {})
+    old_status = details.get("qc_status", "passed")
+    details["qc_status"] = payload.qc_status.value
+    persistence.set_receipt_details(db, batch, details)
+    log_action(db, current, "quality", "EcoMaterialBatch", batch.id,
+               old_value={"qc_status": old_status}, new_value={"qc_status": payload.qc_status.value})
+    db.commit()
+    return batch_output(db, batch)
 
 
 def list_items(db: Session, current: User, kind: EcoMaterialKind) -> list[EcoMaterialItemOut]:
@@ -84,12 +130,16 @@ def list_orders(db: Session, current: User) -> list[EcoMaterialOrderOut]:
 
 
 def list_stock(db: Session, current: User, kind: EcoMaterialKind | None = None,
-               offset: int = 0, limit: int = 200) -> list[EcoMaterialBatchOut]:
+               offset: int = 0, limit: int = 200, q: str = "") -> list[EcoMaterialBatchOut]:
     require_eco(current, "eco_inventory.read")
     kind = scoped_kind(current, kind)
     query = db.query(EcoMaterialBatch, Item).join(Item, Item.id == EcoMaterialBatch.item_id)
     if kind:
         query = query.filter(EcoMaterialBatch.kind == kind.value)
+    if q.strip():
+        pattern = "%" + q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+        query = query.filter(or_(*(column.ilike(pattern, escape="\\") for column in
+            (Item.name, Item.sku, EcoMaterialBatch.batch_no, EcoMaterialBatch.color))))
     return [batch_output(db, batch, item) for batch, item in query.order_by(EcoMaterialBatch.id.desc()).offset(offset).limit(limit).all()]
 
 
@@ -100,14 +150,40 @@ def receive_stock(db: Session, payload: EcoMaterialReceiveIn, current: User) -> 
     replay = replay_idempotent_response(db, scope="eco_inventory.receive", key=payload.request_key, payload=body)
     if replay is not None:
         return EcoMaterialMutationOut.model_validate(replay)
-    item = db.get(Item, payload.item_id)
+    item = db.execute(select(Item).where(Item.id == payload.item_id).with_for_update()
+                      .execution_options(populate_existing=True)).scalar_one_or_none()
     categories = ("fabric", "semi_finished") if payload.kind == EcoMaterialKind.FABRIC else ("accessory", "packaging")
     if not item or not item.is_active or item.category not in categories:
         raise HTTPException(400, "Select an active material of the selected inventory kind")
+    details = EcoReceiptDetails.model_validate({key: body[key] for key in EcoReceiptDetails.model_fields}).model_dump(mode="json")
+    if payload.supplier_id:
+        supplier = db.get(Supplier, payload.supplier_id)
+        if not supplier:
+            raise HTTPException(400, "Supplier not found")
+        details["supplier_name"] = supplier.name
+    if payload.warehouse_id:
+        warehouse = db.query(Warehouse).join(Department, Department.id == Warehouse.department_id).filter(
+            Warehouse.id == payload.warehouse_id, Department.code.in_(("ECO", "ECT", "ECP"))).first()
+        if not warehouse:
+            raise HTTPException(403, "Select an ECO COTTON warehouse")
+        if materials_only(current) and warehouse.type == "accessory_storage":
+            raise HTTPException(403, "Accessory warehouses are not available to this account")
+        details["warehouse_name"] = warehouse.name
+    if payload.production_order_id:
+        require_eco_order(db, payload.production_order_id)
+    from app.models.inventory.stock_service import _validate_item_image_url
+    details["image_url"] = _validate_item_image_url(payload.image_url)
+    unit = payload.unit or item.unit
+    if payload.kind == EcoMaterialKind.ACCESSORY and unit != item.unit:
+        raise HTTPException(400, "Accessory receipt unit must match its material catalog unit")
+    if payload.roll_weights_kg and unit != "kg":
+        raise HTTPException(400, "Individual roll weights require kg")
     batch = persistence.insert_batch(db, item_id=item.id, kind=payload.kind, batch_no=payload.batch_no,
-                                      color=payload.color, unit=item.unit, quantity=payload.quantity, created_by=current.id)
+                                      color=payload.color, unit=unit, quantity=payload.quantity, created_by=current.id,
+                                      receipt_details=details)
     movement = persistence.insert_movement(db, batch_id=batch.id, kind=EcoMaterialMovementKind.RECEIVE,
-                                           quantity=payload.quantity, created_by=current.id, notes=payload.notes)
+                                           quantity=payload.quantity, created_by=current.id, notes=payload.notes,
+                                           production_order_id=payload.production_order_id)
     result = EcoMaterialMutationOut(batch=batch_output(db, batch), movement_id=movement.id)
     log_action(db, current, "receive", "EcoMaterialBatch", batch.id, new_value=body)
     store_idempotent_response(db, scope="eco_inventory.receive", key=payload.request_key,
@@ -136,6 +212,8 @@ def consume_eco_batch(db: Session, *, batch_id: int, quantity: Decimal, current:
                        .with_for_update().execution_options(populate_existing=True)).scalar_one_or_none()
     if not batch:
         raise HTTPException(404, "Eco Cotton material batch not found")
+    if not quality_passed(batch):
+        raise HTTPException(409, "Material must pass quality inspection before consumption or issue")
     if allocated:
         if batch.reserved_quantity < quantity or batch.quantity < quantity:
             raise HTTPException(409, "Allocated Eco Cotton stock is insufficient")

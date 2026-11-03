@@ -139,7 +139,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   const redirectNonMilanaHome = Boolean(me && me.factory_code !== "MIL"
     && pathname !== factoryHome && (pathname === "/" || deniedFactoryLanding));
   const operationalFactory = (() => {
-    if (pathname === "/eco-inventory" || pathname === "/eco-accessories") return "ECO";
+    if (pathname.startsWith("/eco-inventory") || pathname === "/eco-accessories") return "ECO";
     if (pathname === "/usluga" || pathname.startsWith("/usluga/")) return "ECO";
     const department = pathname.match(/^\/departments\/(CUT|PRT|SEW|MIL|PKG|BST|BPK|ECT|ECO|ECP)(?:\/|$)/)?.[1];
     if (department) {

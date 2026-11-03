@@ -2,13 +2,33 @@
 from fastapi import APIRouter, Query, Response
 
 from app.core.deps import CurrentUser, DbSession
-from app.libs.dto.inventory.eco_inventory_input import EcoMaterialConsumeIn, EcoMaterialReceiveIn, FactoryFabricDispatchIn, FactoryFabricReceiptIn
-from app.libs.dto.inventory.eco_inventory_output import EcoMaterialBatchOut, EcoMaterialItemOut, EcoMaterialMovementOut, EcoMaterialMutationOut, EcoMaterialOrderOut, FactoryFabricSourceBatchOut, FactoryFabricTransferOut
+from app.libs.dto.inventory.eco_inventory_input import EcoMaterialConsumeIn, EcoMaterialReceiveIn, FactoryFabricDispatchIn, FactoryFabricReceiptIn, EcoWarehouseIn, EcoQualityIn
+from app.libs.dto.inventory.eco_inventory_output import EcoMaterialBatchOut, EcoMaterialItemOut, EcoMaterialMovementOut, EcoMaterialMutationOut, EcoMaterialOrderOut, FactoryFabricSourceBatchOut, FactoryFabricTransferOut, EcoNamedOptionOut
 from app.libs.enums.eco_inventory import EcoMaterialKind, FactoryFabricTransferStatus
 from app.models.inventory import eco_inventory_service as stock
 from app.models.inventory import factory_fabric_transfers_service as transfers
 
 router = APIRouter(tags=["eco-inventory"])
+
+
+@router.get("/eco-inventory/suppliers", response_model=list[EcoNamedOptionOut])
+def receipt_suppliers(db: DbSession, current: CurrentUser):
+    return stock.receipt_options(db, current, suppliers=True)
+
+
+@router.get("/eco-inventory/warehouses", response_model=list[EcoNamedOptionOut])
+def receipt_warehouses(db: DbSession, current: CurrentUser):
+    return stock.receipt_options(db, current)
+
+
+@router.post("/eco-inventory/warehouses", response_model=EcoNamedOptionOut)
+def create_warehouse(payload: EcoWarehouseIn, db: DbSession, current: CurrentUser):
+    return stock.create_warehouse(db, current, payload)
+
+
+@router.patch("/eco-inventory/batches/{batch_id}/quality", response_model=EcoMaterialBatchOut)
+def quality(batch_id: int, payload: EcoQualityIn, db: DbSession, current: CurrentUser):
+    return stock.update_quality(db, current, batch_id, payload)
 
 
 @router.get("/eco-inventory/orders", response_model=list[EcoMaterialOrderOut])
@@ -23,8 +43,8 @@ def list_items(db: DbSession, current: CurrentUser, kind: EcoMaterialKind):
 
 @router.get("/eco-inventory/stock", response_model=list[EcoMaterialBatchOut])
 def list_stock(db: DbSession, current: CurrentUser, kind: EcoMaterialKind | None = None,
-               offset: int = Query(0, ge=0), limit: int = Query(200, ge=1, le=500)):
-    return stock.list_stock(db, current, kind, offset, limit)
+               offset: int = Query(0, ge=0), limit: int = Query(200, ge=1, le=500), q: str = Query("", max_length=200)):
+    return stock.list_stock(db, current, kind, offset, limit, q)
 
 
 @router.get("/eco-inventory/history", response_model=list[EcoMaterialMovementOut])
