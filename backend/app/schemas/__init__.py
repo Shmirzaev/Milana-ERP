@@ -41,6 +41,7 @@ from app.schemas.planning.price_calculation import PriceCalculationRequest
 from app.schemas.inventory.stocktake import WarehouseStocktake, WarehouseStocktakeRow
 from app.schemas.packaging.package_workflows import ManualPackageReceipt, PackagePrintRun, PackagePrintRunMember
 from app.schemas.fulfillment.shipment_review import PackageQuantityAdjustment
+from app.schemas.fulfillment.package_customer_release import PackageCustomerRelease
 
 from app.schemas.inventory.fabric_scan import FabricScan
 
@@ -77,4 +78,5 @@ __all__ = [
     "WarehouseStocktake", "WarehouseStocktakeRow",
     "ManualPackageReceipt", "PackagePrintRun", "PackagePrintRunMember",
     "PackageQuantityAdjustment",
+    "PackageCustomerRelease",
 ]
