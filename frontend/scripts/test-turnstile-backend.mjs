@@ -98,10 +98,32 @@ function findApply(node) { if (ts.isFunctionDeclaration(node) && node.name?.text
 findApply(ast); assert(applyHandler);
 const applyJs = ts.transpile(applyHandler, { target: ts.ScriptTarget.ES2020 });
 const driftEvents = [];
-const driftEnv = { confirm: true, blocked: false, photo: { blob }, checks: [true, true], targetDevices: [{ id: 2 }], reviewedNumber: "EMP-4", employeeNumber: "EMP-NEW", setConfirm: value => driftEvents.push(["confirm", value]), setMessage: value => driftEvents.push(["message", value]), b: { identityChanged: "changed" } };
+const driftEnv = { action: preview.GateAction.Enroll, GateAction: preview.GateAction, confirm: true, blocked: false, photo: { blob }, checks: [true, true], targetDevices: [{ id: 2 }], reviewedNumber: "EMP-4", employeeNumber: "EMP-NEW", setConfirm: value => driftEvents.push(["confirm", value]), setMessage: value => driftEvents.push(["message", value]), b: { identityChanged: "changed" } };
 const applyDrift = new Function(...Object.keys(driftEnv), `${applyJs}; return backendApply;`)(...Object.values(driftEnv));
 await applyDrift();
 assert.deepEqual(driftEvents, [["confirm", false], ["message", "changed"]]);
 console.log("turnstile reviewed identity drift test passed");
 
 assert.equal(out.findAcceptedOperation([{ ...response, external_person_id: "OTHER-NUMBER" }], request), undefined);
+
+const hash = "a".repeat(64);
+const editRequest = { key: "edit-key", payload: { expected_employee_no: "EMP-4", reviewed_name: "New Name", action: preview.GateAction.Edit, targets: [{ device_id: 2, expected_revision: 3, expected_profile_hash: hash }] } };
+const editReceipt = { ...response, action: preview.GateAction.Edit, full_name: "New Name", photo_asset_id: null, targets: [{ device_id: 2, baseline_revision: 3, baseline_profile_hash: hash }] };
+assert(out.validRequest(request)); assert(out.validRequest(editRequest));
+assert(!out.validRequest({ ...editRequest, payload: { ...editRequest.payload, action: "EDIT" } }));
+assert(!out.validRequest({ ...editRequest, payload: { ...editRequest.payload, targets: [{ ...editRequest.payload.targets[0], expected_profile_hash: "bad" }] } }));
+response = editReceipt;
+assert.equal((await out.submitEnrollment(4, editRequest)).kind, "accepted");
+assert.equal(calls.at(-1).url, "/api/turnstile-access/employees/4/edit");
+assert.equal(calls.at(-1).headers["Idempotency-Key"], "edit-key");
+assert.equal(out.findAcceptedOperation([editReceipt], editRequest)?.id, 12);
+assert.equal(out.findAcceptedOperation([{ ...editReceipt, targets: [{ ...editReceipt.targets[0], baseline_revision: 4 }] }], editRequest), undefined);
+assert.equal(out.findAcceptedOperation([{ ...editReceipt, targets: [{ ...editReceipt.targets[0], baseline_profile_hash: "b".repeat(64) }] }], editRequest), undefined);
+failure = new TypeError("lost response"); assert.equal((await out.submitEnrollment(4, editRequest)).kind, "unknown"); failure = undefined;
+console.log("turnstile edit bridge tests passed");
+
+const staleEvents = [];
+const staleEnv = { action: preview.GateAction.Edit, GateAction: preview.GateAction, confirm: true, blocked: false, targetDevices: [{ id: 2 }], reviewedTargets: editRequest.payload.targets, context: { data: { bindings: [{ device_id: 2, state: "active", edit_baseline: { revision: 4, profile_hash: hash } }] } }, setConfirm: v => staleEvents.push(["confirm", v]), setMessage: v => staleEvents.push(["message", v]), b: { staleBaseline: "stale" } };
+await new Function(...Object.keys(staleEnv), `${applyJs}; return backendApply;`)(...Object.values(staleEnv))();
+assert.deepEqual(staleEvents, [["confirm", false], ["message", "stale"]]);
+console.log("turnstile stale baseline refusal test passed");

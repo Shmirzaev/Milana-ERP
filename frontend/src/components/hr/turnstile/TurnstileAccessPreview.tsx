@@ -8,7 +8,7 @@ import { fetcher } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import { GateAction, GateState, PREVIEW_ENABLED, BACKEND_ENABLED, previewKey, readPreview, simulateOperation, type GateDevice, type GateEmployee, type GateOperation } from "./turnstilePreview";
 import { backendCopy } from "./turnstileBackendCopy";
-import { contextUrl, submitEnrollment, findAcceptedOperation, removeMatchingJournal, markJournalAccepted, getOperation, processOperation, reconnectOperation, projectOperation, uploadPhoto, type EnrollmentPayload, type EnrollmentRequest, type GateContext, type ServerOperation } from "./turnstileBackend";
+import { contextUrl, submitEnrollment, findAcceptedOperation, removeMatchingJournal, markJournalAccepted, getOperation, processOperation, reconnectOperation, projectOperation, uploadPhoto, validRequest, type EditTarget, type EnrollmentRequest, type GateContext, type ServerOperation } from "./turnstileBackend";
 import { gateCopy } from "./turnstilePreviewCopy";
 import styles from "./TurnstileAccessPreview.module.css";
 
@@ -37,6 +37,7 @@ function Preview({ employee, actorId, canManage, onClose }: Props) {
   const [checks, setChecks] = useState([false, false]);
   const [message, setMessage] = useState(""); const [storageError, setStorageError] = useState(false);
   const [confirm, setConfirm] = useState(false);
+  const [reviewedTargets, setReviewedTargets] = useState<EditTarget[]>([]);
   const [reviewedNumber, setReviewedNumber] = useState<string | null>(null);
   const [history, setHistory] = useState<GateOperation[]>([]);
   const [resultId, setResultId] = useState<string | null>(null);
@@ -56,8 +57,9 @@ function Preview({ employee, actorId, canManage, onClose }: Props) {
   const latest = displayedHistory.find(item => item.id === resultId) || displayedHistory[0];
   const waiting = latest?.targets.some(t => t.state === GateState.Waiting);
   const employeeNumber = BACKEND_ENABLED ? context.data?.employee_no : employee.employee_no;
+  const eligibleDevices = BACKEND_ENABLED && action === GateAction.Edit ? devices.filter(d => context.data?.bindings.some(b => b.device_id === d.id && b.state === "active" && b.edit_baseline)) : devices;
   const targetDevices = devices.filter(d => selected.includes(d.id));
-  const blocked = !canManage || (BACKEND_ENABLED && (!context.data?.simulator_enabled || busy || !!pending || recoveryBlocked)) || !employeeNumber?.trim() || (employee.status === "archived" && action !== GateAction.Revoke);
+  const blocked = !canManage || (BACKEND_ENABLED && (!context.data?.simulator_enabled || !context.data?.supported_actions.includes(action) || busy || !!pending || recoveryBlocked)) || !employeeNumber?.trim() || (employee.status === "archived" && action !== GateAction.Revoke);
   const actionLabel = (value: GateAction) => ({ [GateAction.Enroll]: c.enroll, [GateAction.Edit]: c.edit, [GateAction.Photo]: c.photo, [GateAction.Revoke]: c.revoke })[value];
   const stateLabel = (value: GateState) => ({ [GateState.Verified]: c.verified, [GateState.Waiting]: BACKEND_ENABLED ? b.waiting : c.waiting, [GateState.Revoked]: c.revoked, [GateState.Superseded]: BACKEND_ENABLED ? b.superseded : c.superseded, [GateState.Queued]: b.queued, [GateState.Processing]: b.processing, [GateState.Verifying]: b.verifying, [GateState.Succeeded]: b.succeeded, [GateState.Failed]: b.failedState, [GateState.Conflict]: b.conflict, [GateState.Uncertain]: b.uncertainState, [GateState.Cancelled]: b.cancelled })[value];
 
@@ -71,8 +73,8 @@ function Preview({ employee, actorId, canManage, onClose }: Props) {
       if (!raw) return;
       const saved: unknown = JSON.parse(raw);
       if (!saved || typeof saved !== "object") throw new Error("Invalid recovery request");
-      const request = saved as { key?: unknown; payload?: Partial<EnrollmentPayload>; acceptedId?: unknown };
-      if (typeof request.key !== "string" || !request.payload || !Array.isArray(request.payload.device_ids) || !request.payload.device_ids.every(x => Number.isInteger(x) && x > 0) || !Number.isInteger(request.payload.photo_asset_id) || typeof request.payload.expected_employee_no !== "string" || !request.payload.expected_employee_no.trim() || request.payload.expected_employee_no.length > 64 || typeof request.payload.reviewed_name !== "string" || request.payload.manual_face_reviewed !== true || request.payload.action !== GateAction.Enroll || (request.acceptedId !== undefined && (!Number.isInteger(request.acceptedId) || Number(request.acceptedId) <= 0))) throw new Error("Invalid recovery request");
+      if (!validRequest(saved)) throw new Error("Invalid recovery request");
+      const request = saved;
       setPending(request as EnrollmentRequest); setMessage(b.uncertain);
     } catch { setRecoveryBlocked(true); setMessage(b.failed); }
   }, [key, recoveryKey, b.uncertain, b.failed]);
@@ -126,12 +128,17 @@ function Preview({ employee, actorId, canManage, onClose }: Props) {
     canvas.getContext("2d")?.drawImage(video.current, 0, 0);
     canvas.toBlob(blob => { if (blob && mounted.current && generation === cameraGeneration.current && selection === photoGeneration.current) void selectPhoto(blob); }, "image/jpeg", 0.92);
   }
-  function changeAction(next: GateAction) { photoGeneration.current++; closeCamera(); setAction(next); setConfirm(false); setMessage(""); }
+  function changeAction(next: GateAction) { photoGeneration.current++; closeCamera(); setSelected([]); setAction(next); setConfirm(false); setMessage(""); }
   function review() {
     if (blocked) return;
     if (!targetDevices.length) { setMessage(c.selectRequired); return; }
     if (needsPhoto && (!photo || !checks.every(Boolean))) { setMessage(c.photoRequired); return; }
     if (!name.trim()) return;
+    if (BACKEND_ENABLED && action === GateAction.Edit) {
+      const refs = targetDevices.map(d => { const baseline = context.data?.bindings.find(b => b.device_id === d.id && b.state === "active")?.edit_baseline; return baseline ? { device_id: d.id, expected_revision: baseline.revision, expected_profile_hash: baseline.profile_hash } : null; });
+      if (refs.some(ref => !ref) || targetDevices.some(d => !eligibleDevices.some(e => e.id === d.id))) { setMessage(b.staleBaseline); return; }
+      setReviewedTargets(refs as EditTarget[]);
+    }
     setReviewedNumber(employeeNumber || null); setMessage(""); setConfirm(true); focusWithin("[data-gate-confirm]");
   }
   function saveHistory(next: GateOperation[]) {
@@ -174,14 +181,17 @@ function Preview({ employee, actorId, canManage, onClose }: Props) {
     finally { running.current = false; if (mounted.current) setBusy(false); }
   }
   async function backendApply() {
-    if (!confirm || blocked || !photo || !checks.every(Boolean) || !targetDevices.length) return;
+    if (!confirm || blocked || !targetDevices.length || (action === GateAction.Enroll && (!photo || !checks.every(Boolean)))) return;
+    if (action === GateAction.Edit && (reviewedTargets.length !== targetDevices.length || reviewedTargets.some(ref => { const baseline = context.data?.bindings.find(b => b.device_id === ref.device_id && b.state === "active")?.edit_baseline; return !baseline || baseline.revision !== ref.expected_revision || baseline.profile_hash !== ref.expected_profile_hash; }))) { setConfirm(false); setMessage(b.staleBaseline); return; }
     if (!reviewedNumber || reviewedNumber !== employeeNumber) { setConfirm(false); setMessage(b.identityChanged); return; }
     if (running.current) return;
     running.current = true; setBusy(true); setMessage("");
     try {
-      const asset = await uploadPhoto(employee.id, photo.blob);
+      const payload = action === GateAction.Edit
+        ? { expected_employee_no: reviewedNumber, targets: reviewedTargets, reviewed_name: name.trim(), action: GateAction.Edit as const }
+        : { expected_employee_no: reviewedNumber, device_ids: targetDevices.map(d => d.id), photo_asset_id: (await uploadPhoto(employee.id, photo!.blob)).id, reviewed_name: name.trim(), manual_face_reviewed: true as const, action: GateAction.Enroll as const };
       if (!mounted.current) return;
-      const request: { key: string; payload: EnrollmentPayload } = { key: crypto.randomUUID(), payload: { expected_employee_no: reviewedNumber, device_ids: targetDevices.map(d => d.id), photo_asset_id: asset.id, reviewed_name: name.trim(), manual_face_reviewed: true as const, action: GateAction.Enroll } };
+      const request: EnrollmentRequest = { key: crypto.randomUUID(), payload };
       sessionStorage.setItem(recoveryKey, JSON.stringify(request));
       setPending(request);
       running.current = false;
@@ -248,7 +258,7 @@ function Preview({ employee, actorId, canManage, onClose }: Props) {
       <div className={styles.actions} role="group" aria-label={c.action}>
         {Object.values(GateAction).map((value, index) => {
           const Icon = [DoorOpen, ShieldCheck, Camera, ShieldOff][index];
-          return <button type="button" key={value} className={`${styles.action} ${action === value ? styles.active : ""} ${value === GateAction.Revoke ? styles.dangerAction : ""}`} aria-pressed={action === value} disabled={BACKEND_ENABLED && value !== GateAction.Enroll} title={BACKEND_ENABLED && value !== GateAction.Enroll ? b.pending : undefined} onClick={() => changeAction(value)}><Icon size={18} /><span>{actionLabel(value)}</span></button>;
+          return <button type="button" key={value} className={`${styles.action} ${action === value ? styles.active : ""} ${value === GateAction.Revoke ? styles.dangerAction : ""}`} aria-pressed={action === value} disabled={BACKEND_ENABLED && (!(value === GateAction.Enroll || value === GateAction.Edit) || !context.data?.supported_actions.includes(value) || busy || !!pending || recoveryBlocked)} title={BACKEND_ENABLED && (!(value === GateAction.Enroll || value === GateAction.Edit) || !context.data?.supported_actions.includes(value)) ? b.pending : undefined} onClick={() => changeAction(value)}><Icon size={18} /><span>{actionLabel(value)}</span></button>;
         })}
       </div>
       <div className={styles.columns}>
@@ -272,13 +282,13 @@ function Preview({ employee, actorId, canManage, onClose }: Props) {
             <fieldset className={styles.checks}><legend>{c.checks}</legend>{[c.front, c.eyes].map((label, index) => <label key={index}><input type="checkbox" checked={checks[index]} disabled={!photo || !canManage || (BACKEND_ENABLED && (busy || !!pending || recoveryBlocked))} onChange={e => { setChecks(old => old.map((v, i) => i === index ? e.target.checked : v)); setConfirm(false); }} />{label}</label>)}<p>{BACKEND_ENABLED ? b.quality : c.quality}</p></fieldset>
           </> : <div className={`${styles.explanation} ${action === GateAction.Revoke ? styles.revoke : ""}`}><ShieldCheck size={28} /><p>{action === GateAction.Revoke ? c.revokeHelp : c.detailsHelp}</p><small>{action === GateAction.Revoke ? c.revokePhoto : c.photoOptional}</small></div>}
           <div className={styles.sectionTitle}><span>02</span><h3>{c.devices}</h3></div>
-          <div className={styles.deviceHeading}><p>{c.devicesHelp}</p><button type="button" onClick={() => { setSelected(selected.length === devices.length ? [] : devices.map(d => d.id)); setConfirm(false); }} disabled={!devices.length || !canManage || (BACKEND_ENABLED && (busy || !!pending || recoveryBlocked))}>{selected.length === devices.length && devices.length ? c.none : c.all}</button></div>
+          <div className={styles.deviceHeading}><p>{c.devicesHelp}</p><button type="button" onClick={() => { setSelected(selected.length === eligibleDevices.length ? [] : eligibleDevices.map(d => d.id)); setConfirm(false); }} disabled={!devices.length || !canManage || (BACKEND_ENABLED && (busy || !!pending || recoveryBlocked))}>{selected.length === eligibleDevices.length && eligibleDevices.length ? c.none : c.all}</button></div>
           {deviceLoading && <p role="status">{c.loading}</p>}
           {deviceError && <div role="alert" className={styles.warning}>{c.loadError}<button type="button" className="btn" onClick={() => void (BACKEND_ENABLED ? context.mutate() : mutate())}>{c.retry}</button></div>}
           {!deviceLoading && !deviceError && !devices.length && <p className={styles.warning}>{c.empty}</p>}
           <div className={styles.devices}>{devices.map((device, index) => {
             const offline = BACKEND_ENABLED ? device.online !== true : devices.length > 1 && index === devices.length - 1;
-            return <label key={device.id} className={`${styles.device} ${selected.includes(device.id) ? styles.deviceSelected : ""}`}><input type="checkbox" checked={selected.includes(device.id)} disabled={!canManage || (BACKEND_ENABLED && (busy || !!pending || recoveryBlocked))} onChange={e => { setSelected(old => e.target.checked ? [...old, device.id] : old.filter(id => id !== device.id)); setConfirm(false); }} /><div><strong>{device.name}</strong><span>{device.vendor} · {device.device_key}</span><small className={offline ? styles.offline : styles.online}><i />{BACKEND_ENABLED ? (device.online === true ? b.online : device.online === false ? b.offline : b.unknownDevice) : (offline ? c.offline : c.available)}</small></div></label>;
+            return <label key={device.id} className={`${styles.device} ${selected.includes(device.id) ? styles.deviceSelected : ""}`}><input type="checkbox" checked={selected.includes(device.id)} disabled={!canManage || (BACKEND_ENABLED && (busy || !!pending || recoveryBlocked || !eligibleDevices.some(d => d.id === device.id)))} onChange={e => { setSelected(old => e.target.checked ? [...old, device.id] : old.filter(id => id !== device.id)); setConfirm(false); }} /><div><strong>{device.name}</strong><span>{device.vendor} · {device.device_key}</span>{BACKEND_ENABLED && action === GateAction.Edit && context.data?.bindings.find(b => b.device_id === device.id)?.edit_baseline && <span>{b.previousName}: {context.data.bindings.find(b => b.device_id === device.id)?.edit_baseline?.full_name}</span>}<small className={offline ? styles.offline : styles.online}><i />{BACKEND_ENABLED ? (device.online === true ? b.online : device.online === false ? b.offline : b.unknownDevice) : (offline ? c.offline : c.available)}</small></div></label>;
           })}</div>
         </section>
         <aside className={styles.aside}>
