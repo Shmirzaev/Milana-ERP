@@ -53,15 +53,16 @@ and [machine-readable record](archive/PACK_CUSTOMER_FG_RELEASE_2026-11-03.json).
 
 ## Turnstile development (4 November)
 
-The [Add access packet](TURNSTILE_ACCESS_BACKEND_20261103.md) preserves the ENROLL
-simulator evidence. The [Edit details packet](TURNSTILE_EDIT_DETAILS_20261103.md)
-records the next bounded operation: explicit reviewed name changes with per-device
-photo/identity preservation, baseline conflict checks and actor-scoped recovery.
-Owned VM107 synthetic PostgreSQL, desktop and EN/RU/UZ phone checks passed;
-human acceptance is pending. Migration0152 follows0151 and refuses downgrade once
-EDIT history exists. This is development source only; production active/rollback
-records above are unchanged. PHOTO, REVOKE, adoption, live hardware writes and the
-remaining system-wide refactor/type audit remain pending.
+The [Add access](TURNSTILE_ACCESS_BACKEND_20261103.md) and
+[Edit details](TURNSTILE_EDIT_DETAILS_20261103.md) packets preserve earlier simulator
+evidence. The [Replace photo packet](TURNSTILE_PHOTO_REPLACEMENT_20261104.md) records
+the next isolated slice: explicit selected-device replacement, preserving distinct
+device names/IDs and retaining prior photos until acceptance. Combined102 tests,
+guarded PostgreSQL, full frontend build and actual desktop/EN/RU/UZ phone checks
+passed; independent AI review found no remaining source blocker. Human acceptance remains unrecorded. Existing0152 constraints and
+guarded downgrade apply; no new migration. Production release/rollback pointers
+above are unchanged. REVOKE, adoption, live hardware and remaining system-wide
+refactor/type coverage stay pending.
 
 ## Identity policy-helper prerequisite (3 November)
 

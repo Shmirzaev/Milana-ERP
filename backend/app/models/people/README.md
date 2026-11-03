@@ -64,14 +64,14 @@ production verification -> remove old code. Keep one write path per request.
 Record the test result, visual evidence, approver and cleanup condition in the task.
 Visual success alone does not prove permissions, concurrency or data correctness.
 
-## Simulator turnstile Add access and Edit details
+## Simulator turnstile Add access, Edit details and Replace photo
 Public operations are in [turnstile_access_service.py](turnstile_access_service.py),
 [turnstile_photo_service.py](turnstile_photo_service.py), and
 [turnstile_simulator_service.py](turnstile_simulator_service.py).
-ENROLL and EDIT each own one outer request transaction and call explicit schema-owned
+ENROLL, EDIT and PHOTO each own one outer request transaction and call explicit schema-owned
 mutations with the same supplied Session. Photo upload owns its asset/file lifecycle;
 the simulator coordinates separate claim, durable acceptance and readback transactions.
-Neither operation writes HR employee details or attendance mirror/event rows. Existing
+None of these operations writes HR employee details or attendance mirror/event rows. Existing
 mirrored identities are refused until a separate adoption operation; reviewed employee
 numbers prevent stale identity use and existing bindings cannot be remapped by HR changes.
 
@@ -81,8 +81,18 @@ simulator evidence under locks, freezes the baseline and uses a conditional name
 at acceptance. It preserves each device's photo and external identity. Uncertain outcomes
 are reconciled through readback; a public actor/factory/employee/action-scoped receipt
 lookup resolves a saved request key without submitting a new operation. HR Save remains
-independent. PHOTO, REVOKE, adoption and live-device writes remain pending.
+independent. REVOKE, adoption and live-device writes remain pending.
+
+Private simulator PHOTO replaces only the photo on selected verified bindings. It uses
+the shared reviewed baseline references and a validated immutable asset with manual
+attestation. Each target retains its own frozen name and external identity; its previous
+photo remains until that target durably accepts the replacement. Existing and new asset
+rows and files are retained. The operation's full_name is an informational HR snapshot,
+not the desired name on each target. Unknown simulator acceptance uses read-only
+reconciliation; the scoped receipt lookup matches the saved action, asset and target
+baseline references. PHOTO is AI_VERIFIED_AWAITING_HUMAN; prior human gates remain unrecorded.
 
 See the historical [ENROLL evidence](../../../../docs/TURNSTILE_ACCESS_BACKEND_20261103.md)
-and the [EDIT task and evidence packet](../../../../docs/TURNSTILE_EDIT_DETAILS_20261103.md).
+the [EDIT task and evidence packet](../../../../docs/TURNSTILE_EDIT_DETAILS_20261103.md),
+and the [PHOTO task packet](../../../../docs/TURNSTILE_PHOTO_REPLACEMENT_20261104.md).
 Independent final review and human acceptance are separate gates.

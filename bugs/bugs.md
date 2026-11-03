@@ -1,5 +1,19 @@
 # Team bug tracker — clone_main
 
+## TURNSTILE-PHOTO-20261104 — guarded simulator photo replacement
+
+- **AI_VERIFIED_AWAITING_HUMAN; human acceptance unrecorded; not deployed.** People owner
+  Dilmurod, reviewer Mirshoir; low-reasoning Terra implementers and independent AI
+  reviewer recorded in the [operation packet](../docs/TURNSTILE_PHOTO_REPLACEMENT_20261104.md).
+- Explicit PHOTO keeps each device's name/identity and prior photo until confirmed,
+  uses complete baseline SQL CAS, immutable retained assets, exact scoped request
+  recovery and read-only reconciliation after uncertain results.
+- Combined102 tests, real PostgreSQL races/rollback guard and actual desktop/phone
+  EN/RU/UZ workflows passed. Full frontend build and independent review passed. No production
+  data/hardware or deployment touched; keep active until recorded human production
+  verification.
+
+
 ## TURNSTILE-EDIT-RECOVERY-20261104 — simulator profile edit and accepted-request recovery
 
 - **AI_VERIFIED_AWAITING_HUMAN; human acceptance pending; not deployed.**

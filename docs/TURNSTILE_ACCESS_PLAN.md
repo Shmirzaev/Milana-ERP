@@ -268,8 +268,8 @@ photo upload or face-review attestation: it preserves each device's existing pho
 external identity. The operator reviews the prior device name and confirms selected
 revision/profile-hash references; changed or stale evidence is refused. HR Save and
 archive remain independent, and existing attendance ingestion and the other ERP writer
-remain in place. PHOTO replacement, REVOKE, adoption and live hardware are not implemented
-by this slice.
+remain in place. At this EDIT slice, PHOTO replacement, REVOKE, adoption and live hardware
+were not implemented.
 
 The 202 EDIT endpoint uses the existing provisioning permission and actor/factory
 scope. The service freezes trusted complete baseline evidence under locks and calls
@@ -287,3 +287,25 @@ Full configured Ruff and independent boundary review passed. This operation is
 AI_VERIFIED_AWAITING_HUMAN; these checks do not imply human technical or
 operator acceptance, production release, or real-device support. Exact source, evidence,
 limitations and human checklist belong in the [EDIT task packet](TURNSTILE_EDIT_DETAILS_20261103.md).
+
+
+## Simulator PHOTO replacement candidate — 2026-11-04
+
+The owner authorized continuation to the private simulator PHOTO slice. Verification is
+**IN_PROGRESS**; the earlier ENROLL and EDIT evidence remains historical and prior human
+acceptance gates are unrecorded. The candidate requires a validated immutable photo asset,
+manual review attestation and explicit Apply to selected verified bindings. It shares
+`GateEditTargetInput` and the context `edit_baseline` revision/profile-hash review
+contract with EDIT. Each device retains its own name and external identity; its prior
+photo remains until that target durably accepts the replacement. Old and new asset rows
+and files are retained. The PHOTO operation full_name is an informational HR snapshot,
+not the target desired name.
+
+The operation uses the existing same-session persistence boundary and migration 0152;
+no new migration is required. The 0152 downgrade guard retains PHOTO baseline history.
+Unknown acceptance is reconciled by readback, and the actor/factory/employee/action-scoped
+receipt lookup matches the saved key, photo asset and exact target baseline references.
+HR Save and archive remain separate; existing attendance reading and both ERP writers
+continue. REVOKE, adoption and live hardware remain outside this slice. The forthcoming
+[PHOTO task packet](TURNSTILE_PHOTO_REPLACEMENT_20261104.md) records source, evidence,
+remaining gates and the human checklist; no production or human acceptance is inferred.
