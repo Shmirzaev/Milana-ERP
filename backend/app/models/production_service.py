@@ -12,6 +12,7 @@ from app.schemas import (
 from app.core.signing import strip_signature
 from app.models.numbering_service import next_production_order_no, next_usluga_order_no
 from app.models.inventory_service import available_stock_for_batch, missing_material_reservation_for_cutting
+from app.models.model_images_service import model_print_image_url
 
 
 # Department code -> operation
@@ -296,7 +297,10 @@ def create_production_order(
             color=it["color"],
             size=it["size"],
             planned_quantity=int(it.get("planned_quantity", 0)),
-            printing_required=bool(it.get("printing_required")),
+            printing_required=bool(it.get("printing_required")) or (
+                source_type == "standard"
+                and bool(model_print_image_url(db.get(Model, it.get("model_id") or model_id)))
+            ),
         ))
     db.flush()
     return po
@@ -371,6 +375,9 @@ def create_work_orders(
     if not po:
         raise HTTPException(404, "Production order not found")
 
+    include_printing = include_printing or any(item.printing_required for item in po.items) or (
+        po.source_type == "standard" and bool(model_print_image_url(db.get(Model, po.model_id)))
+    )
     existing_ops = {
         str(wo.operation)
         for wo in db.query(WorkOrder).filter(WorkOrder.production_order_id == po.id).all()

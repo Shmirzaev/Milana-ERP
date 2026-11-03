@@ -45,6 +45,7 @@ class Employee(Base, PkMixin, TimestampMixin):
     __tablename__ = "employees"
     __table_args__ = (
         UniqueConstraint("factory_code", "employee_no", name="uq_employees_factory_employee_no"),
+        UniqueConstraint("id", "factory_code", name="uq_employees_id_factory"),
     )
 
     factory_code: Mapped[str] = mapped_column(String(3), nullable=False, default="MIL", server_default="MIL", index=True)

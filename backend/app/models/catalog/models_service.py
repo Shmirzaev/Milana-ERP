@@ -52,7 +52,7 @@ from app.libs.dto.catalog.model_size_input import ModelSizeIn
 from app.libs.dto.catalog.model_output import ModelDetail, ModelImageOut, ModelOut, ModelSummaryOut
 from app.libs.dto.catalog.process_qr_sizes_input import ProcessQrSizesIn
 from app.libs.enums.catalog import BomMaterialRole, CatalogScope
-from app.libs.types.catalog import NormalizedBomCreate, NormalizedBomUpdate
+from app.libs.types.catalog import ModelColorCreateCommand, ModelColorCreateResult, ModelSizeCreateCommand, ModelSizeCreateResult, NormalizedBomCreate, NormalizedBomUpdate
 from app.models.audit_service import log_action
 from app.models.factory_scope_service import selected_factory_code
 from app.models.image_storage_service import (
@@ -103,6 +103,8 @@ from app.schemas import (
     User,
 )
 from app.schemas.catalog.bom_persistence import delete_model_bom, insert_model_bom, update_model_bom
+from app.schemas.catalog.model_size_persistence import insert_model_size
+from app.schemas.catalog.model_color_persistence import insert_model_color
 
 # A model's details_json is per-model modelling metadata: identity, costing and
 # paid operations. Sizes, measurements, BOM and images live in their own tables,
@@ -889,11 +891,16 @@ def _summary_family_photos(db: Session, rows) -> dict[int, str | None]:
     return photos
 
 
-def _catalog_model(db: Session, model_id: int, catalog_scope: str = "standard") -> Model | None:
+def _catalog_model_for_scope(db: Session, model_id: int, catalog_scope: CatalogScope) -> Model | None:
     return db.query(Model).filter(
         Model.id == model_id,
-        Model.catalog_scope == _normalize_catalog_scope(catalog_scope),
+        Model.catalog_scope == catalog_scope.value,
     ).one_or_none()
+
+
+def _catalog_model(db: Session, model_id: int, catalog_scope: str = "standard") -> Model | None:
+    scope = CatalogScope(_normalize_catalog_scope(catalog_scope))
+    return _catalog_model_for_scope(db, model_id, scope)
 
 
 def _standard_model(db: Session, model_id: int) -> Model | None:
@@ -2624,12 +2631,15 @@ def add_size(
     db: Session,
     mid: int,
     payload: ModelSizeIn,
-    catalog_scope: str = "standard",
-):
-    if not _catalog_model(db, mid, catalog_scope): raise HTTPException(404, "Model not found")
-    s = ModelSize(model_id=mid, **payload.model_dump())
-    db.add(s)
-    db.flush()
+    catalog_scope: CatalogScope = CatalogScope.STANDARD,
+) -> ModelSizeCreateResult:
+    # Other historical callers may still supply raw values; preserve their
+    # existing normalization and errors before the typed query.
+    scope = catalog_scope.value if isinstance(catalog_scope, CatalogScope) else catalog_scope
+    scope = CatalogScope(_normalize_catalog_scope(scope))
+    if not _catalog_model_for_scope(db, mid, scope): raise HTTPException(404, "Model not found")
+    command = ModelSizeCreateCommand(model_id=mid, **payload.model_dump())
+    s = insert_model_size(db, command)
     log_action(db, current, "create", "ModelSize", s.id, new_value={"model_id": mid, "size": s.size})
     db.commit(); db.refresh(s)
     return {"id": s.id}
@@ -2657,15 +2667,18 @@ def add_color(
     db: Session,
     mid: int,
     payload: ModelColorIn,
-    catalog_scope: str = "standard",
-):
-    if not _catalog_model(db, mid, catalog_scope): raise HTTPException(404, "Model not found")
+    catalog_scope: CatalogScope = CatalogScope.STANDARD,
+) -> ModelColorCreateResult:
+    scope = catalog_scope.value if isinstance(catalog_scope, CatalogScope) else catalog_scope
+    scope = CatalogScope(_normalize_catalog_scope(scope))
+    if not _catalog_model_for_scope(db, mid, scope): raise HTTPException(404, "Model not found")
     if len(payload.color_name) > 64:
         raise HTTPException(422, "color_name must be at most 64 characters")
     if payload.color_code is not None and len(payload.color_code) > 16:
         raise HTTPException(422, "color_code must be at most 16 characters")
-    c = ModelColor(model_id=mid, **payload.model_dump())
-    db.add(c); db.commit(); db.refresh(c)
+    command = ModelColorCreateCommand(model_id=mid, **payload.model_dump())
+    c = insert_model_color(db, command)
+    db.commit(); db.refresh(c)
     return {"id": c.id}
 
 

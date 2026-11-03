@@ -1591,8 +1591,21 @@ def ship_package(
     if shipment_context is None:
         pkg = (db.query(Package).filter(Package.id == pkg.id)
                .with_for_update(of=Package).populate_existing().one())
+        from app.models.fulfillment.package_customer_service import package_customer_policies, package_reservation_error
+        policy = package_customer_policies(db, [pkg])[pkg.id]
+        if policy.customers and not policy.released:
+            raise HTTPException(409, "Dispatch customer-assigned packs through their scanned customer shipment")
+        if policy.released and (package_reservation_error(db, None, pkg) or db.query(FinishedGoodsStock.id).filter(
+                FinishedGoodsStock.package_id == pkg.id, FinishedGoodsStock.reserved_qty > 0).first()):
+            raise HTTPException(409, "Dispatch reserved packs through their scanned sales shipment")
         if db.query(WarehousePackReservation.id).filter_by(package_id=pkg.id).first():
             raise HTTPException(409, "Prepare this customer reservation for shipment first")
+        from app.libs.enums.fulfillment import ShipmentStatus
+        from app.schemas import Shipment
+        if db.query(ShipmentPackage.id).join(Shipment, Shipment.id == ShipmentPackage.shipment_id).filter(
+                ShipmentPackage.package_id == pkg.id, Shipment.deleted_at.is_(None),
+                Shipment.status.in_((ShipmentStatus.DRAFT, ShipmentStatus.CREATED))).first():
+            raise HTTPException(409, "Dispatch allocated pieces through their scanned shipment")
         _require_warehouse_package(db, pkg)
     else:
         if (shipment_context.session is not db

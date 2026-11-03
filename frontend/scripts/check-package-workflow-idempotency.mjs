@@ -197,6 +197,14 @@ const { postPackageWorkflow, pendingPackageWorkflow, reconcilePendingPackageWork
   await assert.rejects(postPackageWorkflow(corruptPath, body, 22), /invalid/);
   assert.equal(calls.length, callsBeforeCorrupt, "corrupt evidence must fail before minting or sending another key");
   assert.equal(localValues.get(corruptKey), "not-json");
+  const manualPackagingPath = "/api/packages/manual-packaging";
+  failure = "Network timeout";
+  await assert.rejects(postPackageWorkflow(manualPackagingPath, body, 41));
+  failure = null;
+  response = { status: "completed", result: { receipt_no: "WMR-QA", print_run: { id: 51 } } };
+  assert.equal((await reconcilePendingPackageWorkflow(manualPackagingPath, 41)).status, "completed");
+  assert.equal(calls.at(-1).url, "/api/packages/manual-packaging/reconcile");
+  assert.equal(pendingPackageWorkflow(manualPackagingPath, 41), null);
   for (const lang of ["ru", "uz"]) assert.deepEqual(Object.keys(packageWorkflowCopy[lang]).sort(), Object.keys(packageWorkflowCopy.en).sort());
   console.log("Package request identity, cross-tab locking, generic reconciliation, unavailable-result cleanup, legacy migration, and locale tests passed");
 })().catch(error => { console.error(error); process.exitCode = 1; });

@@ -164,7 +164,8 @@ export default function WorkOrderProductInfo({
   const { modelImage, materialImage } = selectProductImages(model, po, wo);
   const qolipFiles = selectQolipFiles(model);
   const qolipNo = modelQolipNo(model);
-  const modelLabel = model ? `${formatModelVariantCode(model.code)} - ${model.name}` : (po?.model_id ? `#${po.model_id}` : "-");
+  const contextModelLabel = [wo?.model_no, wo?.variant_no].filter(Boolean).join(" / ");
+  const modelLabel = model ? `${formatModelVariantCode(model.code)} - ${model.name}` : (contextModelLabel || po?.model_code || "-");
   const itemPlanTotal = Array.isArray(po?.items)
     ? po.items.reduce((sum: number, it: any) => sum + Math.max(0, Number(it?.planned_quantity || 0)), 0)
     : 0;

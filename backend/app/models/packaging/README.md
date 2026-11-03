@@ -1,8 +1,13 @@
 # Packaging
 
 Business-service group guide, relocated into models/ on 24 October 2026. This
-directory remains README-only; existing implementations are the *_service.py files
-linked below. The proposed files describe later approved operation extractions.
+directory contains `manual_packages_service.py` for manual pack creation,
+recovery and cancellation before warehouse receipt. Existing implementations
+remain in the shared *_service.py files linked below; other proposed files
+describe later approved operation extractions.
+
+`print_runs_service.py` owns read-only print-run history queries: existing department
+scope, full-history search/date/receipt filters, bounded paging and legacy list compatibility.
 
 **Purpose:** Own package creation, contents/allocation, identity, change approval and production of valid labels.
 

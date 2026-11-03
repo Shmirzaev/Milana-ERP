@@ -14,6 +14,7 @@ class AttendanceDevice(Base, PkMixin, TimestampMixin):
     __tablename__ = "attendance_devices"
     __table_args__ = (
         UniqueConstraint("factory_code", "device_key", name="uq_attendance_devices_factory_device_key"),
+        UniqueConstraint("id", "factory_code", name="uq_attendance_devices_id_factory"),
     )
 
     factory_code: Mapped[str] = mapped_column(String(3), nullable=False, index=True)

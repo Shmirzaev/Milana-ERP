@@ -2,6 +2,14 @@
   "description": "Required business case identities; additional cases allowed, removals need review.",
   "collection_method": "Frozen function signatures/literal pytest parameter decorators only; no application/fixture code imported",
   "sources": {
+    "test_brand_create_postgres": {
+      "revision": "53ba460e85bb8b7e5ee9803affd624099276f9fe",
+      "git_blob_sha256": "38c2d96fc95cf3c55725feb114a426c1c189d850dbce9c6ab9ac5e70b7c7e644",
+      "selected_functions": [
+        "test_pg_create_duplicate_and_audit",
+        "test_pg_audit_failure_rolls_back_then_retry"
+      ]
+    },
     "test_bom_add_characterization": {
       "revision": "1e9d983e2b856cb66aaa32ea61c05505651996af",
       "git_blob_sha256": "457f7831ed3b468bd59b291f3e9042e51a8ef73ce7b86ea3e90d7c474567fb4c",
@@ -45,14 +53,16 @@
       ]
     },
     "test_stock_movement_and_reservation_postgres": {
-      "revision": "48cd04f5",
-      "git_blob_sha256": "40a5050ee6f6b6e679b6dcfa6de5c6ba9cdfb9a927919dfc35ba215c75d700bf",
+      "revision": "f8a04e617229ce3c7c9accbb6617f358ce0ea4c5",
+      "git_blob_sha256": "74c323cd8a2c26ba030937cb3af40f2fde95b96d6fa2f5d2bd7867b042c64cd1",
       "selected_functions": [
         "test_postgres_constraints_match_the_canonical_vocabularies",
         "test_schema_writers_store_values_postgres_accepts",
         "test_transfer_conserves_quantity_and_moves_the_batch_location",
         "test_failed_audit_leaves_no_movement_and_no_batch_change",
-        "test_retry_with_the_same_key_replays_without_a_second_movement"
+        "test_retry_with_the_same_key_replays_without_a_second_movement",
+        "test_batch_stock_adjustment_increase_and_depletion_persist_postgres",
+        "test_batch_stock_adjustment_audit_failure_rolls_back_postgres"
       ]
     },
     "test_sales_update_old_behavior": {
@@ -102,9 +112,121 @@
         "test_pg_late_missing_reference_rolls_back",
         "test_pg_concurrent_conversion_serializes_and_refuses_second"
       ]
+    },
+    "test_planning_alternate_creation_postgres": {
+      "revision": "e02ecd1648ffebe943872e1eeed4063a5601fd41",
+      "git_blob_sha256": "a4746e221335620f03b7469886d5c0e1a9bff17ed1e88fb2454142bd2a031952",
+      "selected_functions": [
+        "test_pg_alternate_create_and_existing_order_handoff",
+        "test_pg_alternate_missing_and_closed_orders_refused",
+        "test_pg_alternate_postflush_and_audit_failure_rollback_retry"
+      ]
+    },
+    "test_customer_create_postgres": {
+      "revision": "db02232dbb261627970809e3c770882867b5c4ff",
+      "git_blob_sha256": "5a1a6433f95eb3ad9b023df4095a7cecbac35f08a313fb9a24bc57aa0d3a9c6c",
+      "selected_functions": [
+        "test_pg_route_saves_all_fields_and_audit_same_session",
+        "test_pg_route_refuses_unauthenticated_and_forbidden_without_writes",
+        "test_pg_route_failure_rolls_back_then_retry",
+        "test_pg_concurrent_customers_keep_audit_chain"
+      ]
+    },
+    "test_brand_update_postgres": {
+      "revision": "73d541e65f962403d7477160e9eef05705e9687c",
+      "git_blob_sha256": "b58fb74bfaf30959aaa34e1a3ac79d7a7f124b0a34e964ed6b3924c4bf9df197",
+      "selected_functions": [
+        "test_pg_update_persistence_omission_null_and_chain",
+        "test_pg_duplicate_and_audit_finalize_failure_roll_back_then_retry",
+        "test_pg_case_variant_update_is_allowed"
+      ]
+    },
+    "test_supplier_create_postgres": {
+      "revision": "e7ffc79a301ac9d59620278ca422408fedd940b5",
+      "git_blob_sha256": "d8aea97d8ea43e7794c1f3968bda6f2a8950a117ba0224bb5dda5bbf138cca21",
+      "selected_functions": [
+        "test_pg_route_saves_all_fields_and_audit_same_session",
+        "test_pg_route_refuses_unauthenticated_and_forbidden_without_writes",
+        "test_pg_route_failure_rolls_back_then_retry",
+        "test_pg_concurrent_suppliers_keep_audit_chain",
+        "test_pg_create_preserves_raw_fields_duplicates_and_validation"
+      ]
+    },
+    "test_supplier_update_postgres": {
+      "revision": "3cc6d1700ff1789efb06463a885ee3d84aff3c19",
+      "git_blob_sha256": "b289f785d6ff120492efeddfe48d5e52709f093e05b542b8821ce2efa6477271",
+      "selected_functions": [
+        "test_pg_patch_fields_permissions_and_audit",
+        "test_pg_inactive_direct_update_remains_out_of_active_list",
+        "test_pg_concurrent_distinct_suppliers_allow_same_name_and_chain",
+        "test_pg_precommit_failure_rolls_back_and_retry"
+      ]
+    },
+    "test_customer_update_postgres": {
+      "revision": "55af6fe40d4bca5159503ee69484e22adbd78c15",
+      "git_blob_sha256": "faf4fa619848aaab04c43f194f46bb52be3832b391936babb69470ca4081c27c",
+      "selected_functions": [
+        "test_pg_patch_fields_permissions_and_audit",
+        "test_pg_precommit_failure_rolls_back_and_retry",
+        "test_pg_concurrent_distinct_customers_allow_same_name_and_chain"
+      ]
+    },
+    "test_customer_delete_postgres": {
+      "revision": "6e0d134132663ac0f8de9b872a1d4c10ab574582",
+      "git_blob_sha256": "609bc67a8a4c9f1c61440325f08526c78d0c2a14173aa7d8984910dda06160ec",
+      "selected_functions": [
+        "test_pg_delete_route_success_repeat_and_missing",
+        "test_pg_delete_route_auth_denials_preserve_customer",
+        "test_pg_delete_reference_refusal_preserves_customer",
+        "test_pg_delete_precommit_failure_rolls_back_then_retry",
+        "test_pg_delete_distinct_rows_concurrently_preserves_audit_chain"
+      ]
+    },
+    "test_customer_delete_extra_fk_postgres": {
+      "revision": "6e0d134132663ac0f8de9b872a1d4c10ab574582",
+      "git_blob_sha256": "2784744f0b57a4ffdde821f93d56169cb2c9afc42889cb5a9d1e5a6616472125",
+      "selected_functions": [
+        "test_pg_existing_customer_fk_blocks_delete_then_retry"
+      ]
+    },
+    "test_customer_delete_reference_race_postgres": {
+      "revision": "8a4c78568c39985f95dd93feaaf6474d29ffc8f9",
+      "git_blob_sha256": "23dbed6b13ce62b8b5468c3e155fa44f6b5bd2c89d982d7f46bc453388921e25",
+      "selected_functions": [
+        "test_pg_payment_commit_after_guards_before_delete_flush",
+        "test_pg_delete_flush_blocks_payment_until_commit"
+      ]
+    },
+    "test_modelsize_create_postgres": {
+      "revision": "uncommitted CREATE-only + approved G012 wrap integration on exact 58bca5491e7759a18875656500588f37c3a418bd; test lifecycle repair; fresh verification required",
+      "candidate_file_sha256": "d5b163f1323f3958a1898dbb3d4f2ceb689b5e1fc622cfd1bfaf45fdd0a4c89a",
+      "selected_functions": [
+        "test_pg_create_atomic_audit_and_failure_retry",
+        "test_pg_concurrent_duplicate_creates"
+      ]
+    },
+    "test_modelcolor_create_postgres": {
+      "revision": "uncommitted CREATE-only + approved G012 wrap integration on exact 58bca5491e7759a18875656500588f37c3a418bd; test lifecycle repair; fresh verification required",
+      "candidate_file_sha256": "189c78a451b67216737dddb8c6330d1e02ce2b521dc335fbbce68ed4ff52b3e5",
+      "selected_functions": [
+        "test_pg_http_exact_unicode_null_empty_duplicate_readback",
+        "test_pg_http_auth_scope_dto_and_bound_precedence",
+        "test_pg_old_raw_scope",
+        "test_pg_invalid_scope_400_before_parent_and_length",
+        "test_pg_actual_schema_writer_one_session_commit_and_refresh",
+        "test_pg_actual_varchar_constraint_rejects_oversize",
+        "test_pg_real_fk_flush_failure_request_teardown_then_retry",
+        "test_pg_request_teardown_fault_then_fresh_readback_and_retry",
+        "test_pg_bounded_concurrent_independent_and_duplicate_values",
+        "test_pg_canonical_scope_accepted"
+      ]
     }
   },
   "cases": {
+    "test_brand_create_postgres": [
+      "test_pg_create_duplicate_and_audit",
+      "test_pg_audit_failure_rolls_back_then_retry"
+    ],
     "test_bom_add_characterization": [
       "test_manual_normalizes_role_name_and_discards_stale_references[main]",
       "test_manual_normalizes_role_name_and_discards_stale_references[ MAIN ]",
@@ -208,7 +330,9 @@
       "test_schema_writers_store_values_postgres_accepts",
       "test_transfer_conserves_quantity_and_moves_the_batch_location",
       "test_failed_audit_leaves_no_movement_and_no_batch_change",
-      "test_retry_with_the_same_key_replays_without_a_second_movement"
+      "test_retry_with_the_same_key_replays_without_a_second_movement",
+      "test_batch_stock_adjustment_increase_and_depletion_persist_postgres",
+      "test_batch_stock_adjustment_audit_failure_rolls_back_postgres"
     ],
     "test_purchase_conversion_postgres": [
       "test_pg_conversion_typed_snapshot_matches_persisted_and_timezone",
@@ -218,6 +342,103 @@
       "test_pg_late_missing_reference_rolls_back[item]",
       "test_pg_late_missing_reference_rolls_back[supplier]",
       "test_pg_concurrent_conversion_serializes_and_refuses_second"
+    ],
+    "test_planning_alternate_creation_postgres": [
+      "test_pg_alternate_create_and_existing_order_handoff",
+      "test_pg_alternate_missing_and_closed_orders_refused[closed-400]",
+      "test_pg_alternate_missing_and_closed_orders_refused[missing-404]",
+      "test_pg_alternate_postflush_and_audit_failure_rollback_retry[insert_branded_planning_order]",
+      "test_pg_alternate_postflush_and_audit_failure_rollback_retry[log_action]"
+    ],
+    "test_customer_create_postgres": [
+      "test_pg_route_saves_all_fields_and_audit_same_session",
+      "test_pg_route_refuses_unauthenticated_and_forbidden_without_writes",
+      "test_pg_route_failure_rolls_back_then_retry[audit_enqueue]",
+      "test_pg_route_failure_rolls_back_then_retry[audit_finalize]",
+      "test_pg_route_failure_rolls_back_then_retry[commit]",
+      "test_pg_concurrent_customers_keep_audit_chain"
+    ],
+    "test_brand_update_postgres": [
+      "test_pg_update_persistence_omission_null_and_chain",
+      "test_pg_duplicate_and_audit_finalize_failure_roll_back_then_retry",
+      "test_pg_case_variant_update_is_allowed"
+    ],
+    "test_supplier_create_postgres": [
+      "test_pg_route_saves_all_fields_and_audit_same_session",
+      "test_pg_route_refuses_unauthenticated_and_forbidden_without_writes",
+      "test_pg_route_failure_rolls_back_then_retry[audit_enqueue]",
+      "test_pg_route_failure_rolls_back_then_retry[audit_finalize]",
+      "test_pg_route_failure_rolls_back_then_retry[commit]",
+      "test_pg_concurrent_suppliers_keep_audit_chain",
+      "test_pg_create_preserves_raw_fields_duplicates_and_validation"
+    ],
+    "test_supplier_update_postgres": [
+      "test_pg_patch_fields_permissions_and_audit",
+      "test_pg_inactive_direct_update_remains_out_of_active_list",
+      "test_pg_concurrent_distinct_suppliers_allow_same_name_and_chain",
+      "test_pg_precommit_failure_rolls_back_and_retry[audit_enqueue]",
+      "test_pg_precommit_failure_rolls_back_and_retry[audit_finalize]",
+      "test_pg_precommit_failure_rolls_back_and_retry[before_commit]"
+    ],
+    "test_customer_update_postgres": [
+      "test_pg_patch_fields_permissions_and_audit",
+      "test_pg_precommit_failure_rolls_back_and_retry[audit_enqueue]",
+      "test_pg_precommit_failure_rolls_back_and_retry[audit_finalize]",
+      "test_pg_precommit_failure_rolls_back_and_retry[before_commit]",
+      "test_pg_concurrent_distinct_customers_allow_same_name_and_chain"
+    ],
+    "test_customer_delete_postgres": [
+      "test_pg_delete_route_success_repeat_and_missing",
+      "test_pg_delete_route_auth_denials_preserve_customer",
+      "test_pg_delete_reference_refusal_preserves_customer[sales]",
+      "test_pg_delete_reference_refusal_preserves_customer[shipment]",
+      "test_pg_delete_reference_refusal_preserves_customer[both]",
+      "test_pg_delete_precommit_failure_rolls_back_then_retry[audit_enqueue]",
+      "test_pg_delete_precommit_failure_rolls_back_then_retry[audit_finalize]",
+      "test_pg_delete_precommit_failure_rolls_back_then_retry[before_commit]",
+      "test_pg_delete_distinct_rows_concurrently_preserves_audit_chain"
+    ],
+    "test_customer_delete_extra_fk_postgres": [
+      "test_pg_existing_customer_fk_blocks_delete_then_retry[payment]",
+      "test_pg_existing_customer_fk_blocks_delete_then_retry[branded_planning]",
+      "test_pg_existing_customer_fk_blocks_delete_then_retry[warehouse_pack_reservation]"
+    ],
+    "test_customer_delete_reference_race_postgres": [
+      "test_pg_payment_commit_after_guards_before_delete_flush",
+      "test_pg_delete_flush_blocks_payment_until_commit"
+    ],
+    "test_modelsize_create_postgres": [
+      "test_pg_create_atomic_audit_and_failure_retry",
+      "test_pg_concurrent_duplicate_creates"
+    ],
+    "test_modelcolor_create_postgres": [
+      "test_pg_http_exact_unicode_null_empty_duplicate_readback[-None-standard-standard-/api/models]",
+      "test_pg_http_exact_unicode_null_empty_duplicate_readback[-None-usluga-eco-/api/usluga/models]",
+      "test_pg_http_exact_unicode_null_empty_duplicate_readback[  --standard-standard-/api/models]",
+      "test_pg_http_exact_unicode_null_empty_duplicate_readback[  --usluga-eco-/api/usluga/models]",
+      "test_pg_http_exact_unicode_null_empty_duplicate_readback[ e\\u0301 \\U0001f9f5 - \\u041a -standard-standard-/api/models]",
+      "test_pg_http_exact_unicode_null_empty_duplicate_readback[ e\\u0301 \\U0001f9f5 - \\u041a -usluga-eco-/api/usluga/models]",
+      "test_pg_http_exact_unicode_null_empty_duplicate_readback[e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301-KKKKKKKKKKKKKKKK-standard-standard-/api/models]",
+      "test_pg_http_exact_unicode_null_empty_duplicate_readback[e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301-KKKKKKKKKKKKKKKK-usluga-eco-/api/usluga/models]",
+      "test_pg_http_auth_scope_dto_and_bound_precedence",
+      "test_pg_old_raw_scope[None-standard]",
+      "test_pg_old_raw_scope[0-standard]",
+      "test_pg_old_raw_scope[-standard]",
+      "test_pg_old_raw_scope[ StAnDaRd -standard]",
+      "test_pg_old_raw_scope[ USLUGA -usluga]",
+      "test_pg_invalid_scope_400_before_parent_and_length[ ]",
+      "test_pg_invalid_scope_400_before_parent_and_length[unknown]",
+      "test_pg_actual_schema_writer_one_session_commit_and_refresh",
+      "test_pg_actual_varchar_constraint_rejects_oversize[color_name-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]",
+      "test_pg_actual_varchar_constraint_rejects_oversize[color_code-xxxxxxxxxxxxxxxxx]",
+      "test_pg_real_fk_flush_failure_request_teardown_then_retry",
+      "test_pg_request_teardown_fault_then_fresh_readback_and_retry[before_commit]",
+      "test_pg_request_teardown_fault_then_fresh_readback_and_retry[after_flush_before_commit]",
+      "test_pg_request_teardown_fault_then_fresh_readback_and_retry[refresh_after_commit]",
+      "test_pg_bounded_concurrent_independent_and_duplicate_values[True]",
+      "test_pg_bounded_concurrent_independent_and_duplicate_values[False]",
+      "test_pg_canonical_scope_accepted[standard-standard]",
+      "test_pg_canonical_scope_accepted[usluga-eco]"
     ]
   },
   "isolated_supplemental_cases": [
@@ -239,5 +460,4 @@
     "backend/app/tests/test_fabric_scan_postgres_followup.py::test_timestamp_projection_has_literal_legacy_oracles[offset-2026-09-11T18:59:59+05:30]",
     "backend/app/tests/test_fabric_scan_postgres_followup.py::test_timestamp_dto_rejects_null_projection_only"
   ]
-
 }

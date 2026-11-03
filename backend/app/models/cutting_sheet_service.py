@@ -16,6 +16,7 @@ from app.schemas import (
     Bundle,
     CuttingPassport,
     CuttingRecord,
+    Customer,
     Model,
     ModelBOM,
     ProductionBatch,
@@ -25,7 +26,7 @@ from app.schemas import (
     User,
     WorkOrder,
 )
-from app.models.label_images_service import fabric_label_image_src, model_preview_label_image_src
+from app.models.label_images_service import fabric_label_image_src, model_preview_label_image_src, print_label_image_src
 from app.models.barcode_service import qr_png_data_uri
 
 
@@ -314,6 +315,14 @@ def render_cutting_sheet_html(db: Session, record: CuttingRecord, bundle_ids: li
     brand = db.get(Brand, sheet_brand_id) if sheet_brand_id else None
     operator = db.get(User, record.operator_id) if record.operator_id else None
     bundles = _scoped_bundles(db, record, work_order, bundle_ids or [])
+    sales_order = production_order.sales_order
+    planning_order = production_order.planning_order
+    customer_id = sales_order.customer_id if sales_order else None
+    if not customer_id and planning_order and planning_order.ordered_for_type == "customer":
+        customer_id = planning_order.customer_id
+    customer = db.get(Customer, customer_id) if customer_id else None
+    customer_name = _text(customer.name if customer else production_order.service_customer_name)
+    client_html = f"<div class='client-name'>Client / Клиент / Mijoz: <b>{_h(customer_name)}</b></div>" if customer_name else ""
 
     items = (
         db.query(ProductionOrderItem)
@@ -348,6 +357,8 @@ def render_cutting_sheet_html(db: Session, record: CuttingRecord, bundle_ids: li
         else "<div class='empty-photo'></div>"
     )
     fabric_image_src = fabric_label_image_src(model)
+    print_image_src = print_label_image_src(model)
+    print_image_html = f"<img src='{_h(print_image_src)}' alt='Print artwork'>" if print_image_src else ""
     fabric_image_html = (
         f"<img src='{_h(fabric_image_src)}' alt='Fabric picture'>"
         if fabric_image_src
@@ -436,6 +447,7 @@ html,body{{margin:0;padding:0;background:#ececeb;color:#17191a;font-family:Arial
 .sheet{{width:283mm;height:196mm;margin:10px auto;background:#fff;border:1px solid #17191a;padding:0;overflow:hidden}}
 .meta{{height:12mm;display:grid;grid-template-columns:1fr 1fr auto;align-items:center;border-bottom:1px solid #9fa5a7;font-size:8pt}}
 .meta strong{{font-size:9pt}} .meta .center{{text-align:center}} .meta .right{{text-align:right}}
+.client-name{{font-size:7pt;overflow-wrap:anywhere}}
 .meta-end{{display:flex;align-items:center;justify-content:flex-end;gap:3mm}}
 .batch-qr{{display:flex;align-items:center;gap:1.5mm;text-align:left;white-space:nowrap;font-size:6pt;line-height:1.2}}
 .batch-qr img{{display:block;width:10mm;height:10mm;image-rendering:pixelated}}
@@ -469,13 +481,15 @@ th{{background:#e8ecea;text-align:left;font-weight:700}} td{{text-align:center}}
 .fabric-sample{{display:grid;grid-template-rows:minmax(0,1fr) minmax(0,1fr)}}
 .fabric-photo{{display:flex;min-height:0;align-items:center;justify-content:center;overflow:hidden;padding:3mm;border-bottom:1px solid #aeb5b8}}
 .fabric-photo img{{display:block;width:100%;height:100%;object-fit:contain}}
+.print-photo{{display:flex;align-items:center;justify-content:center;padding:1mm}}
+.print-photo img{{max-width:100%;max-height:100%;object-fit:contain}}
 .sample-column.right .sample-title.print{{border-top:1px solid #aeb5b8}}
 .footer{{height:8mm;display:flex;align-items:end;justify-content:space-between;border-top:1px solid #aeb5b8;margin-top:2mm;padding-top:1.5mm;font-size:6pt;color:#61686d}}
 @media print{{html,body{{background:#fff}} .toolbar{{display:none}} .sheet{{margin:0;border:0;padding:0;width:283mm;height:196mm}}}}
 </style></head>
 <body><div class="toolbar"><button onclick="window.print()">Print / Save PDF</button></div>
 <main class="sheet">
-  <header class="meta"><div><strong>MILANA ERP</strong><br>{_h(cutting_date)}</div><div class="center"><strong>REPORT</strong>{f' | BATCH {_h(batch_label)}' if batch_label else ''}</div><div class="meta-end">{batch_qr_html}<div class="right"><strong>{_h(report_ref)}</strong><br>Page 1 / 1</div></div></header>
+  <header class="meta"><div><strong>MILANA ERP</strong><br>{_h(cutting_date)}</div><div class="center"><strong>REPORT</strong>{f' | BATCH {_h(batch_label)}' if batch_label else ''}{client_html}</div><div class="meta-end">{batch_qr_html}<div class="right"><strong>{_h(report_ref)}</strong><br>Page 1 / 1</div></div></header>
   <section class="top">
     <table class="identity">
       <colgroup><col class="identity-label"><col class="identity-value"><col class="detail-label"><col class="detail-value"></colgroup>
@@ -498,7 +512,7 @@ th{{background:#e8ecea;text-align:left;font-weight:700}} td{{text-align:center}}
     <table class="accessories"><caption>Accessories / Material</caption><tbody>{accessory_rows}</tbody></table>
     <div class="samples">
       <div class="sample-column"><div class="sample-title">Mato namuna</div><div class="sample-box fabric-sample"><div class="fabric-photo">{fabric_image_html}</div><div></div></div></div>
-      <div class="sample-column right"><div class="sample-title">Beyka namuna</div><div class="sample-box"></div><div class="sample-title print">Pechat</div><div class="sample-box"></div></div>
+      <div class="sample-column right"><div class="sample-title">Beyka namuna</div><div class="sample-box"></div><div class="sample-title print">Pechat</div><div class="sample-box print-photo">{print_image_html}</div></div>
     </div>
   </section>
   <footer class="footer"><span>{_h(operator_note)}</span><span>{('Passport: ' + _h(passport.passport_no)) if passport else ''}</span><span>Missing ERP values intentionally print blank.</span></footer>

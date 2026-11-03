@@ -93,8 +93,23 @@ from app.models.packaging_scope_service import (
     packaging_department_scope,
     require_package_access,
 )
+from app.libs.dto.fulfillment.package_customer_release import PackageCustomerAccessOut, PackageCustomerReleaseIn, PackageCustomerReleaseOut
+from app.models.fulfillment.package_customer_service import package_customer_access, release_packages_for_any_customer
 
 router = APIRouter(prefix="/packages", tags=["packages"])
+
+
+@router.post("/customer-release", response_model=PackageCustomerReleaseOut)
+def release_customer_packs(payload: PackageCustomerReleaseIn, db: DbSession, current: CurrentUser,
+                          idempotency_key: str | None = Header(default=None, alias="Idempotency-Key")):
+    return release_packages_for_any_customer(payload, db, current, idempotency_key)
+
+
+@router.get("/{pid}/customer-access", response_model=PackageCustomerAccessOut)
+def customer_access(pid: int, db: DbSession, current: CurrentUser):
+    return package_customer_access(db, current, pid)
+
+
 _LABEL_CONTEXT_CHUNK_SIZE = 400
 _RECEIVING_QUEUE_DEFAULT_PAGE_SIZE = 50
 _RECEIVING_QUEUE_MAX_PAGE_SIZE = 100
@@ -962,6 +977,8 @@ def list_packages(db: DbSession, current: CurrentUser,
         ).order_by(PackagePrintRun.id).all():
             return_reasons[member.package_id] = run.return_reason
     model_by_id = _load_reference_map(db, Model, (p.model_id for p in rows), options=_model_display_load_options())
+    from app.models.packaging.manual_packages_service import manual_package_list_context
+    manual_context = manual_package_list_context(db, rows)
     out = []
     for p in rows:
         qr_url = _ensure_package_qr_url(db, p)
@@ -971,6 +988,7 @@ def list_packages(db: DbSession, current: CurrentUser,
         customer = customer_by_id.get(int(so.customer_id or 0)) if so else None
         row = _package_out_payload(db, p, context=_package_context_values(po, so, customer, model))
         row["qr_code_url"] = qr_url
+        row.update(manual_context.get(p.id, {}))
         po = production_by_id.get(int(p.production_order_id or 0))
         so = sales_by_id.get(int(p.sales_order_id or 0))
         customer = customer_by_id.get(int(so.customer_id or 0)) if so else None

@@ -32,7 +32,31 @@ class RequiredPGGateTests(unittest.TestCase):
 
     def test_complete_evidence_passes(self):
         counts = gate.check_report(self.write_report(self.report()))
-        self.assertEqual(sum(counts.values()), 98)
+        self.assertEqual(sum(counts.values()), 177)
+
+    def test_catalog_create_groups_have_exact_registered_case_counts(self):
+        for module, count in (("test_modelsize_create_postgres", 2), ("test_modelcolor_create_postgres", 27)):
+            with self.subTest(module=module):
+                self.assertIn(module, gate.REQUIRED_CASES)
+                self.assertEqual(len(gate.REQUIRED_CASES[module]), count)
+                self.assertEqual(len(set(gate.REQUIRED_CASES[module])), count)
+
+    def test_catalog_create_missing_duplicate_and_nonpass_cannot_fill_gate(self):
+        for module in ("test_modelsize_create_postgres", "test_modelcolor_create_postgres"):
+            for mutation in ("missing", "duplicate", "failure", "error", "skipped"):
+                with self.subTest(module=module, mutation=mutation):
+                    self.assertIn(module, gate.REQUIRED_CASES)
+                    tree = self.report()
+                    suite = next(tree.iter("testsuite"))
+                    rows = [row for row in suite if row.get("classname") == f"app.tests.{module}"]
+                    if mutation == "missing":
+                        suite.remove(rows[0])
+                    elif mutation == "duplicate":
+                        rows[-1].set("name", rows[0].get("name"))
+                    else:
+                        ET.SubElement(rows[0], mutation)
+                    with self.assertRaises(ValueError):
+                        gate.check_report(self.write_report(tree))
 
     def test_skipped_failed_and_error_evidence_are_rejected(self):
         for tag in ('skipped', 'failure', 'error'):
@@ -105,6 +129,92 @@ class RequiredPGGateTests(unittest.TestCase):
                 gate.main()
             self.assertEqual(error.exception.code, 2)
             run.assert_not_called()
+
+    def test_sanitization_removes_inherited_libpq_redirects_and_secrets(self):
+        source = {"PGHOSTADDR": "10.0.0.1", "PGHOST": "other", "PGSERVICE": "remote",
+                  "PGPASSWORD": "secret", "pgoptions": "-c search_path=public",
+                  "MILANA_REQUIRE_TEST_PG": "1", "MILANA_TEST_PG_INSTANCE": "pinned", "PATH": "path"}
+        clean = gate.sanitized_pg_environment(source, self.root)
+        self.assertEqual({k for k in clean if k.upper().startswith("PG")}, {"PGPASSFILE", "PGSERVICEFILE"})
+        self.assertEqual(clean["MILANA_TEST_PG_INSTANCE"], "pinned")
+        self.assertEqual(clean["MILANA_REQUIRE_TEST_PG"], "1")
+        self.assertEqual(Path(clean["PGPASSFILE"]).read_bytes(), b"")
+        self.assertEqual(Path(clean["PGSERVICEFILE"]).read_bytes(), b"")
+
+    def test_missing_brand_case_fails_even_if_other_group_has_extra(self):
+        tree = self.report()
+        suite = next(tree.iter('testsuite'))
+        brand = next(case for case in tree.iter('testcase')
+                     if case.get('classname') == 'app.tests.test_brand_create_postgres')
+        suite.remove(brand)
+        ET.SubElement(suite, 'testcase', classname='app.tests.test_bom_add_characterization', name='extra')
+        with self.assertRaisesRegex(ValueError, 'expected at least'):
+            gate.check_report(self.write_report(tree))
+
+    def test_planning_rollback_boundary_cannot_be_replaced(self):
+        tree = self.report()
+        case = next(case for case in tree.iter('testcase')
+                    if case.get('classname') == 'app.tests.test_planning_alternate_creation_postgres'
+                    and case.get('name') ==
+                    'test_pg_alternate_postflush_and_audit_failure_rollback_retry[log_action]')
+        case.set('name', 'unrelated_replacement_case')
+        with self.assertRaisesRegex(ValueError, 'case identities missing'):
+            gate.check_report(self.write_report(tree))
+
+    def test_customer_failure_point_cannot_be_replaced(self):
+        tree = self.report()
+        case = next(case for case in tree.iter('testcase')
+                    if case.get('classname') == 'app.tests.test_customer_create_postgres'
+                    and case.get('name') ==
+                    'test_pg_route_failure_rolls_back_then_retry[audit_finalize]')
+        case.set('name', 'test_pg_route_failure_rolls_back_then_retry[unrelated]')
+        with self.assertRaisesRegex(ValueError, 'case identities missing'):
+            gate.check_report(self.write_report(tree))
+
+    def test_brand_update_case_policy_cannot_be_replaced(self):
+        tree = self.report()
+        case = next(case for case in tree.iter('testcase')
+                    if case.get('classname') == 'app.tests.test_brand_update_postgres'
+                    and case.get('name') == 'test_pg_case_variant_update_is_allowed')
+        case.set('name', 'unrelated_replacement_case')
+        with self.assertRaises(ValueError):
+            gate.check_report(self.write_report(tree))
+
+    def test_supplier_commit_failure_cannot_be_replaced(self):
+        tree = self.report()
+        case = next(case for case in tree.iter('testcase')
+                    if case.get('classname') == 'app.tests.test_supplier_create_postgres'
+                    and case.get('name') == 'test_pg_route_failure_rolls_back_then_retry[commit]')
+        case.set('name', 'test_pg_route_failure_rolls_back_then_retry[unrelated]')
+        with self.assertRaisesRegex(ValueError, 'case identities missing'):
+            gate.check_report(self.write_report(tree))
+
+    def test_customer_update_commit_case_cannot_be_replaced(self):
+        tree = self.report()
+        case = next(case for case in tree.iter('testcase')
+                    if case.get('classname') == 'app.tests.test_customer_update_postgres'
+                    and case.get('name') == 'test_pg_precommit_failure_rolls_back_and_retry[before_commit]')
+        case.set('name', 'test_pg_precommit_failure_rolls_back_and_retry[unrelated]')
+        with self.assertRaisesRegex(ValueError, 'case identities missing'):
+            gate.check_report(self.write_report(tree))
+
+    def test_supplier_update_commit_case_cannot_be_replaced(self):
+        tree = self.report()
+        case = next(case for case in tree.iter('testcase')
+                    if case.get('classname') == 'app.tests.test_supplier_update_postgres'
+                    and case.get('name') == 'test_pg_precommit_failure_rolls_back_and_retry[before_commit]')
+        case.set('name', 'test_pg_precommit_failure_rolls_back_and_retry[unrelated]')
+        with self.assertRaisesRegex(ValueError, 'case identities missing'):
+            gate.check_report(self.write_report(tree))
+
+    def test_customer_delete_commit_case_cannot_be_replaced(self):
+        tree = self.report()
+        case = next(case for case in tree.iter('testcase')
+                    if case.get('classname') == 'app.tests.test_customer_delete_postgres'
+                    and case.get('name') == 'test_pg_delete_precommit_failure_rolls_back_then_retry[before_commit]')
+        case.set('name', 'test_pg_delete_precommit_failure_rolls_back_then_retry[unrelated]')
+        with self.assertRaisesRegex(ValueError, 'case identities missing'):
+            gate.check_report(self.write_report(tree))
 
     def test_bootstrap_only_ci_and_fixed_endpoint(self):
         identity = self.root / 'identity.json'

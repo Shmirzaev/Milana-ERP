@@ -15,8 +15,10 @@ from sqlalchemy.orm import Session
 from app.core.dt import date_filter_bounds
 from app.libs.dto.catalog.party_input import PartyIn
 from app.libs.dto.catalog.party_output import PartyOut
+from app.libs.types.catalog import CustomerUpdateCommand, SupplierUpdateCommand
 from app.models.audit_service import log_action
 from app.schemas import Customer, PurchaseOrder, PurchaseRequestLine, SalesOrder, Shipment, StockBatch, Supplier, User
+from app.schemas.catalog.partners_persistence import apply_customer_update, apply_supplier_update, delete_customer_row, delete_supplier_row, insert_customer, insert_supplier
 
 
 def list_customers(
@@ -54,9 +56,7 @@ def create_customer(
     db: Session,
     payload: PartyIn,
 ):
-    c = Customer(**payload.model_dump())
-    db.add(c)
-    db.flush()
+    c = insert_customer(db, **payload.model_dump())
     log_action(db, current, "create", "Customer", c.id)
     db.commit()
     db.refresh(c)
@@ -83,8 +83,16 @@ def update_customer(
     c = db.get(Customer, cid)
     if not c:
         raise HTTPException(404, "Customer not found")
-    for k, v in payload.model_dump(exclude_unset=True).items():
-        setattr(c, k, v)
+    fields: CustomerUpdateCommand = {"name": payload.name}
+    if "phone" in payload.model_fields_set:
+        fields["phone"] = payload.phone
+    if "email" in payload.model_fields_set:
+        fields["email"] = payload.email
+    if "address" in payload.model_fields_set:
+        fields["address"] = payload.address
+    if "notes" in payload.model_fields_set:
+        fields["notes"] = payload.notes
+    apply_customer_update(db, c, fields)
     log_action(db, current, "update", "Customer", c.id)
     db.commit()
     db.refresh(c)
@@ -103,7 +111,7 @@ def delete_customer(
         raise HTTPException(409, "Customer is linked to sales orders")
     if db.query(Shipment).filter(Shipment.customer_id == cid).first():
         raise HTTPException(409, "Customer is linked to shipments")
-    db.delete(c)
+    delete_customer_row(db, c)
     log_action(db, current, "delete", "Customer", cid, new_value={"name": c.name})
     db.commit()
 
@@ -120,9 +128,7 @@ def create_supplier(
     db: Session,
     payload: PartyIn,
 ):
-    s = Supplier(**payload.model_dump())
-    db.add(s)
-    db.flush()
+    s = insert_supplier(db, **payload.model_dump())
     log_action(db, current, "create", "Supplier", s.id)
     db.commit()
     db.refresh(s)
@@ -149,8 +155,16 @@ def update_supplier(
     s = db.get(Supplier, sid)
     if not s:
         raise HTTPException(404, "Supplier not found")
-    for k, v in payload.model_dump(exclude_unset=True).items():
-        setattr(s, k, v)
+    fields: SupplierUpdateCommand = {"name": payload.name}
+    if "phone" in payload.model_fields_set:
+        fields["phone"] = payload.phone
+    if "email" in payload.model_fields_set:
+        fields["email"] = payload.email
+    if "address" in payload.model_fields_set:
+        fields["address"] = payload.address
+    if "notes" in payload.model_fields_set:
+        fields["notes"] = payload.notes
+    apply_supplier_update(db, s, fields)
     log_action(db, current, "update", "Supplier", s.id)
     db.commit()
     db.refresh(s)
@@ -172,6 +186,6 @@ def delete_supplier(
     )
     if linked:
         raise HTTPException(409, "Supplier is linked to stock or purchasing records and cannot be deleted")
-    db.delete(s)
+    delete_supplier_row(db, s)
     log_action(db, current, "delete", "Supplier", sid, new_value={"name": s.name})
     db.commit()

@@ -17,10 +17,16 @@ from app.libs.dto.catalog.brand_input import BrandIn
 from app.libs.dto.catalog.collection_input import CollectionCreateIn, CollectionIn
 from app.libs.dto.catalog.collection_output import CollectionCreateOut, CollectionOut
 from app.libs.enums.catalog import CollectionStatus
+from app.libs.types.catalog import (
+    BrandUpdateCommand,
+    CollectionUpdateCommand,
+    CollectionUpdateFields,
+)
 from app.models.audit_service import log_action
 from app.models.catalog.models_service import _pagination_payload, _standard_model
 from app.schemas import Brand, Collection, CollectionModel, User
-from app.schemas.catalog.collection_persistence import insert_collection
+from app.schemas.catalog.brand_persistence import apply_brand_update, insert_brand
+from app.schemas.catalog.collection_persistence import apply_collection_update, insert_collection
 
 COLLECTION_STATUSES = frozenset(status.value for status in CollectionStatus)
 
@@ -47,10 +53,10 @@ def create_brand(
     existing = db.query(Brand).filter(func.lower(Brand.name) == name.lower()).first()
     if existing:
         raise HTTPException(409, "Brand already exists")
-    values = payload.model_dump()
-    values["name"] = name
-    b = Brand(**values)
-    db.add(b); db.flush()
+    b = insert_brand(
+        db, name=name, description=payload.description,
+        logo_url=payload.logo_url, is_active=payload.is_active,
+    )
     log_action(db, current, "create", "Brand", b.id)
     db.commit(); db.refresh(b)
     return b
@@ -74,8 +80,14 @@ def update_brand(
 ):
     b = db.get(Brand, bid)
     if not b: raise HTTPException(404, "Brand not found")
-    for k, v in payload.model_dump(exclude_unset=True).items():
-        setattr(b, k, v)
+    fields: BrandUpdateCommand = {"name": payload.name}
+    if "description" in payload.model_fields_set:
+        fields["description"] = payload.description
+    if "logo_url" in payload.model_fields_set:
+        fields["logo_url"] = payload.logo_url
+    if "is_active" in payload.model_fields_set:
+        fields["is_active"] = payload.is_active
+    apply_brand_update(db, b, fields)
     log_action(db, current, "update", "Brand", b.id)
     db.commit(); db.refresh(b)
     return b
@@ -157,13 +169,26 @@ def update_collection(
 ):
     c = db.get(Collection, cid)
     if not c: raise HTTPException(404, "Collection not found")
-    data = payload.model_dump(exclude_unset=True)
-    if "year" in data and not data["year"]:
+    fields: CollectionUpdateFields = payload.model_dump(exclude_unset=True)
+    if "year" in fields and not fields["year"]:
         raise HTTPException(400, "Year is required")
-    if "status" in data and data["status"] != c.status and data["status"] not in COLLECTION_STATUSES:
+    if "status" in fields and fields["status"] != c.status and fields["status"] not in COLLECTION_STATUSES:
         raise HTTPException(400, "Invalid collection status")
-    for k, v in data.items():
-        setattr(c, k, v)
+    command: CollectionUpdateCommand = {
+        key: value for key, value in fields.items() if key != "status"
+    }
+    if "status" in fields:
+        submitted_status = fields["status"]
+        if submitted_status in COLLECTION_STATUSES:
+            # Preserve the mapped attribute assignment/event even for an
+            # explicit same-value PATCH; persistence receives a real enum.
+            command["status"] = CollectionStatus(submitted_status)
+        else:
+            # Only the exact stored legacy value passed the equality check
+            # above. Keep that compatibility path distinct from canonical
+            # lifecycle input rather than weakening the enum field to str.
+            command["unchanged_legacy_status"] = submitted_status
+    apply_collection_update(db, c, command)
     log_action(db, current, "update", "Collection", c.id)
     db.commit(); db.refresh(c)
     return c

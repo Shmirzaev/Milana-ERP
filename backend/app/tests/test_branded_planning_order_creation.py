@@ -8,10 +8,10 @@ The status list filter keeps the old query semantics: an omitted parameter
 selects ``open``, an explicit empty parameter selects every status, and a
 noncanonical value is refused instead of becoming a new matching alias.
 
-The alternate writer ``POST /api/planning/create-branded-production`` is not
-migrated in this operation: it still writes the row itself with plain strings.
-Its test here is a regression guard on the stored vocabulary only, so the
-operation does not claim the alternate writer as a migrated consumer.
+The alternate writer ``POST /api/planning/create-branded-production`` uses
+the same typed schema insertion when it creates a planning order, while its
+production, audit, and transaction behavior remains owned by its service. This
+only migrates the Planning order row writer; Production-owned writes remain.
 
 Expected values are written out independently of the implementation's vocabulary
 definitions.
@@ -836,3 +836,94 @@ def test_a_failure_after_a_write_rolls_back_every_participant(
 
     assert response.status_code == 201, response.text
     assert _participant_counts() == (before[0] + 1, before[1] + 1)
+
+
+def _alternate_payload(**extra):
+    return {
+        "production_type": "branded_stock", "model_id": 1, "planned_quantity": 20,
+        "items": [{"model_id": 1, "color": "white", "size": "M", "planned_quantity": 20}],
+        "batches": [{"planned_quantity": 20}],
+        **extra,
+    }
+
+
+def _alternate_counts():
+    from app.schemas import ProductionBatch
+
+    with TestSessionLocal() as db:
+        return tuple(db.query(model).count() for model in (
+            BrandedPlanningOrder, ProductionOrder, ProductionBatch, WorkOrder, AuditLog
+        ))
+
+
+def test_alternate_writer_uses_typed_same_session_and_preserves_handoff(client, auth_headers, monkeypatch):
+    from app.models.planning import production_planning_service as service
+
+    original = service.insert_branded_planning_order
+    calls = []
+
+    def observe(db, command):
+        assert command.ordered_for_type is BrandedPlanningOrderType.MILANA
+        assert command.status is BrandedPlanningOrderStatus.OPEN
+        order = original(db, command)
+        assert order.id is not None and order in db
+        calls.append(order.id)
+        return order
+
+    monkeypatch.setattr(service, "insert_branded_planning_order", observe)
+    before = _order_count()
+    response = client.post("/api/planning/create-branded-production", headers=auth_headers, json=_alternate_payload())
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert calls == [body["planning_order_id"]]
+    with TestSessionLocal() as db:
+        po = db.get(ProductionOrder, body["id"])
+        order = db.get(BrandedPlanningOrder, calls[0])
+        assert (order.ordered_for_type, order.ordered_for_name, order.status, order.customer_id, order.notes) == (
+            "milana", "Milana", "open", None, None
+        )
+        assert po.planning_order_id == order.id and len(po.batches) == 1
+        assert any(wo.operation == "cutting" for wo in po.work_orders)
+        assert db.query(AuditLog).filter_by(entity_type="ProductionOrder", entity_id=po.id, action="create").count() == 1
+        assert db.query(AuditLog).filter_by(entity_type="BrandedPlanningOrder", entity_id=order.id, action="create").count() == 0
+    reused = client.post("/api/planning/create-branded-production", headers=auth_headers,
+                         json=_alternate_payload(planning_order_id=calls[0]))
+    assert reused.status_code == 201, reused.text
+    assert reused.json()["planning_order_id"] == calls[0]
+    assert len(calls) == 1 and _order_count() == before + 1
+
+
+def test_alternate_writer_refuses_missing_and_closed_orders_without_writes(client, auth_headers):
+    with TestSessionLocal() as db:
+        order = BrandedPlanningOrder(order_no=f"CLOSED-{uuid4().hex}", ordered_for_type="milana",
+                                     ordered_for_name="Milana", status="closed")
+        db.add(order); db.commit(); closed_id = order.id
+    before = _alternate_counts()
+    for order_id, status in ((closed_id, 400), (2147483647, 404)):
+        response = client.post("/api/planning/create-branded-production", headers=auth_headers,
+                               json=_alternate_payload(planning_order_id=order_id))
+        assert response.status_code == status, response.text
+        assert _alternate_counts() == before
+
+
+@pytest.mark.parametrize("hook", ["insert_branded_planning_order", "log_action"])
+def test_alternate_writer_failure_rolls_back_and_retry_succeeds(client, auth_headers, monkeypatch, hook):
+    from app.models.planning import production_planning_service as service
+
+    before = _alternate_counts()
+    original = getattr(service, hook)
+
+    def fail_after_write(*args, **kwargs):
+        original(*args, **kwargs)
+        raise RuntimeError("injected alternate writer failure")
+
+    monkeypatch.setattr(service, hook, fail_after_write)
+    with pytest.raises(RuntimeError, match="injected alternate writer failure"):
+        client.post("/api/planning/create-branded-production", headers=auth_headers, json=_alternate_payload())
+    assert _alternate_counts() == before
+    monkeypatch.setattr(service, hook, original)
+    response = client.post("/api/planning/create-branded-production", headers=auth_headers, json=_alternate_payload())
+    assert response.status_code == 201, response.text
+    after = _alternate_counts()
+    assert after[0] == before[0] + 1 and after[1] == before[1] + 1
+    assert after[2] == before[2] + 1 and after[3] > before[3] and after[4] > before[4]

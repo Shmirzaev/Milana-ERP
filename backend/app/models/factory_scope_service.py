@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from fastapi import HTTPException
-from app.models.user_access_service import apply_policy, denied_for, policy_for
+from app.models.identity.access_policy_service import apply_policy, denied_for, policy_for
 
 FACTORY_CODES = ("MIL", "BST", "ECO")
 FACTORY_LABELS = {"MIL": "Milana", "BST": "Besttex", "ECO": "Eco Cotton"}

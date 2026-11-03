@@ -1,5 +1,11 @@
 import { ApiError, errorDetail } from "./errorMessages";
 
+export const API_TIMEOUT_EVENT = "milana:api-timeout";
+
+function reportTimeout() {
+  if (typeof window !== "undefined") window.dispatchEvent(new Event(API_TIMEOUT_EVENT));
+}
+
 // Downloads retain their existing fetch options and timeout behavior.
 // Browser network failures use the same localized messages as JSON requests.
 export async function fetchResponse(url: string, init: RequestInit = {}): Promise<Response> {
@@ -35,8 +41,10 @@ async function fetchWithTimeout<T>(
   } catch (err: any) {
     if (controller.signal.aborted || err?.name === "AbortError") {
       if (callerSignal?.aborted) callerSignal.throwIfAborted();
+      reportTimeout();
       throw new ApiError(504, "Request timed out");
     }
+    if (err instanceof ApiError && err.status === 504) reportTimeout();
     if (err instanceof TypeError) throw new ApiError(0, "Failed to fetch");
     throw err;
   } finally {
@@ -167,13 +175,14 @@ export const api = {
           const msg = res.msg;
 
           const shouldRetry =
-            res.status === 500 || res.status === 502 || res.status === 503 || res.status === 504;
+            res.status === 500 || res.status === 502 || res.status === 504;
           if (shouldRetry) {
-            lastTransientError = `${res.status}: ${msg}`;
+            lastTransientError = msg;
             continue;
           }
           throw new ApiError(res.status, msg);
         } catch (err: any) {
+          if (err instanceof ApiError && err.status === 503) throw err;
           const message = err instanceof ApiError ? err.rawDetail : String(err?.message || "");
           if (isTransientNetworkError(message)) {
             lastTransientError = message;

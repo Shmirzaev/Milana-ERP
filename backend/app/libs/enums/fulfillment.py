@@ -7,3 +7,11 @@ class FinishedGoodsStatus(str, Enum):
     RESERVED = "reserved"
     SOLD = "sold"
     DAMAGED = "damaged"
+
+
+class ShipmentStatus(str, Enum):
+    DRAFT = "draft"
+    CREATED = "created"
+    SHIPPED = "shipped"
+    DELIVERED = "delivered"
+    CANCELLED = "cancelled"

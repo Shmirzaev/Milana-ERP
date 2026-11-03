@@ -11,9 +11,12 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.core.deps import user_permissions
 from app.models.user_access_service import access_configured, permission_denied
-from app.schemas import CuttingPassport, Notification, User
+from app.schemas import CuttingPassport, User
+from app.schemas.core_persistence import add_notification_row
 from app.schemas.catalog.catalog import Model
 from app.schemas.planning.price_calculation import PriceCalculationRequest
+from app.libs.types.planning import PriceCalculationPurchasingCommand
+from app.schemas.planning.price_calculation_persistence import apply_purchasing_contribution
 from app.models.audit_service import log_action
 from app.models.model_images_service import model_preview_image_url, model_variant_picture_url
 
@@ -436,14 +439,23 @@ def update_cutting_details(db: Session, request: PriceCalculationRequest, data: 
         _notify_finance(db, request, "Cutting details completed")
 
 
-def update_purchasing_details(db: Session, request: PriceCalculationRequest, data: dict, current: User) -> None:
+def update_purchasing_details(
+    db: Session,
+    request: PriceCalculationRequest,
+    command: PriceCalculationPurchasingCommand,
+    current: User,
+) -> None:
     before = purchasing_status(request)
-    request.fabric_price = data.get("fabric_price")
-    request.sewing_cost = data.get("sewing_cost")
-    request.purchasing_updated_by_id = current.id
-    db.flush()
+    apply_purchasing_contribution(db, request, command, updated_by_id=current.id)
     after = purchasing_status(request)
-    log_action(db, current, "update_purchasing_costs", "PriceCalculationRequest", request.id, new_value={"fabric_price": data.get("fabric_price"), "sewing_cost": data.get("sewing_cost")})
+    log_action(
+        db,
+        current,
+        "update_purchasing_costs",
+        "PriceCalculationRequest",
+        request.id,
+        new_value={"fabric_price": command.fabric_price, "sewing_cost": command.sewing_cost},
+    )
     if before != "complete" and after == "complete":
         _notify_finance(db, request, "Purchasing costs completed")
 
@@ -481,11 +493,11 @@ def _notify_new_request(db: Session, request: PriceCalculationRequest) -> None:
             link = "/purchasing/price-calculation"
         else:
             link = "/inventory/accessory-pricing"
-        db.add(Notification(user_id=recipient.id, title="New price calculation request", message=f"Model {request.model.code} needs cost information.", link=link))
+        add_notification_row(db, user_id=recipient.id, title="New price calculation request", message=f"Model {request.model.code} needs cost information.", link=link)
 
 
 def _notify_finance(db: Session, request: PriceCalculationRequest, title: str) -> None:
     for recipient in db.query(User).filter(User.is_active.is_(True)).all():
         if not is_finance_pricing_user(recipient) or "*" in user_permissions(recipient):
             continue
-        db.add(Notification(user_id=recipient.id, title=title, message=f"Model {request.model.code} price request was updated.", link="/finance/price-calculation"))
+        add_notification_row(db, user_id=recipient.id, title=title, message=f"Model {request.model.code} price request was updated.", link="/finance/price-calculation")
