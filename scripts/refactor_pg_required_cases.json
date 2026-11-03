@@ -196,6 +196,30 @@
         "test_pg_payment_commit_after_guards_before_delete_flush",
         "test_pg_delete_flush_blocks_payment_until_commit"
       ]
+    },
+    "test_modelsize_create_postgres": {
+      "revision": "uncommitted CREATE-only + approved G012 wrap integration on exact 58bca5491e7759a18875656500588f37c3a418bd; test lifecycle repair; fresh verification required",
+      "candidate_file_sha256": "d5b163f1323f3958a1898dbb3d4f2ceb689b5e1fc622cfd1bfaf45fdd0a4c89a",
+      "selected_functions": [
+        "test_pg_create_atomic_audit_and_failure_retry",
+        "test_pg_concurrent_duplicate_creates"
+      ]
+    },
+    "test_modelcolor_create_postgres": {
+      "revision": "uncommitted CREATE-only + approved G012 wrap integration on exact 58bca5491e7759a18875656500588f37c3a418bd; test lifecycle repair; fresh verification required",
+      "candidate_file_sha256": "189c78a451b67216737dddb8c6330d1e02ce2b521dc335fbbce68ed4ff52b3e5",
+      "selected_functions": [
+        "test_pg_http_exact_unicode_null_empty_duplicate_readback",
+        "test_pg_http_auth_scope_dto_and_bound_precedence",
+        "test_pg_old_raw_scope",
+        "test_pg_invalid_scope_400_before_parent_and_length",
+        "test_pg_actual_schema_writer_one_session_commit_and_refresh",
+        "test_pg_actual_varchar_constraint_rejects_oversize",
+        "test_pg_real_fk_flush_failure_request_teardown_then_retry",
+        "test_pg_request_teardown_fault_then_fresh_readback_and_retry",
+        "test_pg_bounded_concurrent_independent_and_duplicate_values",
+        "test_pg_canonical_scope_accepted"
+      ]
     }
   },
   "cases": {
@@ -382,6 +406,39 @@
     "test_customer_delete_reference_race_postgres": [
       "test_pg_payment_commit_after_guards_before_delete_flush",
       "test_pg_delete_flush_blocks_payment_until_commit"
+    ],
+    "test_modelsize_create_postgres": [
+      "test_pg_create_atomic_audit_and_failure_retry",
+      "test_pg_concurrent_duplicate_creates"
+    ],
+    "test_modelcolor_create_postgres": [
+      "test_pg_http_exact_unicode_null_empty_duplicate_readback[-None-standard-standard-/api/models]",
+      "test_pg_http_exact_unicode_null_empty_duplicate_readback[-None-usluga-eco-/api/usluga/models]",
+      "test_pg_http_exact_unicode_null_empty_duplicate_readback[  --standard-standard-/api/models]",
+      "test_pg_http_exact_unicode_null_empty_duplicate_readback[  --usluga-eco-/api/usluga/models]",
+      "test_pg_http_exact_unicode_null_empty_duplicate_readback[ e\\u0301 \\U0001f9f5 - \\u041a -standard-standard-/api/models]",
+      "test_pg_http_exact_unicode_null_empty_duplicate_readback[ e\\u0301 \\U0001f9f5 - \\u041a -usluga-eco-/api/usluga/models]",
+      "test_pg_http_exact_unicode_null_empty_duplicate_readback[e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301-KKKKKKKKKKKKKKKK-standard-standard-/api/models]",
+      "test_pg_http_exact_unicode_null_empty_duplicate_readback[e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301-KKKKKKKKKKKKKKKK-usluga-eco-/api/usluga/models]",
+      "test_pg_http_auth_scope_dto_and_bound_precedence",
+      "test_pg_old_raw_scope[None-standard]",
+      "test_pg_old_raw_scope[0-standard]",
+      "test_pg_old_raw_scope[-standard]",
+      "test_pg_old_raw_scope[ StAnDaRd -standard]",
+      "test_pg_old_raw_scope[ USLUGA -usluga]",
+      "test_pg_invalid_scope_400_before_parent_and_length[ ]",
+      "test_pg_invalid_scope_400_before_parent_and_length[unknown]",
+      "test_pg_actual_schema_writer_one_session_commit_and_refresh",
+      "test_pg_actual_varchar_constraint_rejects_oversize[color_name-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]",
+      "test_pg_actual_varchar_constraint_rejects_oversize[color_code-xxxxxxxxxxxxxxxxx]",
+      "test_pg_real_fk_flush_failure_request_teardown_then_retry",
+      "test_pg_request_teardown_fault_then_fresh_readback_and_retry[before_commit]",
+      "test_pg_request_teardown_fault_then_fresh_readback_and_retry[after_flush_before_commit]",
+      "test_pg_request_teardown_fault_then_fresh_readback_and_retry[refresh_after_commit]",
+      "test_pg_bounded_concurrent_independent_and_duplicate_values[True]",
+      "test_pg_bounded_concurrent_independent_and_duplicate_values[False]",
+      "test_pg_canonical_scope_accepted[standard-standard]",
+      "test_pg_canonical_scope_accepted[usluga-eco]"
     ]
   },
   "isolated_supplemental_cases": [

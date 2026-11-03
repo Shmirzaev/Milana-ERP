@@ -559,7 +559,7 @@ def add_usluga_model_size(
     current: User = Depends(require_permissions("usluga.manage", "*")),
 ):
     _require_eco(current)
-    return models_service.add_size(current, db, mid, payload, "usluga")
+    return models_service.add_size(current, db, mid, payload, CatalogScope.USLUGA)
 
 
 @router.delete("/models/{mid}/sizes/{size_id}", status_code=204)
@@ -581,7 +581,7 @@ def add_usluga_model_color(
     current: User = Depends(require_permissions("usluga.manage", "*")),
 ):
     _require_eco(current)
-    return models_service.add_color(current, db, mid, payload, "usluga")
+    return models_service.add_color(current, db, mid, payload, CatalogScope.USLUGA)
 
 
 @router.post("/models/{mid}/bom", status_code=201, response_model=ModelBOMCreateOut)
