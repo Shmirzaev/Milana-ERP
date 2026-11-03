@@ -32,7 +32,31 @@ class RequiredPGGateTests(unittest.TestCase):
 
     def test_complete_evidence_passes(self):
         counts = gate.check_report(self.write_report(self.report()))
-        self.assertEqual(sum(counts.values()), 148)
+        self.assertEqual(sum(counts.values()), 177)
+
+    def test_catalog_create_groups_have_exact_registered_case_counts(self):
+        for module, count in (("test_modelsize_create_postgres", 2), ("test_modelcolor_create_postgres", 27)):
+            with self.subTest(module=module):
+                self.assertIn(module, gate.REQUIRED_CASES)
+                self.assertEqual(len(gate.REQUIRED_CASES[module]), count)
+                self.assertEqual(len(set(gate.REQUIRED_CASES[module])), count)
+
+    def test_catalog_create_missing_duplicate_and_nonpass_cannot_fill_gate(self):
+        for module in ("test_modelsize_create_postgres", "test_modelcolor_create_postgres"):
+            for mutation in ("missing", "duplicate", "failure", "error", "skipped"):
+                with self.subTest(module=module, mutation=mutation):
+                    self.assertIn(module, gate.REQUIRED_CASES)
+                    tree = self.report()
+                    suite = next(tree.iter("testsuite"))
+                    rows = [row for row in suite if row.get("classname") == f"app.tests.{module}"]
+                    if mutation == "missing":
+                        suite.remove(rows[0])
+                    elif mutation == "duplicate":
+                        rows[-1].set("name", rows[0].get("name"))
+                    else:
+                        ET.SubElement(rows[0], mutation)
+                    with self.assertRaises(ValueError):
+                        gate.check_report(self.write_report(tree))
 
     def test_skipped_failed_and_error_evidence_are_rejected(self):
         for tag in ('skipped', 'failure', 'error'):
