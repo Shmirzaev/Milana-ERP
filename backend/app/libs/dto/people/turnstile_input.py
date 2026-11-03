@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from app.libs.enums.turnstile import GateAction
 
 class GateEnrollmentInput(BaseModel):
@@ -28,4 +28,38 @@ class GateEnrollmentInput(BaseModel):
     def validate_action(cls, value: GateAction) -> GateAction:
         if value is not GateAction.ENROLL:
             raise ValueError("only enrollment is supported")
+        return value
+
+
+class GateEditTargetInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    device_id: int = Field(gt=0)
+    expected_revision: int = Field(gt=0)
+    expected_profile_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class GateEditInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_employee_no: str = Field(min_length=1, max_length=64)
+    reviewed_name: str = Field(min_length=1, max_length=255)
+    action: GateAction = GateAction.EDIT
+    targets: list[GateEditTargetInput] = Field(min_length=1, max_length=32)
+
+    @field_validator("reviewed_name", mode="before")
+    @classmethod
+    def trim_name(cls, value: str) -> str:
+        return value.strip() if isinstance(value, str) else value
+
+    @field_validator("action")
+    @classmethod
+    def validate_action(cls, value: GateAction) -> GateAction:
+        if value is not GateAction.EDIT:
+            raise ValueError("only edit is supported")
+        return value
+
+    @field_validator("targets")
+    @classmethod
+    def unique_devices(cls, value: list[GateEditTargetInput]) -> list[GateEditTargetInput]:
+        if len({target.device_id for target in value}) != len(value):
+            raise ValueError("device IDs must be unique")
         return value
