@@ -8,8 +8,8 @@ For this owner-authorized continuation, complete meaningful automated checks, ac
 visual and persisted-data verification, and independent AI review on the identified
 candidate before an authorized source merge. Record AI_VERIFIED_AWAITING_HUMAN and
 retain the human checklist; do not pause development or merge solely for pending
-human review. QA master and named technical/business reviewers must complete and
-record their checks before deployment. A merge is not human acceptance, deployment
+human review. QA master must complete and record the pre-deployment review;
+named domain ownership and the human checklist remain recorded. A merge is not human acceptance, deployment
 authorization or permission to retire old paths; retain each path until its separately
 recorded retirement condition is met. This update supersedes conflicting instructions
 to wait for human review before source integration or the next development slice.
@@ -41,8 +41,9 @@ Work **one business operation at a time**:
 4. Run the bounded relevant stress/integrity/recovery checks. A missing required
    test, browser or database check is BLOCKED; do not claim a pass.
 5. Only after independent AI review and all required evidence passes, mark
-   **AI_VERIFIED_AWAITING_HUMAN**. Supply the human's local visual checklist and wait
-   for recorded human review. This state is not approval to merge, deploy or retire paths.
+   **AI_VERIFIED_AWAITING_HUMAN**. Supply the local visual checklist and continue
+   owner-authorized source merges and refactoring. QA master records human review
+   before deployment. This state alone is not merge/deployment or retirement authority.
 
 Use [VERIFICATION.md](docs/VERIFICATION.md) for the task packet, evidence and human
 gate. Audit enums/types [table by table](backend/app/libs/enums/README.md#table-by-table-audit),

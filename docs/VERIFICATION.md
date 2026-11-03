@@ -8,8 +8,8 @@ For this owner-authorized continuation, complete meaningful automated checks, ac
 visual and persisted-data verification, and independent AI review on the identified
 candidate before an authorized source merge. Record AI_VERIFIED_AWAITING_HUMAN and
 retain the human checklist; do not pause development or merge solely for pending
-human review. QA master and named technical/business reviewers must complete and
-record their checks before deployment. A merge is not human acceptance, deployment
+human review. QA master must complete and record the pre-deployment review;
+named domain ownership and the human checklist remain recorded. A merge is not human acceptance, deployment
 authorization or permission to retire old paths; retain each path until its separately
 recorded retirement condition is met. This update supersedes conflicting instructions
 to wait for human review before source integration or the next development slice.
@@ -40,7 +40,8 @@ phantom row or persisted write appears; then verify a successful retry and reloa
 
 Ismail's direct instruction is study -> move one business operation -> code tests
 -> substantial visual checks on his computer -> persisted readback and bounded
-stress -> AI verification -> human visual approval. Treat those as ordered gates.
+stress -> AI verification -> human visual approval before deployment. Treat those as
+ordered release gates; owner-authorized source integration continues after AI gates.
 Before editing, study all source and dependencies relevant to the operation:
 route/service entry points, direct and alternate callers, DTOs/validators, ORM and
 actual database shape/values, reads/writes, permissions, transaction boundaries,
@@ -357,9 +358,10 @@ After AI verification, hold that operation for the human to visually repeat the
 checklist on the identified build, confirm saved results, and approve or reject it.
 Record disagreement and return the operation to NEEDS_REWORK; rerun invalidated
 gates after a fix. An AI pass, silence, elapsed time, a merge or an old approval
-cannot substitute for this human check. Unrelated approved operations may continue
-in isolation while this one waits. Human approval itself does not imply merge or
-release authorization; production acceptance remains a distinct later record.
+cannot substitute for QA master's pre-deployment human check. Owner-authorized
+source integration and further refactor slices continue after their required AI
+gates, without waiting for this human check. Human approval itself does not imply
+merge or release authorization; production acceptance remains a distinct later record.
 Documentation-only changes use document/link/skill checks; visual/load gates are
 NOT APPLICABLE with that explicit reason, never falsely reported as passed.
 

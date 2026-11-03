@@ -8,8 +8,8 @@ For this owner-authorized continuation, complete meaningful automated checks, ac
 visual and persisted-data verification, and independent AI review on the identified
 candidate before an authorized source merge. Record AI_VERIFIED_AWAITING_HUMAN and
 retain the human checklist; do not pause development or merge solely for pending
-human review. QA master and named technical/business reviewers must complete and
-record their checks before deployment. A merge is not human acceptance, deployment
+human review. QA master must complete and record the pre-deployment review;
+named domain ownership and the human checklist remain recorded. A merge is not human acceptance, deployment
 authorization or permission to retire old paths; retain each path until its separately
 recorded retirement condition is met. This update supersedes conflicting instructions
 to wait for human review before source integration or the next development slice.
@@ -134,7 +134,7 @@ complete declarations without complete consumer coverage are unfinished work.
 5. **Challenge integrity and recovery:** bounded relevant stress/concurrency on
    isolated data, including real PostgreSQL locking when relevant. Record bounds,
    stop conditions and outcomes. A required skipped or unavailable check is BLOCKED.
-6. **Independent AI review, then human:** only passing required evidence earns
+6. **Independent AI review, then human before deployment:** only passing required evidence earns
    `AI_VERIFIED_AWAITING_HUMAN` for the named operation/revision. Provide the human
    the exact local visual steps, expected results and unresolved findings. Record
    their additional visual/technical approval separately. Never self-approve the
