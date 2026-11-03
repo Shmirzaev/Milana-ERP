@@ -15,25 +15,45 @@ Last updated 2026-11-03. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
-## Pack customer restriction and admin release candidate (3 November)
+## Customer-pack and FG release: rolled back on performance gate (3 November)
 
-The [local feature candidate](archive/PACK_CUSTOMER_RELEASE_2026-11-03.md) blocks
-cross-customer pack scanning/attachment/dispatch, including partial remainders,
-unless an admin explicitly releases selected remaining pieces. Origin order and
-stock links stay intact; later reservations still apply. New migration `0150`
-only adds the release ledger. No order-edit freeze was added. Production remains
-green `20261102_063110`, rollback blue `20261031_092951`, schema `0149`.
-This candidate is not merged or deployed; human acceptance remains pending.
+The owner authorized push/merge/deploy of only customer shipment-pack restriction,
+admin release and FG numbering, waiving only the 30-minute observer. PR376 merged
+at54a51d79; PR377 ancestry is preserved. Reviewed narrow runtime11f80a29 / blue
+20261103_094602 passed CI, required PostgreSQL, isolated complete shipment/admin/
+warehouse-role/FG-save workflows and connected public Chrome. Other clone_main
+runtime changes, including published HR0151, were excluded from production.
 
-## FG model-number prefix candidate (3 November)
+Final active production is compatible green20261103_112256 /37337ea6 on BOTHhosts,
+manifest8c5521db580320842925229aff26e659202b4beef6752afa82d7b480dc677bbf,
+schema0150_package_customer_release. This contains exact old420 application plus
+identical0150 migration metadata. Immutable fullCI41627068789 includes actual
+strict default-CMD/two-worker/replacement/restart/shared-SQLite-counter checks.
+Inactive blue11f80a29 is retained as a candidate, NOT authorized for reactivation.
 
-The [FG numbering change](archive/FG_MODEL_PREFIX_2026-11-03.md), based on the
-user-approved `clone_main`, adds FG to the existing dynamic selector and starts
-its sequence at FG202001. Focused tests, independent AI review, actual local
-browser save/reload and bounded SQLite integrity checks passed. Real PostgreSQL
-concurrency/recovery remains blocked by unavailable local infrastructure; no
-AI-verified status, human acceptance, merge or deployment is claimed. Both live
-source manifests remain verified at `20261102_063110`; production data is untouched.
+The first cutover's closing checks passed, but rollback verification failed on an
+omitted Docker entrypoint key and inherited startup auto-seeding. The helper was
+corrected without weakening startup guards; only RUN_SEED_ON_STARTUP was changed
+to false under backup/owned-lock/byte-CAS controls. Startup seed had reset one
+configured admin password hash. A fresh full backup, separately reviewed one-field
+row-lock/CAS restoration, actual PostgreSQL fault tests and independent readback
+proved the exact original hash restored with access/profile fields unchanged.
+No manufacturing/order/package/shipment/model form was submitted in production.
+
+The explicit resumption recreated inactive featureblue with seed disabled and
+passed fresh same-client publicbaseline and paired120-sample checks. Final public
+Model Options p95 was193.23ms vs162.26ms (+19.09%, above15% limit), median153.81ms
+vs153.52ms (+0.19%). Other6endpoints, rows and payload passed. Both roles were
+automatically restored to37337ea6; fourhealth/source/proxy/log/schema/readiness/
+worker/resource checks passed. Cause remains unproven; endpoint code is unchanged.
+No failed result was resampled or relabeled. An explicit owner p95 exception is
+required before reactivation. The separate30-minute observer was not run.
+
+Both backend slots have seed disabled, two workers, zero OOM/restarts; old historical
+OOM evidence is retained. Disk78.66%backend/78.54%frontend is above70%alert but below
+80%hardstop. Owned locks and local QA servers are released/stopped. Human operator
+acceptance remains separate. See [release/incident evidence](archive/PACK_CUSTOMER_FG_RELEASE_2026-11-03.md)
+and [machine-readable record](archive/PACK_CUSTOMER_FG_RELEASE_2026-11-03.json).
 
 ## Turnstile enrollment development (3 November)
 
