@@ -115,7 +115,7 @@ unchanged. Other6endpoints passed. This failed result is retained without resamp
 Cause is unproven; endpoint code is unchanged, which does not rule out indirect
 runtime/workload/transport effects. The15% automatic-stop rule was honored.
 
-Both hosts were restored to compatible green37337ea6 at12:27UTC. Final active release
+Both hosts were restored to compatible green37337ea6 at12:27UTC. At that checkpoint the active release
 20261103_112256, full source manifest8c5521db580320842925229aff26e659202b4beef6752afa82d7b480dc677bbf,
 schema0150; inactive blue11f80a29 retained but reactivation requires an explicit
 owner exception for this specific p95 failure. All4health checks200, defaultCMD,
@@ -128,3 +128,46 @@ monitor ran. The exact verified pre-release admin credential remains restored.
 
 The earlier wider affected race failure remains in the feature packet; it is not
 relabeled PASS. Human acceptance remains separate.
+
+
+## Owner-approved p95 exception and final active release
+
+At12:35UTC the owner explicitly answered **"Re-deploy with this specific p95
+exception"** for exact11f80a29 and the retained Model Options p95 failure above.
+This is not a blanket threshold waiver. That comparison stays FAIL; no repeat
+measurement was used to hide it. Other six endpoints, all medians, rows and payload
+passed. The cause remains unproven. The separate30-minute waiver remains in effect.
+
+Integration was re-fetched and pinned to own incident-record PR383 merge10c525c2.
+Its baseline37337ea6 matched both live hosts. Under newly acquired owned locks,
+source/controller/state/proxy/both-container IDs, no-seed/default-command/stricthead,
+two-worker continuity, readiness/pool48/100, memory, logs, database and disks passed.
+A fresh root0600 full PostgreSQL backup at12:37:20UTC contained1251restoreobjects,
+111104711bytes, dumpSHAf8b8a5dd976f678e9794b26fb3d0a18b366420bb519864b47b726e2998a87fb9,
+and restore-list89845bytes/SHA61f81fd598b9845687d34bb5a42272eb2c7f89f85ce40f454e9dec74d9eb9e50.
+Its path is /opt/milana-erp/shared/backups/milana_erp_pre_exception_20261103_094602_20261103_123720.dump.
+The backup follows verified credential restoration; no new migration or data repair ran.
+
+The same reviewed immutable11f80a29 images were reactivated on BOTH hosts at
+12:38:09UTC /17:38:09Tashkent. Final activeblue20261103_094602 has source manifest
+ee765f999e782193878390897873c7b5865749460d4d776cf321fcd28490f8a9 and schema0150.
+Compatiblegreen20261103_112256 /37337ea6 remains live and ready for rollback.
+Neither image was rebuilt or replaced in this exception phase; no HR source deployed.
+
+Fresh immediate and final postflights passed all fourhealth200, full source/image
+provenance, exact routing, strict defaultCMD/no-seed/head0150, ready/pool, logs and
+resource continuity. Connected public Chrome showed FG202002 (FG202001 already
+exists) and the exact selected pack/reason-required/disabled-empty-submit release
+dialog, cancelled without submitting; warnings/errors0. GET-only full-history
+readback found437groups, PKG241/BPK196, denied403, and matching old-run/pack/model/
+date-receipt filters. Actual isolated and PostgreSQL tests provide the customer-bound
+scan/admin-release persistence proof; no bound production test data was created.
+
+Final12:39:18UTC: DB24/100connections, invalidindexes0; both backend slots two
+unchangedworkers, cgroupOOM/oom_kill0 and zero container restarts. Release ledger
+remains0rows with unchanged hash. Disk78.72%backend/78.54%frontend stays below80%
+hardstop, above70%alert. Both owned leases released, task QA services stopped.
+Independent reviewer /root/customer_guard_review found no blocker in the scoped
+exception, preserved history, source/image pins and fresh public evidence. Earlier
+failed measurements and incident outcomes remain unchanged above and in JSON.
+No timed30-minute monitoring ran; human operator acceptance remains separate.

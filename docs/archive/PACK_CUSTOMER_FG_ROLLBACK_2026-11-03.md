@@ -66,7 +66,7 @@ GHCR image QA tests the already-built975 digest after proving unchanged applicat
 source; it publishes/deploys nothing and does not replace full exact-new-head CI.
 
 
-## Verified compatibility source and final active recovery
+## Verified compatibility source and recovery checkpoint
 
 FullCI41627068789 on37337ea6 passed:4,890backendcases, requiredPostgreSQL gates,
 frontend checks, immutableimages and actual defaultCMD/head0150/twoworker/child
@@ -75,7 +75,7 @@ is8c5521db580320842925229aff26e659202b4beef6752afa82d7b480dc677bbf. Backenddiges
 bf8dd8a1a7f95e2cc178844391f3ed34ac02dcd429db2099922680f50f45b02f and frontenddigest
 41e05facdcce1271896ec931dfe19f465b92c89021bdfcae3f1a848fda79c2d2 are pinned.
 
-This compatible release20261103_112256 is finally ACTIVEgreen onbothhosts after the
+At the12:27UTC checkpoint, compatible release20261103_112256 was ACTIVEgreen after the
 feature's public p95 failure. The attempted verification failure, partial first
 recovery, inherited startup-seed credential reset and reviewed exact restoration
 are detailed in the companion release/incident record. No-seed remains strict;
@@ -84,3 +84,14 @@ Both current roles match source37337ea6 with fourhealth200 and stricthead0150.
 Inactiveblue11f80a29 is a retained candidate awaiting an explicit latency exception,
 not permission to reactivate through rollback metadata. No threshold exception,
 downgrade, stamp, secret publication or timed30-minute monitor was performed.
+
+
+## Retained rollback after the approved exception
+
+The owner subsequently authorized exact11f80a29 reactivation with only the recorded
+Model Options p95 exception. Both hosts now serve blue20261103_094602; this verified
+37337ea6/20261103_112256 green remains the running compatible rollback. Its source,
+image IDs, defaultCMD/head0150/no-seed/twoworker continuity and readiness were checked
+again before and after the12:38UTC switch. Historical failure and recovery evidence
+above remain unchanged. Full approval, backup, health/browser/readback and final
+resources are in the companion release record. No downgrade or seed bypass occurred.
