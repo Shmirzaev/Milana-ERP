@@ -9,12 +9,12 @@ from fastapi import HTTPException
 from sqlalchemy import select
 
 from app.core.config import settings
-from app.libs.enums.turnstile import GateBindingState, GateErrorCode, GateMode, GateTargetState
+from app.libs.enums.turnstile import GateAction, GateBindingState, GateErrorCode, GateMode, GateTargetState
 from app.models.people.turnstile_access_service import authorize_gate_employee, get_gate_operation
 from app.schemas.people.turnstile import (GateEmployeeDevice, GateOperation, GatePhotoAsset,
     GateSimulatorDevice, GateSimulatorPerson, GateTarget)
 from app.schemas.people.turnstile_persistence import (set_simulator_device, transition_target,
-    update_binding_state_revision, upsert_simulator_person)
+    update_binding_state_revision, upsert_simulator_person, compare_and_update_simulator_name)
 
 
 def _now() -> datetime:
@@ -60,6 +60,18 @@ def _matches(evidence: SimulatorEvidence | None, op: GateOperation, photo: GateP
         "full_name": op.full_name, "external_person_id": op.external_person_id, "photo_sha256": photo.sha256})
 
 
+def _baseline(target: GateTarget) -> SimulatorEvidence:
+    return {"revision": target.baseline_revision, "payload_hash": target.baseline_payload_hash,
+            "full_name": target.baseline_full_name, "external_person_id": target.baseline_external_person_id,
+            "photo_sha256": target.baseline_photo_sha256}
+
+
+def _desired(target: GateTarget, op: GateOperation) -> SimulatorEvidence:
+    return {"revision": op.revision, "payload_hash": target.desired_payload_hash,
+            "full_name": op.full_name, "external_person_id": target.baseline_external_person_id,
+            "photo_sha256": target.baseline_photo_sha256}
+
+
 class SimulatorAdapter:
     """In-process terminal with durable, independently committed acceptance."""
     def __init__(self, factory: sessionmaker[Session]) -> None:
@@ -84,7 +96,7 @@ class SimulatorAdapter:
                 raise RuntimeError("stale lease")
             binding = _binding(db, target.binding_id)
             op = db.get(GateOperation, target.operation_id)
-            photo = db.get(GatePhotoAsset, op.photo_asset_id)
+            photo = db.get(GatePhotoAsset, op.photo_asset_id) if op.photo_asset_id is not None else None
             device = db.scalar(select(GateSimulatorDevice).where(GateSimulatorDevice.device_id == target.device_id).with_for_update())
             if binding.desired_revision != target.revision or binding.external_person_id != op.external_person_id:
                 raise RuntimeError("stale revision")
@@ -92,6 +104,12 @@ class SimulatorAdapter:
                 return
             person = db.scalar(select(GateSimulatorPerson).where(GateSimulatorPerson.binding_id == binding.id))
             evidence = _evidence(person, binding)
+            if op.action == GateAction.EDIT:
+                if evidence == _baseline(target):
+                    compare_and_update_simulator_name(db, binding_id=binding.id, baseline=_baseline(target),
+                        accepted_revision=target.revision, accepted_payload_hash=target.desired_payload_hash, full_name=op.full_name)
+                db.commit()
+                return
             if evidence is not None:
                 if not _matches(evidence, op, photo):
                     return
@@ -161,13 +179,22 @@ def _process(factory: sessionmaker[Session], target_id: int, adapter: SimulatorA
         with factory() as db:
             target = db.get(GateTarget, target_id)
             op = db.get(GateOperation, target.operation_id)
-            photo = db.get(GatePhotoAsset, op.photo_asset_id)
-            matches = _matches(evidence, op, photo)
+            photo = db.get(GatePhotoAsset, op.photo_asset_id) if op.photo_asset_id is not None else None
+            edit = op.action == GateAction.EDIT
+            matches = evidence == _desired(target, op) if edit else _matches(evidence, op, photo)
+            baseline = _baseline(target) if edit else None
             exhausted = target.attempts >= settings.TURNSTILE_SIMULATOR_MAX_ATTEMPTS
         if matches:
             _finish(factory, target_id, token, GateTargetState.SUCCEEDED, evidence=evidence)
-        elif evidence is not None:
+        elif edit and was_uncertain:
+            if evidence is not None and evidence != baseline:
+                _finish(factory, target_id, token, GateTargetState.CONFLICT, GateErrorCode.PAYLOAD_CONFLICT, evidence)
+            else:
+                _finish(factory, target_id, token, GateTargetState.UNCERTAIN, GateErrorCode.SIMULATOR_ERROR, evidence)
+        elif evidence is not None and (not edit or evidence != baseline):
             _finish(factory, target_id, token, GateTargetState.CONFLICT, GateErrorCode.PAYLOAD_CONFLICT, evidence)
+        elif edit and evidence is None:
+            _finish(factory, target_id, token, GateTargetState.CONFLICT, GateErrorCode.PAYLOAD_CONFLICT)
         elif was_uncertain and exhausted:
             _finish(factory, target_id, token, GateTargetState.UNCERTAIN, GateErrorCode.SIMULATOR_ERROR)
         else:
@@ -175,7 +202,7 @@ def _process(factory: sessionmaker[Session], target_id: int, adapter: SimulatorA
             online, evidence = adapter.read(target_id, token)
             if not online:
                 _finish(factory, target_id, token, GateTargetState.UNCERTAIN, GateErrorCode.DEVICE_OFFLINE)
-            elif _matches(evidence, op, photo):
+            elif (evidence == _desired(target, op) if edit else _matches(evidence, op, photo)):
                 _finish(factory, target_id, token, GateTargetState.SUCCEEDED, evidence=evidence)
             elif evidence is not None:
                 _finish(factory, target_id, token, GateTargetState.CONFLICT, GateErrorCode.PAYLOAD_CONFLICT, evidence)
