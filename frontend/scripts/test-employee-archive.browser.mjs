@@ -15,7 +15,7 @@ import Page from './src/app/(app)/hr/employees/page';import{LangProvider}from'./
 localStorage.setItem('erp_lang',new URLSearchParams(location.search).get('lang')||'en');
 createRoot(document.getElementById('root')).render(<LangProvider><Page/></LangProvider>);`, loader: "tsx", resolveDir: root },
   bundle: true, write: false, format: "iife", jsx: "automatic",
-  define: { "process.env.NEXT_PUBLIC_TURNSTILE_UI_PREVIEW": '"0"' }, loader: { ".module.css": "empty" },
+  define: { "process.env.NEXT_PUBLIC_TURNSTILE_UI_PREVIEW": '"0"', "process.env.NEXT_PUBLIC_TURNSTILE_BACKEND": '"0"' }, loader: { ".module.css": "empty" },
   plugins: [{ name: "fixtures", setup(b) {
     b.onResolve({ filter: /^next\/(?:navigation|link)$/ }, args => ({ path: args.path, namespace: "fixture" }));
     b.onLoad({ filter: /.*/, namespace: "fixture" }, args => ({ contents: stubs[args.path], loader: "tsx", resolveDir: root }));

@@ -1,11 +1,12 @@
 // UI rehearsal only. Device outcomes here are never enrollment evidence.
 export enum GateAction { Enroll = "enroll", Edit = "edit", Photo = "photo", Revoke = "revoke" }
-export enum GateState { Verified = "verified", Waiting = "waiting", Revoked = "revoked", Superseded = "superseded" }
+export enum GateState { Verified = "verified", Waiting = "waiting", Revoked = "revoked", Superseded = "superseded", Queued = "queued", Processing = "processing", Verifying = "verifying", Succeeded = "succeeded", Failed = "failed", Conflict = "conflict", Uncertain = "uncertain", Cancelled = "cancelled" }
 export interface GateEmployee { id: number; factory_code: string; employee_no: string | null; full_name: string; status: string }
-export interface GateDevice { id: number; name: string; device_key: string; vendor: string; last_seen_at: string | null }
+export interface GateDevice { id: number; name: string; device_key: string; vendor: string; last_seen_at: string | null; online?: boolean }
 export interface GateTarget { deviceId: number; name: string; state: GateState }
 export interface GateOperation { id: string; action: GateAction; at: string; name: string; targets: GateTarget[] }
 
+export const BACKEND_ENABLED = process.env.NEXT_PUBLIC_TURNSTILE_BACKEND === "1";
 export const PREVIEW_ENABLED = process.env.NEXT_PUBLIC_TURNSTILE_UI_PREVIEW === "1";
 export const previewKey = (actor: number, employee: GateEmployee) => `turnstile-preview:v1:${actor}:${employee.factory_code}:${employee.id}`;
 

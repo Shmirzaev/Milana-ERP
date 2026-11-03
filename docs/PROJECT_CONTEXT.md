@@ -15,25 +15,51 @@ Last updated 2026-11-03. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
-## Pack customer restriction and admin release candidate (3 November)
+## Customer-pack and FG release active with approved p95 exception (3 November)
 
-The [local feature candidate](archive/PACK_CUSTOMER_RELEASE_2026-11-03.md) blocks
-cross-customer pack scanning/attachment/dispatch, including partial remainders,
-unless an admin explicitly releases selected remaining pieces. Origin order and
-stock links stay intact; later reservations still apply. New migration `0150`
-only adds the release ledger. No order-edit freeze was added. Production remains
-green `20261102_063110`, rollback blue `20261031_092951`, schema `0149`.
-This candidate is not merged or deployed; human acceptance remains pending.
+Only customer shipment-pack restriction/admin release and FG numbering were pushed,
+merged and deployed. Runtime is blue `20261103_094602` / `11f80a29` on both hosts,
+manifest `ee765f999e782193878390897873c7b5865749460d4d776cf321fcd28490f8a9`,
+schema `0150_package_customer_release`. Compatible green `20261103_112256` /
+`37337ea6` remains the running rollback. Other clone_main runtime changes, including
+HR0151, were excluded. PR376/377 feature ancestry and PR383 incident records are
+preserved. Exact immutable CI passed 4,935 backend cases plus required PostgreSQL
+and frontend gates; isolated shipment denial/admin release/warehouse-role/FG-save
+workflows passed. Human production acceptance remains separate.
 
-## FG model-number prefix candidate (3 November)
+The final public Model Options p95 failed: 162.26 -> 193.23 ms (+19.09%, above15%);
+median153.52 ->153.81 ms (+0.19%). Other six endpoints, rows and payload passed.
+Automatic recovery first restored both roles to37337ea6. The owner then explicitly
+answered **"Re-deploy with this specific p95 exception"**. The failed result remains
+FAIL with only that accepted exception; it was not resampled or relabeled PASS.
+Cause remains unproven. After a fresh verified full backup, the same11f80a29 images
+were reactivated at12:38:09UTC (17:38:09Tashkent). Fresh source/image/slot/proxy,
+default-command/no-seed/schema/readiness/pools/logs/workers/resources and four-health
+checks passed, followed by connected public Chrome and GET-only API readback.
+The separate 30-minute monitoring waiver was honored; no timed monitor ran.
 
-The [FG numbering change](archive/FG_MODEL_PREFIX_2026-11-03.md), based on the
-user-approved `clone_main`, adds FG to the existing dynamic selector and starts
-its sequence at FG202001. Focused tests, independent AI review, actual local
-browser save/reload and bounded SQLite integrity checks passed. Real PostgreSQL
-concurrency/recovery remains blocked by unavailable local infrastructure; no
-AI-verified status, human acceptance, merge or deployment is claimed. Both live
-source manifests remain verified at `20261102_063110`; production data is untouched.
+Inherited startup seeding had reset one configured admin password hash during
+initial staging. Only RUN_SEED_ON_STARTUP was disabled under backed-up byte-CAS
+controls; both actual backend containers now have seedfalse. A separately reviewed,
+backed-up row-lock/CAS transaction restored the exact original credential; actual
+PostgreSQL fault tests and independent readback verified it with access/profile
+fields unchanged. Earlier partial recovery/helper failures remain in the archive.
+No production manufacturing/order/package/shipment/model form was submitted;
+the release ledger remains empty. Both backend slots have two workers, zero OOM
+and restarts; historical old-container OOM evidence is retained. Final DB24/100,
+invalidindexes0; disk78.72%backend/78.54%frontend remains above70%alert/below80%stop.
+Owned locks are released and task QA services stopped. See [release/incident evidence](archive/PACK_CUSTOMER_FG_RELEASE_2026-11-03.md)
+and [machine-readable record](archive/PACK_CUSTOMER_FG_RELEASE_2026-11-03.json).
+
+## Turnstile enrollment development (3 November)
+
+The owner approved the frontend and authorized low-reasoning Terra backend workers.
+The [Add access task packet](TURNSTILE_ACCESS_BACKEND_20261103.md) records the isolated
+simulator candidate, mentor boundaries, review fixes and synthetic PostgreSQL/browser
+evidence. Existing attendance reading and both ERP writers remain required. No live
+adapter or production change is included. The owner authorized source publication on
+clone_main after visual checks; migration0151 follows the upstream0150. Edit, photo
+replacement, revoke, adoption and hardware policy remain separate pending operations.
 
 ## Identity policy-helper prerequisite (3 November)
 

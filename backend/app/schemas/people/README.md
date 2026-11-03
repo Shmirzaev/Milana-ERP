@@ -57,3 +57,12 @@ duplicate classes or empty implementation files.
 See [schema migration rules](../README.md), [DTO conventions](../../libs/dto/README.md),
 [the business plan](../../../../docs/REFACTOR_PLAN.md) and
 [team ownership](../../../../docs/TEAM_OWNERSHIP.md).
+
+## Simulator-only turnstile enrollment
+[turnstile.py](turnstile.py) defines scoped photo assets, immutable enrollment snapshots,
+employee/device bindings, per-device targets and independent simulator records.
+[turnstile_persistence.py](turnstile_persistence.py) owns typed mutations using the
+caller's Session; it never commits. Migration0151 adds these tables plus prerequisite
+employee/device composite keys. Target names are snapshotted for historical display.
+Existing attendance tables retain their behavior; no mirrored profile or event writer
+was replaced. See the [operation ledger](../../../../docs/TURNSTILE_ACCESS_BACKEND_20261103.md).
