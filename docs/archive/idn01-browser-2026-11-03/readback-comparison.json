@@ -1,0 +1,100 @@
+{
+  "candidate_head": "34e111fc",
+  "source": "isolated localhost replay after connected-browser report",
+  "steps": [
+    {
+      "step": "multi_before_switch",
+      "time_utc": "2026-11-03T14:18:30.906991+00:00",
+      "selected_factory_from_me": "MIL",
+      "available_factories": [
+        "MIL",
+        "ECO"
+      ],
+      "database": {
+        "access_policy": null,
+        "active": true,
+        "audit_rows": 0,
+        "extra_permissions": [
+          "factory:ECO:sewing.flows"
+        ],
+        "primary_factory": "MIL",
+        "role_id": 19,
+        "switch_audit_rows": 0
+      }
+    },
+    {
+      "step": "multi_after_ECO_switch",
+      "time_utc": "2026-11-03T14:18:32.586885+00:00",
+      "selected_factory_from_me": "ECO",
+      "available_factories": [
+        "MIL",
+        "ECO"
+      ],
+      "database": {
+        "access_policy": null,
+        "active": true,
+        "audit_rows": 0,
+        "extra_permissions": [
+          "factory:ECO:sewing.flows"
+        ],
+        "primary_factory": "MIL",
+        "role_id": 19,
+        "switch_audit_rows": 0
+      }
+    },
+    {
+      "step": "multi_after_MIL_switch_back",
+      "time_utc": "2026-11-03T14:18:33.821917+00:00",
+      "selected_factory_from_me": "MIL",
+      "available_factories": [
+        "MIL",
+        "ECO"
+      ],
+      "database": {
+        "access_policy": null,
+        "active": true,
+        "audit_rows": 0,
+        "extra_permissions": [
+          "factory:ECO:sewing.flows"
+        ],
+        "primary_factory": "MIL",
+        "role_id": 19,
+        "switch_audit_rows": 0
+      }
+    },
+    {
+      "step": "limited_before_denied_switch",
+      "time_utc": "2026-11-03T14:18:35.410212+00:00",
+      "selected_factory_from_me": "MIL",
+      "available_factories": [
+        "MIL"
+      ],
+      "database": {
+        "access_policy": null,
+        "active": true,
+        "audit_rows": 0,
+        "extra_permissions": [],
+        "primary_factory": "MIL",
+        "role_id": 19,
+        "switch_audit_rows": 0
+      }
+    },
+    {
+      "step": "limited_after_denied_switch",
+      "time_utc": "2026-11-03T14:18:36.610569+00:00",
+      "selected_factory_from_me": "MIL",
+      "available_factories": [
+        "MIL"
+      ],
+      "database": {
+        "access_policy": null,
+        "active": true,
+        "audit_rows": 0,
+        "extra_permissions": [],
+        "primary_factory": "MIL",
+        "role_id": 19,
+        "switch_audit_rows": 0
+      }
+    }
+  ]
+}
