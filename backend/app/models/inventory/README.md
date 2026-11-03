@@ -42,6 +42,15 @@ outstanding allocations. Factory-specific sewing gates remain distinct for mixed
 orders. New fixed lifecycle values use the canonical ECO enums; existing legacy
 Inventory writers remain the separately recorded migration debt below.
 
+The receiving follow-up reuses shared Item/Supplier master data and persists
+typed receipt snapshots (source, ECO warehouse, supplier/document/date, measures,
+rolls, cost, QC and picture) in ECO batches; transfer lines retain the dispatch
+snapshot. Pending/failed/held/rejected batches are unavailable for consumption or
+allocation. Quality updates are audited and cannot hold outstanding allocations.
+Receipt and Item update/delete share the Item row lock; linked ECO stock and
+requirements protect catalog identity/deletion. Migration0154 merges both0151
+heads without renaming the original ECO revisions. No balance is copied.
+
 This directory is the group's service package. Each module owns one responsibility:
 
 | File | Responsibility | Owns |

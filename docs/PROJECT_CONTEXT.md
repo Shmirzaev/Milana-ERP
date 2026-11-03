@@ -42,7 +42,9 @@ allocated or consumed. Migration `0154` preserves typed receipt snapshots in two
 existing ECO tables and merges both existing `0151` heads after current
 `clone_main` integration; earlier PR revision identities are retained. The local
 review workspace now persists entered data across restarts. Production and role
-grants are unchanged; new-candidate CI and operator acceptance are still required.
+grants are unchanged. On code `df7b28d1`,148 focused tests and the optimized
+frontend build pass; the four-case ECO PostgreSQL migration/transfer/catalog-race
+CI step also passed. Complete CI and operator acceptance remain pending.
 
 ## Pack customer restriction and admin release candidate (3 November)
 

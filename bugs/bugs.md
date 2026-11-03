@@ -9,8 +9,10 @@
   TEAM_OWNERSHIP. Independent AI reviews found and prompted scope, retry and
   legacy-placeholder corrections; human acceptance has not occurred.
 - [Task packet and local review instructions](../docs/archive/ECO_INVENTORY_PACKAGE_UPDATES_2026-11-03.md).
-  Production untouched. **Not AI_VERIFIED**: real PostgreSQL migration/concurrency
-  and full role/scanner/browser gates remain unverified. Keep this entry active.
+  Production untouched. **Not AI_VERIFIED**: the bounded PostgreSQL step passed,
+  but full role/scanner/browser gates remain unverified. Local review correction
+  adds usable shared catalog entry, full ECO receipts/QC and persistent local
+  input. Keep this entry active until the complete human gates pass.
 
 ## PACK-CUSTOMER-20261103 — customer-assigned packs can scan into another customer's shipment
 

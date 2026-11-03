@@ -219,4 +219,16 @@ Local review additions:
    persistence and operator flow; complete PostgreSQL/role/handoff acceptance is
    still a separate release gate.
 
-Follow-up automated evidence: 148 focused receipt/approval/sewing/package/query-growth cases pass; Ruff, compileall, normal TypeScript, strict TypeScript and lint pass. Optimized frontend build and inherited build contracts pass on the receiving candidate. The final small UI changes are being rebuilt; no full backend or full final CI pass is asserted.
+Follow-up automated evidence on code `df7b28d1`: 148 focused
+receipt/approval/sewing/package/query-growth cases pass; Ruff, compileall, normal
+TypeScript, strict TypeScript and lint pass. The final optimized frontend build
+and inherited build contracts pass. The explicit four-case ECO PostgreSQL 16
+migration/transfer/catalog-race step passed in
+[CI run41634031227](https://github.com/Shmirzaev/Milana-ERP/actions/runs/41634031227).
+The complete backend/CI and operator acceptance remain pending.
+
+The final local restart preserved the login session, both new catalog types and
+the opening fabric stock. The browser then received100pcs of the new accessory,
+reopened cost/warehouse details, placed it on hold (available0) and released it
+(available100). The Uzbek form includes localized QC labels and picture upload;
+`outputs/eco-review/eco-receiving-ready.png` records this local review example.
