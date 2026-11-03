@@ -27,7 +27,7 @@ particular operation and every caller/write before choosing what belongs here.
 | Proposed file | Responsibility |
 | --- | --- |
 | `access_policy_service.py` (implemented) | Pure policy allow/deny evaluation; imports only the permission catalog. Factory scope imports it directly, and user access re-exports its existing names. |
-| `authentication_service.py` | Login and password-reset operations. |
+| `authentication_service.py` | Authentication and session-factory selection; real factory switches append an audit row before the new token is issued. |
 | `users_service.py` | Account creation and allowed profile changes. |
 | `access_service.py` | Role/grant/deny and object-scope decisions. |
 
