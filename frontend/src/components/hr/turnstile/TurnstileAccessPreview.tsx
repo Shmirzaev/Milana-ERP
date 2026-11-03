@@ -57,7 +57,7 @@ function Preview({ employee, actorId, canManage, onClose }: Props) {
   const latest = displayedHistory.find(item => item.id === resultId) || displayedHistory[0];
   const waiting = latest?.targets.some(t => t.state === GateState.Waiting);
   const employeeNumber = BACKEND_ENABLED ? context.data?.employee_no : employee.employee_no;
-  const eligibleDevices = BACKEND_ENABLED && action === GateAction.Edit ? devices.filter(d => context.data?.bindings.some(b => b.device_id === d.id && b.state === GateBindingState.Active && b.edit_baseline)) : devices;
+  const eligibleDevices = BACKEND_ENABLED && (action === GateAction.Edit || action === GateAction.Photo) ? devices.filter(d => context.data?.bindings.some(b => b.device_id === d.id && b.state === GateBindingState.Active && b.edit_baseline)) : devices;
   const targetDevices = devices.filter(d => selected.includes(d.id));
   const blocked = !canManage || (BACKEND_ENABLED && (!context.data?.simulator_enabled || !context.data?.supported_actions.includes(action) || busy || !!pending || recoveryBlocked)) || !employeeNumber?.trim() || (employee.status === "archived" && action !== GateAction.Revoke);
   const actionLabel = (value: GateAction) => ({ [GateAction.Enroll]: c.enroll, [GateAction.Edit]: c.edit, [GateAction.Photo]: c.photo, [GateAction.Revoke]: c.revoke })[value];
@@ -77,9 +77,9 @@ function Preview({ employee, actorId, canManage, onClose }: Props) {
       const request = saved;
       setPending(request); setMessage(b.uncertain);
       setAction(request.payload.action);
-      setName(request.payload.reviewed_name);
-      setSelected(request.payload.action === GateAction.Edit ? request.payload.targets.map(target => target.device_id) : request.payload.device_ids);
-      setReviewedTargets(request.payload.action === GateAction.Edit ? request.payload.targets : []);
+      if (request.payload.action !== GateAction.Photo) setName(request.payload.reviewed_name);
+      setSelected(request.payload.action !== GateAction.Enroll ? request.payload.targets.map(target => target.device_id) : request.payload.device_ids);
+      setReviewedTargets(request.payload.action !== GateAction.Enroll ? request.payload.targets : []);
       setReviewedNumber(request.payload.expected_employee_no);
     } catch { setRecoveryBlocked(true); setMessage(b.failed); }
   }, [key, recoveryKey, b.uncertain, b.failed]);
@@ -115,7 +115,7 @@ function Preview({ employee, actorId, canManage, onClose }: Props) {
     } catch { if (mounted.current && generation === cameraGeneration.current) setMessage(c.cameraError); }
   }
   async function selectPhoto(blob: Blob) {
-    const generation = ++photoGeneration.current;
+    const generation = ++photoGeneration.current; setConfirm(false);
     if (!["image/jpeg", "image/png"].includes(blob.type) || blob.size > 8 * 1024 * 1024 || !blob.size) { setMessage(c.photoError); return; }
     const url = URL.createObjectURL(blob);
     try {
@@ -138,8 +138,8 @@ function Preview({ employee, actorId, canManage, onClose }: Props) {
     if (blocked) return;
     if (!targetDevices.length) { setMessage(c.selectRequired); return; }
     if (needsPhoto && (!photo || !checks.every(Boolean))) { setMessage(c.photoRequired); return; }
-    if (!name.trim()) return;
-    if (BACKEND_ENABLED && action === GateAction.Edit) {
+    if (action !== GateAction.Photo && !name.trim()) return;
+    if (BACKEND_ENABLED && (action === GateAction.Edit || action === GateAction.Photo)) {
       const refs = targetDevices.map(d => { const baseline = context.data?.bindings.find(b => b.device_id === d.id && b.state === GateBindingState.Active)?.edit_baseline; return baseline ? { device_id: d.id, expected_revision: baseline.revision, expected_profile_hash: baseline.profile_hash } : null; });
       if (refs.some(ref => !ref) || targetDevices.some(d => !eligibleDevices.some(e => e.id === d.id))) { setMessage(b.staleBaseline); return; }
       setReviewedTargets(refs as EditTarget[]);
@@ -193,15 +193,21 @@ function Preview({ employee, actorId, canManage, onClose }: Props) {
     finally { running.current = false; if (mounted.current) setBusy(false); }
   }
   async function backendApply() {
-    if (!confirm || blocked || !targetDevices.length || (action === GateAction.Enroll && (!photo || !checks.every(Boolean)))) return;
-    if (action === GateAction.Edit && (reviewedTargets.length !== targetDevices.length || reviewedTargets.some(ref => { const baseline = context.data?.bindings.find(b => b.device_id === ref.device_id && b.state === GateBindingState.Active)?.edit_baseline; return !baseline || baseline.revision !== ref.expected_revision || baseline.profile_hash !== ref.expected_profile_hash; }))) { setConfirm(false); setMessage(b.staleBaseline); return; }
+    if (!confirm || blocked || !targetDevices.length || (needsPhoto && (!photo || !checks.every(Boolean)))) return;
+    if ((action === GateAction.Edit || action === GateAction.Photo) && (reviewedTargets.length !== targetDevices.length || reviewedTargets.some(ref => { const baseline = context.data?.bindings.find(b => b.device_id === ref.device_id && b.state === GateBindingState.Active)?.edit_baseline; return !baseline || baseline.revision !== ref.expected_revision || baseline.profile_hash !== ref.expected_profile_hash; }))) { setConfirm(false); setMessage(b.staleBaseline); return; }
     if (!reviewedNumber || reviewedNumber !== employeeNumber) { setConfirm(false); setMessage(b.identityChanged); return; }
     if (running.current) return;
     running.current = true; setBusy(true); setMessage("");
     try {
-      const payload = action === GateAction.Edit
-        ? { expected_employee_no: reviewedNumber, targets: reviewedTargets, reviewed_name: name.trim(), action: GateAction.Edit as const }
-        : { expected_employee_no: reviewedNumber, device_ids: targetDevices.map(d => d.id), photo_asset_id: (await uploadPhoto(employee.id, photo!.blob)).id, reviewed_name: name.trim(), manual_face_reviewed: true as const, action: GateAction.Enroll as const };
+      let payload: import("./turnstileBackend").GatePayload;
+      if (action === GateAction.Edit) payload = { expected_employee_no: reviewedNumber, targets: reviewedTargets, reviewed_name: name.trim(), action: GateAction.Edit };
+      else if (action === GateAction.Enroll || action === GateAction.Photo) {
+        const asset = await uploadPhoto(employee.id, photo!.blob);
+        if (!mounted.current) return;
+        payload = action === GateAction.Photo
+          ? { expected_employee_no: reviewedNumber, targets: reviewedTargets, photo_asset_id: asset.id, manual_face_reviewed: true, action: GateAction.Photo }
+          : { expected_employee_no: reviewedNumber, device_ids: targetDevices.map(d => d.id), photo_asset_id: asset.id, reviewed_name: name.trim(), manual_face_reviewed: true, action: GateAction.Enroll };
+      } else return;
       if (!mounted.current) return;
       const request: EnrollmentRequest = { key: crypto.randomUUID(), payload };
       sessionStorage.setItem(recoveryKey, JSON.stringify(request));
@@ -282,7 +288,7 @@ function Preview({ employee, actorId, canManage, onClose }: Props) {
       <div className={styles.actions} role="group" aria-label={c.action}>
         {Object.values(GateAction).map((value, index) => {
           const Icon = [DoorOpen, ShieldCheck, Camera, ShieldOff][index];
-          return <button type="button" key={value} className={`${styles.action} ${action === value ? styles.active : ""} ${value === GateAction.Revoke ? styles.dangerAction : ""}`} aria-pressed={action === value} disabled={BACKEND_ENABLED && (!(value === GateAction.Enroll || value === GateAction.Edit) || !context.data?.supported_actions.includes(value) || busy || !!pending || recoveryBlocked)} title={BACKEND_ENABLED && (!(value === GateAction.Enroll || value === GateAction.Edit) || !context.data?.supported_actions.includes(value)) ? b.pending : undefined} onClick={() => changeAction(value)}><Icon size={18} /><span>{actionLabel(value)}</span></button>;
+          return <button type="button" key={value} className={`${styles.action} ${action === value ? styles.active : ""} ${value === GateAction.Revoke ? styles.dangerAction : ""}`} aria-pressed={action === value} disabled={BACKEND_ENABLED && (!(value === GateAction.Enroll || value === GateAction.Edit || value === GateAction.Photo) || !context.data?.supported_actions.includes(value) || busy || !!pending || recoveryBlocked)} title={BACKEND_ENABLED && (!(value === GateAction.Enroll || value === GateAction.Edit || value === GateAction.Photo) || !context.data?.supported_actions.includes(value)) ? b.pending : undefined} onClick={() => changeAction(value)}><Icon size={18} /><span>{actionLabel(value)}</span></button>;
         })}
       </div>
       <div className={styles.columns}>
@@ -303,6 +309,7 @@ function Preview({ employee, actorId, canManage, onClose }: Props) {
                 <small>JPG / PNG · ≤ 8 MB<br />{BACKEND_ENABLED ? b.photoMeta : c.photoMeta}</small>
               </div>
             </div>
+            {BACKEND_ENABLED && action === GateAction.Photo && <p>{b.photoPreserves}</p>}
             <fieldset className={styles.checks}><legend>{c.checks}</legend>{[c.front, c.eyes].map((label, index) => <label key={index}><input type="checkbox" checked={checks[index]} disabled={!photo || !canManage || (BACKEND_ENABLED && (busy || !!pending || recoveryBlocked))} onChange={e => { setChecks(old => old.map((v, i) => i === index ? e.target.checked : v)); setConfirm(false); }} />{label}</label>)}<p>{BACKEND_ENABLED ? b.quality : c.quality}</p></fieldset>
           </> : <div className={`${styles.explanation} ${action === GateAction.Revoke ? styles.revoke : ""}`}><ShieldCheck size={28} /><p>{action === GateAction.Revoke ? c.revokeHelp : c.detailsHelp}</p><small>{action === GateAction.Revoke ? c.revokePhoto : c.photoOptional}</small></div>}
           <div className={styles.sectionTitle}><span>02</span><h3>{c.devices}</h3></div>
@@ -312,14 +319,14 @@ function Preview({ employee, actorId, canManage, onClose }: Props) {
           {!deviceLoading && !deviceError && !devices.length && <p className={styles.warning}>{c.empty}</p>}
           <div className={styles.devices}>{devices.map((device, index) => {
             const offline = BACKEND_ENABLED ? device.online !== true : devices.length > 1 && index === devices.length - 1;
-            return <label key={device.id} className={`${styles.device} ${selected.includes(device.id) ? styles.deviceSelected : ""}`}><input type="checkbox" checked={selected.includes(device.id)} disabled={!canManage || (BACKEND_ENABLED && (busy || !!pending || recoveryBlocked || !eligibleDevices.some(d => d.id === device.id)))} onChange={e => { setSelected(old => e.target.checked ? [...old, device.id] : old.filter(id => id !== device.id)); setConfirm(false); }} /><div><strong>{device.name}</strong><span>{device.vendor} · {device.device_key}</span>{BACKEND_ENABLED && action === GateAction.Edit && context.data?.bindings.find(b => b.device_id === device.id)?.edit_baseline && <span>{b.previousName}: {context.data.bindings.find(b => b.device_id === device.id)?.edit_baseline?.full_name}</span>}<small className={offline ? styles.offline : styles.online}><i />{BACKEND_ENABLED ? (device.online === true ? b.online : device.online === false ? b.offline : b.unknownDevice) : (offline ? c.offline : c.available)}</small></div></label>;
+            return <label key={device.id} className={`${styles.device} ${selected.includes(device.id) ? styles.deviceSelected : ""}`}><input type="checkbox" checked={selected.includes(device.id)} disabled={!canManage || (BACKEND_ENABLED && (busy || !!pending || recoveryBlocked || !eligibleDevices.some(d => d.id === device.id)))} onChange={e => { setSelected(old => e.target.checked ? [...old, device.id] : old.filter(id => id !== device.id)); setConfirm(false); }} /><div><strong>{device.name}</strong><span>{device.vendor} · {device.device_key}</span>{BACKEND_ENABLED && (action === GateAction.Edit || action === GateAction.Photo) && context.data?.bindings.find(b => b.device_id === device.id)?.edit_baseline && <span>{b.previousName}: {context.data.bindings.find(b => b.device_id === device.id)?.edit_baseline?.full_name}</span>}<small className={offline ? styles.offline : styles.online}><i />{BACKEND_ENABLED ? (device.online === true ? b.online : device.online === false ? b.offline : b.unknownDevice) : (offline ? c.offline : c.available)}</small></div></label>;
           })}</div>
         </section>
         <aside className={styles.aside}>
           <section className={styles.summary}><span className={styles.eyebrow}>{c.summary}</span><h3>{actionLabel(action)}</h3><p>{c.noAction}</p><dl><div><dt>{c.employee}</dt><dd>{name || employee.full_name}</dd></div><div><dt>{c.number}</dt><dd>{employeeNumber || "—"}</dd></div><div><dt>{c.targets}</dt><dd>{selected.length} / {devices.length}</dd></div>{needsPhoto && <div><dt>{c.photoTitle}</dt><dd>{photo ? c.photoReady : c.noPhoto}</dd></div>}</dl>
             <p className={styles.identityNote}>{c.identity}</p>
             {confirm ? <div className={styles.confirm} tabIndex={-1} data-gate-confirm role="region" aria-label={c.confirmTitle}><strong>{action === GateAction.Revoke ? c.confirmRevoke : c.confirmTitle}</strong><ul>{targetDevices.map(d => <li key={d.id}>{d.name}</li>)}</ul><button type="button" className={`btn ${action === GateAction.Revoke ? styles.revokeButton : "btn-primary"}`} onClick={apply} disabled={blocked || (BACKEND_ENABLED && reviewedNumber !== employeeNumber)}>{action === GateAction.Revoke ? c.revoke : c.apply}<Check size={16} /></button><button type="button" className="btn" onClick={() => setConfirm(false)}>{c.back}</button></div>
-              : <button type="button" className="btn btn-primary" onClick={review} disabled={blocked || !devices.length || !name.trim()}>{c.review}<ArrowRight size={16} /></button>}
+              : <button type="button" className="btn btn-primary" onClick={review} disabled={blocked || !devices.length || (action !== GateAction.Photo && !name.trim())}>{c.review}<ArrowRight size={16} /></button>}
             {message && <p role="alert" className={styles.error}>{message}</p>}
             {BACKEND_ENABLED && pending && <><button type="button" className="btn" disabled={busy} onClick={() => void recheck()}>{b.recheck}</button><button type="button" className="btn" disabled={busy || pending.acceptedId !== undefined} onClick={() => void retryPending(pending, true)}>{b.retrySubmit}</button></>}
             {BACKEND_ENABLED && busy && <p role="status">{b.uploading}</p>}

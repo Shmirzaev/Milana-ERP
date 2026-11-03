@@ -107,7 +107,7 @@ function findApply(node) { if (ts.isFunctionDeclaration(node) && node.name?.text
 findApply(ast); assert(applyHandler);
 const applyJs = ts.transpile(applyHandler, { target: ts.ScriptTarget.ES2020 });
 const driftEvents = [];
-const driftEnv = { action: preview.GateAction.Enroll, GateAction: preview.GateAction, confirm: true, blocked: false, photo: { blob }, checks: [true, true], targetDevices: [{ id: 2 }], reviewedNumber: "EMP-4", employeeNumber: "EMP-NEW", setConfirm: value => driftEvents.push(["confirm", value]), setMessage: value => driftEvents.push(["message", value]), b: { identityChanged: "changed" } };
+const driftEnv = { needsPhoto: true, action: preview.GateAction.Enroll, GateAction: preview.GateAction, confirm: true, blocked: false, photo: { blob }, checks: [true, true], targetDevices: [{ id: 2 }], reviewedNumber: "EMP-4", employeeNumber: "EMP-NEW", setConfirm: value => driftEvents.push(["confirm", value]), setMessage: value => driftEvents.push(["message", value]), b: { identityChanged: "changed" } };
 const applyDrift = new Function(...Object.keys(driftEnv), `${applyJs}; return backendApply;`)(...Object.values(driftEnv));
 await applyDrift();
 assert.deepEqual(driftEvents, [["confirm", false], ["message", "changed"]]);
@@ -133,7 +133,7 @@ failure = new TypeError("lost response"); assert.equal((await out.submitEnrollme
 console.log("turnstile edit bridge tests passed");
 
 const staleEvents = [];
-const staleEnv = { GateBindingState: out.GateBindingState, action: preview.GateAction.Edit, GateAction: preview.GateAction, confirm: true, blocked: false, targetDevices: [{ id: 2 }], reviewedTargets: editRequest.payload.targets, context: { data: { bindings: [{ device_id: 2, state: "active", edit_baseline: { revision: 4, profile_hash: hash } }] } }, setConfirm: v => staleEvents.push(["confirm", v]), setMessage: v => staleEvents.push(["message", v]), b: { staleBaseline: "stale" } };
+const staleEnv = { needsPhoto: true, photo: { blob }, checks: [true, true], GateBindingState: out.GateBindingState, action: preview.GateAction.Edit, GateAction: preview.GateAction, confirm: true, blocked: false, targetDevices: [{ id: 2 }], reviewedTargets: editRequest.payload.targets, context: { data: { bindings: [{ device_id: 2, state: "active", edit_baseline: { revision: 4, profile_hash: hash } }] } }, setConfirm: v => staleEvents.push(["confirm", v]), setMessage: v => staleEvents.push(["message", v]), b: { staleBaseline: "stale" } };
 await new Function(...Object.keys(staleEnv), `${applyJs}; return backendApply;`)(...Object.values(staleEnv))();
 assert.deepEqual(staleEvents, [["confirm", false], ["message", "stale"]]);
 console.log("turnstile stale baseline refusal test passed");
@@ -193,3 +193,24 @@ assert.deepEqual(await exerciseReadback("recheck", []), ["refresh", "get", "acce
 await exerciseReadback("processBackend", [staleOperation]);
 await exerciseReadback("recheck", [staleOperation]);
 console.log("turnstile aged-history readback tests passed");
+
+const photoRequest = { key: "photo-key", payload: { expected_employee_no: "EMP-4", action: preview.GateAction.Photo, photo_asset_id: 17, manual_face_reviewed: true, targets: [{ device_id: 2, expected_revision: 3, expected_profile_hash: hash }, { device_id: 3, expected_revision: 4, expected_profile_hash: "b".repeat(64) }] } };
+const photoReceipt = { ...editReceipt, action: preview.GateAction.Photo, photo_asset_id: 17, full_name: "Informational HR name", targets: [{ device_id: 2, baseline_revision: 3, baseline_profile_hash: hash }, { device_id: 3, baseline_revision: 4, baseline_profile_hash: "b".repeat(64) }] };
+assert(out.validRequest(photoRequest));
+for (const bad of [{ ...photoRequest.payload, manual_face_reviewed: false }, { ...photoRequest.payload, photo_asset_id: 0 }, { ...photoRequest.payload, reviewed_name: "wrong" }, { ...photoRequest.payload, targets: [photoRequest.payload.targets[0], photoRequest.payload.targets[0]] }, { ...photoRequest.payload, targets: [{ ...photoRequest.payload.targets[0], expected_profile_hash: "bad" }] }]) assert(!out.validRequest({ ...photoRequest, payload: bad }));
+response = photoReceipt; assert.equal((await out.submitEnrollment(4, photoRequest)).kind, "accepted"); assert.equal(calls.at(-1).url, "/api/turnstile-access/employees/4/photo"); assert.equal(calls.at(-1).headers["Idempotency-Key"], "photo-key");
+const anchoredPhoto = { ...photoRequest, acceptedId: 12 };
+assert.equal(out.findAcceptedOperation([photoReceipt], photoRequest), undefined); assert.equal(out.findAcceptedOperation([photoReceipt], anchoredPhoto)?.id,12);
+for (const bad of [{ ...photoReceipt, id: 13 }, { ...photoReceipt, action: "edit" }, { ...photoReceipt, external_person_id: "OTHER" }, { ...photoReceipt, photo_asset_id: 18 }, { ...photoReceipt, targets: [photoReceipt.targets[0], photoReceipt.targets[0]] }, { ...photoReceipt, targets: [{ ...photoReceipt.targets[0], baseline_revision: 5 }, photoReceipt.targets[1]] }, { ...photoReceipt, targets: [{ ...photoReceipt.targets[0], baseline_profile_hash: "c".repeat(64) }, photoReceipt.targets[1]] }]) assert.equal(out.findAcceptedOperation([bad],anchoredPhoto),undefined);
+assert.equal((await out.submitEnrollment(4,{ ...photoRequest, payload:{ ...photoRequest.payload, action:"bogus" } })).kind,"refused");
+await out.lookupRequest(4,photoRequest); assert.deepEqual(calls.at(-1), { method:"GET", url:"/api/turnstile-access/employees/4/requests/photo", headers:{ "Idempotency-Key":"photo-key" } });
+const photoUnknown=await runHandler({kind:"unknown"},{savedRequest:photoRequest}); assert(photoUnknown.journal.has("key"));
+const photoRefusal=await runHandler({kind:"refused",status:403},{verifyFirst:true,receipt:null,savedRequest:photoRequest}); assert(photoRefusal.journal.has("key"));
+const photoRecovered=await runHandler({kind:"unknown"},{verifyFirst:true,receipt:photoReceipt,savedRequest:photoRequest}); assert(photoRecovered.events.some(e=>e[0]==="accepted")); assert(!photoRecovered.events.some(e=>e[0]==="post"));
+console.log("turnstile photo bridge and recovery tests passed");
+
+const photoStaleEvents = [];
+const photoStaleEnv = { ...staleEnv, action: preview.GateAction.Photo, reviewedTargets: [photoRequest.payload.targets[0]], setConfirm: v => photoStaleEvents.push(["confirm",v]), setMessage: v => photoStaleEvents.push(["message",v]) };
+await new Function(...Object.keys(photoStaleEnv), `${applyJs}; return backendApply;`)(...Object.values(photoStaleEnv))();
+assert.deepEqual(photoStaleEvents, [["confirm",false],["message","stale"]]);
+console.log("turnstile photo stale baseline refusal passed");

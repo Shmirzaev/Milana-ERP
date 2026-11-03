@@ -13,7 +13,8 @@ export interface GateContext { employee_id: number; employee_no: string | null; 
 export interface EditBaseline { revision: number; profile_hash: string; full_name: string }
 export interface EditTarget { device_id: number; expected_revision: number; expected_profile_hash: string }
 export interface EditPayload { expected_employee_no: string; reviewed_name: string; action: GateAction.Edit; targets: EditTarget[] }
-export type GatePayload = EnrollmentPayload | EditPayload;
+export interface PhotoPayload { expected_employee_no: string; photo_asset_id: number; manual_face_reviewed: true; action: GateAction.Photo; targets: EditTarget[] }
+export type GatePayload = EnrollmentPayload | EditPayload | PhotoPayload;
 export interface EnrollmentPayload { expected_employee_no: string; device_ids: number[]; photo_asset_id: number; reviewed_name: string; manual_face_reviewed: true; action: GateAction.Enroll }
 const prefix = "/api/turnstile-access";
 export const contextUrl = (employeeId: number) => `${prefix}/employees/${employeeId}`;
@@ -34,15 +35,24 @@ export interface EnrollmentRequest { key: string; payload: GatePayload; accepted
 export function validRequest(value: unknown): value is EnrollmentRequest {
   if (!value || typeof value !== "object") return false;
   const r = value as EnrollmentRequest, p = r.payload;
-  if (typeof r.key !== "string" || !r.key || !p || typeof p.expected_employee_no !== "string" || !p.expected_employee_no.trim() || p.expected_employee_no.length > 64 || typeof p.reviewed_name !== "string" || !p.reviewed_name.trim() || p.reviewed_name.length > 255 || (r.acceptedId !== undefined && (!Number.isInteger(r.acceptedId) || r.acceptedId <= 0))) return false;
-  if (p.action === GateAction.Enroll) return Array.isArray(p.device_ids) && p.device_ids.length > 0 && p.device_ids.length <= 32 && new Set(p.device_ids).size === p.device_ids.length && p.device_ids.every(x => Number.isInteger(x) && x > 0) && Number.isInteger(p.photo_asset_id) && p.photo_asset_id > 0 && p.manual_face_reviewed === true;
-  if (p.action === GateAction.Edit) return Array.isArray(p.targets) && p.targets.length > 0 && p.targets.length <= 32 && new Set(p.targets.map(t => t?.device_id)).size === p.targets.length && p.targets.every(t => t && Number.isInteger(t.device_id) && t.device_id > 0 && Number.isInteger(t.expected_revision) && t.expected_revision > 0 && typeof t.expected_profile_hash === "string" && /^[0-9a-f]{64}$/.test(t.expected_profile_hash));
+  if (typeof r.key !== "string" || !r.key || !p || typeof p.expected_employee_no !== "string" || !p.expected_employee_no.trim() || p.expected_employee_no.length > 64 || (r.acceptedId !== undefined && (!Number.isInteger(r.acceptedId) || r.acceptedId <= 0))) return false;
+  if (p.action === GateAction.Enroll) return typeof p.reviewed_name === "string" && !!p.reviewed_name.trim() && p.reviewed_name.length <= 255 && Array.isArray(p.device_ids) && p.device_ids.length > 0 && p.device_ids.length <= 32 && new Set(p.device_ids).size === p.device_ids.length && p.device_ids.every(x => Number.isInteger(x) && x > 0) && Number.isInteger(p.photo_asset_id) && p.photo_asset_id > 0 && p.manual_face_reviewed === true;
+  if (p.action === GateAction.Edit || p.action === GateAction.Photo) return (p.action === GateAction.Edit ? typeof p.reviewed_name === "string" && !!p.reviewed_name.trim() && p.reviewed_name.length <= 255 : Number.isInteger(p.photo_asset_id) && p.photo_asset_id > 0 && p.manual_face_reviewed === true && !("reviewed_name" in p)) && Array.isArray(p.targets) && p.targets.length > 0 && p.targets.length <= 32 && new Set(p.targets.map(t => t?.device_id)).size === p.targets.length && p.targets.every(t => t && Number.isInteger(t.device_id) && t.device_id > 0 && Number.isInteger(t.expected_revision) && t.expected_revision > 0 && typeof t.expected_profile_hash === "string" && /^[0-9a-f]{64}$/.test(t.expected_profile_hash));
   return false;
 }
 export type SubmissionResult = { kind: "accepted"; operation: ServerOperation } | { kind: "refused"; status: number } | { kind: "unknown" };
 const definiteRefusals = new Set([400, 401, 403, 404, 409, 413, 415, 422]);
 export async function submitEnrollment(employeeId: number, request: EnrollmentRequest): Promise<SubmissionResult> {
-  try { return { kind: "accepted", operation: request.payload.action === GateAction.Enroll ? await enroll(employeeId, request.payload, request.key) : await api.postWithHeaders<ServerOperation>(`${prefix}/employees/${employeeId}/edit`, request.payload, { "Idempotency-Key": request.key }) }; }
+  try {
+    let operation: ServerOperation;
+    switch (request.payload.action) {
+      case GateAction.Enroll: operation = await enroll(employeeId, request.payload, request.key); break;
+      case GateAction.Edit: operation = await api.postWithHeaders<ServerOperation>(`${prefix}/employees/${employeeId}/edit`, request.payload, { "Idempotency-Key": request.key }); break;
+      case GateAction.Photo: operation = await api.postWithHeaders<ServerOperation>(`${prefix}/employees/${employeeId}/photo`, request.payload, { "Idempotency-Key": request.key }); break;
+      default: return { kind: "refused", status: 400 };
+    }
+    return { kind: "accepted", operation };
+  }
   catch (error) {
     if (error instanceof ApiError && definiteRefusals.has(error.status)) return { kind: "refused", status: error.status };
     return { kind: "unknown" };
@@ -53,9 +63,13 @@ export const lookupRequest = (employeeId: number, request: EnrollmentRequest) =>
 export function findAcceptedOperation(operations: ServerOperation[], request: EnrollmentRequest): ServerOperation | undefined {
   if (request.acceptedId === undefined) return undefined;
   const p = request.payload;
-  return operations.find(op => op.external_person_id === p.expected_employee_no && op.action === p.action && op.mode === GateMode.Simulator && (request.acceptedId === undefined || op.id === request.acceptedId) && op.full_name === p.reviewed_name && (p.action === GateAction.Enroll
-    ? op.photo_asset_id === p.photo_asset_id && op.targets.length === p.device_ids.length && op.targets.every(t => p.device_ids.includes(t.device_id))
-    : op.photo_asset_id === null && op.targets.length === p.targets.length && op.targets.every(t => p.targets.some(ref => ref.device_id === t.device_id && ref.expected_revision === t.baseline_revision && ref.expected_profile_hash === t.baseline_profile_hash))));
+  return operations.find(op => {
+    if (op.id !== request.acceptedId || op.external_person_id !== p.expected_employee_no || op.action !== p.action || op.mode !== GateMode.Simulator || new Set(op.targets.map(t => t.device_id)).size !== op.targets.length) return false;
+    if (p.action === GateAction.Enroll) return op.full_name === p.reviewed_name && op.photo_asset_id === p.photo_asset_id && op.targets.length === p.device_ids.length && op.targets.every(t => p.device_ids.includes(t.device_id));
+    if (p.action !== GateAction.Edit && p.action !== GateAction.Photo) return false;
+    if (p.action === GateAction.Edit ? op.full_name !== p.reviewed_name || op.photo_asset_id !== null : op.photo_asset_id !== p.photo_asset_id) return false;
+    return op.targets.length === p.targets.length && op.targets.every(t => p.targets.some(ref => ref.device_id === t.device_id && ref.expected_revision === t.baseline_revision && ref.expected_profile_hash === t.baseline_profile_hash));
+  });
 }
 
 export function removeMatchingJournal(storage: Storage, journalKey: string, requestKey: string): boolean {
