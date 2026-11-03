@@ -36,7 +36,7 @@ from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError
 from app.core.config import settings
 from app.libs.types.turnstile_simulator import SimulatorEvidence
-from app.libs.dto.people.turnstile_input import GateEnrollmentInput, GateEditInput, GatePhotoReplacementInput
+from app.libs.dto.people.turnstile_input import GateEnrollmentInput, GateEditInput, GatePhotoReplacementInput, GateEditTargetInput
 from app.libs.dto.people.turnstile_output import GateOperationOutput
 from app.libs.dto.people.turnstile_context_output import GateEmployeeContextOutput
 from app.libs.enums.turnstile import GateAction, GateBindingState, GateMode, GatePhotoValidation, GateTargetState
@@ -179,7 +179,7 @@ def enroll_gate_employee(db: Session, actor: User, employee_id: int, payload: Ga
 
 
 
-def _reviewed_bindings(db: Session, employee: Employee, factory: str, expected_employee_no: str, targets):
+def _reviewed_bindings(db: Session, employee: Employee, factory: str, expected_employee_no: str, targets: list[GateEditTargetInput]) -> tuple[str, list[int], list[AttendanceDevice], list[GateEmployeeDevice], dict[int, GateEditTargetInput]]:
     number = (employee.employee_no or "").strip()
     if employee.status != "active" or not number or number != employee.employee_no or expected_employee_no != number:
         raise HTTPException(409, "Employee identity is inactive or changed")
@@ -223,7 +223,7 @@ def edit_gate_employee(db: Session, actor: User, employee_id: int, payload: Gate
             db.rollback()
             return result
         number, ids, devices, bindings, refs = _reviewed_bindings(db, employee, factory, payload.expected_employee_no, payload.targets)
-        frozen = []
+        frozen: list[tuple[GateEmployeeDevice, SimulatorEvidence, str, str]] = []
         for binding in bindings:
             evidence = _trusted_baseline(db, binding, lock=True)
             ref = refs[binding.device_id]
@@ -285,7 +285,7 @@ def replace_gate_photo(db: Session, actor: User, employee_id: int, payload: Gate
         photo = db.query(GatePhotoAsset).filter_by(id=payload.photo_asset_id, employee_id=employee.id, factory_code=factory).first()
         if photo is None or photo.validation != GatePhotoValidation.TECHNICAL_VALIDATED:
             raise HTTPException(422, "A validated photo belonging to this employee is required")
-        frozen = []
+        frozen: list[tuple[GateEmployeeDevice, SimulatorEvidence, str, str]] = []
         for binding in bindings:
             evidence = _trusted_baseline(db, binding, lock=True)
             ref = refs[binding.device_id]
