@@ -21,6 +21,11 @@ export function systemLanguage(): Lang {
   return "en";
 }
 const messages: Record<string, [string, string]> = {
+  "Admin access required": ["Требуется доступ администратора.", "Administrator ruxsati talab qilinadi."],
+  "Shipment customer must match the sales order customer": ["Клиент отгрузки должен совпадать с клиентом заказа.", "Jo‘natma mijozi buyurtma mijoziga mos kelishi kerak."],
+  "Dispatch customer-assigned packs through their scanned customer shipment": ["Отгружайте упаковки клиента через отсканированную отгрузку этому клиенту.", "Mijozga biriktirilgan qadoqlarni shu mijozning skanerlangan jo‘natmasi orqali jo‘nating."],
+  "Dispatch reserved packs through their scanned sales shipment": ["Отгружайте зарезервированные упаковки через отсканированную отгрузку их заказа.", "Band qilingan qadoqlarni o‘z buyurtmasining skanerlangan jo‘natmasi orqali jo‘nating."],
+  "Remove active reservations and open shipment allocations before releasing packs": ["Сначала снимите действующие резервы и распределения по открытым отгрузкам.", "Avval faol bandlovlar va ochiq jo‘natmalarga ajratilgan miqdorlarni olib tashlang."],
   "Brand already exists": ["Этот бренд уже существует.", "Bu brend allaqachon mavjud."],
   "Could not create brand.": ["Не удалось создать бренд.", "Brendni yaratib bo‘lmadi."],
   "Record Cutting output before entering Sewing input or output": ["Сначала внесите выпуск раскроя, затем вводите приём или выпуск пошива.", "Tikuv kirimi yoki natijasini kiritishdan oldin bichish natijasini kiriting."],
@@ -160,6 +165,14 @@ export function localizeError(detail: string, status = 0, lang = systemLanguage(
   const index = lang === "ru" ? 0 : 1;
   const plain = detail.replace(/^\d{3}:\s*/, "").trim();
   if (messages[plain]) return messages[plain][index];
+  const customerPack = plain.match(/^Package (.+) is assigned to customer (.+)\. An admin must release it before shipping to another customer\.$/);
+  if (customerPack) return lang === "ru"
+    ? `Упаковка ${customerPack[1]} назначена клиенту ${customerPack[2]}. Для отгрузки другому клиенту требуется разрешение администратора.`
+    : `${customerPack[1]} qadoq ${customerPack[2]} mijozga biriktirilgan. Boshqa mijozga jo‘natish uchun administrator ruxsati kerak.`;
+  const unbalancedPack = plain.match(/^Package (.+) must have available, balanced warehouse stock$/);
+  if (unbalancedPack) return lang === "ru" ? `Проверьте доступный складской остаток упаковки ${unbalancedPack[1]}.` : `${unbalancedPack[1]} qadoqning mavjud ombor qoldig‘ini tekshiring.`;
+  const reservedPack = plain.match(/^Package (.+) is reserved for another order\.$/);
+  if (reservedPack) return lang === "ru" ? `Упаковка ${reservedPack[1]} зарезервирована для другого заказа.` : `${reservedPack[1]} qadoq boshqa buyurtma uchun band qilingan.`;
   const fabric = plain.match(/^Insufficient fabric for passport: batch (.+); available ([\d.]+) kg; required ([\d.]+) kg$/);
   if (fabric) return lang === "ru"
     ? `Недостаточно ткани для паспорта: партия ${fabric[1]}. Доступно ${fabric[2]} кг, требуется ${fabric[3]} кг.`

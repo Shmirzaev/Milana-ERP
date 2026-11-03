@@ -72,3 +72,8 @@ api_router.include_router(sewing_corrections.router)
 
 api_router.include_router(warehouse_reservations.router)
 api_router.include_router(usluga_packaging.router)
+
+from app.api.routes import turnstile_access, turnstile_photos, turnstile_simulator
+api_router.include_router(turnstile_access.router)
+api_router.include_router(turnstile_photos.router)
+api_router.include_router(turnstile_simulator.router)

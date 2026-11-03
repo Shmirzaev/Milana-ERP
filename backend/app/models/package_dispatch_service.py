@@ -84,6 +84,8 @@ def prepare_dispatch_claims(db, shipment, packages):
 
 def dispatch_selected(db, shipment, package, stocks, user, *, claim_context=None, shipment_context=None):
     if shipment_context is None:
+        from app.models.fulfillment.package_customer_service import assert_package_customer
+        assert_package_customer(db, shipment, package)
         from app.models.packages_service import _require_warehouse_package
         _require_warehouse_package(db, package)
     elif (shipment_context.session is not db or shipment_context.transaction is not (db.get_nested_transaction() or db.get_transaction())

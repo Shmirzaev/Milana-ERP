@@ -33,6 +33,36 @@ full role/browser and remaining database acceptance stay release gates.
 Recorded active/rollback releases below are unchanged and were not freshly
 verified through SSH in this task.
 
+## Pack customer restriction and admin release candidate (3 November)
+
+The [local feature candidate](archive/PACK_CUSTOMER_RELEASE_2026-11-03.md) blocks
+cross-customer pack scanning/attachment/dispatch, including partial remainders,
+unless an admin explicitly releases selected remaining pieces. Origin order and
+stock links stay intact; later reservations still apply. New migration `0150`
+only adds the release ledger. No order-edit freeze was added. Production remains
+green `20261102_063110`, rollback blue `20261031_092951`, schema `0149`.
+This candidate is not merged or deployed; human acceptance remains pending.
+
+## FG model-number prefix candidate (3 November)
+
+The [FG numbering change](archive/FG_MODEL_PREFIX_2026-11-03.md), based on the
+user-approved `clone_main`, adds FG to the existing dynamic selector and starts
+its sequence at FG202001. Focused tests, independent AI review, actual local
+browser save/reload and bounded SQLite integrity checks passed. Real PostgreSQL
+concurrency/recovery remains blocked by unavailable local infrastructure; no
+AI-verified status, human acceptance, merge or deployment is claimed. Both live
+source manifests remain verified at `20261102_063110`; production data is untouched.
+
+## Turnstile enrollment development (3 November)
+
+The owner approved the frontend and authorized low-reasoning Terra backend workers.
+The [Add access task packet](TURNSTILE_ACCESS_BACKEND_20261103.md) records the isolated
+simulator candidate, mentor boundaries, review fixes and synthetic PostgreSQL/browser
+evidence. Existing attendance reading and both ERP writers remain required. No live
+adapter or production change is included. The owner authorized source publication on
+clone_main after visual checks; migration0151 follows the upstream0150. Edit, photo
+replacement, revoke, adoption and hardware policy remain separate pending operations.
+
 ## Identity policy-helper prerequisite (3 November)
 
 The [approved policy-only split](archive/ACCESS_POLICY_HELPER_SPLIT_2026-11-03.md)

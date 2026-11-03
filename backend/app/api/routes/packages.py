@@ -97,8 +97,23 @@ from app.models.packaging_scope_service import (
     packaging_department_scope,
     require_package_access,
 )
+from app.libs.dto.fulfillment.package_customer_release import PackageCustomerAccessOut, PackageCustomerReleaseIn, PackageCustomerReleaseOut
+from app.models.fulfillment.package_customer_service import package_customer_access, release_packages_for_any_customer
 
 router = APIRouter(prefix="/packages", tags=["packages"])
+
+
+@router.post("/customer-release", response_model=PackageCustomerReleaseOut)
+def release_customer_packs(payload: PackageCustomerReleaseIn, db: DbSession, current: CurrentUser,
+                          idempotency_key: str | None = Header(default=None, alias="Idempotency-Key")):
+    return release_packages_for_any_customer(payload, db, current, idempotency_key)
+
+
+@router.get("/{pid}/customer-access", response_model=PackageCustomerAccessOut)
+def customer_access(pid: int, db: DbSession, current: CurrentUser):
+    return package_customer_access(db, current, pid)
+
+
 _LABEL_CONTEXT_CHUNK_SIZE = 400
 _RECEIVING_QUEUE_DEFAULT_PAGE_SIZE = 50
 _RECEIVING_QUEUE_MAX_PAGE_SIZE = 100
