@@ -55,7 +55,7 @@ this update is not a new whole-register census or a production acceptance record
 
 ### OPS05-STORE-OUTAGE-20261030 — shared-store outage turns API requests into 500
 
-- **P1 · Mixed policy decided 3 November; candidate awaiting review and connected-browser evidence · Platform/Identity ·
+- **P1 · Mixed policy decided 3 November; candidate awaiting review; connected-browser result PARTIAL · Platform/Identity ·
   Dilmurod; reviewer Ismail (explicit task assignment).** [#311](https://github.com/Shmirzaev/Milana-ERP/pull/311)
   readiness work does not fix this pre-existing behavior. The store is used by
   the global request limiter and auth login/reset counters, not as the JWT/session

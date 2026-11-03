@@ -46,8 +46,8 @@ Logout, password change and factory switching keep their existing behavior.
   PostgreSQL/supplement gates have no final report and are **BLOCKED**, not passed.
 - All six unchanged PERF06 cases pass on exact base `75cf9c53` in a bounded separate
   process using the approved #322 PostgreSQL instance (6 passed, 0 failed/errors/skipped).
-  The full-run hold may involve process-wide fixture/thread lifetime; the exact
-  retained failure is unknown. It is not claimed as a proven pre-existing failure.
+  The later exact-base diagnostic confirms an intermittent fixture-worker race; see
+  the follow-up below.
   The lifecycle helper changed in base commit `03a2d067` since earlier `58bca549`
   full-suite evidence, so that historical green result does not establish this gate.
 - Separately, exact current base S06 `test_concurrent_stock_adjustments[batch_delta]`
@@ -148,7 +148,8 @@ not connected Chrome's missing signed-in results.
 The label-checked backend log window `08:33:45Z–08:34:30Z` has no 500, traceback
 or counter-store warning. It records normal me 401s at `08:34:13.288709Z`,
 `08:34:24.718144Z`, and `08:34:29.338967Z`; no completed backend me request at the
-reported `08:34:06Z`. The frontend log instead records
+reported `08:34:06Z`. The installed Next proxy error handler (`next/dist/server/lib/router-utils/proxy-request.js:80–84`)
+logs its proxy error and assigns HTTP 500. The frontend log records
 `Failed to proxy http://127.0.0.1:63150/api/auth/me Error: socket hang up`,
 `code: ECONNRESET`. Thus the observed 500 is consistent with Next's proxy failure,
 not a backend-generated HTTP 500. The frontend log has no absolute timestamps, so
@@ -187,3 +188,40 @@ workflow actions. Current integrated regressions: **43 passed / 0 failed/errors/
 `codex/s09-production-patch` was checked out in no worktree and had identical local
 and remote tips; both refs were deleted as requested after recording this proof.
 No production or business-data change; broader related findings retain their own gates.
+
+## Teardown diagnosis and final full-run method
+
+A separate exact-base `75cf9c53` PERF06 run reproduced `TARGET_DRAIN` on the
+501-row PostgreSQL refusal case. Its observational diagnostic recorded the
+original retained error: `ApprovedInstanceUnavailable: target workers are not
+proven closed`; one new live `AnyIO worker thread`; **0 checked-out connections**.
+The original guard then held unchanged. Thus this race is **pre-existing on the
+PR's clone_main base**, not caused by the outage-policy change. A longer exact-base
+prefix independently passed **3,432 cases / 0 failed/errors/skipped**, with 2,481
+later cases deselected, confirming intermittency rather than a deterministic
+prefix failure. The prefix is not represented as a full-suite total.
+
+PERF06 joins its Uvicorn server thread and immediately calls the PostgreSQL
+finalizer. A late AnyIO worker can still be exiting; the helper's immediate
+all-thread drain check permanently retains the owner on failure. The guard's
+protection is correct. The fixture needs bounded worker draining before finalization;
+that pre-existing tracked-fixture change is outside the user's conditional
+"fix it if it's ours" scope. No application or tracked fixture fix is included.
+
+Process isolation alone also reproduced the hold. To obtain a complete case total,
+the final #322 run uses a **disclosed local PERF06 worker-drain adapter**, not an
+unmodified default-run pass. The ignored pytest plugin wraps only PERF06's imported
+finalizer: passively join actual `anyio._backends._asyncio.WorkerThread` instances
+created after that target's baseline, using one total five-second deadline; then
+invoke the original finalizer exactly once. It never stops/signals workers, changes
+owner/baseline/errors, closes connections or bypasses thread/pool/identity/native-PG
+drain checks. Unknown or still-live workers remain visible to the original guard.
+An outer finally covers inspection, waiting and diagnostic logging. Two isolated
+fault checks prove the original finalizer still runs when snapshot or logging fails.
+Independent read-only review approved the corrected adapter; its source hash is
+recorded in local `adapter-version.json`.
+
+The early adapter-startup check was interrupted for that finally correction before
+PERF06; its partial totals are retained separately and are not a full result.
+The corrected complete run is **IN PROGRESS** in `full-drained.log`. The unadapted
+holds remain retained; default-run cleanup is not claimed fixed.

@@ -21,7 +21,8 @@ The approved [mixed policy and isolated evidence](archive/SHARED_STORE_MIXED_OUT
 keep ordinary authenticated requests available with permissions enforced and a
 warning when global limiting is skipped. Login and both password-reset steps
 return JSON 503 until the store recovers. Dilmurod implements; Ismail reviews.
-Connected-browser/human acceptance remains pending. No production changes were
+Connected-browser evidence is PARTIAL (signed-in checks missing); human acceptance
+remains pending. No production changes were
 made; active/rollback records below are unchanged. #311 readiness/router integration
 must preserve this availability policy and is not included here.
 
