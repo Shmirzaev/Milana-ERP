@@ -5,6 +5,7 @@ from io import BytesIO
 import pytest
 from fastapi import HTTPException
 from openpyxl import load_workbook
+from sqlalchemy import event
 from sqlalchemy.exc import IntegrityError
 
 from app.libs.dto.inventory.eco_inventory_input import EcoMaterialConsumeIn, EcoMaterialReceiveIn, FactoryFabricDispatchIn, FactoryFabricReceiptIn
@@ -12,7 +13,7 @@ from app.models.factory_scope_service import bind_session_factory
 from app.models.idempotency_service import bind_idempotency_identity
 from app.models.inventory import eco_inventory_service as eco
 from app.models.inventory import factory_fabric_transfers_service as transfers
-from app.schemas import EcoFabricDispatch, EcoFabricRoll, Item, MaterialReservation, Model, ProductionOrder, Role, StockBatch, StockMovement, User, Warehouse
+from app.schemas import Department, EcoFabricDispatch, EcoFabricRoll, Item, MaterialReservation, Model, ProductionOrder, ProductionOrderMaterial, Role, StockBatch, StockMovement, User, Warehouse
 from app.schemas.inventory.eco_inventory import EcoMaterialBatch, EcoMaterialMovement, FactoryFabricTransfer
 from app.schemas.inventory import eco_inventory_persistence as persistence
 from app.tests.conftest import TestSessionLocal
@@ -271,3 +272,73 @@ def test_dispatch_refuses_customer_owned_usluga_fabric(setup_materials):
     assert db.get(StockBatch, batch.id).quantity == Decimal("100")
     actor(db, user, "MIL")
     assert all(row.id != batch.id for row in transfers.source_batches(db, user))
+
+
+@pytest.mark.parametrize("ineligible", ["department", "usluga_main", "usluga_material", "custody"])
+def test_source_pagination_excludes_ineligible_rows_before_limit(setup_materials, ineligible):
+    db, user, item, _, older_valid = setup_materials
+    warehouse_id = older_valid.warehouse_id
+    if ineligible == "department":
+        department = db.query(Department).filter_by(code="ECO").one()
+        warehouse = Warehouse(name="Eco source must be excluded", type="fabric_storage", department_id=department.id)
+        db.add(warehouse)
+        db.flush()
+        warehouse_id = warehouse.id
+    newest = StockBatch(item_id=item.id, batch_no="NEWEST-INELIGIBLE", quantity=10, unit="kg",
+                         cost_per_unit=0, warehouse_id=warehouse_id, qc_status="passed")
+    db.add(newest)
+    db.flush()
+    if ineligible in ("usluga_main", "usluga_material"):
+        order = ProductionOrder(production_no="PO-ECO-PAGE-USLUGA", production_type="client_order", source_type="usluga",
+                                  model_id=db.query(Model).first().id, fabric_batch_id=newest.id if ineligible == "usluga_main" else None,
+                                  planned_quantity=1)
+        db.add(order)
+        db.flush()
+        if ineligible == "usluga_material":
+            db.add(ProductionOrderMaterial(production_order_id=order.id, stock_batch_id=newest.id,
+                                           estimated_quantity=1, unit="kg", position=1))
+    elif ineligible == "custody":
+        custody = EcoFabricDispatch(request_key="page-existing-custody", created_by=user.id, operator_name=user.name, remaining_inventory=[])
+        db.add(custody)
+        db.flush()
+        db.add(EcoFabricRoll(dispatch_id=custody.id, batch_id=newest.id, roll_number=1,
+                             fabric_name=item.name, batch_no=newest.batch_no, quantity=10, unit="kg"))
+    db.commit()
+    actor(db, user, "MIL")
+    first_page = transfers.source_batches(db, user, limit=1)
+    assert [row.id for row in first_page] == [older_valid.id]
+    assert all(row.id != newest.id for row in transfers.source_batches(db, user, offset=1, limit=10))
+
+
+def test_stock_page_item_hydration_select_count_does_not_grow(setup_materials):
+    db, user, _, _, _ = setup_materials
+    for index in range(10):
+        item = Item(sku=f"ECO-PAGE-{index}", name=f"Eco paged fabric {index}", category="fabric", unit="kg",
+                    default_cost=0, reorder_level=0)
+        db.add(item)
+        db.flush()
+        db.add(EcoMaterialBatch(item_id=item.id, kind="fabric", batch_no=f"ECO-PAGE-BATCH-{index}", unit="kg",
+                                quantity=1, reserved_quantity=0, created_by=user.id))
+    db.commit()
+    counts = []
+    for limit in (1, 10):
+        with TestSessionLocal() as probe:
+            current = probe.get(User, user.id)
+            actor(probe, current, "ECO")
+            eco.require_eco(current, "eco_inventory.read")
+            selects = []
+
+            def count_select(connection, cursor, statement, parameters, context, executemany):
+                if statement.lstrip().upper().startswith("SELECT"):
+                    selects.append(statement)
+
+            engine = probe.get_bind()
+            event.listen(engine, "before_cursor_execute", count_select)
+            try:
+                rows = eco.list_stock(probe, current, limit=limit)
+            finally:
+                event.remove(engine, "before_cursor_execute", count_select)
+            assert len(rows) == limit
+            assert all(row.item_name.startswith("Eco paged fabric") for row in rows)
+            counts.append(len(selects))
+    assert counts == [1, 1]

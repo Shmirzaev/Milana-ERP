@@ -9,7 +9,7 @@ import { api, fetcher } from "@/lib/api";
 import { ApiError } from "@/lib/errorMessages";
 import { can, useMe } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
-import { ecoInventoryText, loadEcoPendingAttempt, saveEcoPendingAttempt, type EcoBatch, type EcoMaterialItem, type EcoMaterialKind, type EcoMovement } from "@/lib/ecoInventory";
+import { ecoInventoryText, loadEcoPendingAttempt, retainEcoPendingAfterFailure, saveEcoPendingAttempt, type EcoBatch, type EcoMaterialItem, type EcoMaterialKind, type EcoMovement } from "@/lib/ecoInventory";
 
 type ReceiveBody = { request_key: string; item_id: number; kind: EcoMaterialKind; batch_no: string; color: string | null; quantity: string; notes: string | null };
 type ConsumeBody = { request_key: string; batch_id: number; quantity: string; production_order_id: number | null; notes: string | null };
@@ -66,7 +66,7 @@ export default function EcoInventoryPage() {
       await Promise.all([refreshStock(), refreshHistory()]);
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : text.error);
-      if (failure instanceof ApiError && failure.status >= 400 && failure.status < 500) { pending.current = null; saveEcoPendingAttempt(storageKey, null); setUncertain(false); }
+      if (!retainEcoPendingAfterFailure(storageKey, failure instanceof ApiError ? failure.status : 0, uncertain)) { pending.current = null; setUncertain(false); }
       else setUncertain(true);
     } finally { inFlight.current = false; setBusy(false); }
   }

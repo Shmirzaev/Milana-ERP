@@ -9,7 +9,7 @@ import { api, fetcher, fetchResponse } from "@/lib/api";
 import { ApiError } from "@/lib/errorMessages";
 import { can, useMe } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
-import { ecoInventoryText, fabricTransferOutstanding, loadEcoPendingAttempt, saveEcoPendingAttempt, transferStatusText, type FabricSourceBatch, type FabricTransfer, type FabricTransferStatus } from "@/lib/ecoInventory";
+import { ecoInventoryText, fabricTransferOutstanding, loadEcoPendingAttempt, retainEcoPendingAfterFailure, saveEcoPendingAttempt, transferStatusText, type FabricSourceBatch, type FabricTransfer, type FabricTransferStatus } from "@/lib/ecoInventory";
 
 type DraftRow = FabricSourceBatch & { sendQuantity: string };
 type Attempt = { endpoint: string; body: { request_key: string; notes: string | null; lines: ({ source_batch_id: number; quantity: string } | { line_id: number; quantity: string })[] } };
@@ -55,7 +55,7 @@ export default function FactoryFabricTransfersPage() {
       setMessage(text.saved); await Promise.all([mutate(), refreshSources()]);
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : text.error);
-      if (failure instanceof ApiError && failure.status >= 400 && failure.status < 500) { pending.current = null; saveEcoPendingAttempt(storageKey, null); setUncertain(false); }
+      if (!retainEcoPendingAfterFailure(storageKey, failure instanceof ApiError ? failure.status : 0, uncertain)) { pending.current = null; setUncertain(false); }
       else setUncertain(true);
     } finally { inFlight.current = false; setBusy(false); }
   }

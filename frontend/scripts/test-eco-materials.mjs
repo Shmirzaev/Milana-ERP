@@ -26,6 +26,43 @@ assert.equal(JSON.stringify(exports.loadEcoPendingAttempt(key)), JSON.stringify(
 assert.equal(exports.loadEcoPendingAttempt("milana:eco-inventory:pending:2:ECO"), null);
 exports.saveEcoPendingAttempt(key, null);
 assert.equal(exports.loadEcoPendingAttempt(key), null);
+
+// The server commits, its response is lost, and the session then expires.
+// Auth failure must not discard the original request or mint a replacement key.
+let stockMovements = 0;
+const savedResponses = new Map();
+function serverReceive(body, loggedIn, loseResponse = false) {
+  if (!loggedIn) return {status: 401};
+  if (!savedResponses.has(body.request_key)) {
+    stockMovements++;
+    savedResponses.set(body.request_key, {movement_id: stockMovements});
+  }
+  return loseResponse ? {status: 0} : {status: 200, result: savedResponses.get(body.request_key)};
+}
+exports.saveEcoPendingAttempt(key, request);
+const lostSuccess = serverReceive(request.body, true, true);
+assert.equal(exports.retainEcoPendingAfterFailure(key, lostSuccess.status, false), true);
+const unauthorized = serverReceive(exports.loadEcoPendingAttempt(key).body, false);
+assert.equal(exports.retainEcoPendingAfterFailure(key, unauthorized.status, true), true);
+const restoredAfterLogin = exports.loadEcoPendingAttempt(key);
+assert.equal(JSON.stringify(restoredAfterLogin), JSON.stringify(request));
+assert.equal(serverReceive(restoredAfterLogin.body, true).result.movement_id, 1);
+assert.equal(stockMovements, 1);
+exports.saveEcoPendingAttempt(key, null);
+
+for (const status of [401, 403, 408, 429, 500, 502, 503, 504, 0]) {
+  exports.saveEcoPendingAttempt(key, request);
+  assert.equal(exports.retainEcoPendingAfterFailure(key, status, false), true);
+  assert.equal(exports.loadEcoPendingAttempt(key).body.request_key, "same-key");
+}
+for (const status of [400, 404, 409, 422]) {
+  exports.saveEcoPendingAttempt(key, request);
+  assert.equal(exports.retainEcoPendingAfterFailure(key, status, false), false);
+  assert.equal(exports.loadEcoPendingAttempt(key), null);
+  exports.saveEcoPendingAttempt(key, request);
+  assert.equal(exports.retainEcoPendingAfterFailure(key, status, true), true);
+  assert.equal(exports.loadEcoPendingAttempt(key).body.request_key, "same-key");
+}
 storage.set(key, "broken-json");
 assert.equal(exports.loadEcoPendingAttempt(key), null);
 

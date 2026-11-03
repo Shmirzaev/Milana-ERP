@@ -75,22 +75,32 @@ def source_batches(db: Session, current: User, offset: int = 0, limit: int = 200
     require_factory_access(current, "MIL")
     require_permission(current, "factory_fabric_transfers.dispatch")
     result = []
-    query = db.query(StockBatch).join(Item, Item.id == StockBatch.item_id).join(Warehouse, Warehouse.id == StockBatch.warehouse_id).filter(
+    customer_owned = select(ProductionOrder.id).outerjoin(ProductionOrderMaterial,
+        ProductionOrderMaterial.production_order_id == ProductionOrder.id).where(
+            ProductionOrder.source_type == "usluga",
+            or_(ProductionOrder.fabric_batch_id == StockBatch.id, ProductionOrderMaterial.stock_batch_id == StockBatch.id),
+        ).correlate(StockBatch).exists()
+    outstanding_custody = select(EcoFabricRoll.id).where(
+        EcoFabricRoll.batch_id == StockBatch.id, EcoFabricRoll.returned_at.is_(None),
+    ).correlate(StockBatch).exists()
+    query = db.query(StockBatch, Item).options(lazyload(StockBatch.item)).join(
+        Item, Item.id == StockBatch.item_id,
+    ).join(Warehouse, Warehouse.id == StockBatch.warehouse_id).outerjoin(
+        Department, Department.id == Warehouse.department_id,
+    ).filter(
         StockBatch.archived_at.is_(None), StockBatch.quantity > 0, Item.category.in_(("fabric", "semi_finished")),
         Warehouse.type == "fabric_storage",
+        or_(Warehouse.department_id.is_(None), Department.code.notin_(("ECO", "ECT", "ECP", "BST", "BPK"))),
+        ~customer_owned, ~outstanding_custody,
     )
     if q and q.strip():
         query = query.filter(or_(Item.name.icontains(q.strip(), autoescape=True), StockBatch.batch_no.icontains(q.strip(), autoescape=True),
                                  StockBatch.color.icontains(q.strip(), autoescape=True)))
     batches = query.order_by(StockBatch.id.desc()).offset(offset).limit(limit).all()
-    for batch in batches:
-        if not _source_is_milana(db, batch) or _customer_owned(db, batch.id):
-            continue
-        if db.query(EcoFabricRoll.id).filter_by(batch_id=batch.id, returned_at=None).first():
-            continue
+    for batch, item in batches:
         available = min(Decimal(batch.quantity) - Decimal(str(reserved_stock_for_batch(db, batch.id))),
                         Decimal(str(available_reservation_item_capacity(db, batch.item_id, batch.warehouse_id))).quantize(Decimal("0.0001")))
-        result.append(FactoryFabricSourceBatchOut(id=batch.id, item_name=batch.item.name, batch_no=batch.batch_no,
+        result.append(FactoryFabricSourceBatchOut(id=batch.id, item_name=item.name, batch_no=batch.batch_no,
                                                   color=batch.color, unit=batch.unit, quantity=batch.quantity,
                                                   available_quantity=max(Decimal(0), available)))
     return result

@@ -82,3 +82,13 @@ export function saveEcoPendingAttempt(key: string | null, attempt: unknown | nul
 export function loadEcoPendingAttempt<T>(key: string): T | null {
   try { const saved = sessionStorage.getItem(key); return saved ? JSON.parse(saved) as T : null; } catch { return null; }
 }
+
+export function retainEcoPendingAfterFailure(key: string | null, status: number, hadUncertainOutcome: boolean): boolean {
+  // Auth, timeout, throttling and server failures do not establish whether an
+  // earlier attempt committed. Once an outcome is unknown, even a later 4xx
+  // cannot establish that the original request did not commit. Preserve its
+  // exact identity until a successful replay proves the saved result.
+  const authoritativeInitialRefusal = !hadUncertainOutcome && [400, 404, 409, 422].includes(status);
+  if (authoritativeInitialRefusal) saveEcoPendingAttempt(key, null);
+  return !authoritativeInitialRefusal;
+}

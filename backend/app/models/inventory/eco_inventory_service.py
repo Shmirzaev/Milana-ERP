@@ -47,8 +47,8 @@ def require_eco_order(db: Session, production_order_id: int) -> ProductionOrder:
     return order
 
 
-def batch_output(db: Session, batch: EcoMaterialBatch) -> EcoMaterialBatchOut:
-    item = db.get(Item, batch.item_id)
+def batch_output(db: Session, batch: EcoMaterialBatch, item: Item | None = None) -> EcoMaterialBatchOut:
+    item = item if item is not None else db.get(Item, batch.item_id)
     return EcoMaterialBatchOut(id=batch.id, item_id=batch.item_id, item_name=item.name, sku=item.sku,
                                kind=EcoMaterialKind(batch.kind), batch_no=batch.batch_no, color=batch.color,
                                unit=batch.unit, quantity=batch.quantity, reserved_quantity=batch.reserved_quantity,
@@ -77,10 +77,10 @@ def list_orders(db: Session, current: User) -> list[EcoMaterialOrderOut]:
 def list_stock(db: Session, current: User, kind: EcoMaterialKind | None = None,
                offset: int = 0, limit: int = 200) -> list[EcoMaterialBatchOut]:
     require_eco(current, "eco_inventory.read")
-    query = db.query(EcoMaterialBatch)
+    query = db.query(EcoMaterialBatch, Item).join(Item, Item.id == EcoMaterialBatch.item_id)
     if kind:
         query = query.filter(EcoMaterialBatch.kind == kind.value)
-    return [batch_output(db, batch) for batch in query.order_by(EcoMaterialBatch.id.desc()).offset(offset).limit(limit).all()]
+    return [batch_output(db, batch, item) for batch, item in query.order_by(EcoMaterialBatch.id.desc()).offset(offset).limit(limit).all()]
 
 
 def receive_stock(db: Session, payload: EcoMaterialReceiveIn, current: User) -> EcoMaterialMutationOut:
