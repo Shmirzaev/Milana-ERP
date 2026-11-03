@@ -24,7 +24,9 @@ return JSON 503 until the store recovers. Dilmurod implements; Ismail reviews.
 Connected-browser evidence is PARTIAL (signed-in checks missing); human acceptance
 remains pending. No production changes were
 made; active/rollback records below are unchanged. #311 readiness/router integration
-must preserve this availability policy and is not included here.
+must preserve this availability policy and is not included here. Full backend
+suite with a disclosed local PERF06 drain adapter: 5,947 passed, one known S06
+failure, zero errors/skips; the default fixture race remains a separate follow-up.
 
 ## Identity policy-helper prerequisite (3 November)
 

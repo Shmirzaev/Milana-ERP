@@ -76,6 +76,7 @@ this update is not a new whole-register census or a production acceptance record
   recorded in [the evidence](../docs/archive/SHARED_STORE_MIXED_OUTAGE_2026-11-03.md).
   Human acceptance, merge and deployment remain pending. #311 readiness/routing
   integration remains separate; this does not close its visual or release gate.
+- 3 November follow-ups: connected-browser result **PARTIAL** (signed-in Profile/Tasks not covered); existing frontend login retries/doubled status and a transient Next dev proxy `ECONNRESET` remain follow-ups. Full #322 with a disclosed local PERF06 drain adapter: **5,947 passed / 1 known S06 failed / 0 errors/skipped**; the unadapted PERF06 race was reproduced on the base and remains a separate fixture fix.
 
 ### RF013-BARE503-20261031 — failed frontend activation has no recovery UI
 

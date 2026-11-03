@@ -34,16 +34,17 @@ Logout, password change and factory switching keep their existing behavior.
   aliases, reset request/completion, enabled/disabled global limiting, store
   construction/late operation failures, no session/password/token/audit side effects,
   and recovery of normal rate limiting. Ruff passes on the three changed Python files.
-- Full unmodified #322 runner: **BLOCKED / incomplete; no final passed/failed/skipped
-  totals**. Both full attempts reached PERF06 PostgreSQL fixture teardown, where
+- Historical unadapted #322 attempts: **BLOCKED / incomplete; those attempts have
+  no final totals**. Both reached PERF06 PostgreSQL fixture teardown, where
   `finalize_target` entered its deliberate `TARGET_DRAIN` lifecycle hold. The first
   process ignored SIGINT by design; a diagnostic abort with core dumps disabled
   captured the stack. Its output remains in `full-interrupted-attempt/full-suite.log`.
   The fresh run adds only pytest diagnostic output options and reproduces the hold;
   it is retained alive with its owned disposable database. No application/test/safety
   guard was changed or bypassed. HAProxy was installed only in disposable test
-  containers; no tracked runner/dependency changed. Later suite cases and required
-  PostgreSQL/supplement gates have no final report and are **BLOCKED**, not passed.
+  containers; no tracked runner/dependency changed. Those unadapted attempts have
+  no final reports for later cases or PostgreSQL gates. The completed **adapted**
+  full-suite result and passing PostgreSQL gate reports are recorded below.
 - All six unchanged PERF06 cases pass on exact base `75cf9c53` in a bounded separate
   process using the approved #322 PostgreSQL instance (6 passed, 0 failed/errors/skipped).
   The later exact-base diagnostic confirms an intermittent fixture-worker race; see
@@ -104,8 +105,10 @@ browser-results.json}` plus four screenshots. These reports contain no secret va
 ## Remaining gates and integration limits
 
 Independent read-only Codex review (`/root/acceptance_people_recipe`) found no
-source, focused-test or three-minute-evidence blockers. Full-suite completion is blocked by the lifecycle hold and remains
-a separate gate. Connected Chrome result is **PARTIAL**; human acceptance remains **PENDING**. The scheduled local
+source, focused-test or three-minute-evidence blockers. The default unadapted
+fixture hold remains a separate follow-up; the completed adapted full run below
+records 5,947 passes and one known S06 failure, with both PostgreSQL gates passing.
+Connected Chrome result is **PARTIAL**; human acceptance remains **PENDING**. The scheduled local
 browser window completed with a timed three-minute fault and automatic restoration;
 its exact plan and logs stay beside this run's evidence. The stack remains running for that checker until explicitly stopped.
 This is not AI verification, acceptance, merge or deployment authorization.
@@ -206,7 +209,7 @@ finalizer. A late AnyIO worker can still be exiting; the helper's immediate
 all-thread drain check permanently retains the owner on failure. The guard's
 protection is correct. The fixture needs bounded worker draining before finalization;
 that pre-existing tracked-fixture change is outside the user's conditional
-"fix it if it's ours" scope. No application or tracked fixture fix is included.
+"fix it if it's ours" scope. No application or tracked PERF06 fixture fix is included.
 
 Process isolation alone also reproduced the hold. To obtain a complete case total,
 the final #322 run uses a **disclosed local PERF06 worker-drain adapter**, not an
@@ -223,5 +226,59 @@ recorded in local `adapter-version.json`.
 
 The early adapter-startup check was interrupted for that finally correction before
 PERF06; its partial totals are retained separately and are not a full result.
-The corrected complete run is **IN PROGRESS** in `full-drained.log`. The unadapted
+The corrected complete run has finished; its separate final totals are below. The unadapted
 holds remain retained; default-run cleanup is not claimed fixed.
+
+### First complete adapted run and owned test correction
+
+The first complete run with that adapter recorded **5,943 passed / 5 failed /
+0 errors / 0 skipped**; required PostgreSQL groups and the 17-case supplement
+passed. Four failures were #373's new parametrized warning-capture assertions:
+all four HTTP status assertions passed at 200, but `caplog` was empty. Earlier
+in-process migration tests invoke Alembic's `fileConfig`, whose default disables
+existing loggers. `caplog.at_level` changes level but does not clear `disabled`.
+This was our test's missing isolation, not an API-behavior failure. The fifth
+failure was the independently reproduced baseline S06 string/enum error.
+
+Checkpoint `8bc76945` adds only a monkeypatch re-enabling `main.log` inside the
+warning test; teardown restores its prior disabled flag. All original warning
+and private-detail assertions remain intact. Application/frontend/guard code is
+unchanged. A deliberate disabled-logger focused run passes **129 / 0 failed/errors/
+skipped**; Ruff and independent review pass. Normal app startup verifies the
+migration state without executing Alembic's logging configuration.
+
+The complete five-failure report remains in `full-first-complete-attempt/` and
+JUnit directory `postgres-results-4e8e74fd`; totals are not combined with reruns.
+The new complete #322 run on `8bc76945`, using the same reviewed local drain adapter,
+completed with the separate final totals below.
+
+Additional logging-order check: after applying the actual Alembic `fileConfig`, all four corrected warning cases pass (4 passed / 0 failed/errors/skipped). The isolated copy health check at 09:34:18Z confirms login/me/tasks 200, fixture visible, original store path/integrity ok, worker8 unchanged and zero container restarts. No new browser outage is armed.
+
+## Final complete suite — checkpoint 8bc76945
+
+**#322 with the disclosed local PERF06 passive worker-drain adapter:**
+**5,947 passed / 1 failed / 0 errors / 0 skipped**, plus 36 passing subtests,
+in 1,334.78 seconds. All **35** outage-policy cases pass, including the four
+warning-capture cases corrected above. The sole failure is the previously
+reproduced base S06 `test_concurrent_stock_adjustments[batch_delta]` string/enum
+`.value` mismatch. The runner exits 1 for that failure; no all-green claim.
+
+Required PostgreSQL gate: **PASS, 200 cases across 20 groups**. Supplement gate:
+**PASS, 17 cases**. Those cases are selections from the full report, not extra
+passes to add to 5,947. Full evidence is local/Git-excluded:
+`full-drained.log`, `full-drained-summary.json`, and JUnit directory
+`.codex-work/postgres-results-606bacef` (including backend/required/supplement XML).
+The final run uses the corrected adapter hash in `adapter-version.json`; it
+passively drained a real late worker and the original finalizer returned normally.
+Default unadapted fixture behavior is still a separate pre-existing follow-up.
+
+A final fetch found `origin/clone_main` `77d090f6`; its changes after the PR base
+are frontend HR only, with no backend or runner overlap. No backend combined-source
+change invalidated this run. Runtime application code remains unchanged from
+`00cdcf9c`; the follow-up runtime-test change is only the scoped logger setup in
+`8bc76945`. Independent review covers that setup and the local adapter.
+
+The browser result remains **PARTIAL** and human acceptance remains pending.
+The isolated copy is kept running; no merge/deployment or new outage window.
+
+Final independent read-only review confirmed the final source, counts, adapter method and PARTIAL browser classification. Earlier blocked statements above refer only to the unadapted attempts, not the completed adapted report.
