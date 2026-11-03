@@ -64,11 +64,11 @@ production verification -> remove old code. Keep one write path per request.
 Record the test result, visual evidence, approver and cleanup condition in the task.
 Visual success alone does not prove permissions, concurrency or data correctness.
 
-## Simulator turnstile Add access, Edit details and Replace photo
+## Simulator turnstile Add access, Edit details, Replace photo and Revoke access
 Public operations are in [turnstile_access_service.py](turnstile_access_service.py),
 [turnstile_photo_service.py](turnstile_photo_service.py), and
 [turnstile_simulator_service.py](turnstile_simulator_service.py).
-ENROLL, EDIT and PHOTO each own one outer request transaction and call explicit schema-owned
+ENROLL, EDIT, PHOTO and REVOKE each own one outer request transaction and call explicit schema-owned
 mutations with the same supplied Session. Photo upload owns its asset/file lifecycle;
 the simulator coordinates separate claim, durable acceptance and readback transactions.
 None of these operations writes HR employee details or attendance mirror/event rows. Existing
@@ -81,7 +81,7 @@ simulator evidence under locks, freezes the baseline and uses a conditional name
 at acceptance. It preserves each device's photo and external identity. Uncertain outcomes
 are reconciled through readback; a public actor/factory/employee/action-scoped receipt
 lookup resolves a saved request key without submitting a new operation. HR Save remains
-independent. REVOKE, adoption and live-device writes remain pending.
+independent. Adoption and live-device writes remain pending.
 
 Private simulator PHOTO replaces only the photo on selected verified bindings. It uses
 the shared reviewed baseline references and a validated immutable asset with manual
@@ -92,7 +92,18 @@ not the desired name on each target. Unknown simulator acceptance uses read-only
 reconciliation; the scoped receipt lookup matches the saved action, asset and target
 baseline references. PHOTO is AI_VERIFIED_AWAITING_HUMAN; prior human gates remain unrecorded.
 
-See the historical [ENROLL evidence](../../../../docs/TURNSTILE_ACCESS_BACKEND_20261103.md)
+Private simulator REVOKE requires selected trusted ACTIVE bindings and freezes each
+reviewed complete baseline. A conditional update tombstones each accepted profile once;
+a tombstone has `present=false` and retains historical name, identity and photo metadata.
+An uncertain outcome is read-only: bare absence does not prove success. Revoked identity
+is not recycled or automatically re-enrolled. HR archive and revocation are separate;
+an already archived employee can still have verified gate access revoked. This slice is
+**AI_VERIFIED_AWAITING_HUMAN** after automated, PostgreSQL, actual visual/data and independent review. The owner's latest
+instruction places the QA master human check before deployment; it does not pause source
+integration or the next slice.
+
+See the [REVOKE packet](../../../../docs/TURNSTILE_REVOKE_20261104.md),
+the historical [ENROLL evidence](../../../../docs/TURNSTILE_ACCESS_BACKEND_20261103.md),
 the [EDIT task and evidence packet](../../../../docs/TURNSTILE_EDIT_DETAILS_20261103.md),
 and the [PHOTO task packet](../../../../docs/TURNSTILE_PHOTO_REPLACEMENT_20261104.md).
-Independent final review and human acceptance are separate gates.
+Prior ENROLL, EDIT and PHOTO evidence remains historical; their human gates are unrecorded.

@@ -1,5 +1,17 @@
 # Team bug tracker — clone_main
 
+## TURNSTILE-REVOKE-20261104 — guarded simulator revocation
+
+- **AI_VERIFIED_AWAITING_HUMAN; human acceptance unrecorded; not deployed.** People owner
+  Dilmurod; technical reviewer Mirshoir. Evidence and exact freeze are in the
+  [operation packet](../docs/TURNSTILE_REVOKE_20261104.md).
+- Explicit selected-device REVOKE uses complete baseline CAS and durable simulator
+  tombstones; bare absence is not proof and unknown acceptance is read-only. HR archive
+  remains separate; archived employees can be revoked. No identity reuse is introduced.
+- 113 focused tests, guarded PostgreSQL concurrency/migration and actual desktop/phone
+  evidence passed. QA master human review is required before deployment and does not
+  pause source integration or next refactor work. Keep this entry active.
+
 ## TURNSTILE-PHOTO-20261104 — guarded simulator photo replacement
 
 - **AI_VERIFIED_AWAITING_HUMAN; human acceptance unrecorded; not deployed.** People owner

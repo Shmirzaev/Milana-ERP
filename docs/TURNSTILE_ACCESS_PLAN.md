@@ -309,3 +309,27 @@ HR Save and archive remain separate; existing attendance reading and both ERP wr
 continue. REVOKE, adoption and live hardware remain outside this slice. The
 [PHOTO task packet](TURNSTILE_PHOTO_REPLACEMENT_20261104.md) records source, evidence,
 remaining gates and the human checklist; no production or human acceptance is inferred.
+
+
+## Simulator REVOKE candidate — 2026-11-04
+
+The private simulator now supports explicit selected-device REVOKE alongside ENROLL,
+EDIT and PHOTO. The frozen simulator operation is **AI_VERIFIED_AWAITING_HUMAN**
+after automated, PostgreSQL, actual visual/data and independent source/evidence review. Only trusted ACTIVE bindings with exact reviewed
+per-target revision and profile hash may be submitted. HR archive remains separate, and
+an archived employee can still have verified simulator access revoked.
+
+Each target freezes its complete baseline and accepts a single conditional update. A
+`present=false` tombstone retains historical name, external identity and photo metadata;
+it is not a live profile and the identity is not recycled or automatically re-enrolled.
+Uncertain acceptance is reconciled read-only: a missing row alone is not success. Migration
+0153 permits a null REVOKE photo asset and adds the simulator presence marker. Its
+pre-DDL downgrade guard preserves REVOKE history, tombstones and exact JSON-action
+revocation evidence; compatible data can return to the 0152 constraints. No live
+turnstile support is implied. Details and final evidence are in the
+[REVOKE task packet](TURNSTILE_REVOKE_20261104.md).
+
+ENROLL, EDIT and PHOTO evidence remains historical and their human gates are unrecorded.
+The owner's latest instruction places the QA master human check before deployment; it
+does not pause source integration or the next development slice. Production deployment
+remains separately authorized.

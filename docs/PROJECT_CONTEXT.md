@@ -432,6 +432,15 @@ and all four health checks passed. Backup and full evidence are in
   production verification or business-data change. Release/rollback pointers
   above are historical and were not reverified.
 
+## Turnstile REVOKE candidate — 4 November 2026
+
+- Guarded simulator REVOKE at functional freeze `75083615` has 113 focused tests,
+  finalized PostgreSQL concurrency and migration proofs, and inspected desktop/phone
+  evidence. Independent AI source/evidence review found no new blocker; human acceptance remains unrecorded. See the [operation packet](TURNSTILE_REVOKE_20261104.md).
+- HR archive and explicit gate revoke are separate. The owner's latest instruction
+  places QA master human review before deployment, without pausing source integration
+  or further refactoring. No real-device support or deployment is inferred.
+
 ## Required checks and open risks
 
 - API02 candidate (re-aimed 29 October, Dilmurod; Mirshoir review): task write DTOs now

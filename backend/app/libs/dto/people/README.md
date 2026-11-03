@@ -24,7 +24,7 @@ See [DTO rules](../README.md), [business services](../../../models/README.md),
 [database definitions](../../../schemas/README.md) and
 [ownership](../../../../../docs/TEAM_OWNERSHIP.md).
 
-Turnstile enrollment, edit and photo replacement use [turnstile_input.py](turnstile_input.py),
+Turnstile enrollment, edit, photo replacement and revocation use [turnstile_input.py](turnstile_input.py),
 [turnstile_output.py](turnstile_output.py) and
 [turnstile_context_output.py](turnstile_context_output.py).
 Fixed state/action/mode/error fields use canonical enums. ENROLL requires the
@@ -48,3 +48,13 @@ informational HR snapshot, while each target keeps its own baseline name and ide
 The scoped receipt lookup reconciles the saved key against action, asset and exact target
 baseline references; unknown acceptance remains a read-only recovery case. See the
 [PHOTO task packet](../../../../../docs/TURNSTILE_PHOTO_REPLACEMENT_20261104.md).
+
+
+REVOKE accepts the reviewed stored employee number and unique `GateEditTargetInput`
+references with expected revision and profile hash. It accepts no name or photo input.
+The shared context baseline is offered only for a trusted active binding. Its scoped
+receipt identifies the saved action and exact target references; bare profile absence
+is not a successful revocation. An archived HR employee can still be revoked separately.
+These contracts apply only to the guarded private simulator. See the
+[REVOKE packet](../../../../../docs/TURNSTILE_REVOKE_20261104.md); verification remains
+**AI_VERIFIED_AWAITING_HUMAN** after independent source/evidence review.
