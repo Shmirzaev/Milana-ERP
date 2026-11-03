@@ -1,7 +1,9 @@
 import os
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
+
+from app.libs.enums.turnstile import GateMode
 
 
 class Settings(BaseSettings):
@@ -65,6 +67,19 @@ class Settings(BaseSettings):
     HR_DOCUMENTS_DIR: str = "/app/storage/hr_documents"
     HR_DOCUMENT_MAX_BYTES: int = 20 * 1024 * 1024
     STARTUP_SCHEMA_SYNC: bool = False
+    TURNSTILE_PROVISIONING_MODE: GateMode = GateMode.DISABLED
+    TURNSTILE_PHOTOS_DIR: str = "/app/storage/turnstile_photos"
+    TURNSTILE_PHOTO_MAX_BYTES: int = Field(default=8 * 1024 * 1024, ge=1024, le=32 * 1024 * 1024)
+    TURNSTILE_PHOTO_MAX_PIXELS: int = Field(default=50_000_000, ge=1, le=50_000_000)
+    TURNSTILE_SIMULATOR_LEASE_SECONDS: int = Field(default=60, ge=1, le=300)
+    TURNSTILE_SIMULATOR_MAX_ATTEMPTS: int = Field(default=5, ge=1, le=10)
+
+    @model_validator(mode="after")
+    def validate_turnstile_mode(self):
+        if self.strict_security_required and self.TURNSTILE_PROVISIONING_MODE is not GateMode.DISABLED:
+            raise ValueError("Turnstile provisioning must remain disabled in production")
+        return self
+
 
     @field_validator("DEBUG", mode="before")
     @classmethod

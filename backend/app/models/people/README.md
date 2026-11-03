@@ -1,8 +1,9 @@
 # People, attendance and payroll
 
 Business-service group guide, relocated into models/ on 24 October 2026. This
-directory remains README-only; existing implementations are the *_service.py files
-linked below. The proposed files describe later approved operation extractions.
+directory now contains the reviewed turnstile enrollment, private photo and simulator
+services. Other existing implementations remain linked below; proposed files describe
+later approved operation extractions.
 
 **Purpose:** Own employee/department records, HR workflows, attendance ingestion and payroll. Keep those responsibilities in separate files.
 
@@ -62,3 +63,15 @@ old/new separately -> test the real UI on isolated data -> reviewed switch -> hu
 production verification -> remove old code. Keep one write path per request.
 Record the test result, visual evidence, approver and cleanup condition in the task.
 Visual success alone does not prove permissions, concurrency or data correctness.
+
+## Turnstile Add access (2026-11-03)
+Public operations are in [turnstile_access_service.py](turnstile_access_service.py),
+[turnstile_photo_service.py](turnstile_photo_service.py), and
+[turnstile_simulator_service.py](turnstile_simulator_service.py).
+Enrollment owns one request transaction; photo upload owns its asset/file lifecycle;
+the simulator coordinates separate claim, durable acceptance and readback transactions.
+Each calls explicit schema-owned mutations; none writes HR or attendance mirror/event rows.
+Only ENROLL is enabled in private simulator mode. Existing mirrored identities are
+refused until a separate adoption operation; expected employee numbers prevent stale
+reviews and existing bindings cannot be remapped by HR number changes.
+See [task/evidence packet](../../../../docs/TURNSTILE_ACCESS_BACKEND_20261103.md).

@@ -50,6 +50,16 @@ Public closing checks and final compatible rollback registration remain pending.
 See [release record](archive/PACK_CUSTOMER_FG_RELEASE_2026-11-03.md).
 Human production acceptance remains separate from the owner's release authorization.
 
+## Turnstile enrollment development (3 November)
+
+The owner approved the frontend and authorized low-reasoning Terra backend workers.
+The [Add access task packet](TURNSTILE_ACCESS_BACKEND_20261103.md) records the isolated
+simulator candidate, mentor boundaries, review fixes and synthetic PostgreSQL/browser
+evidence. Existing attendance reading and both ERP writers remain required. No live
+adapter or production change is included. The owner authorized source publication on
+clone_main after visual checks; migration0151 follows the upstream0150. Edit, photo
+replacement, revoke, adoption and hardware policy remain separate pending operations.
+
 ## Identity policy-helper prerequisite (3 November)
 
 The [approved policy-only split](archive/ACCESS_POLICY_HELPER_SPLIT_2026-11-03.md)
