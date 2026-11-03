@@ -1,0 +1,38 @@
+{
+  "received": "2026-11-01",
+  "seven_screenshots_personally_inspected": true,
+  "files": [
+    {
+      "name": "RF013_BROWSER_RERUN_2026-10-31.md",
+      "sha256": "ad6f6357b688104a7557d09d60c0363d40e3097b1863517f3a16bef909b07d81"
+    },
+    {
+      "name": "rf013b_2317_start_USD.jpg",
+      "sha256": "e3d0860a50b9566f6642d19500103b3bb3f3d1cb0142444bcbafbffa402df1da"
+    },
+    {
+      "name": "rf013b_2338_baseline_UZS_saved.jpg",
+      "sha256": "bb8612f423ec513138acbaf5a28239b0416e9171d33fcd0b12511c761a3adb82"
+    },
+    {
+      "name": "rf013b_2345_after_rollback_UZS.jpg",
+      "sha256": "bb8612f423ec513138acbaf5a28239b0416e9171d33fcd0b12511c761a3adb82"
+    },
+    {
+      "name": "rf013b_2345_rollback_USD_saved.jpg",
+      "sha256": "9545a86de4e7c419ca6829915cfb19e32f33f1eb04bd7ba57b3485ec0e2536a0"
+    },
+    {
+      "name": "rf013b_2352_failed_activation_503.jpg",
+      "sha256": "d316fe91d44376254c7e6997716702385f0b8b0cc096a0a2250181726b5e6987"
+    },
+    {
+      "name": "rf013b_2354_recovered_USD.jpg",
+      "sha256": "9545a86de4e7c419ca6829915cfb19e32f33f1eb04bd7ba57b3485ec0e2536a0"
+    },
+    {
+      "name": "rf013b_2354_relogin_USD.jpg",
+      "sha256": "9545a86de4e7c419ca6829915cfb19e32f33f1eb04bd7ba57b3485ec0e2536a0"
+    }
+  ]
+}
