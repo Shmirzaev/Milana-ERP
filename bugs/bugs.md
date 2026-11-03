@@ -83,6 +83,8 @@ own their UI/routes; shared platform/tests have Dilmurod as coordinator. No sour
 fix, deployment, production access, independent/human acceptance or bug closure
 is performed by this register update. Existing IDs and historical evidence remain.
 
+- **S-09:** Production-order PATCH mass assignment and direct workflow-status changes are fixed in source by [`7f6d9e18`](https://github.com/Shmirzaev/Milana-ERP/commit/7f6d9e18638b49d7f416bd3ded54fb53488febdd) (typed field allow-list, reference validation and workflow guard); the stale `codex/s09-production-patch` is superseded. Human acceptance remains separate.
+
 ### Acceptance checklist reference
 
 The 33 original-fix rows below are **merged, awaiting acceptance**, backed by their
@@ -113,8 +115,8 @@ this update is not a new whole-register census or a production acceptance record
 
 ### OPS05-STORE-OUTAGE-20261030 — shared-store outage turns API requests into 500
 
-- **P1 · Waiting for Mirshoir's outage-behavior decision · Platform/Identity ·
-  Dilmurod; reviewer/decision owner Mirshoir.** [#311](https://github.com/Shmirzaev/Milana-ERP/pull/311)
+- **P1 · Mixed policy decided 3 November; candidate awaiting review; connected-browser result PARTIAL · Platform/Identity ·
+  Dilmurod; reviewer Ismail (explicit task assignment).** [#311](https://github.com/Shmirzaev/Milana-ERP/pull/311)
   readiness work does not fix this pre-existing behavior. The store is used by
   the global request limiter and auth login/reset counters, not as the JWT/session
   database; its failure escapes as an unhandled exception before route handling.
@@ -128,10 +130,13 @@ this update is not a new whole-register census or a production acceptance record
   [connected evidence](https://github.com/Shmirzaev/Milana-ERP/blob/86d0c97a/docs/archive/OPS05_READINESS_2026-10-26.md).
 - PR #323 was subsequently merged into `clone_main` as
   [`0d030116`](https://github.com/Shmirzaev/Milana-ERP/commit/0d0301164b40930c21908f1f3867567c288c3fa1). It adds the configured `RELEASE_ID` to `/health` and `/ready` and passes it to the staged backend; this identifies the configured release value, but does not change the shared-store outage behavior or prove serving-image authenticity.
-- Decision: clean 503 preserves required abuse protection but blocks store-dependent
-  requests; approved fail-open paths preserve availability but weaken distributed
-  throttling/lockout. Login/reset need explicit treatment even if the global limiter
-  is bypassed. No 503/fail-open policy is implemented or accepted here.
+- 3 November decision: ordinary authenticated requests continue with authorization
+  intact and a warning when global rate limiting is skipped; login and both reset
+  steps return JSON 503. The candidate and isolated three-minute rehearsal are
+  recorded in [the evidence](../docs/archive/SHARED_STORE_MIXED_OUTAGE_2026-11-03.md).
+  Human acceptance, merge and deployment remain pending. #311 readiness/routing
+  integration remains separate; this does not close its visual or release gate.
+- 3 November follow-ups: connected-browser result **PARTIAL** (signed-in Profile/Tasks not covered); existing frontend login retries/doubled status and a transient Next dev proxy `ECONNRESET` remain follow-ups. Full #322 with a disclosed local PERF06 drain adapter: **5,947 passed / 1 known S06 failed / 0 errors/skipped**; the unadapted PERF06 race was reproduced on the base and remains a separate fixture fix.
 
 ### RF013-BARE503-20261031 — failed frontend activation has no recovery UI
 

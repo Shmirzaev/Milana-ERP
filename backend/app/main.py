@@ -179,11 +179,15 @@ def _rate_limit_allowed(key: str) -> tuple[bool, int | None]:
     if limit <= 0 or window <= 0:
         return False, window if window > 0 else 60
 
-    store = get_shared_counter_store()
-    store_key = f"global-rate:{key}"
-    count = store.increment(store_key, window)
-    if count > limit:
-        return False, store.ttl(store_key) or window
+    try:
+        store = get_shared_counter_store()
+        store_key = f"global-rate:{key}"
+        count = store.increment(store_key, window)
+        if count > limit:
+            return False, store.ttl(store_key) or window
+    except Exception:
+        # Route authentication and permissions still run; auth counters fail closed.
+        log.warning("Shared counter store unavailable; global rate limiting skipped")
     return True, None
 
 
