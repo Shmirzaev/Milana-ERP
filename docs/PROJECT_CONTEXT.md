@@ -11,9 +11,22 @@ this checkout, a new combined candidate or deployed production. Inspect current
 code and the operation ledger before advancing a gate. Schema-owned writers,
 system-wide enum/type adoption and human acceptance remain incomplete.
 
-Last updated 2026-11-02. Keep this file short: current decisions, release pointers and
+Last updated 2026-11-03. Keep this file short: current decisions, release pointers and
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
+
+## Schema-0150 rollback compatibility preparation (3 November)
+
+Production remains green `20261102_063110`, runtime `42078704`, manifest
+`becda671a332afe6fe86857ab948be2d686c984e81d02e6e68053ba83cb7a079`.
+The verified-backup customer-pack release preparation applied additive migration
+`0150_package_customer_release`; its new release ledger has zero rows. Feature
+blue `20261103_094602` is staged, not activated. Existing old workers remain healthy,
+but exact-head startup verification prevents old-image worker replacement or restart
+on schema 0150. Do not restart the old green container or downgrade/stamp the schema.
+This branch preserves the exact old application and adds only the reviewed 0150
+migration metadata, plus an isolated immutable-image recovery gate. See
+[compatibility preparation](archive/PACK_CUSTOMER_FG_ROLLBACK_2026-11-03.md).
 
 ## Deployed QR correction reconciled; older-pack filters prepared (2 November)
 
