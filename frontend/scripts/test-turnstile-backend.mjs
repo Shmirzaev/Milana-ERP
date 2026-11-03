@@ -133,7 +133,7 @@ failure = new TypeError("lost response"); assert.equal((await out.submitEnrollme
 console.log("turnstile edit bridge tests passed");
 
 const staleEvents = [];
-const staleEnv = { action: preview.GateAction.Edit, GateAction: preview.GateAction, confirm: true, blocked: false, targetDevices: [{ id: 2 }], reviewedTargets: editRequest.payload.targets, context: { data: { bindings: [{ device_id: 2, state: "active", edit_baseline: { revision: 4, profile_hash: hash } }] } }, setConfirm: v => staleEvents.push(["confirm", v]), setMessage: v => staleEvents.push(["message", v]), b: { staleBaseline: "stale" } };
+const staleEnv = { GateBindingState: out.GateBindingState, action: preview.GateAction.Edit, GateAction: preview.GateAction, confirm: true, blocked: false, targetDevices: [{ id: 2 }], reviewedTargets: editRequest.payload.targets, context: { data: { bindings: [{ device_id: 2, state: "active", edit_baseline: { revision: 4, profile_hash: hash } }] } }, setConfirm: v => staleEvents.push(["confirm", v]), setMessage: v => staleEvents.push(["message", v]), b: { staleBaseline: "stale" } };
 await new Function(...Object.keys(staleEnv), `${applyJs}; return backendApply;`)(...Object.values(staleEnv))();
 assert.deepEqual(staleEvents, [["confirm", false], ["message", "stale"]]);
 console.log("turnstile stale baseline refusal test passed");
@@ -163,3 +163,33 @@ assert.equal(isBlocked(true, true, { data: { simulator_enabled: true, supported_
 const laterReceipt = await runHandler({ kind: "unknown" }, { verifyFirst: true, receipt: { ...response, action: "enroll", full_name: "Test", photo_asset_id: 7, targets: [{ device_id: 2 }] }, savedRequest: JSON.parse(retryRefused.journal.get("key")) });
 assert(laterReceipt.events.some(e => e[0] === "accepted")); assert(!laterReceipt.journal.has("key")); assert(!laterReceipt.events.some(e => e[0] === "post"));
 console.log("turnstile readonly null recheck test passed");
+
+// Execute the actual readback helpers against a history window that omitted the recovered operation.
+const functionNodes = {};
+function collectReadback(node) { if (ts.isFunctionDeclaration(node) && ["applyReadback", "processBackend", "recheck"].includes(node.name?.text)) functionNodes[node.name.text] = node.getText(ast); ts.forEachChild(node, collectReadback); }
+collectReadback(ast);
+assert.equal(Object.keys(functionNodes).length, 3);
+const staleOperation = { ...editReceipt, targets: editReceipt.targets.map(t => ({ ...t, state: "uncertain" })) };
+const settledOperation = { ...staleOperation, targets: staleOperation.targets.map(t => ({ ...t, state: "succeeded" })) };
+async function exerciseReadback(kind, initialOperations) {
+  let accepted = staleOperation, current = { operations: initialOperations }, calls = [];
+  const env = { mounted: { current: true }, setAccepted: op => { accepted = op; calls.push("accepted"); },
+    context: { mutate: async (update, options) => { if (typeof update === "function") { assert.deepEqual(options, { revalidate: false }); current = update(current); calls.push("cache"); } else calls.push("refresh"); return current; } },
+    latest: { id: "12" }, busy: false, canManage: true, pending: null, setBusy: () => {}, setMessage: () => {}, b: { failed: "failed" },
+    processOperation: async id => { assert.equal(id,12); calls.push("process"); return settledOperation; }, reconnectOperation: async () => { throw new Error("unexpected reconnect"); },
+    getOperation: async id => { assert.equal(id,12); calls.push("get"); return settledOperation; } };
+  const source = [functionNodes.applyReadback, functionNodes.processBackend, functionNodes.recheck].join("\n");
+  const functions = new Function(...Object.keys(env), `${ts.transpile(source, { target: ts.ScriptTarget.ES2020 })}; return { processBackend, recheck };`)(...Object.values(env));
+  await functions[kind]();
+  assert.equal(accepted.targets[0].state,"succeeded");
+  if (initialOperations.length) assert.equal(current.operations[0].targets[0].state,"succeeded");
+  else assert.deepEqual(current.operations, []);
+  assert(calls.indexOf("accepted") < calls.indexOf("cache"));
+  if (kind === "processBackend") assert(calls.indexOf("cache") < calls.lastIndexOf("refresh"));
+  return calls;
+}
+assert.deepEqual(await exerciseReadback("processBackend", []), ["process", "accepted", "cache", "refresh"]);
+assert.deepEqual(await exerciseReadback("recheck", []), ["refresh", "get", "accepted", "cache"]);
+await exerciseReadback("processBackend", [staleOperation]);
+await exerciseReadback("recheck", [staleOperation]);
+console.log("turnstile aged-history readback tests passed");

@@ -75,7 +75,12 @@ function Preview({ employee, actorId, canManage, onClose }: Props) {
       if (!saved || typeof saved !== "object") throw new Error("Invalid recovery request");
       if (!validRequest(saved)) throw new Error("Invalid recovery request");
       const request = saved;
-      setPending(request as EnrollmentRequest); setMessage(b.uncertain);
+      setPending(request); setMessage(b.uncertain);
+      setAction(request.payload.action);
+      setName(request.payload.reviewed_name);
+      setSelected(request.payload.action === GateAction.Edit ? request.payload.targets.map(target => target.device_id) : request.payload.device_ids);
+      setReviewedTargets(request.payload.action === GateAction.Edit ? request.payload.targets : []);
+      setReviewedNumber(request.payload.expected_employee_no);
     } catch { setRecoveryBlocked(true); setMessage(b.failed); }
   }, [key, recoveryKey, b.uncertain, b.failed]);
   useEffect(() => {
@@ -206,6 +211,13 @@ function Preview({ employee, actorId, canManage, onClose }: Props) {
     } catch { setMessage(b.failed); }
     finally { running.current = false; setBusy(false); }
   }
+  async function applyReadback(operation: ServerOperation) {
+    if (!mounted.current) return;
+    setAccepted(operation);
+    await context.mutate(current => current ? {
+      ...current, operations: current.operations.map(item => item.id === operation.id ? operation : item),
+    } : current, { revalidate: false });
+  }
   async function recheck() {
     setBusy(true);
     try {
@@ -216,14 +228,18 @@ function Preview({ employee, actorId, canManage, onClose }: Props) {
         if (receipt && !match) { setRecoveryBlocked(true); setMessage(b.refreshFailed); }
         if (match) { setAccepted(match); setResultId(String(match.id)); clearPending(pending.key); setConfirm(false); setMessage(""); }
       }
-      if (latest && !pending) await getOperation(Number(latest.id));
+      if (latest && !pending) await applyReadback(await getOperation(Number(latest.id)));
     } catch { setMessage(b.failed); }
     finally { setBusy(false); }
   }
   async function processBackend(reconnect = false) {
     if (!latest || busy || !canManage) return;
     setBusy(true); setMessage("");
-    try { await (reconnect ? reconnectOperation(Number(latest.id)) : processOperation(Number(latest.id))); await context.mutate(); }
+    try {
+      const operation = await (reconnect ? reconnectOperation(Number(latest.id)) : processOperation(Number(latest.id)));
+      await applyReadback(operation);
+      await context.mutate();
+    }
     catch { setMessage(b.failed); await context.mutate().catch(() => undefined); }
     finally { setBusy(false); }
   }
