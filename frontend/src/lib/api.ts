@@ -111,6 +111,7 @@ async function request<T = any>(path: string, init: RequestInit = {}, timeoutMs 
 
 export const api = {
   get: <T = any>(p: string, timeoutMs?: number) => request<T>(p, { method: "GET" }, timeoutMs),
+  getWithHeaders: <T = any>(p: string, headers: Record<string, string>, timeoutMs?: number) => request<T>(p, { method: "GET", headers }, timeoutMs),
   getWithSignal: <T = any>(p: string, signal: AbortSignal, timeoutMs?: number) =>
     request<T>(p, { method: "GET", signal }, timeoutMs),
   post: <T = any>(p: string, body?: any, timeoutMs?: number) =>
@@ -175,13 +176,14 @@ export const api = {
           const msg = res.msg;
 
           const shouldRetry =
-            res.status === 500 || res.status === 502 || res.status === 503 || res.status === 504;
+            res.status === 500 || res.status === 502 || res.status === 504;
           if (shouldRetry) {
-            lastTransientError = `${res.status}: ${msg}`;
+            lastTransientError = msg;
             continue;
           }
           throw new ApiError(res.status, msg);
         } catch (err: any) {
+          if (err instanceof ApiError && err.status === 503) throw err;
           const message = err instanceof ApiError ? err.rawDetail : String(err?.message || "");
           if (isTransientNetworkError(message)) {
             lastTransientError = message;

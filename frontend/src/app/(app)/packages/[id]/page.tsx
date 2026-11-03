@@ -7,6 +7,7 @@ import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
 import { can, useMe } from "@/lib/auth";
 import PageHeader from "@/components/PageHeader";
+import ReleasePackageCustomer from "@/components/ReleasePackageCustomer";
 import { statusLabel } from "@/components/StagePipeline";
 import { useT } from "@/lib/i18n";
 
@@ -37,6 +38,7 @@ export default function PackageDetail() {
         )}
       />
       {p.stock_kind === "first_grade" && <p className="mb-4 font-medium">{firstGradeText[lang].title}</p>}
+      <div className="mb-4"><ReleasePackageCustomer packages={[{ id: p.id, package_no: p.package_no, status: p.status }]} showAccess /></div>
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <div className="card p-4">
           <h3 className="mb-2 font-medium">{t("page.packageDetail.details")}</h3>

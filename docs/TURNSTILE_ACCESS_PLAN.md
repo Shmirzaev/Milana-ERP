@@ -15,7 +15,7 @@ Accepted decisions:
 - Preserve the full plan and follow routes -> models/people business operations -> schema-owned
   persistence, typed DTOs/enums, one operation at a time and independent review.
 
-## Current operation: prepare and review a gate-access change (UI preview)
+## Historical operation: prepare and review a gate-access change (UI preview)
 
 Base: clone_main 75cf9c53930bdf3508e0d8a38f755a0aa6737a0b (latest pushed when work began).
 Checkout: /home/ismoil/workspaces/turnstile-access-20261103, isolated clone, no shared writer.
@@ -35,7 +35,7 @@ Preview is disabled unless NEXT_PUBLIC_TURNSTILE_UI_PREVIEW=1. Its simulated res
 constitute device acceptance. It reads devices through the existing authorized Attendance API.
 Photos remain in memory; simulated metadata is scoped by actor/factory/employee in sessionStorage.
 No face recognition, pose detection, eye detection, liveness or server validation is claimed.
-The visible checkboxes are manual review guidance only. Real enrollments remain unimplemented.
+The visible checkboxes are manual review guidance only. At this historical preview stage, real enrollments were unimplemented.
 
 UI acceptance: existing HR employee -> Turnstile access -> choose operation -> camera/upload
 where needed -> photo review -> device selection -> review -> explicit confirmation -> show
@@ -243,9 +243,69 @@ the source handoff archive and any future staging. Reconcile latest clone_main b
 
 On 2026-11-03 the owner explicitly requested pushing this preview to clone_main and
 opening the running development ERP while signed in. This authorizes source publication,
-not production activation or a claim of hardware/operator acceptance. The UI remains
-disabled unless NEXT_PUBLIC_TURNSTILE_UI_PREVIEW=1; actual enrollment APIs remain pending.
+not production activation or a claim of hardware/operator acceptance. At this preview publication stage, the UI remained
+disabled unless NEXT_PUBLIC_TURNSTILE_UI_PREVIEW=1; enrollment APIs were pending.
 The uncommitted/no-push statements above describe the earlier verification snapshot.
 
 Publication preparation normalized CRLF to LF in owned source/test files only; logical
 source is unchanged. The hashes above identify the earlier raw verification snapshot.
+
+
+## Backend development authorized - 2026-11-03
+
+Owner explicitly approved frontend and requested backend implementation with multiple low-reasoning Terra agents and independent review. First operation is Add access (ENROLL), preserving explicit Apply, separate archive/revoke and both ERP systems. See [backend task packet](TURNSTILE_ACCESS_BACKEND_20261103.md) for exact source, ownership, typed/write ledger and evidence gates. Backend remains IN_PROGRESS; live hardware writes are not enabled.
+
+Backend ENROLL simulator slice is now AI_VERIFIED_AWAITING_HUMAN; final technical evidence and the exact human local checklist are in the backend task packet. This does not mark the full turnstile integration or later business operations complete.
+
+Owner authorized pushing the backend slice on2026-11-03. Publication reconciles latest clone_main54a51d79 and uses turnstile migration0151 after upstream package-customer migration0150. Earlier0150 gate evidence is historical; combined publication checks are recorded in the backend task packet.
+
+
+## Simulator EDIT details candidate — 2026-11-03
+
+The subsequent private simulator candidate supports ENROLL and name-only EDIT on
+selected verified bindings when the server advertises each action. EDIT requires no
+photo upload or face-review attestation: it preserves each device's existing photo and
+external identity. The operator reviews the prior device name and confirms selected
+revision/profile-hash references; changed or stale evidence is refused. HR Save and
+archive remain independent, and existing attendance ingestion and the other ERP writer
+remain in place. At this EDIT slice, PHOTO replacement, REVOKE, adoption and live hardware
+were not implemented.
+
+The 202 EDIT endpoint uses the existing provisioning permission and actor/factory
+scope. The service freezes trusted complete baseline evidence under locks and calls
+same-session schema persistence; the simulator's conditional update refuses drift.
+Migration 0152 adds guarded EDIT baseline storage and refuses downgrade if EDIT history
+or baseline data would be lost. The public actor/factory/employee/action-scoped request
+receipt lookup reconciles a saved idempotency key; unanchored history is not proof of
+acceptance. An uncertain response retains the journal and requires read-only lookup
+before any explicit same-key retry. A later refusal cannot erase an earlier unknown
+outcome. Recovered operations outside the context history window use operation readback.
+
+The reported candidate checks include 97 automated tests, PostgreSQL races, a full
+frontend build, private simulator visual checks in EN/RU/UZ and aged-receipt recovery.
+Full configured Ruff and independent boundary review passed. This operation is
+AI_VERIFIED_AWAITING_HUMAN; these checks do not imply human technical or
+operator acceptance, production release, or real-device support. Exact source, evidence,
+limitations and human checklist belong in the [EDIT task packet](TURNSTILE_EDIT_DETAILS_20261103.md).
+
+
+## Simulator PHOTO replacement candidate — 2026-11-04
+
+The owner authorized continuation to the private simulator PHOTO slice. Verification is
+**AI_VERIFIED_AWAITING_HUMAN**; the earlier ENROLL and EDIT evidence remains historical and prior human
+acceptance gates are unrecorded. The candidate requires a validated immutable photo asset,
+manual review attestation and explicit Apply to selected verified bindings. It shares
+`GateEditTargetInput` and the context `edit_baseline` revision/profile-hash review
+contract with EDIT. Each device retains its own name and external identity; its prior
+photo remains until that target durably accepts the replacement. Old and new asset rows
+and files are retained. The PHOTO operation full_name is an informational HR snapshot,
+not the target desired name.
+
+The operation uses the existing same-session persistence boundary and migration 0152;
+no new migration is required. The 0152 downgrade guard retains PHOTO baseline history.
+Unknown acceptance is reconciled by readback, and the actor/factory/employee/action-scoped
+receipt lookup matches the saved key, photo asset and exact target baseline references.
+HR Save and archive remain separate; existing attendance reading and both ERP writers
+continue. REVOKE, adoption and live hardware remain outside this slice. The
+[PHOTO task packet](TURNSTILE_PHOTO_REPLACEMENT_20261104.md) records source, evidence,
+remaining gates and the human checklist; no production or human acceptance is inferred.

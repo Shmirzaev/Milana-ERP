@@ -1,5 +1,65 @@
 # Team bug tracker — clone_main
 
+## TURNSTILE-PHOTO-20261104 — guarded simulator photo replacement
+
+- **AI_VERIFIED_AWAITING_HUMAN; human acceptance unrecorded; not deployed.** People owner
+  Dilmurod, reviewer Mirshoir; low-reasoning Terra implementers and independent AI
+  reviewer recorded in the [operation packet](../docs/TURNSTILE_PHOTO_REPLACEMENT_20261104.md).
+- Explicit PHOTO keeps each device's name/identity and prior photo until confirmed,
+  uses complete baseline SQL CAS, immutable retained assets, exact scoped request
+  recovery and read-only reconciliation after uncertain results.
+- Combined102 tests, real PostgreSQL races/rollback guard and actual desktop/phone
+  EN/RU/UZ workflows passed. Full frontend build and independent review passed. No production
+  data/hardware or deployment touched; keep active until recorded human production
+  verification.
+
+
+## TURNSTILE-EDIT-RECOVERY-20261104 — simulator profile edit and accepted-request recovery
+
+- **AI_VERIFIED_AWAITING_HUMAN; human acceptance pending; not deployed.**
+  People owner Dilmurod, reviewer Mirshoir; AI implementers/reviewer and exact
+  source are in the [operation packet](../docs/TURNSTILE_EDIT_DETAILS_20261103.md).
+- EDIT changes only the explicitly reviewed simulator name; per-device identity
+  and photos are retained. Guarded PostgreSQL baseline/CAS, lease fencing and
+  scoped idempotency receipts prevent stale/foreign operation adoption or blind
+  resend after uncertain completion. Pending-request hydration and aged-history
+  readback are covered.
+- Focused97 tests, real PostgreSQL races/recovery, full frontend checks and actual
+  desktop/EN/RU/UZ phone workflows passed. Full backend Ruff and independent boundary review passed. Keep this entry active until recorded human production
+  verification. Existing attendance and both-system policy remain intact.
+
+
+## FRONTEND-PROXY-RESET-20261103 — one anonymous auth check returned 500 before the outage
+
+- **Watch · shared frontend infrastructure · Dilmurod.** In the isolated
+  [#373](https://github.com/Shmirzaev/Milana-ERP/pull/373) rehearsal, an
+  unauthenticated `GET /api/auth/me` returned 500 once at **08:34:06Z on
+  3 November**, about five minutes before the scheduled shared-store outage.
+  It returned 401 again eight seconds later and stayed 401 for the following
+  157 samples. The incident has not been reproduced.
+- Next's proxy logged `ECONNRESET` / `socket hang up` for `/api/auth/me`;
+  the backend logged no completed request or error at that time. The frontend
+  log lacks absolute timestamps, so the match to this single 500 is probable,
+  not proven. The underlying reset cause is **unknown**; the store controller
+  had not yet stopped the store. See the [browser timeline](https://github.com/Shmirzaev/Milana-ERP/blob/886835719c67cc5892e8a329d30b4c6400ead428/docs/archive/evidence/PR373_2026-11-03/PR373_BROWSER_RESULTS_2026-11-03.md)
+  and [log comparison](https://github.com/Shmirzaev/Milana-ERP/blob/886835719c67cc5892e8a329d30b4c6400ead428/docs/archive/SHARED_STORE_MIXED_OUTAGE_2026-11-03.md).
+- Next: watch for another proxy reset with timestamped frontend and backend
+  logs; investigate the transport path if it recurs. Do not attribute this
+  event to the store outage or mark it fixed.
+
+## PACK-CUSTOMER-20261103 — customer-assigned packs can scan into another customer's shipment
+
+- **AI_VERIFIED_AWAITING_HUMAN; local candidate, not deployed.** Fulfillment
+  engineer Mirshoir; human reviewer Ismail; implementation `/root`, independent
+  AI reviewer `/root/customer_guard_review`. Shavkat approved pack-level scan
+  refusal plus admin release for any customer, without freezing order edits.
+- Source provenance survives partial dispatch. Admin release preserves source
+  history, is limited to remaining pieces and does not override later reservations.
+- [Operation, evidence and human checklist](../docs/archive/PACK_CUSTOMER_RELEASE_2026-11-03.md).
+  Keep active until human operator acceptance; no production business rows changed.
+  Focused 71 tests pass; wider 263/1 retains an unchanged base reserve/damage race
+  status mismatch, independently reproduced on untouched `77d090f6`.
+
 ## PACK-HISTORY-100-20261102 — older physical pack groups unreachable
 
 - **AI_VERIFIED_AWAITING_HUMAN; deployed green `20261102_063110`.** Packaging owner Mirshoir; reviewer
