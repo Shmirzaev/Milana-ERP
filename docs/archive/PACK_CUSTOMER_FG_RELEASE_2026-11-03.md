@@ -37,8 +37,9 @@ existing settings. Each used a fresh migrated identity-pinned disposable databas
 The broader clone_main build was cancelled after the owner's clarification; it
 is not release evidence. Narrow exact-source CI41613691672 and integration PR376
 CI passed. PR376 merged at54a51d79, preserving bothfeature commit ancestries.
-Narrow runtime11f80a29 is staged blue20261103_094602, not yet serving public traffic.
-Verified backup preceded additive schema0150; no production business writes.
+At initial staging, narrow runtime11f80a29 was blue20261103_094602 and not yet
+serving public traffic. Verified backup preceded additive schema0150. No business
+forms were submitted in production; the later automated seed effect is recorded below.
 
 Candidate actual connected Chrome and GET-only readback passed. Native Chrome
 capture began working after the user opened a new window. Isolated denial/admin
@@ -55,13 +56,75 @@ containers have zero OOM/restarts. Historical evidence is never reset or erased.
 
 A recovery audit caught the old image's strict head0149 startup rejection after
 schema0150. Existing green workers remain healthy, but must not be restarted.
-Compatibility ef5f8091 contains exact old420 app plus identical0150 migration only.
+Final compatibility37337ea6 contains exact old420 app plus identical0150 migration only.
 Immutable image defaultCMD, strict production security, two freshworkers, child
 replacement and full restart must pass in isolated CI before cutover. Compatible
 green staging and rollback-state registration will preserve activeblue routing,
 source, image IDs, schema and all business ledger rows, with bothhost ownedlocks.
 No production worker kill/restart or schema/security bypass is permitted.
 
-Final public closing checks/cutover/compatible rollback record remain pending.
+## First activation, retained failure and credential reversal
+
+Feature11f80a29 first activated on both hosts at 11:54UTC. All four health checks,
+public Chrome FG/admin-dialog checks, full-history GET readback and the original
+seven-endpoint closing performance comparison passed without threshold exceptions.
+The subsequent inactive compatibility-backend verification failed: Docker image
+metadata omitted the unset Entrypoint key, and the inherited production environment
+had RUN_SEED_ON_STARTUP=true. The first recovery attempt restored only the frontend;
+both roles remained healthy but temporarily served different source releases.
+Neither failed verification nor the partial recovery is relabeled PASS.
+
+The one-shot verification helper now accepts an omitted/null default entrypoint
+and continues to reject command/entrypoint overrides. Its no-seed guard remains
+strict. Under both owned deployment locks, a mode0600 backup and exact byte/state/
+container CAS changed only RUN_SEED_ON_STARTUP from true to false. Other configuration
+bytes were preserved. The inactive compatible backend was recreated from its exact
+CI image with seed disabled, then both roles were restored to green20261103_112256 /
+37337ea6. Default command, strict0150 startup, two workers, no OOM/restarts and all
+four health checks passed. Earlier historical-continuity diagnostics remain retained.
+
+Memory-only, read-only comparison of the original10:19 backup, final11:43 backup and
+live database proved that initial startup seed at10:20:31 reset one configured admin
+password hash. Departments21, roles22, warehouses11, sewing flows76 and user count39
+were unchanged; optional sample/demo/import flags were false. No access/profile field
+differences were found. Other user differences were login/seen/update timestamps.
+
+After a fresh verified full backup at12:11:17UTC, a separately reviewed single-account
+SERIALIZABLE/row-lock/parameterized-CAS transaction restored only the exact original
+password hash. All other columns were compared before commit. Independent readback
+confirmed the original hash was restored, the reset value was gone, protected fields
+were unchanged, and startup seeding remained disabled. No identity, secret, password
+or stored hash is published. Four actual isolated PostgreSQL cases exercised success,
+intervening credential refusal, missing-acknowledgement rollback and trigger-change
+rollback. The original incident assessment and separate restoration readback are kept.
+
+## Explicit resumption phase
+
+The inactive feature backend was recreated from the same reviewed11f80a29 image
+with seed disabled. Original container IDs, failed outcomes and old performance
+measurements are preserved. Separate phase IDs and resource pins cover the new
+backend and both verified compatible greens. Fresh public baseline and paired
+120-sample fixed-query measurements use the same recovered green client throughout
+this phase. Forward checks retain memory headroom above1.5GB, zero OOM/restarts,
+strict schema/no-seed/default command, source/state/proxy/image CAS, pool budget,
+and independent recovery of both roles to the already verified green containers.
+Fresh baseline and paired checks passed all7endpoints. The resumed cutover and
+public Chrome/readback checks passed. Final public closing failed Model Options
+p95:162.26 ->193.23ms (+19.09%); median153.52 ->153.81ms (+0.19%); rows1/payload261
+unchanged. Other6endpoints passed. This failed result is retained without resampling.
+Cause is unproven; endpoint code is unchanged, which does not rule out indirect
+runtime/workload/transport effects. The15% automatic-stop rule was honored.
+
+Both hosts were restored to compatible green37337ea6 at12:27UTC. Final active release
+20261103_112256, full source manifest8c5521db580320842925229aff26e659202b4beef6752afa82d7b480dc677bbf,
+schema0150; inactive blue11f80a29 retained but reactivation requires an explicit
+owner exception for this specific p95 failure. All4health checks200, defaultCMD,
+strictstartup/no-seed/two-worker/log/source/proxy/readiness/pool checks passed;
+DB24/100connections and0invalidindexes. Both backend slots have0OOM/oom_kill and
+no container restarts; original historical OOM evidence is retained. Disk78.66%
+backend/78.54%frontend remains above70%alert/below80%stop. Both owned locks released;
+task-owned local backend/frontend/proxy/PostgreSQL QA services stopped. No30-minute
+monitor ran. The exact verified pre-release admin credential remains restored.
+
 The earlier wider affected race failure remains in the feature packet; it is not
 relabeled PASS. Human acceptance remains separate.

@@ -64,3 +64,23 @@ restart4. No application dependency is installed or changed. The canonical test
 source hash is updated in the exact schema-contract test. Supplemental read-only-
 GHCR image QA tests the already-built975 digest after proving unchanged application
 source; it publishes/deploys nothing and does not replace full exact-new-head CI.
+
+
+## Verified compatibility source and final active recovery
+
+FullCI41627068789 on37337ea6 passed:4,890backendcases, requiredPostgreSQL gates,
+frontend checks, immutableimages and actual defaultCMD/head0150/twoworker/child
+replacement/fullrestart/sharedSQLitecounter1/2/3/4 proof. The final source manifest
+is8c5521db580320842925229aff26e659202b4beef6752afa82d7b480dc677bbf. Backenddigest
+bf8dd8a1a7f95e2cc178844391f3ed34ac02dcd429db2099922680f50f45b02f and frontenddigest
+41e05facdcce1271896ec931dfe19f465b92c89021bdfcae3f1a848fda79c2d2 are pinned.
+
+This compatible release20261103_112256 is finally ACTIVEgreen onbothhosts after the
+feature's public p95 failure. The attempted verification failure, partial first
+recovery, inherited startup-seed credential reset and reviewed exact restoration
+are detailed in the companion release/incident record. No-seed remains strict;
+sharedconfiguration and both actual backend containers now explicitly disable it.
+Both current roles match source37337ea6 with fourhealth200 and stricthead0150.
+Inactiveblue11f80a29 is a retained candidate awaiting an explicit latency exception,
+not permission to reactivate through rollback metadata. No threshold exception,
+downgrade, stamp, secret publication or timed30-minute monitor was performed.

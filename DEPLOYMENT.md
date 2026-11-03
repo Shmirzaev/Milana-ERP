@@ -173,6 +173,12 @@ It does not replace an isolated restore drill or establish the zero-RPO target.
 
 Before applying a new revision, prove the retained rollback backend can start
 on the target schema with its actual image command and strict production settings.
+Inspect the effective environment of every candidate and rollback backend: startup
+seeding and schema bootstrap must be disabled. Updating the shared environment file
+does not change an existing container's environment; recreate only the inactive slot.
+Startup seeding can reset configured credentials or permissions even when no business
+form is submitted. An omitted Docker image entrypoint is equivalent to a null default;
+still verify the actual command and refuse overrides.
 An additive table alone does not establish compatibility: the exact-head startup
 verifier also runs on worker replacement. In isolated owned infrastructure, verify
 two fresh workers, child replacement, full container restart, health and readiness.
