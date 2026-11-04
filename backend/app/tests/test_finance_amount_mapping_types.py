@@ -4,7 +4,7 @@ from typing import get_type_hints
 from sqlalchemy import Numeric, create_engine, select
 from sqlalchemy.orm import Mapped, Session
 
-import app.schemas  # register referenced tables
+import app.schemas  # noqa: F401 - register referenced tables
 from app.schemas.sales.sales import Invoice, Payment
 
 
