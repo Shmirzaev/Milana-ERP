@@ -8,7 +8,8 @@ from app.models import price_calculation_service as pricing
 from app.models.planning import costing_service
 from app.schemas import AuditLog, Model, Notification, User
 from app.schemas.planning.price_calculation import PriceCalculationRequest
-from app.tests.test_price_calculation_purchasing_transactions import isolated_session_factory
+
+pytest_plugins = ["app.tests.test_price_calculation_purchasing_transactions"]
 
 
 def seed(factory, margin='-12.50'):
@@ -19,7 +20,8 @@ def seed(factory, margin='-12.50'):
         sales = User(name='Sales', email=f'{token}@example.invalid', password_hash='unused', extra_permissions=['sales.orders'])
         recipient = User(name='Finance and cutting', email=f'{token}r@example.invalid', password_hash='unused',
                          extra_permissions=['finance.view', 'cutting.records'])
-        db.add_all([model, sales, recipient]); db.commit()
+        db.add_all([model, sales, recipient])
+        db.commit()
         return model.id, sales.id, recipient.id
 
 
