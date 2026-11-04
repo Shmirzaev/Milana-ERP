@@ -71,7 +71,7 @@ def eco_item_has_evidence(db: Session, item_id: int) -> bool:
 
 def freeze_eco_sewing_on_rollback(
     db: Session, order_id: int, *, sewing_factory_code: str | None = None,
-    sewing_work_order_id: int | None = None,
+    sewing_work_order_id: int | None = None, sewing_assignment_id: int | None = None,
 ) -> None:
     """The old application cannot enforce the new ledger: freeze ECO handoffs.
 
@@ -85,6 +85,20 @@ def freeze_eco_sewing_on_rollback(
             SELECT d.code FROM work_orders AS w JOIN departments AS d ON d.id = w.department_id
             WHERE w.id = :work_id AND w.production_order_id = :order_id AND w.operation = 'sewing'
         """), {"work_id": sewing_work_order_id, "order_id": order_id}).scalar_one()
+    if sewing_assignment_id is not None:
+        assignment_factory = db.execute(text("""
+            SELECT f.factory_code FROM sewing_assignments AS a
+            JOIN sewing_flows AS f ON f.id = a.sewing_flow_id
+            JOIN work_orders AS w ON w.id = a.work_order_id
+            WHERE a.id = :assignment_id AND w.id = :work_id
+                AND w.production_order_id = :order_id AND w.operation = 'sewing'
+        """), {"assignment_id": sewing_assignment_id, "work_id": sewing_work_order_id,
+                "order_id": order_id}).scalar_one_or_none()
+        if assignment_factory is None:
+            raise HTTPException(400, "Selected sewing assignment does not belong to this work order")
+        # Actual assigned line is authoritative when historical/shared work
+        # remains on SEW/MIL while its recorded assignment belongs to ECO.
+        sewing_factory_code = assignment_factory
     if sewing_factory_code is not None:
         eco_target = sewing_factory_code == "ECO"
     else:

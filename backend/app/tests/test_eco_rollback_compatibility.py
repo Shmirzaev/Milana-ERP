@@ -161,13 +161,69 @@ def test_upgraded_rollback_freezes_eco_only_and_preserves_item_evidence(rollback
         assert db.get(Item, item.id).unit == "kg"
 
 
+@pytest.mark.parametrize("factory,by_name", [("ECO", False), ("ECO", True), ("MIL", False), ("BST", False)])
+def test_record_gate_uses_validated_assignment_factory_on_shared_work(rollback_engine, factory, by_name):
+    from app.api.routes.production import post_sewing
+    from app.libs.dto.production.production import SewingRecordIn
+    from app.schemas import CuttingRecord, Department, Model, ProductionOrder, Role, SewingAssignment, SewingFlow, SewingRecord, User, WorkOrder
+
+    command.upgrade(config(), "head")
+    with Session(rollback_engine, expire_on_commit=False) as db:
+        role = Role(name="Super Admin", permissions=["*"])
+        user = User(email="assignment@disposable.invalid", name="Assignment gate", password_hash="unused", role=role)
+        model = Model(code="ASSIGNMENT-MODEL", name="Assignment test")
+        dept = Department(code="SEW", name="Shared sewing")
+        cut = Department(code="CUT", name="Cutting")
+        flow = SewingFlow(factory_code=factory, code="RB-LINE", name="Rollback line")
+        db.add_all([user, model, dept, cut, flow]); db.flush()
+        order = ProductionOrder(production_no="PO-ASSIGNMENT", production_type="branded_stock", model_id=model.id, planned_quantity=10)
+        db.add(order); db.flush()
+        work = WorkOrder(production_order_id=order.id, department_id=dept.id, operation="sewing", status="in_progress",
+            planned_input_qty=10, planned_output_qty=10)
+        cutting = WorkOrder(production_order_id=order.id, department_id=cut.id, operation="cutting", status="in_progress",
+            planned_output_qty=10, actual_output_qty=10, passed_qty=10)
+        db.add_all([work, cutting]); db.flush()
+        assignment = SewingAssignment(work_order_id=work.id, sewing_flow_id=flow.id, quantity=10)
+        db.add_all([assignment, CuttingRecord(work_order_id=cutting.id, input_quantity=1, input_unit="kg", cut_pieces=10, passed_pieces=10)])
+        db.commit()
+        payload = SewingRecordIn(work_order_id=work.id, input_qty=1, sewn_qty=1, passed_qty=1,
+            sewing_assignment_id=None if by_name else assignment.id, line_name=flow.code if by_name else None)
+        if factory == "ECO":
+            with pytest.raises(HTTPException, match="compatibility rollback"):
+                post_sewing(payload, db, user)
+            db.rollback()
+            assert db.query(SewingRecord).count() == 0
+            assert assignment.completed_qty == 0
+        else:
+            result = post_sewing(payload, db, user)
+            assert db.get(SewingRecord, result["id"]).passed_qty == 1
+
+
+def job_owned_pg_url(raw):
+    url = make_url(raw)
+    if (url.get_backend_name() != "postgresql" or url.host not in {"127.0.0.1", "localhost", "::1"}
+            or url.query or not (url.database or "").endswith(("_ci", "_qa"))):
+        pytest.fail("ECO rollback gates require an explicitly disposable loopback *_ci or *_qa database with no URL query")
+    return url
+
+
+@pytest.mark.parametrize("raw", [
+    "postgresql://postgres@127.0.0.1/erp",
+    "postgresql://postgres@172.16.10.3/review_ci",
+    "postgresql://postgres@127.0.0.1/review_ci?hostaddr=172.16.10.3",
+    "postgresql://postgres@127.0.0.1/review_ci?options=-csearch_path%3Dpublic",
+    "sqlite:///review_ci",
+])
+def test_postgres_gate_rejects_unsafe_target_before_connect(raw):
+    with pytest.raises(pytest.fail.Exception, match="disposable loopback"):
+        job_owned_pg_url(raw)
+
+
 def test_eco_rollback_postgres_migration_and_cold_restart(monkeypatch):
     raw = os.environ.get("STABILIZATION_POSTGRES_URL")
     if not raw:
         pytest.skip("STABILIZATION_POSTGRES_URL is required for the real PostgreSQL gate")
-    url = make_url(raw)
-    assert url.drivername.startswith("postgresql") and url.host in {"127.0.0.1", "localhost", "::1"}
-    assert url.database and not url.query.get("host"), "Only an explicit job-owned loopback database is allowed"
+    url = job_owned_pg_url(raw)
     schema = "eco_rollback_" + uuid4().hex
     admin = sa.create_engine(url)
     engine = sa.create_engine(url, connect_args={"options": f"-csearch_path={schema}"})

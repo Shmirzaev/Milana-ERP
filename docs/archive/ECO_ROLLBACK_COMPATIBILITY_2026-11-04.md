@@ -38,6 +38,11 @@ Every sewing send/receipt/start/record gate therefore refuses ECO work with HTTP
 409 until the feature runtime is restored. Persisted factory/work-order scope keeps
 Milana and Besttex handoffs separate on mixed orders. With no ECO tables, all old
 business behavior remains in place. This is a rollback freeze, not a new ECO API.
+The sewing-record gate runs after assignment ownership/status validation and
+uses its persisted line's factory, including line-name-resolved assignments.
+Shared `SEW`/`MIL` work orders cannot mask an ECO assignment. A positive-output
+reproducer failed for both ECO assignment selection paths before this correction;
+the corrected gate refuses both, while positive MIL/BST controls still persist.
 
 Shared item update/delete locks the item and reads new ECO references without
 registering new ORM mappings. ECO-linked unit/category edits and hard deletion
@@ -60,7 +65,9 @@ check; PostgreSQL executes the actual full legacy migration chain through
 `0150_package_customer_release` before the ECO upgrade. The explicit CI step runs before
 the full suite, uses the job-owned loopback database and creates/drops only a
 random schema it owns. Local PostgreSQL is unavailable; no local PostgreSQL pass
-is claimed. Targeted compatibility/startup/readiness/bundle-gate checks passed
+is claimed. The PostgreSQL URL must target loopback, end in `_ci` or `_qa`, and
+contain no query parameters; unsafe targets are rejected before any connection.
+Targeted compatibility/startup/readiness/bundle-gate checks passed
 31 cases with the one real PostgreSQL case skipped locally. Broader affected
 bundle receipt, inventory master-data and migration tests passed 73 cases with
 six PostgreSQL skips. The fresh-migration drift test validates the seven complete
@@ -69,3 +76,6 @@ tables from comparison; every other legacy drift expectation remains unchanged.
 Exact commands and
 the final commit are handed to the root coordinator for independent review and
 immutable-image staging.
+
+The final compatibility-only rerun, including assignment-factory and unsafe-URL
+regressions, passed 24 cases with the one real PostgreSQL case skipped locally.
