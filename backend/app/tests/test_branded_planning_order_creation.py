@@ -927,3 +927,44 @@ def test_alternate_writer_failure_rolls_back_and_retry_succeeds(client, auth_hea
     after = _alternate_counts()
     assert after[0] == before[0] + 1 and after[1] == before[1] + 1
     assert after[2] == before[2] + 1 and after[3] > before[3] and after[4] > before[4]
+
+
+def test_parties_contract_preserves_customers_and_company_names(client, auth_headers):
+    customer_id = _customer(f"Parties customer {uuid4()}")
+    response = client.get("/api/planning/branded-order-parties", headers=auth_headers)
+    assert response.status_code == 200, response.text
+    assert response.json()["companies"] == [
+        {"type": "milana", "name": "Milana"},
+        {"type": "eco_cotton", "name": "Eco Cotton"},
+        {"type": "besttex", "name": "Besttex"},
+    ]
+    customers = response.json()["customers"]
+    assert any(row["id"] == customer_id for row in customers)
+    assert [row["name"] for row in customers] == sorted(row["name"] for row in customers)
+
+
+def test_parties_contract_uses_canonical_enum_and_rejects_customer():
+    from app.libs.dto.planning.branded_order_parties_output import BrandedOrderCompanyOut
+
+    company = BrandedOrderCompanyOut(type="milana", name="Milana")
+    assert company.type is BrandedPlanningOrderType.MILANA
+    with pytest.raises(ValidationError):
+        BrandedOrderCompanyOut(type="customer", name="Customer")
+
+
+def test_parties_openapi_publishes_company_subset(client):
+    schema = client.get("/openapi.json").json()
+    response = schema["paths"]["/api/planning/branded-order-parties"]["get"]["responses"]["200"]
+    assert response["content"]["application/json"]["schema"]["$ref"].endswith("/BrandedOrderPartiesOut")
+    company = schema["components"]["schemas"]["BrandedOrderCompanyOut"]
+    assert company["properties"]["type"]["enum"] == ["milana", "eco_cotton", "besttex"]
+
+
+def test_parties_route_validates_service_response(client, auth_headers, monkeypatch):
+    from fastapi.exceptions import ResponseValidationError
+
+    monkeypatch.setattr(branded_orders_service, "branded_order_parties", lambda db: {
+        "companies": [{"type": "customer", "name": "Customer"}], "customers": []
+    })
+    with pytest.raises(ResponseValidationError):
+        client.get("/api/planning/branded-order-parties", headers=auth_headers)

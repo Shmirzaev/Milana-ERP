@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import Response
 
 from app.core.deps import DbSession, require_permissions
+from app.libs.dto.planning.branded_order_parties_output import BrandedOrderPartiesOut
 from app.libs.dto.planning.branded_planning_order_input import (
     BrandedPlanningOrderIn,
     BrandedStatusFilter,
@@ -26,11 +27,11 @@ def export_branded_order(order_id: int, db: DbSession,
                     headers={"Content-Disposition": f'attachment; filename="branded-order-{order_id}.xlsx"'})
 
 
-@router.get("/branded-order-parties")
+@router.get("/branded-order-parties", response_model=BrandedOrderPartiesOut)
 def branded_order_parties(
     db: DbSession,
     _: User = Depends(require_permissions("planning.production", "*")),
-):
+) -> BrandedOrderPartiesOut:
     return branded_orders_service.branded_order_parties(db)
 
 
