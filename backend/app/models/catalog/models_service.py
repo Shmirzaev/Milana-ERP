@@ -105,6 +105,7 @@ from app.schemas import (
 from app.schemas.catalog.bom_persistence import delete_model_bom, insert_model_bom, update_model_bom
 from app.schemas.catalog.model_size_persistence import insert_model_size
 from app.schemas.catalog.model_color_persistence import insert_model_color
+from app.schemas.catalog.model_image_persistence import insert_url_image
 
 # A model's details_json is per-model modelling metadata: identity, costing and
 # paid operations. Sizes, measurements, BOM and images live in their own tables,
@@ -2436,14 +2437,7 @@ def add_image(
     data = payload.model_dump()
     data["file_url"] = _validate_file_url(data["file_url"])
     data["image_type"] = _normalize_image_type(data.get("image_type"))
-    if data.get("is_primary"):
-        db.query(ModelImage).filter(ModelImage.model_id == mid, ModelImage.is_primary.is_(True)).update(
-            {"is_primary": False},
-            synchronize_session=False,
-        )
-    img = ModelImage(model_id=mid, **data)
-    db.add(img)
-    db.flush()
+    img = insert_url_image(db, model_id=mid, **data)
     log_action(db, current, "create", "ModelImage", img.id, new_value={"model_id": mid, "file_url": img.file_url})
     db.commit(); db.refresh(img)
     return {"id": img.id}
