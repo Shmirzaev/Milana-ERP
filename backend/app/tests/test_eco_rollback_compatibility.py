@@ -175,15 +175,18 @@ def test_record_gate_uses_validated_assignment_factory_on_shared_work(rollback_e
         dept = Department(code="SEW", name="Shared sewing")
         cut = Department(code="CUT", name="Cutting")
         flow = SewingFlow(factory_code=factory, code="RB-LINE", name="Rollback line")
-        db.add_all([user, model, dept, cut, flow]); db.flush()
+        stale_direct = SewingFlow(factory_code="ECO", code="RB-STALE-DIRECT", name="Stale direct ECO line")
+        db.add_all([user, model, dept, cut, flow, stale_direct]); db.flush()
         order = ProductionOrder(production_no="PO-ASSIGNMENT", production_type="branded_stock", model_id=model.id, planned_quantity=10)
         db.add(order); db.flush()
         work = WorkOrder(production_order_id=order.id, department_id=dept.id, operation="sewing", status="in_progress",
-            planned_input_qty=10, planned_output_qty=10)
+            planned_input_qty=10, planned_output_qty=10, sewing_flow_id=stale_direct.id)
         cutting = WorkOrder(production_order_id=order.id, department_id=cut.id, operation="cutting", status="in_progress",
             planned_output_qty=10, actual_output_qty=10, passed_qty=10)
         db.add_all([work, cutting]); db.flush()
         assignment = SewingAssignment(work_order_id=work.id, sewing_flow_id=flow.id, quantity=10)
+        if factory in {"MIL", "BST"}:
+            db.add(SewingAssignment(work_order_id=work.id, sewing_flow_id=stale_direct.id, quantity=10))
         db.add_all([assignment, CuttingRecord(work_order_id=cutting.id, input_quantity=1, input_unit="kg", cut_pieces=10, passed_pieces=10)])
         db.commit()
         payload = SewingRecordIn(work_order_id=work.id, input_qty=1, sewn_qty=1, passed_qty=1,
@@ -199,12 +202,144 @@ def test_record_gate_uses_validated_assignment_factory_on_shared_work(rollback_e
             assert db.get(SewingRecord, result["id"]).passed_qty == 1
 
 
+@pytest.mark.parametrize("direct_factory,split_factory,blocked", [
+    ("ECO", None, True), (None, "ECO", True),
+    ("MIL", None, False), ("BST", None, False),
+    ("ECO", "MIL", False), ("ECO", "BST", False),
+])
+def test_omitted_assignment_record_uses_persisted_work_destination(rollback_engine, direct_factory, split_factory, blocked):
+    """Positive real endpoint: no ECO plan/bundle is needed to identify ECO work."""
+    from app.api.routes.production import post_sewing
+    from app.libs.dto.production.production import SewingRecordIn
+    from app.schemas import CuttingRecord, Department, Model, ProductionOrder, Role, SewingAssignment, SewingFlow, SewingRecord, User, WorkOrder
+
+    command.upgrade(config(), "head")
+    with Session(rollback_engine, expire_on_commit=False) as db:
+        role=Role(name="Super Admin", permissions=["*"])
+        user=User(email="omitted@disposable.invalid",name="Omitted assignment",password_hash="unused",role=role)
+        model=Model(code="OMITTED-MODEL",name="Omitted assignment test")
+        sewing=Department(code="SEW",name="Shared sewing");cut=Department(code="CUT",name="Cutting")
+        direct=SewingFlow(factory_code=direct_factory,code="DIRECT",name="Direct line") if direct_factory else None
+        split=SewingFlow(factory_code=split_factory,code="SPLIT",name="Assigned line") if split_factory else None
+        db.add_all([user,model,sewing,cut]+[flow for flow in (direct,split) if flow]);db.flush()
+        order=ProductionOrder(production_no="PO-OMITTED",production_type="branded_stock",model_id=model.id,planned_quantity=10)
+        db.add(order);db.flush()
+        work=WorkOrder(production_order_id=order.id,department_id=sewing.id,operation="sewing",status="in_progress",
+            planned_input_qty=10,planned_output_qty=10,sewing_flow_id=direct.id if direct else None)
+        cutting=WorkOrder(production_order_id=order.id,department_id=cut.id,operation="cutting",status="in_progress",
+            planned_output_qty=10,actual_output_qty=10,passed_qty=10)
+        db.add_all([work,cutting]);db.flush()
+        if split:db.add(SewingAssignment(work_order_id=work.id,sewing_flow_id=split.id,quantity=10,status="in_progress"))
+        db.add(CuttingRecord(work_order_id=cutting.id,input_quantity=1,input_unit="kg",cut_pieces=10,passed_pieces=10));db.commit()
+        payload=SewingRecordIn(work_order_id=work.id,input_qty=1,sewn_qty=1,passed_qty=1)
+        if blocked:
+            try:post_sewing(payload,db,user)
+            except HTTPException as error:
+                assert error.status_code==409 and "compatibility rollback" in str(error.detail)
+                db.rollback();assert db.query(SewingRecord).count()==0
+            else:
+                assert db.query(SewingRecord).one().passed_qty==1
+                pytest.fail("Positive ECO output persisted with omitted assignment while rollback must freeze it")
+        else:
+            result=post_sewing(payload,db,user)
+            assert db.get(SewingRecord,result["id"]).passed_qty==1
+
+
+@pytest.mark.parametrize("scope", ["work", "order", "start"])
+@pytest.mark.parametrize("direct_factory,split_factory,split_status,expected_status", [
+    (" eco_cotton ", None, None, 409),
+    (None, "ECO COTTON", "planned", 409),
+    ("ECO", "MIL", "in_progress", None),
+    ("ECO", "BTX", "completed", None),
+    ("ECO", "MIL", "cancelled", 409),
+    ("ECO", "MIL", "transferred", 409),
+    (None, "ECO", "cancelled", None),
+    ("unknown-line-factory", None, None, 400),
+    ("MIL", "unknown-line-factory", "planned", 400),
+])
+def test_work_start_and_generic_gate_share_persisted_scope(rollback_engine, scope, direct_factory, split_factory, split_status, expected_status):
+    from app.api.routes.production import start_wo
+    from app.models.inventory_service import ensure_accessories_issued_for_sewing
+    from app.schemas import Department, Model, ProductionOrder, Role, SewingAssignment, SewingFlow, User, WorkOrder
+
+    command.upgrade(config(), "head")
+    with Session(rollback_engine,expire_on_commit=False) as db:
+        legacy_fault = any(value and value not in {"MIL", "BST", "ECO"} for value in (direct_factory,split_factory))
+        if legacy_fault:
+            # Fault challenge for historical aliases/corruption in this private
+            # SQLite fixture only. Restore checks before exercising the gate.
+            db.execute(sa.text("PRAGMA ignore_check_constraints=ON"))
+        role=Role(name="Super Admin",permissions=["*"])
+        user=User(email="scope@disposable.invalid",name="Scope gate",password_hash="unused",role=role)
+        dept=Department(code="SEW",name="Shared sewing");model=Model(code="SCOPE-MODEL",name="Scope model")
+        direct=SewingFlow(factory_code=direct_factory,code="SCOPE-DIRECT",name="Direct") if direct_factory else None
+        split=SewingFlow(factory_code=split_factory,code="SCOPE-SPLIT",name="Split") if split_factory else None
+        db.add_all([user,dept,model]+[flow for flow in (direct,split) if flow]);db.flush()
+        order=ProductionOrder(production_no="PO-SCOPE",production_type="branded_stock",model_id=model.id,planned_quantity=10)
+        db.add(order);db.flush()
+        work=WorkOrder(production_order_id=order.id,department_id=dept.id,operation="sewing",status="ready",
+            planned_input_qty=10,planned_output_qty=10,sewing_flow_id=direct.id if direct else None)
+        db.add(work);db.flush()
+        if split:db.add(SewingAssignment(work_order_id=work.id,sewing_flow_id=split.id,quantity=10,status=split_status))
+        db.commit()
+        if legacy_fault:
+            db.execute(sa.text("PRAGMA ignore_check_constraints=OFF"));db.commit()
+        def operation():
+            if scope=="start":return start_wo(work.id,db,user)
+            return ensure_accessories_issued_for_sewing(db,order.id,**({"sewing_work_order_id":work.id} if scope=="work" else {}))
+        if expected_status:
+            with pytest.raises(HTTPException) as failure:operation()
+            assert failure.value.status_code==expected_status
+            db.rollback();assert db.get(WorkOrder,work.id).status=="ready"
+        else:
+            operation()
+            if scope=="start":assert db.get(WorkOrder,work.id).status=="in_progress"
+
+
 def job_owned_pg_url(raw):
     url = make_url(raw)
     if (url.get_backend_name() != "postgresql" or url.host not in {"127.0.0.1", "localhost", "::1"}
             or url.query or not (url.database or "").endswith(("_ci", "_qa"))):
         pytest.fail("ECO rollback gates require an explicitly disposable loopback *_ci or *_qa database with no URL query")
     return url
+
+
+def verify_persisted_destination_query(engine):
+    """The same read-only CTE is executed on SQLite and the real PG CI schema."""
+    from app.db.eco_schema_compatibility import freeze_eco_sewing_on_rollback
+    from app.schemas import Department, Model, ProductionOrder, SewingAssignment, SewingFlow, WorkOrder
+    with Session(engine,expire_on_commit=False) as db:
+        dept=db.query(Department).filter_by(code="SEW").first()
+        if dept is None:
+            dept=Department(code="SEW",name="Scope query sewing");db.add(dept)
+        model=Model(code="ROLLBACK-SCOPE-QUERY",name="Scope query model")
+        eco=SewingFlow(factory_code="ECO",code="RB-SCOPE-ECO",name="Scope query ECO")
+        mil=SewingFlow(factory_code="MIL",code="RB-SCOPE-MIL",name="Scope query MIL")
+        db.add_all([model,eco,mil]);db.flush()
+        order=ProductionOrder(production_no="PO-ROLLBACK-SCOPE-QUERY",production_type="branded_stock",model_id=model.id)
+        db.add(order);db.flush()
+        work=WorkOrder(production_order_id=order.id,department_id=dept.id,operation="sewing",status="ready",sewing_flow_id=eco.id)
+        db.add(work);db.commit()
+        def frozen():
+            for kwargs in ({},{"sewing_work_order_id":work.id}):
+                with pytest.raises(HTTPException,match="compatibility rollback"):
+                    freeze_eco_sewing_on_rollback(db,order.id,**kwargs)
+        frozen()  # Direct ECO, no assignment, no plan and no bundle.
+        work.sewing_flow_id=mil.id
+        eco_split=SewingAssignment(work_order_id=work.id,sewing_flow_id=eco.id,quantity=1,status="planned")
+        db.add(eco_split);db.commit();frozen()  # Omitted selection still sees actual ECO split.
+        mil_split=SewingAssignment(work_order_id=work.id,sewing_flow_id=mil.id,quantity=1,status="in_progress")
+        db.add(mil_split);db.commit()
+        freeze_eco_sewing_on_rollback(db,order.id,sewing_work_order_id=work.id,sewing_assignment_id=mil_split.id)
+        eco_split.status="transferred";work.sewing_flow_id=eco.id;db.commit()
+        for kwargs in ({},{"sewing_work_order_id":work.id}):
+            freeze_eco_sewing_on_rollback(db,order.id,**kwargs)  # Live MIL split overrides stale direct ECO.
+        assert db.get(WorkOrder,work.id).status=="ready"
+
+
+def test_persisted_destination_query_on_upgraded_schema(rollback_engine):
+    command.upgrade(config(),"head")
+    verify_persisted_destination_query(rollback_engine)
 
 
 @pytest.mark.parametrize("raw", [
@@ -234,6 +369,7 @@ def test_eco_rollback_postgres_migration_and_cold_restart(monkeypatch):
         created = True
         prepare(engine, monkeypatch, migrate_predecessor=True)
         verify_upgrade_and_restart(engine, monkeypatch)
+        verify_persisted_destination_query(engine)
         with engine.begin() as connection:
             connection.execute(sa.text("UPDATE alembic_version SET version_num='unknown_future_head'"))
         with pytest.raises(RuntimeError, match="required Alembic head"):

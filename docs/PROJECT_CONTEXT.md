@@ -27,6 +27,8 @@ accepts the verified empty predecessor for staging, freezes ECO sewing after
 upgrade and protects new ECO item evidence. It introduces no ECO application API
 or HR ancestry. The worker made no production changes; independent review,
 PostgreSQL CI, image staging and release gates remain with the coordinator.
+The freeze correction also covers omitted assignment and direct-line ECO work;
+validated explicit MIL/BST splits retain their separate mixed-work scope.
 The user's observation waiver removes only the 30-minute monitor.
 
 ## Customer-pack and FG release preparation (3 November)

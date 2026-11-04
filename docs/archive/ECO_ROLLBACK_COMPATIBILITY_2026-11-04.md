@@ -79,3 +79,39 @@ immutable-image staging.
 
 The final compatibility-only rerun, including assignment-factory and unsafe-URL
 regressions, passed 24 cases with the one real PostgreSQL case skipped locally.
+
+## Omitted assignment and direct-line freeze correction
+
+Codex `/root/eco_inventory_transfers` owns this bounded follow-up; the root
+coordinator owns independent review, new exact-source CI and release decisions.
+The previous explicit-assignment tests did not cover omitted selection. Before
+the correction, two positive calls to the real `post_sewing` handler persisted
+one passed piece on the upgraded rollback: direct ECO with no split/plan/bundle,
+and an active ECO split on shared SEW work with assignment omitted. The regression
+run was RED with two failures; four positive MIL/BST controls passed.
+
+The read-only freeze now uses persisted active planned/in-progress/completed
+assignment factories first. It uses the work order's direct line only when no
+active split exists, then its department. A validated explicit assignment remains
+authoritative, so a MIL/BST split can record on mixed work despite a competing
+ECO split or stale direct ECO line. The generic order gate resolves the same
+work/line/split evidence plus existing bundle and ECO-plan evidence. One CTE
+resolves unspecified scope without per-work queries. Shared historical aliases
+are recognized through the existing map; unknown values refuse with HTTP400
+instead of silently becoming Milana. No API, ORM mapping or runtime writer was
+added. The pre-upgrade path still returns before querying absent ECO tables.
+
+The affected callers were traced: bundle send and single/bulk/band receipt pass
+their persisted factory; `start_wo` supplies a work-order scope; `post_sewing`
+supplies that scope and its already validated explicit/line-name assignment.
+Tests exercise positive record persistence, actual start, generic/work gates,
+cancelled/transferred splits, aliases and unknown-value refusal. Alias/corrupt
+flow fault cases bypass checks only while constructing private SQLite fixtures,
+then restore checks before invoking the operation; production constraints are
+unchanged. The real PostgreSQL migration/cold-start gate now also executes this
+same persisted-scope CTE and its ECO/MIL mixed-work controls on its owned schema.
+Local PostgreSQL remains unavailable; its outcome belongs to the next CI run.
+The corrected compatibility/startup/readiness/bundle/sewing regression selection
+passed 98 cases with the one required PostgreSQL gate skipped locally. Scoped
+Ruff, Python compilation and `git diff --check` passed. These results do not
+replace independent review, the next exact-image CI or production release gates.
