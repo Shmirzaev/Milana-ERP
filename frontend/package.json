@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "test:floor-print-pictures": "node scripts/test-floor-print-pictures.mjs",
     "test:customer-detail-permissions": "node --test scripts/test-customer-detail-permissions.mjs",
     "test:finance-payment-form": "node --test scripts/test-finance-payment-form.mjs",
     "test:process-qr-model-pictures": "node scripts/test-process-qr-model-pictures.mjs",
