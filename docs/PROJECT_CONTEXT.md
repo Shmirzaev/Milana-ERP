@@ -11,9 +11,25 @@ this checkout, a new combined candidate or deployed production. Inspect current
 code and the operation ledger before advancing a gate. Schema-owned writers,
 system-wide enum/type adoption and human acceptance remain incomplete.
 
-Last updated 2026-11-03. Keep this file short: current decisions, release pointers and
+Last updated 2026-11-04. Keep this file short: current decisions, release pointers and
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
+
+## PO-0747 fully removed (4 November 2026)
+
+- Owner-authorized cleanup removed unused 600-piece PO-0747 / PG10516-V-6418:
+  one production order, four waiting work orders, six size-plan rows and two
+  material-plan links. A verified full PostgreSQL backup and rollback rehearsal
+  preceded the guarded transaction; all 451 dependency checks passed.
+- Independent readback verified all target rows absent, 24 linked tables clear,
+  model 8181, planning parent 77, both fabric batches/quantities and all 22 sibling
+  orders unchanged. Cleanup audit 205680 and its predecessor hash verify.
+- Both VMs remain blue `20261103_094602`; green `20261103_112256` is retained.
+  Schema remains `0150_package_customer_release`; all four health/login checks
+  returned HTTP 200. No application deployment, restart or migration occurred.
+- The owner explicitly approved the verified live-release branch after the stale
+  origin/main baseline mismatch was reported. See the [dated cleanup record](archive/PO0747_CLEANUP_2026-11-04.md)
+  for exact scope, backup, provenance, safeguards and verification limits.
 
 ## Customer-pack and FG release active with approved p95 exception (3 November)
 
