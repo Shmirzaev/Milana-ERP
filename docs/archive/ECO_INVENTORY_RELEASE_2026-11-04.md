@@ -51,3 +51,35 @@ outputs/deployment. No cleanup, migration, staging or traffic switch has occurre
 
 Status: PREPARING. Timed monitoring: waived, not run. User deployment authority
 does not fabricate a separate operator acceptance record.
+
+## Shared-assignment approval gate correction
+
+Independent rollback review reproduced the analogous feature bypass on exact
+`f1e41f03`: an ECO assignment on a shared SEW work order, with either no bundle
+or a Milana bundle, committed positive Sewing output without any ECO approval.
+Eight new regression cases were red before the correction, including missing
+approval, shared-work block ownership and the complete issue handoff.
+
+Implementation agent `/root/review_packages` used isolated worktree
+`C:\ERP\.codex-work\eco-sewing-gate-release-fix-20261104` from `f1e41f03`.
+The coordinator independently reviews and integrates this patch. Existing
+assignment ownership/status and batch validation now run before the gate;
+the canonical assigned factory and resolved batch are authoritative. ECO BSO
+discovery, material order selection and issue also recognize valid ECO line
+assignments. Cancelled/transferred assignments grant no new ECO ownership.
+Shared block updates use the valid assigned work IDs and preserve separate
+MIL/BST checks, including pending ECO work on the same shared work order.
+
+No stored vocabulary, schema, permissions, approval/issue timing or stock
+calculation changes. Approved allocation still permits handoff; issuing still
+deducts physical stock exactly once. Existing SEW work-order authorization is
+preserved by this bounded correction. The new factory projection returns the
+canonical `SewingFactoryCode`; existing persisted assignment-status values and
+the route's accepted action subset remain unchanged.
+
+The affected local regression selection passed 122 cases; the final assignment
+boundary file passed 11 cases; full-app Ruff and compilation passed.
+PostgreSQL/immutable CI, candidate browser and release checks require their own
+exact-source evidence. All reproduction rows
+were isolated test data. This worker changed no production state or business
+rows and did not push or deploy.

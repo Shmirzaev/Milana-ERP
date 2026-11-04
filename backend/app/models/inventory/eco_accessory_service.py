@@ -14,6 +14,7 @@ from app.schemas.inventory import eco_accessory_persistence as writes
 from app.libs.dto.inventory.eco_accessory_input import EcoAccessoryPlanIn, EcoAccessoryDecisionIn, EcoAccessoryIssueIn
 from app.libs.dto.inventory.eco_accessory_output import EcoAccessoryPlanOut, EcoAccessoryRequirementOut, EcoAccessoryAllocationOut
 from app.libs.enums.eco_accessories import EcoAccessoryStatus as Status
+from app.libs.enums.production import SewingFactoryCode
 from app.models.factory_scope_service import require_factory_access
 from app.models.audit_service import log_action
 from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response
@@ -35,6 +36,7 @@ def eco_order_condition():
     return or_(
         ProductionOrder.id.in_(_eco_work_order_query()),
         ProductionOrder.id.in_(_eco_bundle_query()),
+        ProductionOrder.id.in_(_eco_assigned_order_query()),
     )
 
 
@@ -47,6 +49,38 @@ def _eco_work_order_query():
 def _eco_bundle_query():
     from sqlalchemy import select
     return select(Bundle.production_order_id).where(Bundle.sewing_factory_code == "ECO", Bundle.status != "cancelled")
+
+
+def _active_assignment_query():
+    from sqlalchemy import select
+    return select(WorkOrder.id.label("work_id"), WorkOrder.production_order_id.label("order_id"),
+        WorkOrder.production_batch_id.label("work_batch_id"), SewingAssignment.production_batch_id.label("batch_id"),
+        SewingFlow.factory_code.label("factory_code")).select_from(WorkOrder).join(
+        SewingAssignment, SewingAssignment.work_order_id == WorkOrder.id).join(
+        SewingFlow, SewingFlow.id == SewingAssignment.sewing_flow_id).where(
+        WorkOrder.operation == "sewing", WorkOrder.status.notin_(("cancelled", "rejected")),
+        SewingAssignment.status.in_(("planned", "in_progress", "completed")))
+
+
+def _eco_assigned_order_query():
+    return _active_assignment_query().with_only_columns(WorkOrder.production_order_id).where(SewingFlow.factory_code == "ECO")
+
+
+def sewing_assignment_work_ids(factory_codes: set[SewingFactoryCode], batch_id: int | None = None):
+    query = _active_assignment_query().with_only_columns(WorkOrder.id).where(SewingFlow.factory_code.in_(factory_codes))
+    if batch_id is not None:
+        query = query.where(
+            or_(SewingAssignment.production_batch_id == batch_id, SewingAssignment.production_batch_id.is_(None)),
+            or_(WorkOrder.production_batch_id == batch_id, WorkOrder.production_batch_id.is_(None)))
+    return query
+
+
+def sewing_assignment_factory(db: Session, work_order_id: int, assignment_id: int) -> SewingFactoryCode:
+    factory = db.scalar(_active_assignment_query().with_only_columns(SewingFlow.factory_code).where(
+        WorkOrder.id == work_order_id, SewingAssignment.id == assignment_id))
+    if factory is None:
+        raise HTTPException(400, "Selected sewing assignment does not belong to this active work order")
+    return SewingFactoryCode(factory)
 
 
 def is_eco_bso_order(db: Session, order_id: int) -> bool:
@@ -368,6 +402,12 @@ def accessory_gate_factories(db: Session, order_id: int, batch_id: int | None = 
     if batch_id is not None:
         query = query.filter(Bundle.production_batch_id == batch_id)
     factories = {code or "MIL" for (code,) in query.distinct().all()}
+    assignments = _active_assignment_query().with_only_columns(SewingFlow.factory_code).where(WorkOrder.production_order_id == order_id)
+    if batch_id is not None:
+        assignments = assignments.where(
+            or_(SewingAssignment.production_batch_id == batch_id, SewingAssignment.production_batch_id.is_(None)),
+            or_(WorkOrder.production_batch_id == batch_id, WorkOrder.production_batch_id.is_(None)))
+    factories.update(db.scalars(assignments.distinct()))
     if factories:
         return factories
     query = db.query(Department.code).join(WorkOrder, WorkOrder.department_id == Department.id).filter(
@@ -382,7 +422,8 @@ def sync_eco_accessory_block(db: Session, order_id: int, *, batch_id: int | None
     if plan is None:
         return None
     query = db.query(WorkOrder).join(Department, Department.id == WorkOrder.department_id).filter(
-        Department.code == "ECO", WorkOrder.production_order_id == order_id, WorkOrder.operation == "sewing",
+        or_(Department.code == "ECO", WorkOrder.id.in_(sewing_assignment_work_ids({SewingFactoryCode.ECO_COTTON}, batch_id))),
+        WorkOrder.production_order_id == order_id, WorkOrder.operation == "sewing",
         WorkOrder.status.notin_(("completed", "cancelled", "rejected")))
     if batch_id is not None:
         query = query.filter(or_(WorkOrder.production_batch_id == batch_id, WorkOrder.production_batch_id.is_(None)))

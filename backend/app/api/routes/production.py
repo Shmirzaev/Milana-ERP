@@ -1969,7 +1969,7 @@ def start_wo(wid: int, db: DbSession, current: User = Depends(require_permission
         db.commit()
         raise HTTPException(400, "Material reservation is incomplete. Reserve required materials before starting cutting.")
     if wo.operation == "sewing":
-        ensure_accessories_issued_for_sewing(db, int(wo.production_order_id))
+        ensure_accessories_issued_for_sewing(db, int(wo.production_order_id), production_batch_id=wo.production_batch_id)
     wo.status = "in_progress"
     wo.start_time = datetime.now(timezone.utc)
     reservation_status = None
@@ -5310,9 +5310,6 @@ def post_sewing(payload: SewingRecordIn, db: DbSession, current: User = Depends(
     from app.models.factory_scope_service import require_work_order_factory_access
     require_work_order_factory_access(current, db, wo)
     if wo.operation != "sewing": raise HTTPException(400, "Work order is not a sewing operation")
-    ensure_accessories_issued_for_sewing(db, int(wo.production_order_id), production_batch_id=payload.production_batch_id)
-    _gate_record_submission(wo)
-
     assignment = None
     if payload.sewing_assignment_id:
         assignment = db.get(SewingAssignment, payload.sewing_assignment_id)
@@ -5351,6 +5348,11 @@ def post_sewing(payload: SewingRecordIn, db: DbSession, current: User = Depends(
         payload_batch_id,
         operation_name="sewing",
     )
+    from app.models.inventory.eco_accessory_service import sewing_assignment_factory
+    factory = sewing_assignment_factory(db, wo.id, assignment.id) if assignment else None
+    ensure_accessories_issued_for_sewing(db, int(wo.production_order_id),
+        sewing_factory_code=factory, production_batch_id=batch_id)
+    _gate_record_submission(wo)
     size_quantities = _validated_sewing_size_quantities(db, wo, batch_id, payload)
 
     # Rule: sewing cannot receive more than cutting/printing passed

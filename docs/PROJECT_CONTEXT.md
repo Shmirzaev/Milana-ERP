@@ -22,6 +22,10 @@ monitoring window. The [narrow release record](archive/ECO_INVENTORY_RELEASE_202
 starts from freshly verified live11f80a29/blue20261103_094602 and preserves its
 customer-pack/FG fixes. Only reviewed ECO inventory/transfers/approval and package
 origin changes are included; unrelated clone_main runtime work remains excluded.
+The bounded sewing follow-up resolves the assigned line's factory and actual
+batch before the approval gate, including shared-work ECO assignments in order
+ownership. Approval and physical issue remain separate; no migration or role
+grant is added by that correction.
 A restart-safe compatibility rollback is required before additive ECO migrations.
 No deployment, migration or production business-data changes have occurred yet.
 

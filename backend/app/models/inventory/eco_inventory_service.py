@@ -18,7 +18,7 @@ from app.libs.enums.eco_inventory import EcoMaterialKind, EcoMaterialMovementKin
 from app.models.audit_service import log_action
 from app.models.factory_scope_service import require_factory_access
 from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response
-from app.schemas import Bundle, Department, Item, ProductionOrder, Supplier, User, Warehouse, WorkOrder
+from app.schemas import Department, Item, ProductionOrder, Supplier, User, Warehouse
 from app.schemas.inventory.eco_inventory import EcoMaterialBatch, EcoMaterialMovement
 from app.schemas.inventory import eco_inventory_persistence as persistence
 from app.models.inventory_access_service import materials_only, require_accessories
@@ -46,12 +46,8 @@ def require_eco_order(db: Session, production_order_id: int) -> ProductionOrder:
     order = db.get(ProductionOrder, production_order_id)
     if not order:
         raise HTTPException(404, "Production order not found")
-    assigned = db.query(WorkOrder.id).join(Department, Department.id == WorkOrder.department_id).filter(
-        WorkOrder.production_order_id == order.id, WorkOrder.operation == "sewing", Department.code == "ECO",
-    ).first()
-    routed = db.query(Bundle.id).filter(Bundle.production_order_id == order.id, Bundle.sewing_factory_code == "ECO",
-                                        Bundle.status != "cancelled").first()
-    if not assigned and not routed:
+    from app.models.inventory.eco_accessory_service import eco_order_condition
+    if not db.query(ProductionOrder.id).filter(ProductionOrder.id == order.id, eco_order_condition()).first():
         raise HTTPException(403, "Production order is not assigned to Eco Cotton sewing")
     return order
 
@@ -119,12 +115,9 @@ def list_items(db: Session, current: User, kind: EcoMaterialKind) -> list[EcoMat
 
 def list_orders(db: Session, current: User) -> list[EcoMaterialOrderOut]:
     require_eco(current, "eco_inventory.read")
-    assigned = db.query(WorkOrder.production_order_id).join(Department, Department.id == WorkOrder.department_id).filter(
-        WorkOrder.operation == "sewing", Department.code == "ECO",
-    )
-    routed = db.query(Bundle.production_order_id).filter(Bundle.sewing_factory_code == "ECO", Bundle.status != "cancelled")
+    from app.models.inventory.eco_accessory_service import eco_order_condition
     orders = db.query(ProductionOrder).filter(
-        (ProductionOrder.id.in_(assigned)) | (ProductionOrder.id.in_(routed)), ProductionOrder.source_type != "usluga",
+        eco_order_condition(), ProductionOrder.source_type != "usluga",
     ).order_by(ProductionOrder.id.desc()).all()
     return [EcoMaterialOrderOut(id=order.id, order_no=order.order_no) for order in orders]
 

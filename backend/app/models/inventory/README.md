@@ -41,6 +41,11 @@ Reopening before ECO handoff preserves issued quantities while releasing only
 outstanding allocations. Factory-specific sewing gates remain distinct for mixed
 orders. New fixed lifecycle values use the canonical ECO enums; existing legacy
 Inventory writers remain the separately recorded migration debt below.
+ECO ownership also recognizes valid sewing assignments on shared SEW/MIL work
+orders. Sewing output verifies assignment ownership and resolves the actual batch
+before applying the assigned line's factory gate; material order options and
+physical issue reuse that same ECO ownership condition. Approved allocation
+permits handoff, while physical issue remains the separate stock deduction.
 
 The receiving follow-up reuses shared Item/Supplier master data and persists
 typed receipt snapshots (source, ECO warehouse, supplier/document/date, measures,
