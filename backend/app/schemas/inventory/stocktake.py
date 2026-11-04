@@ -32,3 +32,18 @@ class WarehouseStocktakeRow(Base, PkMixin):
     scan_code: Mapped[str | None] = mapped_column(String(512))
     scanned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     scanned_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+
+
+def add_stocktake(db, *, request_key: str, title: str, created_by: int) -> WarehouseStocktake:
+    """Add the count to the caller's session; the service controls flushing."""
+    count = WarehouseStocktake(request_key=request_key, title=title, created_by=created_by)
+    db.add(count)
+    return count
+
+
+def add_expected_stocktake_row(db, *, stocktake_id: int, package_id: int, snapshot: dict) -> None:
+    """Record one count-start snapshot without committing the caller's session."""
+    db.add(WarehouseStocktakeRow(
+        stocktake_id=stocktake_id, identity=f"package:{package_id}",
+        package_id=package_id, expected=True, category="expected", snapshot=snapshot,
+    ))
