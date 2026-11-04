@@ -196,7 +196,8 @@ def test_variant_create_inherits_family_approval_through_schema_writer(db, monke
     from app.schemas import AuditLog, Role, User
 
     actor = User(email="inherit@example.invalid", name="Synthetic", password_hash="unused", role=Role(name="admin", permissions=["*"]))
-    db.add(actor); db.flush()
+    db.add(actor)
+    db.flush()
     approved_at = datetime(2026, 1, 1, tzinfo=timezone.utc)
     db.add(Model(code="XJ4000", name="Base", status="approved", approved_by=actor.id,
                  approved_at=approved_at, details_json={"general": {"model_no": "XJ4000"}}))

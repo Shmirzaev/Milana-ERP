@@ -5,7 +5,7 @@ import pytest
 
 from app.schemas import AuditLog, Model
 from app.tests.conftest import TestSessionLocal
-from app.tests.test_modelcolor_create_baseline import color_case, color_app, color_client  # noqa: F401
+pytest_plugins = ("app.tests.test_modelcolor_create_baseline",)
 
 
 @pytest.mark.parametrize(('path', 'actor', 'scope', 'factory'), [
