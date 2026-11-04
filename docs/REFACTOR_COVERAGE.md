@@ -1,6 +1,19 @@
 # Whole-ERP refactor coverage
 
-## Current integration and active work — 30 October 2026
+## Verified operation checkpoint - 4 November 2026
+
+The [Finance invoice reversal participant](REF350_INVOICE_REVERSAL_20261104.md)
+at 60bcf909 is AI_VERIFIED_AWAITING_HUMAN after 204 distinct PostgreSQL cases,
+actual visual/refresh/EN-RU-UZ phone evidence, 20-table persisted checks and
+independent review. It owns only eligible invoice VOID/zero writes inside shipment
+reopen using the existing locked Session and outer transaction. Full coordinator
+audit remains FAIL on unchanged legacy scan persistence. Stock/package/order/
+audit/idempotency extraction, other Finance operations, amount typing and uncovered
+domains remain in scope. QA master reviews before deployment; human acceptance
+is unrecorded. The dated checkpoint below retains its original snapshot rather
+than serving as a current branch or open-PR census.
+
+## Historical integration and active work — 30 October 2026
 
 `clone_main` is verified at `d235cf9e9a44b1de81428beb261f8fab837cbe87`, tree
 `33b45e218c57e285e14df48bd166fe04309c95b9`. PR343 merged Supplier DELETE,

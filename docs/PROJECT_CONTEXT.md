@@ -15,6 +15,19 @@ Last updated 2026-11-04. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
+## Current refactor: Finance shipment invoice reversal (4 November)
+
+The [operation packet](REF350_INVOICE_REVERSAL_20261104.md) records
+AI_VERIFIED_AWAITING_HUMAN on application/gate candidate 60bcf909: Finance owns
+the same-Session schema write that voids eligible shipment invoices. 204 distinct
+PostgreSQL cases, actual desktop/EN/RU/UZ phone actions, one-shot receipts,
+20-table persisted checks and independent AI review passed. Copied synthetic QA
+schema needed a separately recorded existing-0084 repair; original failures stay
+preserved and no business action was replayed. Full shipment coordinator audit
+still fails on its unchanged legacy scan write. Other writers and broader
+Finance/type coverage remain pending. QA master reviews before deployment.
+Production/rollback pointers are unchanged; closed PR350 is not reopened.
+
 ## Customer-pack and FG release active with approved p95 exception (3 November)
 
 Only customer shipment-pack restriction/admin release and FG numbering were pushed,

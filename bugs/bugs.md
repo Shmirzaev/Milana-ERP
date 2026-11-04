@@ -1,5 +1,19 @@
 # Team bug tracker — clone_main
 
+## REF350-INVOICE-REVERSAL-20261104 - Finance participant / remaining Shipment debt
+
+- **AI_VERIFIED_AWAITING_HUMAN for Finance participant; whole Shipment incomplete;
+  not deployed.** Finance owner Ismail/reviewer Mirshoir; Fulfillment owner
+  Mirshoir/reviewer Ismail. [Packet/checklist](../docs/REF350_INVOICE_REVERSAL_20261104.md).
+- Same-Session schema-owned invoice VOID/zero write preserves preflight, locks and
+  one outer commit. 204 distinct PostgreSQL cases, actual desktop/phone locales,
+  five known receipts, 20-table comparisons and independent review passed on 60bcf909.
+- Full coordinator audit still FAILS on unchanged PackageScanLog insertion.
+  Other mapped writes and Invoice.amount's float annotation remain debt.
+  Synthetic schema repair and original HOLD evidence stay explicit; no business
+  replay. Keep active until human acceptance; no whole-operation/type completion
+  or closed-PR reopening is claimed.
+
 ## TURNSTILE-REVOKE-20261104 — guarded simulator revocation
 
 - **AI_VERIFIED_AWAITING_HUMAN; human acceptance unrecorded; not deployed.** People owner
