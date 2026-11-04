@@ -4,6 +4,8 @@ Minimal FastAPI router with real JWT dependencies; not full application middlewa
 The imported fixture runs migrations and verifies the disposable DB is removed.
 """
 from decimal import Decimal
+import hashlib
+import json
 from uuid import uuid4
 
 import sqlalchemy as sa
@@ -61,13 +63,16 @@ def _sequences(sessions):
         return db.execute(sa.text("SELECT sequencename, last_value FROM pg_sequences WHERE schemaname = current_schema() ORDER BY sequencename")).all()
 
 
-def _assert_split(sessions, cid, oid, actor):
+def _assert_split(sessions, cid, oid, actor, key):
     with sessions() as db:
         invoice = db.query(Invoice).filter_by(sales_order_id=oid).one()
         assert invoice.amount == Decimal("100.00") and invoice.status.value == "paid"
         payments = db.query(Payment).filter_by(customer_id=cid).order_by(Payment.id).all()
         assert [(p.invoice_id, p.amount) for p in payments] == [(invoice.id, Decimal("100.00")), (None, Decimal("29.00"))]
-        assert db.query(IdempotencyRecord).filter_by(user_id=actor, scope="customers.payments").count() == 1
+        encoded = json.dumps(["fn06-v2", "customers.payments", actor, "MIL"], separators=(",", ":"), ensure_ascii=True)
+        scope = "customers.payments:v2:" + hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+        record = db.query(IdempotencyRecord).filter_by(user_id=actor, scope=scope, key=key).one()
+        assert record.status_code == 201
         assert db.query(AuditLog).filter_by(user_id=actor, entity_type="Payment", entity_id=payments[-1].id, action="create").count() == 1
     chain(sessions)
 
@@ -85,7 +90,7 @@ def test_pg_receipt_http_auth_split_and_idempotent_replay(customer_pg_sessions):
         response = client.post(f"/customers/{cid}/payments", headers=_headers(actor, key), json=payload)
         assert response.status_code == 201, response.text
         assert response.json()["is_advance"] is True and response.json()["amount"] == 29
-        _assert_split(sessions, cid, oid, actor)
+        _assert_split(sessions, cid, oid, actor, key)
         saved = _fingerprint(sessions)
         replay = client.post(f"/customers/{cid}/payments", headers=_headers(actor, key), json=payload)
         assert replay.status_code == 201 and replay.json() == response.json()
@@ -120,4 +125,4 @@ def test_pg_receipt_http_finalization_flush_failure_rolls_back_then_retry(custom
     with _client(sessions) as client:
         retry = client.post(f"/customers/{cid}/payments", headers=_headers(actor, key), json=payload)
     assert retry.status_code == 201, retry.text
-    _assert_split(sessions, cid, oid, actor)
+    _assert_split(sessions, cid, oid, actor, key)
