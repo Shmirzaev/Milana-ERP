@@ -76,6 +76,7 @@ from app.schemas import (
 )
 from app.schemas.inventory import item_persistence
 from app.schemas.inventory import stock_movement_persistence
+from app.schemas.inventory import batch_restore_persistence
 from app.schemas.inventory import stock_receipt_persistence
 from app.schemas.inventory import warehouse_persistence
 from app.schemas.inventory.eco_transfer import EcoFabricRoll
@@ -1380,18 +1381,7 @@ def restore_material_batch(db, batch_id: int, payload: StockBatchRestoreIn, curr
     }
     # The user confirms physical stock, not a rollback of historical consumption.
     # Past receipts, usage and released/consumed reservations remain unchanged.
-    batch.quantity = payload.quantity
-    batch.archived_at = None
-    batch.archived_by = None
-    batch.qc_status = "pending"
-    batch.roll_weights_kg = []
-    batch.roll_lengths_m = []
-    batch.piece_count = None
-    db.add(StockMovement(
-        movement_type="return", item_id=batch.item_id, batch_id=batch.id,
-        to_warehouse_id=batch.warehouse_id, quantity=payload.quantity, unit=batch.unit,
-        reference_type="StockBatchRestore", reference_id=batch.id, created_by=current.id,
-    ))
+    batch_restore_persistence.restore_material_batch(db, batch, quantity=payload.quantity, user_id=current.id)
     log_action(db, current, "restore", "StockBatch", batch.id, old_value=old_value, new_value={
         "quantity": float(payload.quantity), "reason": reason, "qc_status": "pending",
         "physical_stock_confirmed": True, "history_preserved": True,
