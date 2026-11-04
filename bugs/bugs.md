@@ -1,5 +1,11 @@
 # Team bug tracker — clone_main
 
+## UI-FORECAST-MOBILE-20261104 — forecasting page overflows on phones
+
+- **Open · Forecasting UI · Ismail; reviewer Mirshoir. Human verification pending; not deployed.** On an isolated 390px phone viewport, the forecasting page expanded to 730px in EN, 835px in RU and 758px in UZ. Independent inspection identified the chart's visually hidden data table as the overflowing element; the visible chart already had a local horizontal scroll region.
+- Fix candidate `2caafd483f5690073eeeb5d33efe5e1fd803da8a` moves the visually hidden class to a containing wrapper while retaining the semantic table, caption, headers and values. On the fix-only isolated runtime, EN/RU/UZ document width measured 390px at a 390px viewport; chart and table containers reached both ends by programmatic scrolling, and chart values appeared in the accessibility snapshot. TypeScript passed. No business writes occurred.
+- Keep active for independent UI recheck, physical touch and keyboard scrolling, empty-chart and assistive-technology checks, full frontend build, and recorded human verification before deployment. This candidate is not production acceptance.
+
 ## REF350-INVOICE-REVERSAL-20261104 - Finance participant / remaining Shipment debt
 
 - **AI_VERIFIED_AWAITING_HUMAN for Finance participant; whole Shipment incomplete;
