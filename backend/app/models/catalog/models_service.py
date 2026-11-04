@@ -104,7 +104,7 @@ from app.schemas import (
 )
 from app.schemas.catalog.bom_persistence import delete_model_bom, insert_model_bom, update_model_bom
 from app.schemas.catalog.model_approval_persistence import apply_model_approval
-from app.schemas.catalog.model_size_persistence import insert_model_size
+from app.schemas.catalog.model_size_persistence import add_initial_model_sizes, insert_model_size
 from app.schemas.catalog.model_color_persistence import insert_model_color
 
 # A model's details_json is per-model modelling metadata: identity, costing and
@@ -2934,8 +2934,7 @@ def add_process_qr_model_sizes(
     # cannot both observe an empty model and insert their own sets.
     if db.query(ModelSize.id).filter(ModelSize.model_id == mid).first() is not None:
         raise HTTPException(409, "Model already has sizes. Refresh to use the saved sizes.")
-    for size in payload.sizes:
-        db.add(ModelSize(model_id=mid, size=size))
+    add_initial_model_sizes(db, mid, payload.sizes)
     log_action(
         db, current, "process_qr_sizes_added", "model", mid,
         old_value={"sizes": []}, new_value={"sizes": payload.sizes},
