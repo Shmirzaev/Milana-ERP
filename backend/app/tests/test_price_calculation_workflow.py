@@ -289,3 +289,19 @@ def test_purchasing_cannot_change_cutting_kroy_number(client):
         headers=purchaser,
     )
     assert denied.status_code == 422, denied.text
+
+
+def test_accessory_route_validation_authorization_and_empty_default(client):
+    data = _setup_workflow_data("accessory-boundary")
+    sales = _login(client, "sales.price.accessory-boundary@example.com")
+    accessories = _login(client, "accessory.price.accessory-boundary@example.com")
+    outsider = _login(client, "outsider.price.accessory-boundary@example.com")
+    created = client.post("/api/price-calculation/requests", json={"model_id": data["model_id"]}, headers=sales)
+    assert created.status_code == 201
+    url = f"/api/price-calculation/requests/{created.json()['id']}/accessories"
+    assert client.patch(url, json={}, headers=outsider).status_code == 403
+    assert client.patch(url, json={"accessories": [{"name": "x", "price": 1}] * 5}, headers=accessories).status_code == 422
+    result = client.patch(url, json={}, headers=accessories)
+    assert result.status_code == 200, result.text
+    assert result.json()["accessories"] == []
+    assert result.json()["accessories_status"] == "new"

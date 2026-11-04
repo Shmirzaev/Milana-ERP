@@ -16,7 +16,7 @@ from app.schemas.core_persistence import add_notification_row
 from app.schemas.catalog.catalog import Model
 from app.schemas.planning.price_calculation import PriceCalculationRequest
 from app.libs.types.planning import PriceCalculationPurchasingCommand
-from app.schemas.planning.price_calculation_persistence import apply_purchasing_contribution
+from app.schemas.planning.price_calculation_persistence import apply_accessory_contribution, apply_purchasing_contribution
 from app.models.audit_service import log_action
 from app.models.model_images_service import model_preview_image_url, model_variant_picture_url
 
@@ -462,13 +462,12 @@ def update_purchasing_details(
 
 def update_accessories(db: Session, request: PriceCalculationRequest, rows: list[dict], current: User) -> None:
     before = accessories_status(request)
-    request.accessories_json = [
+    normalized_rows = [
         {"name": str(row.get("name") or "").strip() or None, "price": row.get("price")}
         for row in rows
         if str(row.get("name") or "").strip() or row.get("price") is not None
     ][:4]
-    request.accessories_updated_by_id = current.id
-    db.flush()
+    apply_accessory_contribution(db, request, normalized_rows, updated_by_id=current.id)
     after = accessories_status(request)
     log_action(db, current, "update_accessory_costs", "PriceCalculationRequest", request.id, new_value={"accessories": request.accessories_json})
     if before != "complete" and after == "complete":

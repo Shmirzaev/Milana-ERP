@@ -22,3 +22,16 @@ def apply_purchasing_contribution(
     request.sewing_cost = command.sewing_cost
     request.purchasing_updated_by_id = updated_by_id
     db.flush()
+
+
+def apply_accessory_contribution(
+    db: Session,
+    request: PriceCalculationRequest,
+    rows: list[dict],
+    *,
+    updated_by_id: int,
+) -> None:
+    """Apply normalized accessory rows and actor in the caller's transaction."""
+    request.accessories_json = rows
+    request.accessories_updated_by_id = updated_by_id
+    db.flush()
