@@ -17,6 +17,7 @@ from app.libs.dto.inventory.waste_sale_output import WasteSaleOut
 from app.models.audit_service import log_action
 from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response
 from app.schemas import Item, StockBatch, User, WasteDisposalRequest, WasteRecord, WasteSale
+from app.schemas.inventory.waste_receive_persistence import set_received
 
 
 def _unit_cost_for_waste(db, item_id: int | None, batch_id: int | None) -> float:
@@ -74,7 +75,7 @@ def receive_waste(db, wid: int, current: User) -> WasteRecord:
     if not w: raise HTTPException(404, "Waste record not found")
     if w.status != "recorded":
         raise HTTPException(400, f"Can't receive from status '{w.status}'")
-    w.status = "received_by_waste_department"
+    set_received(db, w)
     log_action(db, current, "receive", "WasteRecord", w.id)
     db.commit(); db.refresh(w)
     return w
