@@ -106,6 +106,7 @@ from app.libs.dto.production.production import CuttingSewingFactoryIn
 from app.models.cutting_batch_guard_service import require_cutting_batch_mutable, sewing_output_batch_query
 from app.models.factory_scope_service import require_factory_access, selected_factory_code, factory_for_department
 from app.models.factory_scope_service import require_work_order_factory_access
+from app.models.factory_scope_service import refresh_cutting_work_order_for_write
 
 router = APIRouter(tags=["production"])
 _MAX_SEWING_SIZE_QUANTITY_ROWS = 1000
@@ -1885,6 +1886,7 @@ def get_wo(wid: int, db: DbSession, current: User = Depends(require_permissions(
 def update_wo(wid: int, payload: WorkOrderUpdate, db: DbSession, current: User = Depends(require_permissions(*_WORK_ORDER_COMMAND_PERMS))):
     wo = db.get(WorkOrder, wid)
     if not wo: raise HTTPException(404, "Work order not found")
+    refresh_cutting_work_order_for_write(db, wo)
     _authorize_work_order_command(db, current, wo)
     changes = payload.model_dump(exclude_unset=True)
     if "status" in changes:
@@ -1940,6 +1942,7 @@ def update_wo(wid: int, payload: WorkOrderUpdate, db: DbSession, current: User =
 def start_wo(wid: int, db: DbSession, current: User = Depends(require_permissions(*_WORK_ORDER_COMMAND_PERMS))):
     wo = db.get(WorkOrder, wid)
     if not wo: raise HTTPException(404, "Work order not found")
+    refresh_cutting_work_order_for_write(db, wo)
     _authorize_work_order_command(db, current, wo)
     if wo.operation == "storage_transfer":
         raise HTTPException(400, "Storage transfer starts automatically when packages are received into storage.")
@@ -2184,6 +2187,7 @@ def split_cutting_work_order_batches(
     wo = db.get(WorkOrder, wid)
     if not wo:
         raise HTTPException(404, "Work order not found")
+    refresh_cutting_work_order_for_write(db, wo)
     require_work_order_factory_access(current, db, wo)
     if wo.operation != "cutting":
         raise HTTPException(400, "Only cutting work orders can be split into batches")
@@ -2257,6 +2261,7 @@ def add_extra_cutting_batch(
     wo = db.get(WorkOrder, wid)
     if not wo:
         raise HTTPException(404, "Work order not found")
+    refresh_cutting_work_order_for_write(db, wo)
     require_work_order_factory_access(current, db, wo)
     if wo.operation != "cutting":
         raise HTTPException(400, "Only cutting work orders can add cutting batches")

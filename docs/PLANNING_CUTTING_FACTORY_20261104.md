@@ -63,6 +63,44 @@ the worker handoff; this packet is committed with that implementation.
 | Actual connected-browser desktop/phone visual QA | BLOCKED: root reported browser tab API timeoutMs bug and Windows fallback policy stop due uncertain browser URL. No bypass, visual pass or human acceptance claimed. |
 | Independent AI review / combined revision tests / QA-master acceptance | PENDING coordinator. Not AI_VERIFIED_AWAITING_HUMAN yet. |
 
+### Independent-review corrections and positive handoff
+
+Independent reviewer `/root/floor_pictures` found additional stale-source writers
+in the first freeze `99586121a`: material batch replacement authorized before its
+locked refresh; passport creation's locked queries retained a cached Cutting
+identity; work-order update/start and split/extra Nastil writers lacked a Cutting
+routing interlock. The reviewer independently reproduced original frozen update
+and passport failures on synthetic PostgreSQL by loading only those frozen
+function bodies in memory. Those two witness passes confirm the defects, not the
+feature's safety. Results accidentally run while fixes were moving were discarded.
+
+The corrected follow-up reauthorizes material replacement after refresh, uses
+`populate_existing` in locked passport order/work queries, and calls the narrow
+`factory_scope_service.refresh_cutting_work_order_for_write` PO-then-WO lock/refresh
+before authorization in Cutting update/start/split/extra actions. Other stage lock
+behavior and all existing writer business rules remain unchanged. These interlocks
+only close races created by the new routing action; they do not claim migration of
+the legacy writer services to schema-owned persistence.
+
+Final follow-up backend command includes the original seven files plus
+`test_material_reservations.py`, `test_passport_nastil_sync.py`,
+`test_work_order_command_scope.py` and `test_passport_cutting_submission.py`:
+**PASS:326 cases, zero skips,73.75s**, including41 new HTTP/SQLite and15 real
+PostgreSQL cases. Six new PostgreSQL cases cover every additional stale-source
+writer family, verify403 and fresh-session absence of unauthorized changes.
+Targeted Ruff, compileall and diff checks passed after the corrections; frontend
+source/tests remain identical to the first freeze and their previous passes stand.
+
+The added positive HTTP handoff uses public production creation twice: bornCUT
+then correctedECT versus bornECT. A limited ECT operator sees the order on its
+floor, while CUT floor excludes it and formerCUT submission refuses403. ECT saves
+12-piece Cutting evidence/bundle. The existing, preserved MIL sewing destination
+sees that incoming bundle; an ECT receipt attempt refuses403, a limited MIL receiver
+accepts it, and MIL active floor plus fresh database readback prove12 received
+pieces and unchanged Sewing/Packaging plans in both cases. This confirms the
+existing logical bundle-CUT convention behaves identically for the corrected and
+original ECT routes; it does not replace actual connected-browser/physical checks.
+
 PostgreSQL used ORM metadata only, no Alembic or production-schema migration.
 Earlier test attempts are retained as failures: initial fixture errors used wrong
 AuditLog/QualityCheck/SewingAssignment fields and timezone comparison (32 pass/4fail),

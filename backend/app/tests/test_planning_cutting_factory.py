@@ -242,3 +242,70 @@ def test_unconsumed_reservations_are_preserved_and_consumed_material_refuses(cli
 def test_missing_order_refuses_and_unauthenticated_request_is_denied(client, auth_headers):
     assert client.get("/api/production-orders/999999999/cutting-factory", headers=auth_headers).status_code == 404
     assert client.patch("/api/production-orders/1/cutting-factory", json={"cutting_department_code": "ECT"}).status_code in {401, 403}
+
+
+def test_moved_to_ect_matches_created_at_ect_cutting_and_sewing_handoff(client, auth_headers):
+    """Exercise real public creation, ECT Cutting and intended MIL receipt."""
+    with TestSessionLocal() as db:
+        marker = uuid4().hex[:12]
+        model = Model(code=f"QA-HANDOFF-{marker}", name="No-material handoff fixture", status="approved")
+        cutting_role = Role(name=f"QA ECT cutting {marker}", permissions=["cutting.records", "cutting.bundles"])
+        sewing_role = Role(name=f"QA MIL sewing {marker}", permissions=["sewing.bundles", "sewing.flows"])
+        eco_actor = User(name="QA ECT operator", email=f"ect-{marker}@example.invalid", password_hash="unused", factory_code="ECO", role=cutting_role)
+        sewing_actor = User(name="QA MIL receiver", email=f"sew-{marker}@example.invalid", password_hash="unused", factory_code="MIL", role=sewing_role)
+        db.add_all([model, eco_actor, sewing_actor]); db.commit()
+        model_id, eco_id, sewing_id = model.id, eco_actor.id, sewing_actor.id
+    eco_headers = {"Authorization": f"Bearer {create_access_token(eco_id, extra={'factory_code': 'ECO'})}"}
+    sewing_headers = headers(sewing_id)
+    outcomes = []
+    for initial_cutting in ("CUT", "ECT"):
+        created = client.post("/api/planning/create-branded-production", headers=auth_headers, json={
+            "production_type": "branded_stock", "model_id": model_id, "planned_quantity": 12,
+            "cutting_department_code": initial_cutting, "sewing_factory_code": "MIL",
+            "items": [{"model_id": model_id, "color": "white", "size": "S", "planned_quantity": 12}],
+        })
+        assert created.status_code == 201, created.text
+        oid = created.json()["id"]
+        with TestSessionLocal() as db:
+            works = {work.operation: work.id for work in db.query(WorkOrder).filter_by(production_order_id=oid)}
+            planned = {operation: (db.get(WorkOrder, works[operation]).department_id, db.get(WorkOrder, works[operation]).planned_output_qty)
+                       for operation in ("sewing", "packaging")}
+        if initial_cutting == "CUT":
+            moved = client.patch(f"/api/production-orders/{oid}/cutting-factory", headers=auth_headers, json={"cutting_department_code": "ECT"})
+            assert moved.status_code == 200 and moved.json()["changed"] is True, moved.text
+        ect_floor = client.get("/api/inbox?dept=ECT", headers=eco_headers)
+        assert ect_floor.status_code == 200, ect_floor.text
+        assert any(row["production_order_id"] == oid for key in ("pending_work_orders", "in_progress_work_orders", "active_work_orders") for row in ect_floor.json()[key])
+        cut_floor = client.get("/api/inbox?dept=CUT", headers=auth_headers)
+        assert cut_floor.status_code == 200, cut_floor.text
+        assert not any(row["production_order_id"] == oid for key in ("pending_work_orders", "in_progress_work_orders", "active_work_orders") for row in cut_floor.json()[key])
+        payload = {"work_order_id": works["cutting"], "input_quantity": 0, "cut_pieces": 12, "passed_pieces": 12,
+                   "bundles": [{"color": "white", "size": "S", "quantity": 12, "count": 1, "next": "sewing", "sewing_factory": "milana"}]}
+        assert client.post("/api/cutting/records", headers=auth_headers, json=payload).status_code == 403
+        cut = client.post("/api/cutting/records", headers=eco_headers, json=payload)
+        assert cut.status_code == 201, cut.text
+        bundle = cut.json()["bundles"][0]
+        assert bundle["sewing_factory_code"] == "MIL"
+        incoming = client.get("/api/inbox?dept=MIL", headers=sewing_headers)
+        assert incoming.status_code == 200, incoming.text
+        assert any(row["id"] == bundle["id"] for row in incoming.json()["incoming_bundles"])
+        # ECT Cutting is not permission to receive the preserved MIL destination.
+        assert client.post(f"/api/bundles/{bundle['id']}/receive-sewing", headers=eco_headers).status_code == 403
+        received = client.post(f"/api/bundles/{bundle['id']}/receive-sewing", headers=sewing_headers)
+        assert received.status_code == 200, received.text
+        assert received.json()["status"] == "received_sewing"
+        active = client.get("/api/inbox?dept=MIL", headers=sewing_headers)
+        assert active.status_code == 200, active.text
+        assert any(row["production_order_id"] == oid for key in ("pending_work_orders", "in_progress_work_orders", "active_work_orders") for row in active.json()[key])
+        with TestSessionLocal() as db:
+            cutting = db.get(WorkOrder, works["cutting"])
+            sewing = db.get(WorkOrder, works["sewing"])
+            live_bundle = db.get(Bundle, bundle["id"])
+            assert db.query(Department.code).filter_by(id=cutting.department_id).scalar() == "ECT"
+            assert planned == {operation: (db.get(WorkOrder, works[operation]).department_id, db.get(WorkOrder, works[operation]).planned_output_qty)
+                               for operation in ("sewing", "packaging")}
+            assert db.query(CuttingRecord).filter_by(work_order_id=cutting.id).one().passed_pieces == 12
+            outcomes.append((cutting.passed_qty, sewing.actual_input_qty, live_bundle.status,
+                             live_bundle.sewing_factory_code, live_bundle.quantity,
+                             db.query(Department.code).filter_by(id=live_bundle.current_department_id).scalar()))
+    assert outcomes == [(12, 12, "received_sewing", "MIL", 12, "MIL")] * 2

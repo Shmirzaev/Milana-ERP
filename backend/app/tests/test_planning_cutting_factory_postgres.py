@@ -4,6 +4,7 @@ Only an explicitly configured loopback disposable database is accepted. This
 fixture creates ORM tables in a unique synthetic schema; no Alembic runs.
 """
 import os
+from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
 from time import monotonic
@@ -15,13 +16,17 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
-from app.api.routes import bundles, production
+from app.api.routes import bundles, cutting_passports, production
 from app.db.base import Base
 from app.libs.dto.planning.production_cutting_factory import ProductionCuttingFactoryIn
-from app.libs.dto.production.production import CuttingRecordIn, QualityCheckIn
+from app.libs.dto.production.cutting_passport import CuttingPassportIn
+from app.libs.dto.production.production import CuttingRecordIn, QualityCheckIn, WorkOrderUpdate
 from app.libs.dto.packaging.tracking import BundleIn
 from app.models.planning import cutting_factory_service as service
-from app.schemas import AuditLog, Bundle, CuttingRecord, Department, ProductionOrder, QualityCheck, User, WorkOrder
+from app.schemas import (
+    AuditLog, Bundle, CuttingPassport, CuttingRecord, Department, Item, ProductionBatch,
+    ProductionOrder, ProductionOrderMaterial, QualityCheck, StockBatch, User, Warehouse, WorkOrder,
+)
 from app.tests.test_planning_cutting_factory import make_order, route_snapshot
 
 
@@ -200,3 +205,91 @@ def test_fault_after_audit_queue_rolls_back_same_transaction(cutting_factory_pos
         assert route_snapshot(db, oid) == before
         assert db.query(AuditLog).filter_by(entity_id=oid, action="change_cutting_factory").count() == 0
         assert db.execute(text("SELECT current_setting('transaction_isolation')")).scalar() == "read committed"
+
+
+def test_material_replacement_rechecks_factory_after_initial_authorization(cutting_factory_postgres, monkeypatch):
+    from app.models import cutting_material_assignment_service as material_service
+    sessions, _ = cutting_factory_postgres
+    with sessions() as db:
+        oid, uid, works = make_order(db, permissions=["planning.production", "cutting.records"])
+        marker = uuid4().hex[:12]
+        item = Item(sku=f"QA-{marker}", name="Routing material", category="fabric", unit="kg")
+        warehouse = Warehouse(name=f"QA-{marker}", type="fabric_storage")
+        db.add_all([item, warehouse]); db.flush()
+        batches = [StockBatch(item_id=item.id, warehouse_id=warehouse.id, batch_no=f"{marker}-{index}", quantity=100, unit="kg", qc_status="passed") for index in (1, 2)]
+        db.add_all(batches); db.flush()
+        material = ProductionOrderMaterial(production_order_id=oid, stock_batch_id=batches[0].id, estimated_quantity=10, unit="kg", position=1)
+        db.add(material); db.commit()
+        old_id, new_id, material_id = batches[0].id, batches[1].id, material.id
+    original = material_service.require_work_order_factory_access
+    calls = []
+    def initial_then_move(current, db, work):
+        original(current, db, work)
+        calls.append(work.department_id)
+        if len(calls) == 1:
+            with sessions() as changing:
+                assert move(changing, oid, uid).changed is True
+    monkeypatch.setattr(material_service, "require_work_order_factory_access", initial_then_move)
+    with sessions() as stale:
+        with pytest.raises(HTTPException) as rejected:
+            material_service.replace_cutting_material_batch(stale, stale.get(User, uid), works["cutting"], old_id, new_id)
+        assert rejected.value.status_code == 403
+        stale.rollback()
+    with sessions() as db:
+        assert db.get(ProductionOrderMaterial, material_id).stock_batch_id == old_id
+        assert db.query(AuditLog).filter_by(entity_id=oid, action="correct_cutting_material_batch").count() == 0
+        assert db.query(AuditLog).filter_by(entity_id=oid, action="change_cutting_factory").count() == 1
+
+
+def test_passport_creation_refreshes_previously_authorized_identity(cutting_factory_postgres, monkeypatch):
+    from app.models import factory_scope_service
+    sessions, _ = cutting_factory_postgres
+    with sessions() as db:
+        oid, uid, works = make_order(db, permissions=["planning.production", "cutting.records"])
+    original = factory_scope_service.require_work_order_factory_access
+    calls = []
+    def initial_then_move(current, db, work):
+        original(current, db, work)
+        calls.append(work.department_id)
+        if len(calls) == 1:
+            with sessions() as changing:
+                assert move(changing, oid, uid).changed is True
+    monkeypatch.setattr(factory_scope_service, "require_work_order_factory_access", initial_then_move)
+    monkeypatch.setattr(cutting_passports, "require_work_order_factory_access", initial_then_move)
+    with sessions() as stale:
+        with pytest.raises(HTTPException) as rejected:
+            cutting_passports.create_passport(CuttingPassportIn(production_order_id=oid, passport_no=uuid4().hex,
+                date=datetime.now(timezone.utc)), stale, stale.get(User, uid))
+        assert rejected.value.status_code == 403
+        stale.rollback()
+    with sessions() as db:
+        assert db.query(CuttingPassport).filter_by(production_order_id=oid).count() == 0
+        assert db.query(ProductionBatch).filter_by(production_order_id=oid).count() == 1
+
+
+@pytest.mark.parametrize("writer", ["update", "start", "split", "extra"])
+def test_cutting_commands_and_batch_creates_refresh_stale_factory_scope(cutting_factory_postgres, writer):
+    sessions, _ = cutting_factory_postgres
+    with sessions() as db:
+        oid, uid, works = make_order(db, permissions=["planning.production", "cutting.records"])
+    with sessions() as stale:
+        cached = stale.get(WorkOrder, works["cutting"])
+        actor = stale.get(User, uid)
+        with sessions() as changing:
+            assert move(changing, oid, uid).changed is True
+            after_move = route_snapshot(changing, oid)
+        with pytest.raises(HTTPException) as rejected:
+            if writer == "update":
+                production.update_wo(cached.id, WorkOrderUpdate(notes="must not follow routing"), stale, actor)
+            elif writer == "start":
+                production.start_wo(cached.id, stale, actor)
+            elif writer == "split":
+                production.split_cutting_work_order_batches(cached.id, production.SplitWorkOrderBatchesIn(batches=[{"planned_quantity": 120}]), stale, actor)
+            else:
+                production.add_extra_cutting_batch(cached.id, production.ExtraCuttingBatchIn(planned_quantity=1), stale, actor)
+        assert rejected.value.status_code == 403
+        stale.rollback()
+    with sessions() as db:
+        assert route_snapshot(db, oid) == after_move
+        assert db.query(ProductionBatch).filter_by(production_order_id=oid).count() == 1
+        assert db.query(AuditLog).filter_by(entity_id=oid, action="change_cutting_factory").count() == 1
