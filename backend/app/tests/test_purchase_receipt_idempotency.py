@@ -577,3 +577,107 @@ def test_postgres_concurrent_receipts_serialize_before_replay(receipt_postgres_e
             == expected_receipts
         )
         assert db.query(IdempotencyRecord).filter_by(user_id=user_id).count() == expected_receipts
+
+
+def test_postgres_receipt_audit_finalization_failure_rolls_back_then_replays(
+    receipt_postgres_engine, monkeypatch
+):
+    """A failure after deferred audit inserts rolls back every receipt participant."""
+    from app.models import audit_service
+
+    sessions = sessionmaker(bind=receipt_postgres_engine, autoflush=False, expire_on_commit=False)
+    order = create_receipt_order(sessions, unit_cost=1)
+    with sessions() as db:
+        user = User(name="Receipt audit receiver", email=f"receipt-{uuid4().hex}@example.invalid",
+                    password_hash="unused", factory_code="MIL")
+        line = PurchaseOrderLine(
+            purchase_order_id=order["order_id"], item_id=order["item_id"],
+            ordered_quantity=100, received_quantity=0, unit="pcs", unit_cost=1,
+            warehouse_id=order["warehouse_id"],
+        )
+        db.add_all([user, line])
+        db.commit()
+        user_id, second_id = user.id, line.id
+
+    first_line = order["payload"]["lines"][0]
+    payload = PurchaseOrderReceiveIn(lines=[
+        {**first_line, "cost_per_unit": 3},
+        {**first_line, "purchase_order_line_id": second_id,
+         "batch_no": first_line["batch_no"] + "-second"},
+    ])
+    with sessions() as db:
+        baseline = {model: db.query(model).count() for model in
+                    (StockBatch, StockMovement, AuditLog, IdempotencyRecord)}
+        latest_audit_id = max((row.id for row in db.query(AuditLog.id)), default=0)
+    original = audit_service._finalize_postgres_audits
+    captured = []
+
+    def receipt_audits(db):
+        batches = db.query(StockBatch.id).filter_by(internal_batch_no=order["po_no"]).all()
+        batch_ids = [row.id for row in batches]
+        return db.query(AuditLog).filter(
+            AuditLog.id > latest_audit_id,
+            (((AuditLog.entity_type == "PurchaseOrderLine") &
+              AuditLog.entity_id.in_([order["line_id"], second_id])) |
+             ((AuditLog.entity_type == "StockBatch") & AuditLog.entity_id.in_(batch_ids)) |
+             ((AuditLog.entity_type == "PurchaseOrder") &
+              (AuditLog.entity_id == order["order_id"])))
+        ).all()
+
+    def fail_after_finalization(db):
+        original(db)
+        db.flush()
+        audits = receipt_audits(db)
+        assert len(audits) == 5 and all(row.entry_hash for row in audits)
+        assert db.query(StockBatch).filter_by(internal_batch_no=order["po_no"]).count() == 2
+        assert db.query(StockMovement).filter(
+            StockMovement.reference_type == "PurchaseOrderLine",
+            StockMovement.reference_id.in_([order["line_id"], second_id]),
+        ).count() == 2
+        assert db.query(IdempotencyRecord).filter_by(key="pg-audit-failure").count() == 1
+        captured.append(True)
+        raise RuntimeError("synthetic failure after receipt audit finalization")
+
+    def receive_in_session(db):
+        user = db.get(User, user_id)
+        bind_idempotency_identity(db, user)
+        return receiving_service.receive_purchase_order(
+            db, order_id=order["order_id"], payload=payload, current=user,
+            idempotency_key="pg-audit-failure",
+        )
+
+    with monkeypatch.context() as patch:
+        patch.setattr(audit_service, "_finalize_postgres_audits", fail_after_finalization)
+        with sessions() as db:
+            with pytest.raises(RuntimeError, match="synthetic failure after receipt audit"):
+                receive_in_session(db)
+            db.rollback()
+    assert captured == [True]
+
+    with sessions() as db:
+        assert db.get(PurchaseOrder, order["order_id"]).status == "sent"
+        for line_id in (order["line_id"], second_id):
+            line = db.get(PurchaseOrderLine, line_id)
+            assert float(line.received_quantity) == 0
+            assert float(line.unit_cost) == 1
+        for model in (StockBatch, StockMovement, AuditLog, IdempotencyRecord):
+            assert db.query(model).count() == baseline[model]
+
+    with sessions() as db:
+        first = receive_in_session(db)
+    with sessions() as db:
+        replay = receive_in_session(db)
+    assert replay == first
+    with sessions() as db:
+        assert db.get(PurchaseOrder, order["order_id"]).status == "partially_received"
+        assert [float(db.get(PurchaseOrderLine, line_id).received_quantity)
+                for line_id in (order["line_id"], second_id)] == [5, 5]
+        assert float(db.get(PurchaseOrderLine, order["line_id"]).unit_cost) == 3
+        assert db.query(StockBatch).filter_by(internal_batch_no=order["po_no"]).count() == 2
+        assert db.query(StockMovement).filter(
+            StockMovement.reference_type == "PurchaseOrderLine",
+            StockMovement.reference_id.in_([order["line_id"], second_id]),
+        ).count() == 2
+        audits = receipt_audits(db)
+        assert len(audits) == 5 and all(row.entry_hash for row in audits)
+        assert db.query(IdempotencyRecord).filter_by(key="pg-audit-failure").count() == 1
