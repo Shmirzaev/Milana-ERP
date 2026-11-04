@@ -1,9 +1,10 @@
-"""Characterize concurrent receipt; this does not approve its business outcome."""
+"""Concurrent receipt serializes the existing single-transition contract."""
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from uuid import uuid4
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 
@@ -29,25 +30,14 @@ def test_receipt_concurrent_observed_recorded_characterization(pg_sessions):  # 
         db.add_all([actor, record, control])
         db.flush()
         actor_id, record_id, control_id = actor.id, record.id, control.id
-    barrier = threading.Barrier(2, timeout=10)
-    observed = []
-    observed_lock = threading.Lock()
+    barrier = threading.Barrier(3, timeout=10)
+    pids = {}
     app = FastAPI()
     app.include_router(router)
 
-    def isolated_db():
+    def isolated_db(request: Request):
         with pg_sessions() as db:
-            original_get = db.get
-
-            def observed_get(entity, ident, *args, **kwargs):
-                result = original_get(entity, ident, *args, **kwargs)
-                if entity is WasteRecord and ident == record_id:
-                    with observed_lock:
-                        observed.append((db.execute(text('SELECT pg_backend_pid()')).scalar_one(), result.status))
-                    barrier.wait()
-                return result
-
-            db.get = observed_get
+            pids[request.headers["X-Test-Request"]] = db.execute(text("SELECT pg_backend_pid()")).scalar_one()
             yield db
 
     app.dependency_overrides[get_db] = isolated_db
@@ -65,25 +55,60 @@ def test_receipt_concurrent_observed_recorded_characterization(pg_sessions):  # 
         ), {'id': record_id}).scalars().all()
     headers = {'Authorization': f'Bearer {create_access_token(actor_id)}'}
 
-    def receive():
+    def receive(key):
         with TestClient(app) as client:
-            response = client.post(f'/waste/{record_id}/receive', headers=headers)
+            barrier.wait()
+            response = client.post(f'/waste/{record_id}/receive',
+                                   headers={**headers, "X-Test-Request": key})
             return response.status_code, response.json()
 
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        futures = [pool.submit(receive) for _ in range(2)]
-        try:
-            # Timeout is only an observer failure: the owned fixture must retain
-            # uncertain live work rather than authorize a retry or reset.
-            results = [future.result(timeout=30) for future in futures]
-        finally:
-            barrier.abort()
-    assert len(observed) == 2 and len({pid for pid, _ in observed}) == 2
-    assert [status for _, status in observed] == ['recorded', 'recorded']
+    with pg_sessions() as holder:
+        holder.execute(text("SELECT id FROM waste_records WHERE id=:id FOR UPDATE"), {"id": record_id}).one()
+        holder_pid = holder.execute(text("SELECT pg_backend_pid()")).scalar_one()
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [pool.submit(receive, str(n)) for n in range(2)]
+            try:
+                barrier.wait()
+                deadline = time.monotonic() + 10
+                proven = False
+                while time.monotonic() < deadline:
+                    assert not any(f.done() for f in futures), "receipt finished before lock release"
+                    if len(pids) == 2:
+                        with pg_sessions() as observer:
+                            def reaches_holder(start):
+                                pending, seen = [start], set()
+                                while pending:
+                                    pid = pending.pop()
+                                    if pid == holder_pid:
+                                        return True
+                                    if pid in seen:
+                                        continue
+                                    seen.add(pid)
+                                    pending.extend(observer.execute(
+                                        text("SELECT pg_blocking_pids(:pid)"), {"pid": pid}
+                                    ).scalar_one())
+                                return False
+                            proven = len(set(pids.values())) == 2 and all(
+                                reaches_holder(pid) for pid in pids.values()
+                            )
+                        if proven:
+                            break
+                    time.sleep(0.05)
+                assert proven, "both requests did not block on the held row"
+            finally:
+                holder.rollback()
+            results = [f.result(timeout=20) for f in futures]
+    assert sorted(status for status, _ in results) == [200, 400]
+    assert next(body for status, body in results if status == 200)["status"] == "received_by_waste_department"
+    assert next(body for status, body in results if status == 400) == {
+        "detail": "Can't receive from status 'received_by_waste_department'"
+    }
     with pg_sessions() as db:
         final = db.get(WasteRecord, record_id)
         audits = db.query(AuditLog).filter_by(entity_type='WasteRecord', entity_id=record_id, action='receive').order_by(AuditLog.id).all()
         assert db.execute(text('SELECT row_to_json(w)::text FROM waste_records w WHERE id=:id'), {'id': control_id}).scalar_one() == control_before
+        assert len(audits) == 1 and audits[0].user_id == actor_id
+        assert final.status == 'received_by_waste_department'
         assert db.query(Notification).count() == notifications_before
         assert audit_service.verify_audit_hash_chain(db)['ok']
         sequences_after = _sequences(db)
