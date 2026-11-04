@@ -101,6 +101,44 @@ pieces and unchanged Sewing/Packaging plans in both cases. This confirms the
 existing logical bundle-CUT convention behaves identically for the corrected and
 original ECT routes; it does not replace actual connected-browser/physical checks.
 
+### Final association audit
+
+The reviewer found that a valid WasteRecord can reference only a work order, with
+null production_order_id. Root extended the table-level audit to sparse payroll,
+daily-report and package references. The new waste HTTP test first reproduced
+FAIL:200 rather than409 on the previous guard; no original test was relaxed.
+The corrected guard follows these explicit relational paths:
+
+| Evidence | Association followed |
+| --- | --- |
+| Cutting/Printing/Sewing/Packaging records and Quality checks | Required WorkOrder FK belonging to the order |
+| Waste, payroll records/labels and daily Sewing reports | ProductionOrder FK or WorkOrder FK, including null-order rows |
+| Packages, payroll records/labels and daily reports | ProductionBatch FK belonging to the order, including null-order rows |
+| Package allocations | ProductionBatch FK belonging to the order |
+| Daily Sewing report linked only to a planned assignment | Assignment FK whose work order or batch belongs to the order |
+| Sewing assignments | WorkOrder or ProductionBatch FK, with actual-start/end/completion/finish evidence; untouched planned assignments remain allowed |
+| Cutting passports | Direct order FK or reverse batch.cuttting_passport_id; batch.passport_actual_quantity also freezes recorded evidence |
+| Finished stock | Direct order FK; package-linked rows are already frozen by the owning Package/BatchAllocation evidence |
+| Packaging receipts, replacement requests and manual accessory issues | Required order FK |
+| Material reservations | Required order FK and consumed_quantity greater than zero; unconsumed rows remain unchanged and allowed |
+
+No fuzzy matching or rewriting of free-text legacy references is introduced.
+The operation follows actual relational links, preserving the linked row even
+when an optional parent snapshot is absent. PayrollQrLabel passport linkage is
+already frozen by its referenced passport evidence. The guard adds no payroll,
+waste or package write behavior.
+
+Final focused exact-source verification: `test_planning_cutting_factory.py` plus
+`test_planning_cutting_factory_postgres.py` **PASS:71 cases, zero skips,14.18s**
+(52 HTTP/SQLite,19 PostgreSQL), followed by targeted Ruff/compileall/diff PASS.
+This supersedes the earlier focused counts. The326-case broader regression run
+belongs to24502957e before this last guard-only correction and is not relabeled
+as a run on the final source. Ten extra sparse-reference cases assert guard refusal
+and complete evidence/work-order conservation. Four additional real PostgreSQL
+cases prove work-only waste, batch-only payroll, assignment-only daily report and
+legacy-source batch-only package association/constraint handling on actual tables.
+Browser verification and final combined-candidate review remain coordinator gates.
+
 PostgreSQL used ORM metadata only, no Alembic or production-schema migration.
 Earlier test attempts are retained as failures: initial fixture errors used wrong
 AuditLog/QualityCheck/SewingAssignment fields and timezone comparison (32 pass/4fail),

@@ -24,8 +24,9 @@ from app.libs.dto.production.production import CuttingRecordIn, QualityCheckIn, 
 from app.libs.dto.packaging.tracking import BundleIn
 from app.models.planning import cutting_factory_service as service
 from app.schemas import (
-    AuditLog, Bundle, CuttingPassport, CuttingRecord, Department, Item, ProductionBatch,
-    ProductionOrder, ProductionOrderMaterial, QualityCheck, StockBatch, User, Warehouse, WorkOrder,
+    AuditLog, Bundle, CuttingPassport, CuttingRecord, Department, Item, LegacyStockReceipt, Package,
+    PayrollQrLabel, ProductionBatch, ProductionOrder, ProductionOrderMaterial, QualityCheck,
+    SewingAssignment, SewingDailyReport, SewingFlow, StockBatch, User, Warehouse, WasteRecord, WorkOrder,
 )
 from app.tests.test_planning_cutting_factory import make_order, route_snapshot
 
@@ -293,3 +294,43 @@ def test_cutting_commands_and_batch_creates_refresh_stale_factory_scope(cutting_
         assert route_snapshot(db, oid) == after_move
         assert db.query(ProductionBatch).filter_by(production_order_id=oid).count() == 1
         assert db.query(AuditLog).filter_by(entity_id=oid, action="change_cutting_factory").count() == 1
+
+
+@pytest.mark.parametrize("kind", ["work_waste", "batch_payroll", "assignment_report", "batch_package"])
+def test_optional_order_reference_evidence_is_guarded_on_postgres(cutting_factory_postgres, kind):
+    sessions, _ = cutting_factory_postgres
+    with sessions() as db:
+        oid, uid, works = make_order(db)
+        batch = db.query(ProductionBatch).filter_by(production_order_id=oid).one()
+        marker = uuid4().hex
+        if kind == "work_waste":
+            evidence = WasteRecord(work_order_id=works["cutting"], waste_type="cutting_waste", quantity=1, unit="kg")
+        elif kind == "batch_payroll":
+            evidence = PayrollQrLabel(production_batch_id=batch.id, label_uid=marker, quantity=1)
+        elif kind == "assignment_report":
+            flow = SewingFlow(code=marker[:20], name=f"QA {marker}", factory_code="MIL")
+            db.add(flow); db.flush()
+            assignment = SewingAssignment(work_order_id=works["sewing"], sewing_flow_id=flow.id, quantity=120, status="planned")
+            db.add(assignment); db.flush()
+            evidence = SewingDailyReport(sewing_assignment_id=assignment.id, sewing_flow_id=flow.id,
+                report_date=datetime(2026, 11, 4).date(), line_code=flow.code, line_name=flow.name, sewn_qty=1)
+        else:
+            receipt = LegacyStockReceipt(source_system="QA", source_warehouse_id="QA", source_record_id=marker,
+                                         source_checksum=marker, source_payload={})
+            db.add(receipt); db.flush()
+            evidence = Package(production_batch_id=batch.id, legacy_receipt_id=receipt.id, package_no=marker,
+                               barcode=marker, color="white", total_quantity=1, capacity=60)
+        db.add(evidence); db.commit(); db.expire_all()
+        assert evidence.production_order_id is None
+        before = route_snapshot(db, oid)
+        row_before = {column.name: getattr(evidence, column.name) for column in evidence.__table__.columns}
+        row_type, row_id = type(evidence), evidence.id
+        assert service.cutting_factory_options(db, oid, db.get(User, uid)).can_change is False
+        with pytest.raises(HTTPException) as rejected:
+            move(db, oid, uid)
+        assert rejected.value.status_code == 409
+    with sessions() as db:
+        assert route_snapshot(db, oid) == before
+        stored = db.get(row_type, row_id)
+        assert {column.name: getattr(stored, column.name) for column in stored.__table__.columns} == row_before
+        assert db.query(AuditLog).filter_by(entity_id=oid, action="change_cutting_factory").count() == 0

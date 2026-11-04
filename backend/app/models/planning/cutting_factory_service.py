@@ -5,7 +5,7 @@ WorkOrders with NOWAIT. Existing Cutting/passport writers use the same locks.
 Audit persistence participates in that Session. GET never writes or locks.
 """
 from fastapi import HTTPException
-from sqlalchemy import or_
+from sqlalchemy import or_, select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
@@ -18,7 +18,7 @@ from app.models.audit_service import log_action
 from app.models.factory_scope_service import factory_for_department
 from app.schemas import (
     Bundle, CuttingPassport, CuttingRecord, Department, FinishedGoodsStock, ManualAccessoryIssue,
-    MaterialReservation, Package, PackagingReceipt, PackagingRecord,
+    MaterialReservation, Package, PackageBatchAllocation, PackagingReceipt, PackagingRecord,
     PayrollQrLabel, PayrollRecord, PrintingRecord, ProductionBatch,
     ProductionOrder, QualityCheck, SewingAssignment, SewingDailyReport,
     SewingRecord, SewingReplacementRequest, User, WasteRecord, WorkOrder,
@@ -78,11 +78,22 @@ def _lock_reason(db: Session, order: ProductionOrder, works: list[WorkOrder]) ->
         elif work.status not in {"new", "planning", "waiting", "pending", "ready"} or work.start_time or work.end_time:
             return CuttingFactoryLockReason.HISTORY_LOCKED
     work_ids = [work.id for work in works]
-    for model in (CuttingRecord, PrintingRecord, SewingRecord, PackagingRecord, QualityCheck):
+    for model in (CuttingRecord, PrintingRecord, SewingRecord, PackagingRecord, QualityCheck,
+                  WasteRecord, PayrollRecord, PayrollQrLabel, SewingDailyReport):
         if db.query(model.id).filter(model.work_order_id.in_(work_ids)).first():
             return CuttingFactoryLockReason.HISTORY_LOCKED
+    batch_ids = select(ProductionBatch.id).where(ProductionBatch.production_order_id == order.id)
+    # These ledgers permit a batch reference without a ProductionOrder reference.
+    for model in (Package, PackageBatchAllocation, PayrollRecord, PayrollQrLabel, SewingDailyReport):
+        if db.query(model.id).filter(model.production_batch_id.in_(batch_ids)).first():
+            return CuttingFactoryLockReason.HISTORY_LOCKED
+    assignment_ids = select(SewingAssignment.id).where(
+        or_(SewingAssignment.work_order_id.in_(work_ids), SewingAssignment.production_batch_id.in_(batch_ids)),
+    )
+    if db.query(SewingDailyReport.id).filter(SewingDailyReport.sewing_assignment_id.in_(assignment_ids)).first():
+        return CuttingFactoryLockReason.HISTORY_LOCKED
     if db.query(SewingAssignment.id).filter(
-        SewingAssignment.work_order_id.in_(work_ids),
+        or_(SewingAssignment.work_order_id.in_(work_ids), SewingAssignment.production_batch_id.in_(batch_ids)),
         or_(SewingAssignment.completed_qty > 0, SewingAssignment.actual_start.isnot(None),
             SewingAssignment.actual_end.isnot(None), SewingAssignment.line_finished_at.isnot(None),
             ~SewingAssignment.status.in_(["planned", "cancelled", "transferred"])),
@@ -94,7 +105,7 @@ def _lock_reason(db: Session, order: ProductionOrder, works: list[WorkOrder]) ->
             return CuttingFactoryLockReason.HISTORY_LOCKED
     if db.query(ProductionBatch.id).filter(
         ProductionBatch.production_order_id == order.id,
-        ProductionBatch.cutting_passport_id.isnot(None),
+        or_(ProductionBatch.cutting_passport_id.isnot(None), ProductionBatch.passport_actual_quantity.isnot(None)),
     ).first() or db.query(MaterialReservation.id).filter(
         MaterialReservation.production_order_id == order.id, MaterialReservation.consumed_quantity > 0,
     ).first():

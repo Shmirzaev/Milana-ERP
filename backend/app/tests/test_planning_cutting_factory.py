@@ -14,9 +14,10 @@ from app.libs.dto.planning.production_cutting_factory import ProductionCuttingFa
 from app.libs.enums.production import CuttingDepartmentCode
 from app.models.planning import cutting_factory_service as service
 from app.schemas import (
-    AuditLog, Bundle, CuttingPassport, CuttingRecord, Department, FinishedGoodsStock, Item, MaterialReservation, Model,
+    AuditLog, Bundle, CuttingPassport, CuttingRecord, Department, Employee, FinishedGoodsStock,
+    Item, LegacyStockReceipt, MaterialReservation, Model, Package, PackageBatchAllocation, PayrollQrLabel, PayrollRecord,
     PrintingRecord, ProductionBatch, ProductionOrder, QualityCheck, Role,
-    SewingAssignment, SewingFlow, SewingRecord, User, WorkOrder,
+    SewingAssignment, SewingDailyReport, SewingFlow, SewingRecord, User, WasteRecord, WorkOrder,
 )
 from app.tests.conftest import TestSessionLocal
 
@@ -135,7 +136,7 @@ def test_action_enum_normalization_and_extra_field_refusal():
     "cutting_record", "passport", "bundle", "printing_record", "sewing_record", "quality", "assignment",
     "actual_input", "actual_output", "failed", "passed", "rework", "cutting_end", "cutting_cancelled",
     "cutting_blocked", "cutting_operator", "downstream_started", "downstream_completed",
-    "closed", "usluga", "mixed_routing", "finished_stock",
+    "closed", "usluga", "mixed_routing", "finished_stock", "work_order_waste",
 ])
 def test_recorded_evidence_refuses_and_preserves_routes(client, evidence):
     with TestSessionLocal() as db:
@@ -162,6 +163,7 @@ def test_recorded_evidence_refuses_and_preserves_routes(client, evidence):
         elif evidence == "usluga": db.get(ProductionOrder, oid).source_type = "usluga"
         elif evidence == "mixed_routing": db.add(WorkOrder(production_order_id=oid, operation="cutting", department_id=db.query(Department.id).filter_by(code="ECT").scalar(), status="waiting"))
         elif evidence == "finished_stock": db.add(FinishedGoodsStock(production_order_id=oid, color="white", size="S", quantity=1, available_qty=1))
+        elif evidence == "work_order_waste": db.add(WasteRecord(work_order_id=cutting.id, waste_type="cutting", quantity=1, unit="kg"))
         db.commit(); before = route_snapshot(db, oid)
     url = f"/api/production-orders/{oid}/cutting-factory"
     response = client.patch(url, headers=headers(uid), json={"cutting_department_code": "ECT"})
@@ -242,6 +244,63 @@ def test_unconsumed_reservations_are_preserved_and_consumed_material_refuses(cli
 def test_missing_order_refuses_and_unauthenticated_request_is_denied(client, auth_headers):
     assert client.get("/api/production-orders/999999999/cutting-factory", headers=auth_headers).status_code == 404
     assert client.patch("/api/production-orders/1/cutting-factory", json={"cutting_department_code": "ECT"}).status_code in {401, 403}
+
+
+@pytest.mark.parametrize("kind,link", [
+    ("payroll_record", "work"), ("payroll_record", "batch"),
+    ("payroll_label", "work"), ("payroll_label", "batch"),
+    ("daily_report", "work"), ("daily_report", "batch"), ("daily_report", "assignment"),
+    ("package", "batch"), ("package_allocation", "batch"), ("passport_actual", "batch"),
+])
+def test_recorded_ledgers_with_optional_order_reference_still_freeze_routing(client, kind, link):
+    with TestSessionLocal() as db:
+        oid, uid, works = make_order(db)
+        batch = db.query(ProductionBatch).filter_by(production_order_id=oid).one()
+        refs = {"work_order_id": works["sewing"]} if link == "work" else {"production_batch_id": batch.id}
+        if kind == "payroll_record":
+            worker = Employee(full_name="QA payroll witness", factory_code="MIL")
+            db.add(worker); db.flush()
+            evidence = PayrollRecord(**refs, production_order_id=None, employee_id=worker.id, dedupe_key=uuid4().hex,
+                                     scanned_at=datetime.now(timezone.utc), quantity=1, rate_per_piece=1, total_amount=1)
+        elif kind == "payroll_label":
+            evidence = PayrollQrLabel(**refs, production_order_id=None, label_uid=uuid4().hex, quantity=1)
+        elif kind == "daily_report":
+            marker = uuid4().hex[:16]
+            flow = SewingFlow(code=marker, name=f"QA {marker}", factory_code="MIL")
+            db.add(flow); db.flush()
+            if link == "assignment":
+                assignment = SewingAssignment(work_order_id=works["sewing"], sewing_flow_id=flow.id, quantity=120, status="planned")
+                db.add(assignment); db.flush()
+                refs = {"sewing_assignment_id": assignment.id}
+            evidence = SewingDailyReport(**refs, production_order_id=None, report_date=datetime(2026, 11, 4).date(),
+                                         sewing_flow_id=flow.id, line_code=marker, line_name=flow.name, sewn_qty=1)
+        elif kind in {"package", "package_allocation"}:
+            marker = uuid4().hex
+            receipt = LegacyStockReceipt(source_system="QA", source_warehouse_id="QA", source_record_id=marker,
+                                         source_checksum=marker, source_payload={})
+            db.add(receipt); db.flush()
+            package = Package(production_order_id=None, legacy_receipt_id=receipt.id,
+                production_batch_id=batch.id if kind == "package" else None, package_no=marker, barcode=marker,
+                color="white", total_quantity=1, capacity=60)
+            db.add(package); db.flush()
+            evidence = package if kind == "package" else PackageBatchAllocation(package_id=package.id, production_batch_id=batch.id, quantity=1)
+        else:
+            batch.passport_actual_quantity = 12
+            evidence = batch
+        db.add(evidence); db.commit(); db.expire_all()
+        before = {column.name: getattr(evidence, column.name) for column in evidence.__table__.columns}
+        evidence_id, evidence_type = evidence.id, type(evidence)
+        routes_before = route_snapshot(db, oid)
+    url = f"/api/production-orders/{oid}/cutting-factory"
+    options = client.get(url, headers=headers(uid))
+    assert options.status_code == 200 and options.json()["can_change"] is False, options.text
+    refused = client.patch(url, headers=headers(uid), json={"cutting_department_code": "ECT"})
+    assert refused.status_code == 409 and refused.json()["detail"] == "CUTTING_FACTORY_HISTORY_LOCKED", refused.text
+    with TestSessionLocal() as db:
+        evidence = db.get(evidence_type, evidence_id)
+        assert before == {column.name: getattr(evidence, column.name) for column in evidence.__table__.columns}
+        assert route_snapshot(db, oid) == routes_before
+        assert db.query(AuditLog).filter_by(entity_id=oid, action="change_cutting_factory").count() == 0
 
 
 def test_moved_to_ect_matches_created_at_ect_cutting_and_sewing_handoff(client, auth_headers):
