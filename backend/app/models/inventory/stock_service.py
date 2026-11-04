@@ -345,7 +345,7 @@ def delete_item(db, item_id: int, current: User, force: bool = False) -> bool:
         raise HTTPException(409, "Item is linked to stock, BOM, purchasing, or waste records")
     if linked:
         old_value = {"sku": it.sku, "name": it.name, "is_active": it.is_active}
-        it.is_active = False
+        item_persistence.archive_item(db, it)
         log_action(
             db,
             current,
@@ -357,7 +357,7 @@ def delete_item(db, item_id: int, current: User, force: bool = False) -> bool:
         )
         db.commit()
         return True
-    db.delete(it)
+    item_persistence.delete_item(db, it)
     log_action(db, current, "delete", "Item", item_id, new_value={"sku": it.sku, "name": it.name})
     db.commit()
     return False
