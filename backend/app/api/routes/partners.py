@@ -9,7 +9,7 @@ from app.core.deps import (
     require_permissions,
 )
 from app.libs.dto.catalog.party_input import PartyIn
-from app.libs.dto.catalog.party_output import PartyOut
+from app.libs.dto.catalog.party_output import PartyOut, PartyPageOut
 from app.libs.dto.sales.customer_payment_input import CustomerPaymentIn
 from app.libs.dto.sales.customer_order_output import CustomerOrderLedgerOut
 from app.models.catalog import partners_service
@@ -24,7 +24,7 @@ router = APIRouter(tags=["partners"])
 
 
 # ===== Customers =====
-@router.get("/customers")
+@router.get("/customers", response_model=list[PartyOut] | PartyPageOut)
 def list_customers(
     db: DbSession,
     _: User = Depends(require_permissions(*CUSTOMER_READ_PERMISSIONS)),
