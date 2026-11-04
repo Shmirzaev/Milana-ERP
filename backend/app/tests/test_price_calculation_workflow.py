@@ -289,3 +289,15 @@ def test_purchasing_cannot_change_cutting_kroy_number(client):
         headers=purchaser,
     )
     assert denied.status_code == 422, denied.text
+
+
+def test_price_request_creation_duplicate_and_validation(client):
+    data = _setup_workflow_data('create-regression')
+    sales = _login(client, 'sales.price.create-regression@example.com')
+    url = '/api/price-calculation/requests'
+    assert client.post(url, json={'model_id': 0}, headers=sales).status_code == 422
+    assert client.post(url, json={'model_id': 99999999}, headers=sales).status_code == 404
+    first = client.post(url, json={'model_id': data['model_id']}, headers=sales)
+    second = client.post(url, json={'model_id': data['model_id']}, headers=sales)
+    assert first.status_code == second.status_code == 201
+    assert first.json()['id'] != second.json()['id']
