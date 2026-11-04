@@ -25,6 +25,8 @@ def add_uploaded_model_image(
         file_url=file_url,
         file_name=file_name,
         content_type=content_type,
+        # The file is already persisted in MODEL_FILES_DIR. Keeping another
+        # multi-megabyte copy in PostgreSQL makes remote uploads needlessly slow.
         file_data=None,
         image_type=image_type,
         is_primary=is_primary,
