@@ -11,6 +11,8 @@ from app.libs.enums.inventory import (
     MaterialReservationSource,
     MaterialReservationStatus,
     MaterialReservationType,
+    ReservationPlanRowStatus,
+    ReservationPlanStatus,
 )
 
 
@@ -73,7 +75,7 @@ class MaterialReservationPlanRow(BaseModel):
     available_stock: float
     shortage: float
     suggested_batches: list[ReservationBatchSuggestion] = []
-    status: str
+    status: ReservationPlanRowStatus
 
 
 class MaterialReservationPlanOut(BaseModel):
@@ -87,7 +89,7 @@ class MaterialReservationPlanOut(BaseModel):
     model_code: Optional[str] = None
     model_name: Optional[str] = None
     planned_quantity: int
-    status: str
+    status: ReservationPlanStatus
     is_complete: bool
     warning: Optional[str] = None
     summary: dict
