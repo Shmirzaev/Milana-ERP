@@ -279,6 +279,70 @@ def test_receipt_failure_rolls_back_stock_and_key_then_can_retry(
     assert state[5] == 1
 
 
+def test_multiline_receipt_failure_rolls_back_all_rows_then_replays(
+    client, auth_headers, receipt_order, monkeypatch
+):
+    """A late participant failure cannot retain an earlier line or its audit."""
+    from app.models import purchasing_service
+
+    with session_module.SessionLocal() as db:
+        second = PurchaseOrderLine(
+            purchase_order_id=receipt_order["order_id"],
+            item_id=receipt_order["item_id"], ordered_quantity=100,
+            received_quantity=0, unit="pcs", unit_cost=1,
+            warehouse_id=receipt_order["warehouse_id"],
+        )
+        db.add(second)
+        db.commit()
+        second_id = second.id
+
+    first_line = receipt_order["payload"]["lines"][0]
+    payload = {"lines": [
+        {**first_line, "cost_per_unit": 3},
+        {**first_line, "purchase_order_line_id": second_id,
+         "batch_no": first_line["batch_no"] + "-second"},
+    ]}
+    before = receipt_state(receipt_order)
+    original = purchasing_service.add_receive_movement
+    calls = []
+
+    def fail_on_second(*args, **kwargs):
+        movement = original(*args, **kwargs)
+        calls.append(kwargs["reference_id"])
+        if len(calls) == 2:
+            raise HTTPException(503, "Synthetic second movement failure")
+        return movement
+
+    monkeypatch.setattr(purchasing_service, "add_receive_movement", fail_on_second)
+    failed = receive(client, auth_headers, receipt_order, payload=payload)
+    assert failed.status_code == 503, failed.text
+    assert calls == [receipt_order["line_id"], second_id]
+    assert receipt_state(receipt_order) == before
+    with session_module.SessionLocal() as db:
+        assert float(db.get(PurchaseOrderLine, second_id).received_quantity) == 0
+        assert db.query(StockMovement).filter_by(
+            reference_type="PurchaseOrderLine", reference_id=second_id
+        ).count() == 0
+
+    monkeypatch.setattr(purchasing_service, "add_receive_movement", original)
+    success = receive(client, auth_headers, receipt_order, payload=payload)
+    assert success.status_code == 200, success.text
+    saved = receipt_state(receipt_order)
+    assert saved[0] == 5
+    assert saved[1] == "partially_received"
+    assert saved[2:4] == (2, 1)
+    assert saved[5] == before[5] + 1
+    with session_module.SessionLocal() as db:
+        assert float(db.get(PurchaseOrderLine, second_id).received_quantity) == 5
+        assert db.query(StockMovement).filter_by(
+            reference_type="PurchaseOrderLine", reference_id=second_id
+        ).count() == 1
+    retry = receive(client, auth_headers, receipt_order, payload=payload)
+    assert retry.status_code == 200, retry.text
+    assert retry.json() == success.json()
+    assert receipt_state(receipt_order) == saved
+
+
 def test_receipt_without_key_keeps_legacy_multiple_receipts(client, auth_headers, receipt_order):
     first = receive(client, auth_headers, receipt_order, key=None)
     second = receive(client, auth_headers, receipt_order, key=None)
