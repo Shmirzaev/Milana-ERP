@@ -124,3 +124,48 @@ def test_paid_family_postgres_second_audit_queue_failure_rolls_back_then_recover
         assert all(filter_paid_operations_for_factory(db.get(Model, mid).details_json, 'milana')['paid_operations'] == [_operation('retry', 'milana')] for mid in ids)
         assert db.query(AuditLog).filter(AuditLog.action == 'update_paid_operations', AuditLog.entity_id.in_(ids)).count() == len(ids)
         assert audit_service.verify_audit_hash_chain(db)['ok']
+
+
+def test_paid_family_postgres_audit_finalization_failure_rolls_back_then_recovers(pg_sessions, monkeypatch):  # noqa: F811
+    actor_id, ids, control_id, key = seed(pg_sessions.kw['bind'])
+    monkeypatch.setattr(models_service, '_catalog_paid_operation_factory_scope', lambda *args: None)
+    monkeypatch.setattr(models_service, '_model_out_payload', lambda row, scope: {'id': row.id})
+    with pg_sessions() as db:
+        audit_service.log_action(db, db.get(User, actor_id), 'seed', 'test', actor_id, new_value={'key': key})
+        db.commit()
+
+    def complete_snapshot(db):
+        models = db.execute(Model.__table__.select().where(Model.id.in_(ids + [control_id])).order_by(Model.id)).mappings().all()
+        audits = db.execute(AuditLog.__table__.select().order_by(AuditLog.id)).mappings().all()
+        return [dict(row) for row in models], [dict(row) for row in audits]
+
+    with pg_sessions() as db:
+        before = complete_snapshot(db)
+        assert audit_service.verify_audit_hash_chain(db)['ok']
+
+    original = audit_service.add_audit_log_rows
+    calls = []
+
+    def fail_after_finalized_rows_are_flushed(db, entries):
+        original(db, entries)
+        db.flush()
+        calls.append(len(entries))
+        raise RuntimeError('injected audit finalization failure')
+
+    with monkeypatch.context() as patch:
+        patch.setattr(audit_service, 'add_audit_log_rows', fail_after_finalized_rows_are_flushed)
+        with pg_sessions() as db:
+            with pytest.raises(RuntimeError, match='injected audit finalization failure'):
+                models_service.update_model_paid_operations(db.get(User, actor_id), db, ids[0], _payload('milana', 'finalize-retry'))
+            db.rollback()
+    assert calls == [len(ids)]
+    with pg_sessions() as db:
+        assert complete_snapshot(db) == before
+        assert audit_service.verify_audit_hash_chain(db)['ok']
+
+    with pg_sessions() as db:
+        models_service.update_model_paid_operations(db.get(User, actor_id), db, ids[0], _payload('milana', 'finalize-retry'))
+    with pg_sessions() as db:
+        assert all(filter_paid_operations_for_factory(db.get(Model, mid).details_json, 'milana')['paid_operations'] == [_operation('finalize-retry', 'milana')] for mid in ids)
+        assert db.query(AuditLog).filter(AuditLog.action == 'update_paid_operations', AuditLog.entity_id.in_(ids)).count() == len(ids)
+        assert audit_service.verify_audit_hash_chain(db)['ok']
