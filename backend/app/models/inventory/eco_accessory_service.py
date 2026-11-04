@@ -4,7 +4,7 @@ Each public mutation owns one transaction; persistence helpers share its Session
 No factory-owned material is created by a requirement or approval.
 """
 from fastapi import HTTPException
-from sqlalchemy import and_, or_
+from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import OperationalError
 from app.core.dt import as_utc
@@ -20,6 +20,26 @@ from app.models.audit_service import log_action
 from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response
 
 READ = ("eco_accessories.read", "eco_accessories.manage", "eco_accessories.approve", "eco_accessories.issue")
+ACTIVE_ASSIGNMENT_STATUSES = ("planned", "in_progress", "completed")
+
+
+def canonical_sewing_factory(value: str | None) -> SewingFactoryCode:
+    from app.models.bundles_service import SEWING_FACTORY_ALIASES
+    normalized = str(value or "").strip().upper()
+    if normalized in {"", "SEW"}:
+        return SewingFactoryCode.MILANA
+    code = SEWING_FACTORY_ALIASES.get(normalized)
+    if code is None:
+        raise HTTPException(400, "Unknown sewing factory; correct the stored factory before continuing")
+    return SewingFactoryCode(code)
+
+
+def _factory_condition(column, factories: set[SewingFactoryCode]):
+    from app.models.bundles_service import SEWING_FACTORY_ALIASES
+    aliases = {alias for alias, code in SEWING_FACTORY_ALIASES.items() if code in factories}
+    if SewingFactoryCode.MILANA in factories:
+        aliases.update(("", "SEW"))
+    return func.upper(func.trim(func.coalesce(column, ""))).in_(sorted(aliases))
 
 
 def _access(current, *permissions: str) -> None:
@@ -37,18 +57,22 @@ def eco_order_condition():
         ProductionOrder.id.in_(_eco_work_order_query()),
         ProductionOrder.id.in_(_eco_bundle_query()),
         ProductionOrder.id.in_(_eco_assigned_order_query()),
+        ProductionOrder.id.in_(_direct_flow_query().with_only_columns(WorkOrder.production_order_id).where(
+            _factory_condition(SewingFlow.factory_code, {SewingFactoryCode.ECO_COTTON}))),
     )
 
 
 def _eco_work_order_query():
     from sqlalchemy import select
     return select(WorkOrder.production_order_id).join(Department, Department.id == WorkOrder.department_id).where(
-        WorkOrder.operation == "sewing", Department.code == "ECO", WorkOrder.status.notin_(("cancelled", "rejected")))
+        WorkOrder.operation == "sewing", _factory_condition(Department.code, {SewingFactoryCode.ECO_COTTON}),
+        WorkOrder.status.notin_(("cancelled", "rejected")))
 
 
 def _eco_bundle_query():
     from sqlalchemy import select
-    return select(Bundle.production_order_id).where(Bundle.sewing_factory_code == "ECO", Bundle.status != "cancelled")
+    return select(Bundle.production_order_id).where(
+        _factory_condition(Bundle.sewing_factory_code, {SewingFactoryCode.ECO_COTTON}), Bundle.status != "cancelled")
 
 
 def _active_assignment_query():
@@ -59,20 +83,35 @@ def _active_assignment_query():
         SewingAssignment, SewingAssignment.work_order_id == WorkOrder.id).join(
         SewingFlow, SewingFlow.id == SewingAssignment.sewing_flow_id).where(
         WorkOrder.operation == "sewing", WorkOrder.status.notin_(("cancelled", "rejected")),
-        SewingAssignment.status.in_(("planned", "in_progress", "completed")))
+        SewingAssignment.status.in_(ACTIVE_ASSIGNMENT_STATUSES))
+
+
+def _direct_flow_query():
+    from sqlalchemy import select
+    # A work order's former primary line is stale once active split assignments
+    # exist. Only unsplit work can use this persisted line as factory authority.
+    active_split = select(SewingAssignment.id).where(SewingAssignment.work_order_id == WorkOrder.id,
+        SewingAssignment.status.in_(ACTIVE_ASSIGNMENT_STATUSES)).exists()
+    return select(WorkOrder.id).select_from(WorkOrder).join(SewingFlow,
+        SewingFlow.id == WorkOrder.sewing_flow_id).where(WorkOrder.operation == "sewing",
+        WorkOrder.status.notin_(("cancelled", "rejected")), ~active_split)
 
 
 def _eco_assigned_order_query():
-    return _active_assignment_query().with_only_columns(WorkOrder.production_order_id).where(SewingFlow.factory_code == "ECO")
+    return _active_assignment_query().with_only_columns(WorkOrder.production_order_id).where(
+        _factory_condition(SewingFlow.factory_code, {SewingFactoryCode.ECO_COTTON}))
 
 
 def sewing_assignment_work_ids(factory_codes: set[SewingFactoryCode], batch_id: int | None = None):
-    query = _active_assignment_query().with_only_columns(WorkOrder.id).where(SewingFlow.factory_code.in_(factory_codes))
+    condition = _factory_condition(SewingFlow.factory_code, factory_codes)
+    query = _active_assignment_query().with_only_columns(WorkOrder.id).where(condition)
+    direct = _direct_flow_query().where(condition)
     if batch_id is not None:
         query = query.where(
             or_(SewingAssignment.production_batch_id == batch_id, SewingAssignment.production_batch_id.is_(None)),
             or_(WorkOrder.production_batch_id == batch_id, WorkOrder.production_batch_id.is_(None)))
-    return query
+        direct = direct.where(or_(WorkOrder.production_batch_id == batch_id, WorkOrder.production_batch_id.is_(None)))
+    return query.union(direct)
 
 
 def sewing_assignment_factory(db: Session, work_order_id: int, assignment_id: int) -> SewingFactoryCode:
@@ -80,7 +119,20 @@ def sewing_assignment_factory(db: Session, work_order_id: int, assignment_id: in
         WorkOrder.id == work_order_id, SewingAssignment.id == assignment_id))
     if factory is None:
         raise HTTPException(400, "Selected sewing assignment does not belong to this active work order")
-    return SewingFactoryCode(factory)
+    return canonical_sewing_factory(factory)
+
+
+def direct_sewing_factory(db: Session, work_order_id: int) -> SewingFactoryCode | None:
+    factory = db.scalar(_direct_flow_query().with_only_columns(SewingFlow.factory_code).where(WorkOrder.id == work_order_id))
+    return canonical_sewing_factory(factory) if factory is not None else None
+
+
+def _eco_record_condition():
+    eco = {SewingFactoryCode.ECO_COTTON}
+    return or_(_factory_condition(SewingFlow.factory_code, eco),
+        and_(SewingRecord.sewing_assignment_id.is_(None), or_(
+            _factory_condition(Department.code, eco),
+            WorkOrder.id.in_(_direct_flow_query().where(_factory_condition(SewingFlow.factory_code, eco))))))
 
 
 def is_eco_bso_order(db: Session, order_id: int) -> bool:
@@ -104,14 +156,13 @@ def _order(db: Session, order_id: int, *, lock: bool = False, include_history: b
 
 def _sewing_started(db: Session, order_id: int) -> bool:
     return bool(db.query(Bundle.id).filter(Bundle.production_order_id == order_id,
-        Bundle.sewing_factory_code == "ECO",
+        _factory_condition(Bundle.sewing_factory_code, {SewingFactoryCode.ECO_COTTON}),
         Bundle.status.in_(("sent_to_sewing", "received_sewing"))).first() or db.query(SewingRecord.id)
         .join(WorkOrder, WorkOrder.id == SewingRecord.work_order_id)
         .join(Department, Department.id == WorkOrder.department_id)
         .outerjoin(SewingAssignment, SewingAssignment.id == SewingRecord.sewing_assignment_id)
         .outerjoin(SewingFlow, SewingFlow.id == SewingAssignment.sewing_flow_id)
-        .filter(WorkOrder.production_order_id == order_id, or_(SewingFlow.factory_code == "ECO",
-            and_(SewingRecord.sewing_assignment_id.is_(None), Department.code == "ECO"))).first())
+        .filter(WorkOrder.production_order_id == order_id, _eco_record_condition()).first())
 
 
 def _editable(db: Session, order) -> None:
@@ -151,14 +202,13 @@ def _output_context(db: Session, orders):
         EcoMaterialBatch.id == EcoAccessoryAllocation.batch_id).filter(
         EcoAccessoryAllocation.requirement_id.in_([r.id for r in requirements])).order_by(EcoAccessoryAllocation.id).all()
     started = {oid for (oid,) in db.query(Bundle.production_order_id).filter(Bundle.production_order_id.in_(order_ids),
-        Bundle.sewing_factory_code == "ECO",
+        _factory_condition(Bundle.sewing_factory_code, {SewingFactoryCode.ECO_COTTON}),
         Bundle.status.in_(("sent_to_sewing", "received_sewing"))).distinct().all()}
     started.update(oid for (oid,) in db.query(WorkOrder.production_order_id).join(SewingRecord,
         SewingRecord.work_order_id == WorkOrder.id).join(Department, Department.id == WorkOrder.department_id)
         .outerjoin(SewingAssignment, SewingAssignment.id == SewingRecord.sewing_assignment_id)
         .outerjoin(SewingFlow, SewingFlow.id == SewingAssignment.sewing_flow_id)
-        .filter(WorkOrder.production_order_id.in_(order_ids), or_(SewingFlow.factory_code == "ECO",
-            and_(SewingRecord.sewing_assignment_id.is_(None), Department.code == "ECO"))).distinct().all())
+        .filter(WorkOrder.production_order_id.in_(order_ids), _eco_record_condition()).distinct().all())
     return {
         "plans": {p.production_order_id: p for p in plans}, "requirements": requirements, "allocations": allocations,
         "items": {i.id: i for i in db.query(Item).filter(Item.id.in_([r.item_id for r in requirements])).all()},
@@ -397,24 +447,28 @@ def ensure_eco_accessory_approval(db: Session, order_id: int) -> dict | None:
     return plan
 
 
-def accessory_gate_factories(db: Session, order_id: int, batch_id: int | None = None) -> set[str]:
+def accessory_gate_factories(db: Session, order_id: int, batch_id: int | None = None) -> set[SewingFactoryCode]:
     query = db.query(Bundle.sewing_factory_code).filter(Bundle.production_order_id == order_id, Bundle.status != "cancelled")
     if batch_id is not None:
         query = query.filter(Bundle.production_batch_id == batch_id)
-    factories = {code or "MIL" for (code,) in query.distinct().all()}
+    factories = {canonical_sewing_factory(code) for (code,) in query.distinct().all()}
     assignments = _active_assignment_query().with_only_columns(SewingFlow.factory_code).where(WorkOrder.production_order_id == order_id)
     if batch_id is not None:
         assignments = assignments.where(
             or_(SewingAssignment.production_batch_id == batch_id, SewingAssignment.production_batch_id.is_(None)),
             or_(WorkOrder.production_batch_id == batch_id, WorkOrder.production_batch_id.is_(None)))
-    factories.update(db.scalars(assignments.distinct()))
+    factories.update(canonical_sewing_factory(code) for code in db.scalars(assignments.distinct()))
+    direct = _direct_flow_query().with_only_columns(SewingFlow.factory_code).where(WorkOrder.production_order_id == order_id)
+    if batch_id is not None:
+        direct = direct.where(or_(WorkOrder.production_batch_id == batch_id, WorkOrder.production_batch_id.is_(None)))
+    factories.update(canonical_sewing_factory(code) for code in db.scalars(direct.distinct()))
     if factories:
         return factories
     query = db.query(Department.code).join(WorkOrder, WorkOrder.department_id == Department.id).filter(
         WorkOrder.production_order_id == order_id, WorkOrder.operation == "sewing", WorkOrder.status.notin_(("cancelled", "rejected")))
     if batch_id is not None:
         query = query.filter(or_(WorkOrder.production_batch_id == batch_id, WorkOrder.production_batch_id.is_(None)))
-    return {"MIL" if code == "SEW" else code for (code,) in query.distinct().all()} or {"MIL"}
+    return {canonical_sewing_factory(code) for (code,) in query.distinct().all()} or {SewingFactoryCode.MILANA}
 
 
 def sync_eco_accessory_block(db: Session, order_id: int, *, batch_id: int | None = None) -> dict | None:

@@ -129,8 +129,13 @@ def test_other_factory_assignment_keeps_its_own_gate_on_shared_work(shared_order
     assert not work.is_blocked
 
 
-def test_assigned_eco_bso_can_approve_then_record_and_issue_exactly_once(shared_order):
+@pytest.mark.parametrize("direct", [False, True])
+def test_assigned_eco_bso_can_approve_then_record_and_issue_exactly_once(shared_order, direct):
     db, user, order, work, assignment, _ = shared_order
+    if direct:
+        assignment.status = "cancelled"
+        work.sewing_flow_id = assignment.sewing_flow_id
+        db.commit()
     bind_session_factory(user, "ECO"); bind_idempotency_identity(db, user)
     item = Item(sku="ASSIGNMENT-BUTTON", name="Gate buttons", category="accessory", unit="pcs")
     db.add(item); db.flush()
@@ -145,7 +150,8 @@ def test_assigned_eco_bso_can_approve_then_record_and_issue_exactly_once(shared_
     # Preserve existing authorization for this historical SEW work order. The
     # allocation approves handoff; physical issue is a distinct stock operation.
     bind_session_factory(user, "MIL")
-    result = post_sewing(output(work, assignment), db, user)
+    payload = SewingRecordIn(work_order_id=work.id, input_qty=1, sewn_qty=1, passed_qty=1) if direct else output(work, assignment)
+    result = post_sewing(payload, db, user)
     assert db.get(SewingRecord, result["id"]).passed_qty == 1 and stock.quantity == 10
     bind_session_factory(user, "ECO"); bind_idempotency_identity(db, user)
     payload = EcoAccessoryIssueIn(revision=plan.revision, lines=[{"allocation_id": plan.lines[0].allocations[0].id, "quantity": 5}])
@@ -153,3 +159,137 @@ def test_assigned_eco_bso_can_approve_then_record_and_issue_exactly_once(shared_
     assert service.issue_plan(db, user, order.id, payload, "assignment-gate-issue") == issued
     assert stock.quantity == Decimal("5") and stock.reserved_quantity == 0
     assert db.query(EcoMaterialMovement).count() == 1
+
+
+@pytest.mark.parametrize("factory", ["BESTTEX", "BTX", "MILANA", "SML", None, "SEW"])
+def test_legacy_bundle_factory_alias_keeps_existing_gate(shared_order, factory):
+    db, user, order, work, assignment, _ = shared_order
+    assignment.status = "cancelled"
+    db.add(Bundle(bundle_no="ALIAS-GATE", barcode="ALIAS-GATE", production_order_id=order.id,
+        model_id=order.model_id, color="black", size="M", quantity=10, sewing_factory_code=factory, status="created"))
+    db.commit()
+    expected = "BST" if factory in {"BESTTEX", "BTX"} else "MIL"
+    assert service.accessory_gate_factories(db, order.id) == {expected}
+    assert sync_sewing_accessory_block(db, order.id)["is_complete"]
+    assert sync_sewing_accessory_block(db, order.id, sewing_factory_code=factory or "SEW")["is_complete"]
+    result = post_sewing(SewingRecordIn(work_order_id=work.id, input_qty=1, sewn_qty=1, passed_qty=1), db, user)
+    assert db.get(SewingRecord, result["id"]).passed_qty == 1
+
+
+@pytest.mark.parametrize("factory", ["ECO COTTON", "ECO_COTTON", "ecocotton"])
+def test_eco_bundle_alias_requires_approval(shared_order, factory):
+    db, user, order, work, assignment, _ = shared_order
+    assignment.status = "cancelled"
+    db.add(Bundle(bundle_no="ECO-ALIAS-GATE", barcode="ECO-ALIAS-GATE", production_order_id=order.id,
+        model_id=order.model_id, color="black", size="M", quantity=10, sewing_factory_code=factory, status="created"))
+    db.commit()
+    assert service.is_eco_bso_order(db, order.id)
+    assert service.accessory_gate_factories(db, order.id) == {"ECO"}
+    with pytest.raises(HTTPException, match="approvalRequired"):
+        post_sewing(SewingRecordIn(work_order_id=work.id, input_qty=1, sewn_qty=1, passed_qty=1), db, user)
+    db.rollback()
+    assert db.query(SewingRecord).count() == 0
+
+
+def test_unknown_factory_is_refused_without_500(shared_order):
+    db, _, order, _, assignment, _ = shared_order
+    assignment.status = "cancelled"
+    db.add(Bundle(bundle_no="UNKNOWN-GATE", barcode="UNKNOWN-GATE", production_order_id=order.id,
+        model_id=order.model_id, color="black", size="M", quantity=10, sewing_factory_code="UNKNOWN", status="created"))
+    db.commit()
+    for factory in (None, "UNKNOWN"):
+        with pytest.raises(HTTPException, match="Unknown sewing factory") as failure:
+            sync_sewing_accessory_block(db, order.id, sewing_factory_code=factory)
+        assert failure.value.status_code == 400
+    db.rollback()
+    assert db.query(SewingRecord).count() == 0
+
+
+@pytest.mark.parametrize("factory", ["ECO COTTON", "ECO_COTTON", "ecocotton", "BESTTEX", "UNKNOWN"])
+def test_historical_assignment_factory_is_normalized_in_python_and_sql(shared_order, factory):
+    db, user, order, work, assignment, _ = shared_order
+    # Simulate historical imported factory spelling; current flow writes enforce
+    # canonical codes. The guard must also handle persisted legacy rows safely.
+    db.connection().exec_driver_sql("PRAGMA ignore_check_constraints=ON")
+    flow = db.get(SewingFlow, assignment.sewing_flow_id)
+    flow.factory_code = factory
+    db.commit()
+    db.connection().exec_driver_sql("PRAGMA ignore_check_constraints=OFF")
+    if factory == "UNKNOWN":
+        with pytest.raises(HTTPException, match="Unknown sewing factory") as failure:
+            post_sewing(output(work, assignment), db, user)
+        assert failure.value.status_code == 400
+    elif factory == "BESTTEX":
+        assert service.sewing_assignment_factory(db, work.id, assignment.id) == "BST"
+        assert work.id in db.scalars(service.sewing_assignment_work_ids({"BST"})).all()
+        result = post_sewing(output(work, assignment), db, user)
+        assert db.get(SewingRecord, result["id"]).passed_qty == 1
+    else:
+        assert service.is_eco_bso_order(db, order.id)
+        assert work.id in db.scalars(service.sewing_assignment_work_ids({"ECO"})).all()
+        with pytest.raises(HTTPException, match="approvalRequired"):
+            post_sewing(output(work, assignment), db, user)
+    db.rollback()
+
+
+@pytest.mark.parametrize("factory", ["ECO", "MIL", "BST"])
+@pytest.mark.parametrize("split_status", [None, "cancelled", "transferred"])
+def test_direct_work_order_line_is_authoritative_without_active_split(shared_order, factory, split_status):
+    db, user, order, work, assignment, _ = shared_order
+    flow = db.get(SewingFlow, assignment.sewing_flow_id)
+    if split_status is None:
+        db.delete(assignment)
+    else:
+        assignment.status = split_status
+    flow.factory_code = factory
+    work.sewing_flow_id = flow.id
+    db.commit()
+    assert service.is_eco_bso_order(db, order.id) == (factory == "ECO")
+    assert service.accessory_gate_factories(db, order.id) == {factory}
+    assert work.id in db.scalars(service.sewing_assignment_work_ids({factory})).all()
+    payload = SewingRecordIn(work_order_id=work.id, input_qty=1, sewn_qty=1, passed_qty=1)
+    if factory == "ECO":
+        with pytest.raises(HTTPException, match="approvalRequired"):
+            post_sewing(payload, db, user)
+        db.rollback()
+        assert work.is_blocked is False and db.query(SewingRecord).count() == 0
+    else:
+        result = post_sewing(payload, db, user)
+        assert db.get(SewingRecord, result["id"]).passed_qty == 1
+
+
+def test_direct_eco_line_keeps_batch_and_historical_grandfather_scope(shared_order):
+    db, user, order, work, assignment, record = shared_order
+    assignment.status = "cancelled"
+    work.sewing_flow_id = assignment.sewing_flow_id
+    eco = ProductionBatch(production_order_id=order.id, batch_no="DIRECT-ECO", planned_quantity=10)
+    mil = ProductionBatch(production_order_id=order.id, batch_no="OTHER-MIL", planned_quantity=10)
+    db.add_all([eco, mil]); db.flush()
+    work.production_batch_id = eco.id
+    record.production_batch_id = eco.id
+    db.add(Bundle(bundle_no="DIRECT-MIL-BATCH", barcode="DIRECT-MIL-BATCH", production_order_id=order.id,
+        production_batch_id=mil.id, model_id=order.model_id, color="black", size="M", quantity=10, sewing_factory_code="MIL", status="created"))
+    db.commit()
+    assert service.accessory_gate_factories(db, order.id, eco.id) == {"ECO"}
+    assert service.accessory_gate_factories(db, order.id, mil.id) == {"MIL"}
+    with pytest.raises(HTTPException, match="approvalRequired"):
+        post_sewing(SewingRecordIn(work_order_id=work.id, input_qty=1, sewn_qty=1, passed_qty=1), db, user)
+    db.rollback()
+    db.add(SewingRecord(work_order_id=work.id, production_batch_id=eco.id, input_qty=1, sewn_qty=1, passed_qty=1))
+    db.commit()
+    assert service._sewing_started(db, order.id)
+    assert service.eco_accessory_readiness(db, order.id) is None
+    assert order.id in service._output_context(db, [order])["started"]
+
+
+def test_stale_direct_eco_line_does_not_override_active_mil_split(shared_order):
+    db, user, order, work, assignment, _ = shared_order
+    work.sewing_flow_id = assignment.sewing_flow_id
+    flow = SewingFlow(factory_code="MIL", code="ACTIVE-MIL", name="Active MIL split")
+    db.add(flow); db.flush()
+    assignment.sewing_flow_id = flow.id
+    db.commit()
+    assert not service.is_eco_bso_order(db, order.id)
+    assert service.accessory_gate_factories(db, order.id) == {"MIL"}
+    result = post_sewing(output(work, assignment), db, user)
+    assert db.get(SewingRecord, result["id"]).passed_qty == 1

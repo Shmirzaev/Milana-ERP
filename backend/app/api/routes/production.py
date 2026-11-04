@@ -5348,8 +5348,8 @@ def post_sewing(payload: SewingRecordIn, db: DbSession, current: User = Depends(
         payload_batch_id,
         operation_name="sewing",
     )
-    from app.models.inventory.eco_accessory_service import sewing_assignment_factory
-    factory = sewing_assignment_factory(db, wo.id, assignment.id) if assignment else None
+    from app.models.inventory.eco_accessory_service import direct_sewing_factory, sewing_assignment_factory
+    factory = sewing_assignment_factory(db, wo.id, assignment.id) if assignment else direct_sewing_factory(db, wo.id)
     ensure_accessories_issued_for_sewing(db, int(wo.production_order_id),
         sewing_factory_code=factory, production_batch_id=batch_id)
     _gate_record_submission(wo)

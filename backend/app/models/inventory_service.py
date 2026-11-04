@@ -2873,15 +2873,15 @@ def accessory_issue_requests(
 
 def sync_sewing_accessory_block(db: Session, production_order_id: int, *, sewing_factory_code: str | None = None,
                               production_batch_id: int | None = None) -> dict:
-    from app.models.inventory.eco_accessory_service import accessory_gate_factories, sewing_assignment_work_ids, sync_eco_accessory_block
-    from app.libs.enums.production import SewingFactoryCode
-    factories = {sewing_factory_code} if sewing_factory_code else accessory_gate_factories(db, production_order_id, production_batch_id)
+    from app.models.inventory.eco_accessory_service import accessory_gate_factories, canonical_sewing_factory, sewing_assignment_work_ids, sync_eco_accessory_block
+    if sewing_factory_code is not None:
+        sewing_factory_code = canonical_sewing_factory(sewing_factory_code)
+    factories = {sewing_factory_code} if sewing_factory_code is not None else accessory_gate_factories(db, production_order_id, production_batch_id)
     eco_plan = sync_eco_accessory_block(db, production_order_id, batch_id=production_batch_id) if "ECO" in factories else None
     if factories == {"ECO"} and eco_plan is not None:
         return eco_plan
     legacy_factories = factories - {"ECO"} if eco_plan is not None else factories
     legacy_departments = legacy_factories | ({"SEW"} if "MIL" in legacy_factories else set())
-    assigned_factories = {SewingFactoryCode("MIL" if code == "SEW" else code) for code in legacy_factories}
     plan = accessory_issue_plan(db, production_order_id)
     upstream_output = float(
         db.query(func.coalesce(func.sum(CuttingRecord.passed_pieces), 0))
@@ -2903,7 +2903,7 @@ def sync_sewing_accessory_block(db: Session, production_order_id: int, *, sewing
         .filter(
             WorkOrder.production_order_id == production_order_id,
             WorkOrder.operation == "sewing",
-            or_(Department.code.in_(legacy_departments), WorkOrder.id.in_(sewing_assignment_work_ids(assigned_factories, production_batch_id))),
+            or_(Department.code.in_(legacy_departments), WorkOrder.id.in_(sewing_assignment_work_ids(legacy_factories, production_batch_id))),
             WorkOrder.status.notin_(("completed", "cancelled", "rejected")),
         )
         .all()

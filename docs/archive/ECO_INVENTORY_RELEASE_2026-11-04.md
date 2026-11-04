@@ -83,3 +83,32 @@ PostgreSQL/immutable CI, candidate browser and release checks require their own
 exact-source evidence. All reproduction rows
 were isolated test data. This worker changed no production state or business
 rows and did not push or deploy.
+
+## Sewing factory aliases and direct-line follow-up
+
+Independent review reproduced two remaining compatibility cases against
+`cf23c065`: a historical `BESTTEX` bundle reached the new enum conversion and
+raised `ValueError`, and an unsplit shared SEW work order assigned directly to
+an ECO line could record output without approval. Eighteen new assertions failed
+before this follow-up. The gate now uses the existing bundle alias map lazily,
+returns canonical factory values before selecting the approval path, and refuses
+unknown factories with HTTP400. SQL ownership, assigned work selection and
+historical sewing evidence recognize the same supported alias spellings.
+
+The persisted primary line is authoritative only without any active split
+assignment. Its work-order batch remains the gate scope; a stale former primary
+line cannot override active MIL/BST splits. Direct ECO work participates in order
+selection, approval blocks and historical grandfathering. Tests include no
+assignment, cancelled/transferred splits, real positive MIL/BST output, all
+supported legacy factory families, refusal of unknown factories, batch isolation
+and approved direct ECO allocation through output and exactly-once issue.
+
+The independent package reviewer probed BESTTEX, unknown values, direct ECO
+refusal with zero output, direct MIL positive output, history/batch predicates
+and stale-primary suppression and found no remaining actionable blocker.
+The affected local selection passed 219 distinct cases (96 ECO/transfer/bundle
+cases and 123 sewing/receiving/quantity/query-growth cases); the final boundary
+file passed 38 cases after adding real legacy positive-output assertions.
+Full-app Ruff, compilation and diff checks passed. Real PostgreSQL, immutable
+CI and deployment verification remain coordinator gates.
+This follow-up added no schema, permissions or production data changes.
