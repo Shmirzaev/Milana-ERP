@@ -78,6 +78,17 @@ class MaterialReservationPlanRow(BaseModel):
     status: ReservationPlanRowStatus
 
 
+class ReservationPlanSummaryOut(BaseModel):
+    # Empty plans use sum()'s integer zero; populated plans use floats.
+    required_quantity: int | float
+    already_reserved_quantity: int | float
+    remaining_to_reserve: int | float
+    shortage: int | float
+    line_count: int
+    ready_line_count: int
+    shortage_line_count: int
+
+
 class MaterialReservationPlanOut(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
 
@@ -92,7 +103,7 @@ class MaterialReservationPlanOut(BaseModel):
     status: ReservationPlanStatus
     is_complete: bool
     warning: Optional[str] = None
-    summary: dict
+    summary: ReservationPlanSummaryOut
     rows: list[MaterialReservationPlanRow]
 
 
