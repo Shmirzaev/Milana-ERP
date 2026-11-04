@@ -1,4 +1,7 @@
 
+from collections.abc import Iterator
+from contextlib import contextmanager
+
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
 from typing import Annotated
@@ -11,7 +14,7 @@ from app.core.config import settings
 from app.core.proxy_trust import client_ip, effective_request_scheme
 from app.core.deps import DbSession, CurrentUser, user_permissions
 from app.core.dt import as_utc, utcnow
-from app.core.shared_store import get_shared_counter_store
+from app.core.shared_store import SharedCounterStore, get_shared_counter_store
 from app.core.security import (
     create_access_token,
     hash_password,
@@ -64,46 +67,59 @@ def _login_key(request: Request, email: str) -> str:
     return f"{_client_ip(request)}:{normalize_email(email)}"
 
 
-def _enforce_login_rate_limit(key: str) -> None:
-    store = get_shared_counter_store()
-    locked_ttl = store.ttl(f"auth:login-lock:{key}")
-    if locked_ttl:
+@contextmanager
+def _auth_counter_store() -> Iterator[SharedCounterStore]:
+    try:
+        yield get_shared_counter_store()
+    except HTTPException:
+        raise
+    except Exception:
         raise HTTPException(
-            status.HTTP_429_TOO_MANY_REQUESTS,
-            "Too many failed login attempts. Try again later.",
-            headers={"Retry-After": str(locked_ttl)},
-        )
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "Authentication is temporarily unavailable. Try again later.",
+        ) from None
+
+
+def _enforce_login_rate_limit(key: str) -> None:
+    with _auth_counter_store() as store:
+        locked_ttl = store.ttl(f"auth:login-lock:{key}")
+        if locked_ttl:
+            raise HTTPException(
+                status.HTTP_429_TOO_MANY_REQUESTS,
+                "Too many failed login attempts. Try again later.",
+                headers={"Retry-After": str(locked_ttl)},
+            )
 
 
 def _record_login_failure(key: str) -> None:
     if settings.AUTH_MAX_FAILED_ATTEMPTS <= 0:
         return
-    store = get_shared_counter_store()
-    failure_key = f"auth:login-fail:{key}"
-    attempts = store.increment(failure_key, settings.AUTH_WINDOW_SECONDS)
-    if attempts >= settings.AUTH_MAX_FAILED_ATTEMPTS:
-        store.set(f"auth:login-lock:{key}", "1", settings.AUTH_LOCKOUT_SECONDS)
-        store.delete(failure_key)
+    with _auth_counter_store() as store:
+        failure_key = f"auth:login-fail:{key}"
+        attempts = store.increment(failure_key, settings.AUTH_WINDOW_SECONDS)
+        if attempts >= settings.AUTH_MAX_FAILED_ATTEMPTS:
+            store.set(f"auth:login-lock:{key}", "1", settings.AUTH_LOCKOUT_SECONDS)
+            store.delete(failure_key)
 
 
 def _clear_login_failures(key: str) -> None:
-    store = get_shared_counter_store()
-    store.delete(f"auth:login-fail:{key}", f"auth:login-lock:{key}")
+    with _auth_counter_store() as store:
+        store.delete(f"auth:login-fail:{key}", f"auth:login-lock:{key}")
 
 
 def _enforce_reset_rate_limit(request: Request, email: str) -> None:
-    store = get_shared_counter_store()
-    client = _client_ip(request)
-    keys = [f"ip:{client}", f"email:{normalize_email(email)}"]
-    for key in keys:
-        requests = store.increment(f"auth:reset:{key}", 60 * 60)
-        if requests > 5:
-            retry_after = store.ttl(f"auth:reset:{key}") or 60 * 60
-            raise HTTPException(
-                status.HTTP_429_TOO_MANY_REQUESTS,
-                "Too many password reset requests. Try again later.",
-                headers={"Retry-After": str(retry_after)},
-            )
+    with _auth_counter_store() as store:
+        client = _client_ip(request)
+        keys = [f"ip:{client}", f"email:{normalize_email(email)}"]
+        for key in keys:
+            requests = store.increment(f"auth:reset:{key}", 60 * 60)
+            if requests > 5:
+                retry_after = store.ttl(f"auth:reset:{key}") or 60 * 60
+                raise HTTPException(
+                    status.HTTP_429_TOO_MANY_REQUESTS,
+                    "Too many password reset requests. Try again later.",
+                    headers={"Retry-After": str(retry_after)},
+                )
 
 
 def _authenticate(request: Request, db: Session, email: str, password: str) -> User:
@@ -252,6 +268,8 @@ def forgot_password(payload: ForgotPasswordIn, db: DbSession, background_tasks: 
 @session_router.post("/reset-password")
 @router.post("/reset-password")
 def reset_password(payload: ResetPasswordIn, db: DbSession):
+    with _auth_counter_store() as store:
+        store.ttl("auth:reset-completion")
     if payload.new_password != payload.confirm_new_password:
         raise HTTPException(400, "New passwords do not match")
     try:

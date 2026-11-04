@@ -106,3 +106,14 @@ try {
   await assert.rejects(apiExports.fetchResponse("/report.xlsx"), error => error === abort);
 } finally { globalThis.fetch = originalFetch; }
 console.log("Structured validation, client validation, preserved codes and download network error checks passed.");
+
+const authUnavailable = "Authentication is temporarily unavailable. Try again later.";
+const expectedAuth = { en: authUnavailable, ru: "Вход и восстановление пароля временно недоступны. Повторите попытку позже.", uz: "Tizimga kirish va parolni tiklash vaqtincha mavjud emas. Keyinroq qayta urinib ko‘ring." };
+for (const lang of ["en", "ru", "uz"]) {
+  globalThis.document.documentElement.lang = lang;
+  const error = new ApiError(503, { detail: authUnavailable });
+  assert.equal(error.rawDetail, authUnavailable);
+  assert.equal(error.message, `503: ${expectedAuth[lang]}`);
+  if (lang !== "en") assert.notEqual(error.message, new ApiError(503, "Unknown backend detail").message);
+}
+console.log("Authentication outage messages preserve the specific reason in EN/RU/UZ.");

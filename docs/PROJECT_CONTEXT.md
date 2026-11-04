@@ -63,6 +63,18 @@ passed; independent AI review found no remaining source blocker. Human acceptanc
 guarded downgrade apply; no new migration. Production release/rollback pointers
 above are unchanged. REVOKE, adoption, live hardware and remaining system-wide
 refactor/type coverage stay pending.
+## Shared-counter outage policy (3 November)
+
+The approved [mixed policy and isolated evidence](archive/SHARED_STORE_MIXED_OUTAGE_2026-11-03.md)
+keep ordinary authenticated requests available with permissions enforced and a
+warning when global limiting is skipped. Login and both password-reset steps
+return JSON 503 until the store recovers. Dilmurod implements; Ismail reviews.
+Connected-browser evidence is PARTIAL (signed-in checks missing); human acceptance
+remains pending. No production changes were
+made; active/rollback records below are unchanged. #311 readiness/router integration
+must preserve this availability policy and is not included here. Full backend
+suite with a disclosed local PERF06 drain adapter: 5,947 passed, one known S06
+failure, zero errors/skips; the default fixture race remains a separate follow-up.
 
 ## Identity policy-helper prerequisite (3 November)
 
