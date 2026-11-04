@@ -16,7 +16,9 @@ from app.libs.dto.inventory.warehouse_stocktake_input import (
 )
 from app.models.audit_service import log_action
 from app.schemas import FinishedGoodsStock, Model, Package, PackageItem, User
-from app.schemas.inventory.stocktake import WarehouseStocktake, WarehouseStocktakeRow
+from app.schemas.inventory.stocktake import (
+    WarehouseStocktake, WarehouseStocktakeRow, remove_recorded_scan as persist_scan_undo,
+)
 from app.models.package_identity_service import resolve_warehouse_package
 
 STORAGE_STATUSES = ("received_in_storage", "reserved", "damaged")
@@ -506,11 +508,7 @@ def remove_recorded_scan(db, current, count_id, row):
         count_id,
         old_value={"row_id": row.id, "code": row.scan_code, "package_id": row.package_id},
     )
-    if row.expected:
-        row.scan_code = row.scanned_at = row.scanned_by = None
-        row.scan_snapshot = None
-    else:
-        db.delete(row)
+    persist_scan_undo(db, row)
 
 
 def delete_scans(db, count_id: int, body: DeleteScans, current: User) -> dict:

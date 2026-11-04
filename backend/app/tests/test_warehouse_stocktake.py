@@ -313,3 +313,36 @@ def test_stocktake_migration_roundtrip():
             migration.downgrade()
             assert inspect(connection).get_table_names() == []
     engine.dispose()
+
+
+def test_bulk_undo_failure_rolls_back_prior_row_and_audit(client, auth_headers, packs, monkeypatch):
+    from app.libs.dto.inventory.warehouse_stocktake_input import DeleteScans
+    from app.models import stocktake_service
+    from app.schemas import User
+    from app.schemas.inventory.stocktake import WarehouseStocktakeRow
+
+    cid = start(client, auth_headers)
+    found = scan(client, auth_headers, cid, "COUNT-0")["row"]["id"]
+    unknown = scan(client, auth_headers, cid, "UNDO-FAILURE")["row"]["id"]
+    original = stocktake_service.persist_scan_undo
+    calls = []
+
+    def fail_second(db, row):
+        calls.append(row.id)
+        if len(calls) == 2:
+            raise RuntimeError("injected undo failure")
+        original(db, row)
+
+    monkeypatch.setattr(stocktake_service, "persist_scan_undo", fail_second)
+    with SessionLocal() as db:
+        actor = db.get(User, db.get(WarehouseStocktakeRow, found).scanned_by)
+        with pytest.raises(RuntimeError, match="injected undo failure"):
+            stocktake_service.delete_scans(db, cid, DeleteScans(row_ids=[unknown, found]), actor)
+        db.rollback()
+    assert calls == sorted([found, unknown])
+    with SessionLocal() as db:
+        assert db.get(WarehouseStocktakeRow, found).scanned_at is not None
+        assert db.get(WarehouseStocktakeRow, unknown).scanned_at is not None
+        assert db.query(AuditLog).filter_by(
+            entity_type="WarehouseStocktake", entity_id=cid, action="undo_scan"
+        ).count() == 0

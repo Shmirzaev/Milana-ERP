@@ -32,3 +32,12 @@ class WarehouseStocktakeRow(Base, PkMixin):
     scan_code: Mapped[str | None] = mapped_column(String(512))
     scanned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     scanned_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+
+
+def remove_recorded_scan(db, row: WarehouseStocktakeRow) -> None:
+    """Apply an already-authorized undo in the caller's transaction."""
+    if row.expected:
+        row.scan_code = row.scanned_at = row.scanned_by = None
+        row.scan_snapshot = None
+    else:
+        db.delete(row)
