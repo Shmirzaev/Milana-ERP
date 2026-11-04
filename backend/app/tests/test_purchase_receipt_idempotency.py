@@ -302,7 +302,33 @@ def test_multiline_receipt_failure_rolls_back_all_rows_then_replays(
         {**first_line, "purchase_order_line_id": second_id,
          "batch_no": first_line["batch_no"] + "-second"},
     ]}
+    def scoped_state():
+        with session_module.SessionLocal() as db:
+            lines = [db.get(PurchaseOrderLine, line_id) for line_id in
+                     (receipt_order["line_id"], second_id)]
+            batches = db.query(StockBatch).filter_by(
+                internal_batch_no=receipt_order["po_no"]
+            ).all()
+            line_ids = [line.id for line in lines]
+            batch_ids = [batch.id for batch in batches]
+            audits = db.query(AuditLog).filter(
+                ((AuditLog.entity_type == "PurchaseOrderLine") & AuditLog.entity_id.in_(line_ids))
+                | ((AuditLog.entity_type == "StockBatch") & AuditLog.entity_id.in_(batch_ids))
+                | ((AuditLog.entity_type == "PurchaseOrder") & (AuditLog.entity_id == receipt_order["order_id"]))
+            ).count()
+            keys = db.query(IdempotencyRecord).filter(
+                IdempotencyRecord.key == "st01-receipt",
+                IdempotencyRecord.scope.contains(f"purchasing.receive:MIL:"),
+                IdempotencyRecord.scope.contains(f":{receipt_order['order_id']}"),
+            ).count()
+            movements = db.query(StockMovement).filter(
+                StockMovement.reference_type == "PurchaseOrderLine",
+                StockMovement.reference_id.in_(line_ids),
+            ).count()
+            return [(float(line.received_quantity), line.unit_cost) for line in lines], len(batches), movements, audits, keys
+
     before = receipt_state(receipt_order)
+    scoped_before = scoped_state()
     original = purchasing_service.add_receive_movement
     calls = []
 
@@ -318,6 +344,7 @@ def test_multiline_receipt_failure_rolls_back_all_rows_then_replays(
     assert failed.status_code == 503, failed.text
     assert calls == [receipt_order["line_id"], second_id]
     assert receipt_state(receipt_order) == before
+    assert scoped_state() == scoped_before
     with session_module.SessionLocal() as db:
         assert float(db.get(PurchaseOrderLine, second_id).received_quantity) == 0
         assert db.query(StockMovement).filter_by(
@@ -337,10 +364,17 @@ def test_multiline_receipt_failure_rolls_back_all_rows_then_replays(
         assert db.query(StockMovement).filter_by(
             reference_type="PurchaseOrderLine", reference_id=second_id
         ).count() == 1
+    scoped_saved = scoped_state()
+    assert [quantity for quantity, _ in scoped_saved[0]] == [5, 5]
+    assert float(scoped_saved[0][0][1]) == 3
+    assert scoped_saved[1:3] == (2, 2)
+    assert scoped_saved[3] == scoped_before[3] + 5
+    assert scoped_saved[4] == scoped_before[4] + 1
     retry = receive(client, auth_headers, receipt_order, payload=payload)
     assert retry.status_code == 200, retry.text
     assert retry.json() == success.json()
     assert receipt_state(receipt_order) == saved
+    assert scoped_state() == scoped_saved
 
 
 def test_receipt_without_key_keeps_legacy_multiple_receipts(client, auth_headers, receipt_order):
