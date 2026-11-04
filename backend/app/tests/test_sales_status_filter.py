@@ -48,3 +48,49 @@ def test_list_query_validates_and_forwards_to_service(client):
     schema = http.get('/openapi.json').json()
     parameter = next(p for p in schema['paths']['/sales-orders']['get']['parameters'] if p['name'] == 'status')
     assert any(item.get('$ref', '').endswith('/SalesOrderStatus') for item in parameter['schema']['anyOf'])
+
+
+def test_http_status_filters_real_sales_query():
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session
+    from sqlalchemy.pool import StaticPool
+
+    from app.db.base import Base
+    from app.schemas import SalesOrder
+
+    engine = create_engine(
+        'sqlite:///:memory:', connect_args={'check_same_thread': False}, poolclass=StaticPool
+    )
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        session.add_all([
+            SalesOrder(order_no='FILTER-DRAFT', status='draft', total_amount=0),
+            SalesOrder(order_no='FILTER-CONFIRMED', status='confirmed', total_amount=0),
+        ])
+        session.commit()
+
+    app = FastAPI()
+    app.include_router(sales.router)
+
+    def db_session():
+        with Session(engine) as session:
+            yield session
+
+    app.dependency_overrides[get_db] = db_session
+    app.dependency_overrides[get_current_user] = lambda: object()
+    try:
+        with TestClient(app) as http:
+            for suffix in ('', '?status='):
+                response = http.get('/sales-orders' + suffix)
+                assert response.status_code == 200
+                assert {row['order_no'] for row in response.json()} == {
+                    'FILTER-DRAFT', 'FILTER-CONFIRMED'
+                }
+            response = http.get('/sales-orders?status=confirmed')
+            assert response.status_code == 200
+            assert [(row['order_no'], row['status']) for row in response.json()] == [
+                ('FILTER-CONFIRMED', 'confirmed')
+            ]
+            assert http.get('/sales-orders?status=unknown').status_code == 422
+    finally:
+        engine.dispose()
