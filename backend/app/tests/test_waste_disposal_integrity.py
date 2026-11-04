@@ -241,6 +241,9 @@ def test_rejection_allows_safe_recovery_from_invalid_historical_pending_waste(cl
     assert after["record"]["sellable"] == before["record"]["sellable"]
     assert after["requests"][0]["status"] == "rejected"
     assert after["requests"][0]["approved_by"] == actor_id
+    assert after["requests"][0]["approved_at"] is not None
+    assert rejected.json()["approved_by"] == actor_id
+    assert rejected.json()["approved_at"]
     assert after["audits"] == before["audits"] + 1
     for action in ("approve", "mark-disposed", "reject"):
         response = client.post(f"/api/waste/disposal/{rid}/{action}", headers=headers)
