@@ -11,9 +11,28 @@ this checkout, a new combined candidate or deployed production. Inspect current
 code and the operation ledger before advancing a gate. Schema-owned writers,
 system-wide enum/type adoption and human acceptance remain incomplete.
 
-Last updated 2026-11-03. Keep this file short: current decisions, release pointers and
+Last updated 2026-11-04. Keep this file short: current decisions, release pointers and
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
+
+## Shavkat acceptance lab prepared (4 November)
+
+The owner approved exact live `11f80a29` as the baseline after the stale-main
+drift stop. Both hosts were reverified blue `20261103_094602`, manifest
+`ee765f999e782193878390897873c7b5865749460d4d776cf321fcd28490f8a9`,
+schema `0150_package_customer_release`; green `20261103_112256` remains rollback.
+The isolated synthetic lab is at `http://172.16.10.5.sslip.io:18180`, captured
+inbox `http://172.16.10.4:18125`. Exact live images, fresh PostgreSQL/storage/test
+secrets and internal Docker networks were used; no production data/config was
+copied. The unchanged supplied seed and 12 HTTP logins passed, and HR/inbox
+browser access was verified. Operator/admin A1–A19 acceptance remains pending.
+Private HTTP gateway CSP transport adaptations are test-only, not production
+security evidence. Read-only production checks found SQLite counters, no effective
+SMTP/Resend sender, archiving off, zero connected replicas and three old stopped
+containers with startup seed true; neither running backend slot seeds at startup.
+All four production health/login checks passed; production routing/data remained
+unchanged. Physical/PBS recovery and credential ownership/window require Shavkat.
+See [setup, evidence and Part C answers](archive/ACCEPTANCE_SHAVKAT_2026-11-04.md).
 
 ## Customer-pack and FG release preparation (3 November)
 

@@ -1,0 +1,140 @@
+{
+  "site": "http://172.16.10.5.sslip.io:18180",
+  "inbox": "http://172.16.10.4:18125",
+  "checks": [
+    {
+      "name": "login page and version",
+      "passed": true
+    },
+    {
+      "name": "test HTTP CSP preserves nonce and removes production connection allowance",
+      "passed": true
+    },
+    {
+      "name": "test marker",
+      "passed": true
+    },
+    {
+      "name": "/health",
+      "passed": true
+    },
+    {
+      "name": "/ready",
+      "passed": true
+    },
+    {
+      "name": "two captured reset emails",
+      "passed": true
+    },
+    {
+      "name": "admin HTTP login",
+      "passed": true
+    },
+    {
+      "name": "admin cookie session",
+      "passed": true
+    },
+    {
+      "name": "hr HTTP login",
+      "passed": true
+    },
+    {
+      "name": "hr cookie session",
+      "passed": true
+    },
+    {
+      "name": "HR employee page",
+      "passed": true
+    },
+    {
+      "name": "Alice beyond first page",
+      "passed": true
+    },
+    {
+      "name": "payroll HTTP login",
+      "passed": true
+    },
+    {
+      "name": "payroll cookie session",
+      "passed": true
+    },
+    {
+      "name": "scanner HTTP login",
+      "passed": true
+    },
+    {
+      "name": "scanner cookie session",
+      "passed": true
+    },
+    {
+      "name": "scanner denied user administration",
+      "passed": true
+    },
+    {
+      "name": "planning HTTP login",
+      "passed": true
+    },
+    {
+      "name": "planning cookie session",
+      "passed": true
+    },
+    {
+      "name": "sales HTTP login",
+      "passed": true
+    },
+    {
+      "name": "sales cookie session",
+      "passed": true
+    },
+    {
+      "name": "user-manager HTTP login",
+      "passed": true
+    },
+    {
+      "name": "user-manager cookie session",
+      "passed": true
+    },
+    {
+      "name": "protected-admin HTTP login",
+      "passed": true
+    },
+    {
+      "name": "protected-admin cookie session",
+      "passed": true
+    },
+    {
+      "name": "ordinary HTTP login",
+      "passed": true
+    },
+    {
+      "name": "ordinary cookie session",
+      "passed": true
+    },
+    {
+      "name": "full-admin-mover HTTP login",
+      "passed": true
+    },
+    {
+      "name": "full-admin-mover cookie session",
+      "passed": true
+    },
+    {
+      "name": "full-admin-control HTTP login",
+      "passed": true
+    },
+    {
+      "name": "full-admin-control cookie session",
+      "passed": true
+    },
+    {
+      "name": "reset HTTP login",
+      "passed": true
+    },
+    {
+      "name": "reset cookie session",
+      "passed": true
+    }
+  ],
+  "captured_message_count": 2,
+  "seed_sha256": "51bd8943fb4c0cebb26108f950c5421cb6ea1ab47e798dd2842935e611548862"
+}
