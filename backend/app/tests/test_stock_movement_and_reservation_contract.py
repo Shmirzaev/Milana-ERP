@@ -126,7 +126,6 @@ def test_plan_readiness_status_is_not_the_reservation_status():
 
 
 def test_stock_movement_schema_insert_uses_the_supplied_session_and_stores_the_plain_value():
-    name = f"Movement contract {uuid4().hex[:8]}"
     with SessionLocal() as db:
         item = Item(sku=f"MOVE-{uuid4().hex[:8]}", name="Movement item", category="fabric", unit="kg")
         db.add(item)
