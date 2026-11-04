@@ -105,6 +105,7 @@ from app.schemas import (
 from app.schemas.catalog.bom_persistence import delete_model_bom, insert_model_bom, update_model_bom
 from app.schemas.catalog.model_size_persistence import insert_model_size
 from app.schemas.catalog.model_color_persistence import insert_model_color
+from app.schemas.catalog.model_create_persistence import build_model, insert_model
 
 # A model's details_json is per-model modelling metadata: identity, costing and
 # paid operations. Sizes, measurements, BOM and images live in their own tables,
@@ -1700,19 +1701,16 @@ def create_model(
     model_data["details_json"] = details
     _validate_model_details_json_bounds(model_data["details_json"])
 
-    m = Model(
-        **model_data,
+    m = build_model(
+        values=model_data,
         catalog_scope=catalog_scope,
         factory_code="ECO" if catalog_scope == "usluga" else None,
         created_by=current.id,
     )
+    approval = None
     if _model_code_parts(m)[1]:
         approval = next((row for row in _approval_family(db, m) if row.status == "approved"), None)
-        if approval:
-            m.status = "approved"
-            m.approved_by = approval.approved_by
-            m.approved_at = approval.approved_at
-    db.add(m); db.flush()
+    insert_model(db, m, approval=approval)
     log_action(db, current, "create", "Model", m.id, new_value={"code": m.code})
     db.commit(); db.refresh(m)
     return _model_out_payload(m, factory_scope)
