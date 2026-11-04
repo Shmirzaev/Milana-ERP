@@ -16,7 +16,10 @@ from app.schemas.core_persistence import add_notification_row
 from app.schemas.catalog.catalog import Model
 from app.schemas.planning.price_calculation import PriceCalculationRequest
 from app.libs.types.planning import PriceCalculationPurchasingCommand
-from app.schemas.planning.price_calculation_persistence import apply_purchasing_contribution
+from app.schemas.planning.price_calculation_persistence import (
+    apply_cutting_contribution, apply_purchasing_contribution, set_cutting_dimensions,
+    set_cutting_passport_reference,
+)
 from app.models.audit_service import log_action
 from app.models.model_images_service import model_preview_image_url, model_variant_picture_url
 
@@ -402,8 +405,7 @@ def update_cutting_details(db: Session, request: PriceCalculationRequest, data: 
     passport = _passport_for_kroy(db, request, kroy_no)
     if passport and (passport.meter_mode or any(row.get("meter_mode") for row in (passport.materials or []))):
         raise HTTPException(400, "Metre cutting passports cannot supply kilogram-based price calculations")
-    request.kroy_no = kroy_no
-    request.cutting_passport_id = passport.id if passport else None
+    set_cutting_passport_reference(request, kroy_no, passport.id if passport else None)
 
     passport_binding = None
     if passport and (passport.beka_per_piece_kg is not None or passport.other_beka_per_piece_kg is not None):
@@ -411,13 +413,16 @@ def update_cutting_details(db: Session, request: PriceCalculationRequest, data: 
             (_decimal(passport.beka_per_piece_kg) or Decimal(0))
             + (_decimal(passport.other_beka_per_piece_kg) or Decimal(0))
         )
-    request.fabric_width_m = passport.fabric_width_m if passport and passport.fabric_width_m is not None else data.get("fabric_width_m")
-    request.lay_length_m = passport.lay_length_m if passport and passport.lay_length_m is not None else data.get("lay_length_m")
+    fabric_width_m = passport.fabric_width_m if passport and passport.fabric_width_m is not None else data.get("fabric_width_m")
+    lay_length_m = passport.lay_length_m if passport and passport.lay_length_m is not None else data.get("lay_length_m")
+    set_cutting_dimensions(request, fabric_width_m=fabric_width_m, lay_length_m=lay_length_m)
     passport_size_count = _size_count_from_range(passport.size_range, passport_order_sizes(passport)) if passport else 0
-    request.size_count = passport_size_count or data.get("size_count")
-    request.gramage = passport.gramage if passport and passport.gramage is not None else data.get("gramage")
-    request.binding_kg_per_piece = passport_binding if passport_binding is not None else data.get("binding_kg_per_piece")
-    db.flush()
+    apply_cutting_contribution(
+        db, request,
+        size_count=passport_size_count or data.get("size_count"),
+        gramage=passport.gramage if passport and passport.gramage is not None else data.get("gramage"),
+        binding_kg_per_piece=passport_binding if passport_binding is not None else data.get("binding_kg_per_piece"),
+    )
     after = cutting_status(request)
     log_action(
         db,
