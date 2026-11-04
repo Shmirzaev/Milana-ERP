@@ -13,7 +13,7 @@ from app.core.security import create_access_token
 from app.models import audit_service
 from app.schemas import AuditLog, Notification, Role, User, WasteRecord
 from app.tests.test_modelsize_create_postgres import pg_sessions as pg_sessions  # noqa: F401
-from app.tests.test_waste_race_rollback_postgres import _sequences
+from app.tests.test_waste_race_rollback_postgres import _public_snapshot, _sequences
 
 
 def test_receipt_concurrent_observed_recorded_characterization(pg_sessions):  # noqa: F811
@@ -55,6 +55,14 @@ def test_receipt_concurrent_observed_recorded_characterization(pg_sessions):  # 
         control_before = db.execute(text('SELECT row_to_json(w)::text FROM waste_records w WHERE id=:id'), {'id': control_id}).scalar_one()
         notifications_before = db.query(Notification).count()
         sequences_before = _sequences(db)
+        rows_before = _public_snapshot(db)
+        unrelated_waste_before = db.execute(text(
+            'SELECT row_to_json(w)::text FROM waste_records w WHERE id<>:id ORDER BY 1'
+        ), {'id': record_id}).scalars().all()
+        unrelated_audit_before = db.execute(text(
+            "SELECT row_to_json(a)::text FROM audit_logs a WHERE "
+            "(entity_type='WasteRecord' AND entity_id=:id AND action='receive') IS NOT TRUE ORDER BY 1"
+        ), {'id': record_id}).scalars().all()
     headers = {'Authorization': f'Bearer {create_access_token(actor_id)}'}
 
     def receive():
@@ -65,6 +73,8 @@ def test_receipt_concurrent_observed_recorded_characterization(pg_sessions):  # 
     with ThreadPoolExecutor(max_workers=2) as pool:
         futures = [pool.submit(receive) for _ in range(2)]
         try:
+            # Timeout is only an observer failure: the owned fixture must retain
+            # uncertain live work rather than authorize a retry or reset.
             results = [future.result(timeout=30) for future in futures]
         finally:
             barrier.abort()
@@ -77,7 +87,24 @@ def test_receipt_concurrent_observed_recorded_characterization(pg_sessions):  # 
         assert db.query(Notification).count() == notifications_before
         assert audit_service.verify_audit_hash_chain(db)['ok']
         sequences_after = _sequences(db)
+        rows_after = _public_snapshot(db)
+        # Only the receipt target and its audit entries can be affected.
+        for table in rows_before.keys() | rows_after.keys():
+            if table not in {'waste_records', 'audit_logs'}:
+                assert rows_after.get(table) == rows_before.get(table), table
+        assert db.execute(text(
+            'SELECT row_to_json(w)::text FROM waste_records w WHERE id<>:id ORDER BY 1'
+        ), {'id': record_id}).scalars().all() == unrelated_waste_before
+        assert db.execute(text(
+            "SELECT row_to_json(a)::text FROM audit_logs a WHERE "
+            "(entity_type='WasteRecord' AND entity_id=:id AND action='receive') IS NOT TRUE ORDER BY 1"
+        ), {'id': record_id}).scalars().all() == unrelated_audit_before
+        target_row = db.execute(text('SELECT row_to_json(w)::text FROM waste_records w WHERE id=:id'),
+                                {'id': record_id}).scalar_one()
+        audit_rows = [{'id': row.id, 'action': row.action, 'actor': row.user_id,
+                       'old': row.old_value_json, 'new': row.new_value_json,
+                       'prev_hash': row.prev_hash, 'entry_hash': row.entry_hash} for row in audits]
         print('RECEIPT_RACE_CHARACTERIZATION', {'responses': results, 'final_status': final.status,
-              'audit_count': len(audits), 'audit_actors': [row.user_id for row in audits],
+              'target_row': target_row, 'audit_count': len(audits), 'audit_rows': audit_rows,
               'sequence_changes': {key: (value, sequences_after.get(key)) for key, value in sequences_before.items()
                                    if sequences_after.get(key) != value}}, flush=True)
