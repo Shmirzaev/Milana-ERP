@@ -23,22 +23,30 @@ def fixture():
     with sessions.begin() as db:
         role = Role(name='image editor', permissions=['modeling.models', 'usluga.manage'])
         denied = Role(name='no image permission', permissions=[])
-        db.add_all([role, denied]); db.flush()
+        db.add_all([role, denied])
+        db.flush()
         actors = {key: User(name=key, email=f'{key}@example.invalid', password_hash='unused', role_id=(denied.id if key == 'denied' else role.id), factory_code=('ECO' if key == 'usluga' else 'MIL')) for key in ('standard', 'usluga', 'denied')}
         models = {key: Model(code=f'IMAGE-{key}', name=key, catalog_scope=('usluga' if key == 'usluga' else 'standard'), factory_code=('ECO' if key == 'usluga' else 'MIL')) for key in ('standard', 'other', 'usluga')}
-        db.add_all([*actors.values(), *models.values()]); db.flush()
+        db.add_all([*actors.values(), *models.values()])
+        db.flush()
         images = {key: ModelImage(model_id=models[key].id, file_url=f'/files/{key}.png', file_data=b'image') for key in ('standard', 'usluga')}
-        db.add_all(images.values()); db.flush()
+        db.add_all(images.values())
+        db.flush()
         ids = {name: {key: row.id for key, row in rows.items()} for name, rows in [('actors', actors), ('models', models), ('images', images)]}
-    app = FastAPI(); app.include_router(catalog.router, prefix='/api'); app.include_router(usluga.router, prefix='/api')
+    app = FastAPI()
+    app.include_router(catalog.router, prefix='/api')
+    app.include_router(usluga.router, prefix='/api')
     def get_session():
         with sessions() as db:
             yield db
     def get_actor(request: Request):
         with sessions() as db:
-            actor = db.get(User, ids['actors'][request.headers.get('X-Actor', 'standard')]); _ = actor.role, actor.department
-            db.expunge_all(); return actor
-    app.dependency_overrides[get_db] = get_session; app.dependency_overrides[get_current_user] = get_actor
+            actor = db.get(User, ids['actors'][request.headers.get('X-Actor', 'standard')])
+            _ = actor.role, actor.department
+            db.expunge_all()
+            return actor
+    app.dependency_overrides[get_db] = get_session
+    app.dependency_overrides[get_current_user] = get_actor
     with TestClient(app, raise_server_exceptions=False) as client:
         yield sessions, ids, client
     engine.dispose()
@@ -73,7 +81,8 @@ def test_denials_and_scoping_do_not_write(fixture):
 def test_helper_does_not_flush_or_commit(fixture, monkeypatch):
     sessions, ids, _ = fixture
     with sessions() as db:
-        image = db.get(ModelImage, ids['images']['standard']); flushes = []
+        image = db.get(ModelImage, ids['images']['standard'])
+        flushes = []
         event.listen(db, 'before_flush', lambda *args: flushes.append(True))
         monkeypatch.setattr(db, 'commit', lambda: pytest.fail('helper committed'))
         delete_model_image(db, image)
