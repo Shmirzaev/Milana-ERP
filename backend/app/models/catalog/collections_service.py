@@ -4,7 +4,7 @@ Contract for the brand and collection operations:
 * input: a brand or collection id, a validated contract and the acting user
 * output: the serialized brand or collection
 * refusals: 404 "Brand not found", 404 "Collection not found", 409 when a
-  collection already holds the model
+  brand already exists; link creation permits duplicates
 * records: `brands`, `collections` and `collection_models` rows plus the audit
   rows
 * transaction owner: every operation below
@@ -24,9 +24,9 @@ from app.libs.types.catalog import (
 )
 from app.models.audit_service import log_action
 from app.models.catalog.models_service import _pagination_payload, _standard_model
-from app.schemas import Brand, Collection, CollectionModel, User
+from app.schemas import Brand, Collection, User
 from app.schemas.catalog.brand_persistence import apply_brand_update, insert_brand
-from app.schemas.catalog.collection_persistence import apply_collection_update, insert_collection
+from app.schemas.catalog.collection_persistence import apply_collection_update, insert_collection, insert_collection_model
 
 COLLECTION_STATUSES = frozenset(status.value for status in CollectionStatus)
 
@@ -204,6 +204,6 @@ def add_model_to_collection(
         raise HTTPException(404, "Collection not found")
     if not _standard_model(db, model_id):
         raise HTTPException(404, "Model not found")
-    db.add(CollectionModel(collection_id=cid, model_id=model_id))
+    insert_collection_model(db, collection_id=cid, model_id=model_id)
     db.commit()
     return {"message": "added"}
