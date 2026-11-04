@@ -104,6 +104,7 @@ from app.schemas import (
 )
 from app.schemas.catalog.bom_persistence import delete_model_bom, insert_model_bom, update_model_bom
 from app.schemas.catalog.model_approval_persistence import apply_model_approval
+from app.schemas.catalog.model_image_persistence import delete_model_image
 from app.schemas.catalog.model_size_persistence import insert_model_size
 from app.schemas.catalog.model_color_persistence import insert_model_color
 
@@ -2620,7 +2621,7 @@ def delete_image(
     if not img:
         raise HTTPException(404, "Pattern file not found")
     file_url = img.file_url
-    db.delete(img)
+    delete_model_image(db, img)
     log_action(db, current, "delete", "ModelImage", image_id, new_value={"model_id": mid, "file_url": file_url})
     db.commit()
 
