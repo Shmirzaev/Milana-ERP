@@ -26,7 +26,7 @@ def _waste(*, quantity=10, sellable=True, status="received_by_waste_department")
         db.add(record)
         db.commit()
         return {
-            "wid": record.id, "quantity": quantity,
+            "wid": record.id, "user_id": user.id, "quantity": quantity,
             "headers": {"Authorization": f"Bearer {create_access_token(user.id)}"},
         }
 
@@ -140,3 +140,25 @@ def test_unkeyed_legacy_sale_still_works(client):
     assert response.status_code == 200, response.text
     with SessionLocal() as db:
         assert db.query(WasteSale).filter(WasteSale.waste_record_id == account["wid"]).count() == 1
+
+
+def test_sale_and_status_roll_back_when_audit_fails(monkeypatch):
+    from app.libs.dto.inventory.waste_sale_input import WasteSaleIn
+    from app.models.inventory import waste_service
+
+    account = _waste(quantity=5)
+
+    def fail_audit(*args, **kwargs):
+        raise RuntimeError("audit unavailable")
+
+    monkeypatch.setattr(waste_service, "log_action", fail_audit)
+    with SessionLocal() as db:
+        with pytest.raises(RuntimeError, match="audit unavailable"):
+            waste_service.sell_waste(
+                db, account["wid"], WasteSaleIn(buyer_name="Buyer", quantity=5, unit_price=2),
+                db.get(User, account["user_id"]),
+            )
+        db.rollback()
+    with SessionLocal() as db:
+        assert db.get(WasteRecord, account["wid"]).status == "received_by_waste_department"
+        assert db.query(WasteSale).filter(WasteSale.waste_record_id == account["wid"]).count() == 0
