@@ -17,6 +17,7 @@ from app.libs.dto.inventory.waste_sale_output import WasteSaleOut
 from app.models.audit_service import log_action
 from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response
 from app.schemas import Item, StockBatch, User, WasteDisposalRequest, WasteRecord, WasteSale
+from app.schemas.inventory.waste_create_persistence import insert_manual_waste
 
 
 def _unit_cost_for_waste(db, item_id: int | None, batch_id: int | None) -> float:
@@ -62,8 +63,7 @@ def list_waste(db, status: str | None = None, sellable: bool | None = None) -> l
 def create_waste(db, payload: WasteIn, current: User) -> WasteRecord:
     data = payload.model_dump()
     data["estimated_value"] = round(float(data.get("quantity") or 0) * _unit_cost_for_waste(db, data.get("item_id"), data.get("batch_id")), 2)
-    w = WasteRecord(**data, created_by=current.id, status="recorded")
-    db.add(w); db.flush()
+    w = insert_manual_waste(db, data=data, created_by=current.id)
     log_action(db, current, "create", "WasteRecord", w.id, new_value={"type": w.waste_type, "qty": float(w.quantity)})
     db.commit(); db.refresh(w)
     return w
