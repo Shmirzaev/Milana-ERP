@@ -3538,6 +3538,7 @@ def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depend
     if not wo: raise HTTPException(404, "Work order not found")
     from app.models.factory_scope_service import require_work_order_factory_access
     require_work_order_factory_access(current, db, wo)
+    authorized_department_id = wo.department_id
     if wo.operation != "cutting": raise HTTPException(400, "Work order is not a cutting operation")
     _gate_record_submission(wo)
     po = db.query(ProductionOrder).filter(ProductionOrder.id == wo.production_order_id).with_for_update(of=ProductionOrder).first()
@@ -3546,8 +3547,9 @@ def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depend
     db.refresh(wo, with_for_update=True)
     _gate_record_submission(wo)
     # Planning can correct routing while this request waits for the order lock.
-    # Authorize the refreshed destination before persisting Cutting evidence.
-    require_work_order_factory_access(current, db, wo)
+    # Reuse the established grant only while the authorized department is unchanged.
+    if wo.department_id != authorized_department_id:
+        require_work_order_factory_access(current, db, wo)
     if po.source_type == "usluga" and (payload.fabric_batch_id is not None or payload.materials):
         raise HTTPException(400, "Usluga material usage is recorded without an inventory batch")
     usluga_material = _usluga_cutting_material(db, po, payload.model_bom_id) if po.source_type == "usluga" else None

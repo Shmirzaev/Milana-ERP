@@ -139,6 +139,34 @@ cases prove work-only waste, batch-only payroll, assignment-only daily report an
 legacy-source batch-only package association/constraint handling on actual tables.
 Browser verification and final combined-candidate review remain coordinator gates.
 
+### Cutting write query-budget follow-up
+
+Root's later combined full-suite run found six existing query-budget failures:
+the unconditional post-refresh factory check added a Department SELECT (bundle
+path43 rather than42; material path31 rather than30). Root interrupted that run
+to isolate failures; it is not a full-suite pass. No performance assertion or test
+budget was changed.
+
+The correction captures the authorized department ID only after the initial scope
+check succeeds. Following the existing PO lock and WO locked refresh, it reruns
+factory authorization when that identity changed. Unchanged routing retains its
+already established grant without another Department lookup. A concurrent CUT→ECT
+move changes the identity and still triggers denial of the stale CUT actor before
+Cutting evidence writes. The operation keeps the same locks/transaction and does
+not cache permission across requests or accept an identity from the client.
+
+Exact follow-up command: `python -m pytest -q
+app/tests/test_cutting_packaging_write_query_growth.py
+app/tests/test_planning_cutting_factory.py
+app/tests/test_planning_cutting_factory_postgres.py` — **PASS:86 cases, zero skips,
+17.75s**, including all15 collected existing query-growth cases and the71 Planning
+cases with19 actual PostgreSQL cases. This retains the deliberate competing-move
+regression and unchanged query-count caps together. Ruff on production.py,
+compileall and diff checks also passed. The fresh owned synthetic PostgreSQL16
+container was `milana-planning-cutting-query-qa-20261104` on loopback55441; no
+migration or production data was used. Independent follow-up review and root's
+combined/full-suite continuation remain separate gates.
+
 PostgreSQL used ORM metadata only, no Alembic or production-schema migration.
 Earlier test attempts are retained as failures: initial fixture errors used wrong
 AuditLog/QualityCheck/SewingAssignment fields and timezone comparison (32 pass/4fail),
