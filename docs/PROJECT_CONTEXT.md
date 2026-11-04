@@ -15,22 +15,45 @@ Last updated 2026-11-04. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
-## ECO inventory deployment preparation (4 November)
+## ECO inventory release active with specific exceptions (4 November)
 
-The owner authorized PR375 deployment and explicitly waived the30-minute timed
-monitoring window. The [narrow release record](archive/ECO_INVENTORY_RELEASE_2026-11-04.md)
-starts from freshly verified live11f80a29/blue20261103_094602 and preserves its
-customer-pack/FG fixes. Only reviewed ECO inventory/transfers/approval and package
-origin changes are included; unrelated clone_main runtime work remains excluded.
-The bounded sewing follow-up resolves the assigned line's factory and actual
-batch before the approval gate, including shared-work ECO assignments in order
-ownership. Approval and physical issue remain separate; no migration or role
-grant is added by that correction.
-The follow-up also recognizes a persisted direct sewing line when no active
-split assignment exists. Historical factory aliases use the existing shared
-mapping in both gate selection and SQL ownership; unknown values refuse safely.
-A restart-safe compatibility rollback is required before additive ECO migrations.
-No deployment, migration or production business-data changes have occurred yet.
+Both hosts are blue `20261104_080711`, exact runtime
+`984aeffb22aedd3262d7cd61e2d88a905b589e8d`, manifest
+`0221829adfc216391679b744ae512b6c4d96913bb0316c31dfe12fb9a1641be7`.
+Final reactivation completed at 11:20:32 UTC (16:20:32 Tashkent), after fresh backup.
+Database is `0154_eco_receipt_details`; running green `20261104_093330` /
+`bd7d572282b50886e9d03a650bcf886ca9109175` is the verified restart-safe rollback.
+Never restart the old strict 0150 image or downgrade the database to roll back.
+
+The release adds full ECO material/supplier maintenance, detailed opening-stock
+and supplier receipts, separate balances/history/consumption, traceable Milana
+fabric dispatch/partial ECO receipt/driver Excel, and BSO accessory approval,
+allocation and exactly-once issue before sewing. Legacy scans show literal
+model/variant; packages and warehouse inventory show/filter actual sewing factory.
+Cutting-passport Excel was verified through an actual downloaded workbook.
+Shared/direct-line ECO sewing gates and historical factory aliases are covered.
+Unrelated pending clone_main changes remain excluded; PR #406 is pushed, draft and
+unmerged, with integration/migration reconciliation still required.
+
+Exact immutable CI passed 5,041 backend cases (560 skipped), mandatory PostgreSQL,
+frontend lint/types/build, isolated default-image cold start/schema integrity,
+independent review, connected Edge and API checks. Both paired performance
+comparisons passed all 7 endpoints. Final public checks failed bridge inventory
+p95 +22.03%, then feature model groups +26.64% and process +26.85% plus print-run
+fingerprint drift. Both failures triggered verified rollback first. The owner
+approved each specific exception; failed results remain FAIL, without resampling
+or relabeling. Tail cause is unproven. Diagnosis showed 16 new live print runs since
+baseline and current two-runtime parity; it does not recreate the earlier dataset.
+See the [release record](archive/ECO_INVENTORY_RELEASE_2026-11-04.md).
+
+All four final health checks and 9 API invariants passed; post-cutover Edge receipt
+and catalog screens rendered. QA submitted no production business form; all 7 new
+ECO tables remain empty and existing users/roles unchanged. Real users continued
+operating during checks. Deployment leases and QA proxies are released/stopped.
+The owner waived 30-minute observation; none ran. Local preview remains at
+http://127.0.0.1:13085. Optional supplier placeholder incorrectly says
+"No production order"; cosmetic follow-up remains. Human production acceptance
+is separate from technical release verification.
 
 ## Current refactor: Finance shipment invoice reversal (4 November)
 
@@ -45,13 +68,13 @@ still fails on its unchanged legacy scan write. Other writers and broader
 Finance/type coverage remain pending. QA master reviews before deployment.
 Production/rollback pointers are unchanged; closed PR350 is not reopened.
 
-## Customer-pack and FG release active with approved p95 exception (3 November)
+## Historical customer-pack and FG release (3 November)
 
 Only customer shipment-pack restriction/admin release and FG numbering were pushed,
-merged and deployed. Runtime is blue `20261103_094602` / `11f80a29` on both hosts,
+merged and deployed. Runtime was blue `20261103_094602` / `11f80a29` on both hosts,
 manifest `ee765f999e782193878390897873c7b5865749460d4d776cf321fcd28490f8a9`,
 schema `0150_package_customer_release`. Compatible green `20261103_112256` /
-`37337ea6` remains the running rollback. Other clone_main runtime changes, including
+`37337ea6` was the running rollback at that time. Other clone_main runtime changes, including
 HR0151, were excluded. PR376/377 feature ancestry and PR383 incident records are
 preserved. Exact immutable CI passed 4,935 backend cases plus required PostgreSQL
 and frontend gates; isolated shipment denial/admin release/warehouse-role/FG-save
