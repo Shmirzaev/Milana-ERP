@@ -318,7 +318,7 @@ def test_multiline_receipt_failure_rolls_back_all_rows_then_replays(
             ).count()
             keys = db.query(IdempotencyRecord).filter(
                 IdempotencyRecord.key == "st01-receipt",
-                IdempotencyRecord.scope.contains(f"purchasing.receive:MIL:"),
+                IdempotencyRecord.scope.contains("purchasing.receive:MIL:"),
                 IdempotencyRecord.scope.contains(f":{receipt_order['order_id']}"),
             ).count()
             movements = db.query(StockMovement).filter(
