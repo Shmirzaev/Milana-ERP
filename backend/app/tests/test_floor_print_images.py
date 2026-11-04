@@ -49,6 +49,34 @@ def test_nonimage_attachments_are_skipped_before_image_and_exact_model_fallback(
                    "/storage/sales-order-files/art.png")
 
 
+@pytest.mark.parametrize("path,mime", [
+    ("/storage/model-files/print.pdf", None),
+    ("/storage/model-files/print.png", "application/pdf"),
+    ("/storage/model-files/print.pdf", "image/png"),
+    ("/storage/model-files/print.ai", None),
+])
+def test_document_only_exact_model_print_is_not_a_floor_picture(path, mime):
+    # ModelImage.file_name may be missing or misleading in historical records.
+    image = SimpleNamespace(id=4, image_type="print", file_url=path, content_type=mime)
+    assert floor_print_image_url(SimpleNamespace(images=[image]), None) is None
+
+
+def test_newer_model_document_does_not_hide_older_valid_print_image():
+    old_image = SimpleNamespace(id=1, image_type="print", file_url="/storage/model-files/valid.png", content_type="image/png")
+    document = SimpleNamespace(id=2, image_type="print", file_url="/storage/model-files/new.pdf", content_type=None)
+    fake_image = SimpleNamespace(id=3, image_type="print", file_url="/storage/model-files/fake.png", content_type="application/pdf")
+    unrelated = SimpleNamespace(id=4, image_type="model", file_url="/storage/model-files/garment.png", content_type="image/png")
+    assert floor_print_image_url(SimpleNamespace(images=[unrelated, document, old_image, fake_image]), None) == old_image.file_url
+
+
+def test_model_fallback_preserves_existing_url_queries_while_order_artwork_is_resigned():
+    model_url = "/storage/model-files/reference.png?version=2"
+    model = SimpleNamespace(images=[SimpleNamespace(id=1, image_type="print", file_url=model_url, content_type=None)])
+    assert floor_print_image_url(model, None) == model_url
+    _assert_signed(floor_print_image_url(model, [{"file_url": "/storage/sales-order-files/ref.png?exp=1&sig=expired"}]),
+                   "/storage/sales-order-files/ref.png")
+
+
 def _image(db, model, name, image_type):
     db.add(ModelImage(model_id=model.id, file_url=f"/storage/model-files/{name}.png", file_name=f"{name}.png",
                       content_type="image/png", image_type=image_type, is_primary=True))
