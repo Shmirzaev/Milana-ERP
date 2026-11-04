@@ -14,8 +14,11 @@ actual runtime baseline. Setup and the detailed Part C answers are in
 
 ## Results
 
-Fifteen checks have the specified behavior verified with the coverage below.
-Two contain checklist gaps, and two have incomplete screen/print coverage.
+Seventeen checks are accepted: fifteen have the specified behavior verified
+with the coverage below, and the owner explicitly accepted A5 and A12 as passed
+on 4 November 2026 after reviewing their observed differences. Those observations
+remain recorded; no application fix or additional test is implied by acceptance.
+Two checks, A4 and A14, have incomplete screen/print coverage.
 Do not interpret this as nineteen completed human screen checks.
 
 | Check | Result | Evidence and limits |
@@ -24,14 +27,14 @@ Do not interpret this as nineteen completed human screen checks.
 | A2 Salary bounds | Verified — browser/API | Saved/reopened 1,500,000; negative input refused, 10,000,000,000 rejected with 422 and maximum 9,999,999,999.99. Valid salary retained. |
 | A3 Employee/manager pagination | Verified — browser | Loaded 501 unique employees including Alice at position 501; direct search 910001 worked. Manager 910500 remained selected after clearing search; dialog closed unsaved. |
 | A4 Live manager history | Partial — read-only production DB | Audit 144572 maps to Akbaraliyeva Muslima, 144573 to Alixonova Yodgoraxon Durbek qizi. Both current managers are Milana Akbarova Dilafruz, employee number 321. Audit transitions 129→313 retained. Distinct Milana manager 503 and its history remain separate. Live employee-card/history UI has not been checked. |
-| A5 Accepted attendance/raw history | Checklist gap — browser/DB | Failed 07:00 and unknown 19:00 raw events are retained in DB; HR and attendance screens use accepted 08:00 arrival only, with no departure. The raw event-history screen/control requested by the handout is absent from this release. |
+| A5 Accepted attendance/raw history | Passed — owner acceptance, 4 November 2026 | Failed 07:00 and unknown 19:00 raw events are retained in DB; HR and attendance screens use accepted 08:00 arrival only, with no departure. The raw event-history screen/control requested by the handout is absent from this release. The owner accepted this observed behavior as passed. |
 | A6 Same-day attendance | Verified — browser/API | Both screens show Alice on 31 October, 00:30–23:30 Tashkent. HR shows 8 scheduled hours and 23 actual hours. |
 | A7 Rapid/unknown badge scans | Verified — browser/API | Alice→Bob→work auto-saved one Bob earning, record 415. Unknown badge cleared selection and created no earning. Current UI auto-saves; the handout's separate Save instruction is stale. |
 | A8 Issued rate/scan-only limits | Verified — browser/API | Issued 20 pieces at locked rate 1.25 saved as 25 UZS, record 416. Scan-only issue and arbitrary manual-pay requests both returned 403. |
 | A9 Unmatched-date visibility | Verified — browser/API | Open-period view includes HISTORY-0001 after pagination and excludes unmatched September work. All periods shows that work dated 1 September with no payroll period. |
 | A10 Adjustments | Verified — API mutations/browser readback | Bonus 1,000.50 and deduction 500 changed Alice's net 36.75→1,037.25→537.25. Invalid 10.555 and 256-character reason refused. Both saved adjustments appear after browser reload. |
 | A11 More than 300 rows | Verified — browser/API | Browser loaded 407 open-period records, 401 employee groups and 403 adjustments with unique rows and stable totals. Independent API pagination passed. Counts reflect test mutations, not just the seed. |
-| A12 Recorded split correction | Checklist gap — browser/API/print document | Corrected 7/13 to 8/12, pay 10/15 UZS, original work date retained. Invalid 9/12 and stale revision rejected; scan-only editing denied. Browser correction dialog/readback and sticker names, quantities and QR values agree. **Printed stickers omit the rate**, so the handout's printed-rate requirement cannot pass. |
+| A12 Recorded split correction | Passed — owner acceptance, 4 November 2026 | Corrected 7/13 to 8/12, pay 10/15 UZS, original work date retained. Invalid 9/12 and stale revision rejected; scan-only editing denied. Browser correction dialog/readback and sticker names, quantities and QR values agree. **Printed stickers omit the rate**; the owner accepted this difference from the handout as passed. |
 | A13 Returned split correction | Verified — API/persisted readback | Returned 53-piece row stayed unassigned at 2.5 until re-scan. Bob's scanned 52-piece row stayed 65 UZS at 1.25. Re-scan created Alice's single 132.50 UZS earning. The full editing sequence was exercised through the API rather than replayed in the browser. |
 | A14 Package labels | Partial — HTTP/generated document/Edge DOM | Six QA-PKG-0001…0006 cards group 4 then 2 in explicit A4 page sections. All six QR images loaded at natural width 370. Generated content contains no Page footer. Native print-dialog pagination and Headers and footers off remain unverified; no physical print was submitted. |
 | A15 Cutting-sheet customer | Verified — HTTP/Edge rendered DOM | GET preview for QA-PO-PRINT displays Acceptance Customer & Textile and QA-SO-SHORTAGE. QA-PO-PRINT-NO-CUSTOMER has no customer field/name. No cutting-completion POST was made. Native dialog/layout inspection remains a coverage limit. |

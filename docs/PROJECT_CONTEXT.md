@@ -28,7 +28,9 @@ copied. The unchanged supplied seed and 12 HTTP logins passed, and HR/inbox
 browser access was verified. Subsequent owner-requested agent checks verified
 15 behaviors with explicit browser/API coverage; A4 live UI and A14 native print
 dialog remain partial. A5's requested raw event-history UI is absent; A12's
-printed payroll stickers omit rates despite correct corrected earnings. The
+printed payroll stickers omit rates despite correct corrected earnings. The owner
+explicitly accepted A5 and A12 as passed on 4 November after reviewing these
+differences; the observations remain recorded and no code fix is implied. The
 synthetic A16 first-click fixture is consumed; original handout and production
 remain unchanged. This is agent evidence, not operator sign-off. See
 [individual results and limits](archive/ACCEPTANCE_CHECK_RESULTS_2026-11-04.md).

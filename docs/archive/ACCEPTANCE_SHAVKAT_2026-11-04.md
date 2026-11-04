@@ -116,7 +116,8 @@ were inspected and discarded; only the successful r2 backend lab remains.
 
 The initial setup left the A1–A19 human results table unfilled. The owner then
 requested agent execution; see [the check results](ACCEPTANCE_CHECK_RESULTS_2026-11-04.md)
-for individual coverage, two checklist gaps and remaining screen/print limits.
+for individual coverage and remaining screen/print limits. The owner accepted
+A5 and A12 as passed on 4 November after reviewing their observed differences.
 A16's first-click fixture has now been consumed and A17 completed through fresh
 captured test emails. The original handout remains preserved. Part B tests were
 not rerun or relabeled as passed.

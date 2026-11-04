@@ -12,8 +12,14 @@
     "evidence": "Load more reached Alice among 501 unique employees; search found 910001 directly; selected manager 910500 survived clearing search, closed without saving."
   },
   "A5": {
-    "status": "FAIL",
+    "status": "PASS",
+    "acceptance_basis": "Owner explicitly accepted the observed checklist difference on 2026-11-04.",
     "evidence": "Accepted attendance behavior passes, but the handout’s raw event-history screen is absent in this release."
+  },
+  "A12": {
+    "status": "PASS",
+    "acceptance_basis": "Owner explicitly accepted the observed checklist difference on 2026-11-04.",
+    "evidence": "Browser correction and API checks passed; printed sticker employees, quantities and QR values agree. Printed rates remain absent, as accepted by the owner."
   },
   "A6": {
     "status": "PASS",
