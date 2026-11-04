@@ -11,6 +11,7 @@ import { api, fetcher } from "@/lib/api";
 import { useMe, can } from "@/lib/auth";
 import PageHeader from "@/components/PageHeader";
 import BrandedOrderHistory, { type BrandedPlanningOrder } from "@/components/BrandedOrderHistory";
+import PlanningCuttingFactoryAction from "@/components/PlanningCuttingFactoryAction";
 import { BrandedPlanningOrderType } from "@/lib/brandedPlanning";
 import Modal from "@/components/Modal";
 import SearchableSelect from "@/components/SearchableSelect";
@@ -1039,6 +1040,9 @@ export default function PlanningDashboard() {
       <PageHeader
         title={brandedOnly ? t("page.planning.brandedOrdersTitle") : t("page.planning.title")}
         subtitle={brandedOnly ? t("page.planning.brandedOrdersSubtitle") : t("page.planning.subtitle")}
+        actions={<PlanningCuttingFactoryAction me={me} orders={productionOrders || []} onChanged={async () => {
+          await Promise.all([mutateProductionOrders(), mutateBrandedOrders()]);
+        }} />}
       />
       {!brandedOnly ? (
         <>

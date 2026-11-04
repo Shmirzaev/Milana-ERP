@@ -29,6 +29,7 @@ particular operation and every caller/write before choosing what belongs here.
 | [forecasting_recommendations_service.py](forecasting_recommendations_service.py) | Forecast recommendation lifecycle: reference checks, factory scope, payload, review. | `create_recommendation`, `update_recommendation` |
 | [costing_service.py](costing_service.py) | Price calculation request lifecycle and the cutting, finance, purchasing and accessories contributions. | every write operation |
 | [production_planning_service.py](production_planning_service.py) | Production orders planning opens for client sales orders and branded stock. | `create_client_order_production`, `create_branded_stock_production` |
+| [cutting_factory_service.py](cutting_factory_service.py) | Read eligible Cutting destinations and correct unrecorded CUT/ECT routing from Planning. | `change_cutting_factory` |
 
 ### branded_orders_service.py
 
@@ -112,6 +113,22 @@ excluded; both creation types require an attributed model.
   machine
 
 ## When making a service file
+
+### cutting_factory_service.py
+
+`GET/PATCH /production-orders/{pid}/cutting-factory` use the narrow typed Planning
+action DTO and canonical CuttingDepartmentCode. Current-session Planning permission
+and effective Planning permission in both source and destination factories are
+required. GET is read-only; PATCH locks the production order then ordered work
+orders with NOWAIT, rereads evidence and changes only Cutting department IDs through
+schema-owned persistence plus one same-transaction audit. Quantities, dates,
+reservations and planned Sewing assignments remain unchanged. Recorded output,
+passports, bundles, material consumption, started downstream work, Cutting operator
+assignment, closed/service orders and ambiguous routes refuse. Automatically
+started Cutting alone remains eligible. Same-target retry is a no-op. Existing
+Cutting, Bundle and Cutting Quality writers refresh scope under compatible locks.
+See [the operation packet](../../../../docs/PLANNING_CUTTING_FACTORY_20261104.md)
+for exact tests and unresolved browser/acceptance gates.
 
 Use snake_case_service.py filenames and operation names such as `create_*`, `record_*`,
 `receive_*` or `approve_*`. A typed function is sufficient; a class is optional

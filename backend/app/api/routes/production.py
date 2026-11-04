@@ -43,6 +43,8 @@ from app.schemas import (
     ProductionOrderItem, Bundle, Item, Model, ModelImage, ModelBOM, StockBatch,
 )
 from app.libs.dto.inventory.material_reservation_output import MaterialReservationOut, MaterialReservationStatusOut
+from app.libs.dto.planning.production_cutting_factory import ProductionCuttingFactoryIn, ProductionCuttingFactoryOut
+from app.models.planning.cutting_factory_service import cutting_factory_options, change_cutting_factory
 from app.libs.dto.production.production import (
     ProductionOrderIn, ProductionOrderUpdateIn, ProductionOrderOut, ProductionOrderDetail, ProductionOrderPageOut,
     WorkOrderOut, WorkOrderUpdate,
@@ -1199,6 +1201,21 @@ async def upload_production_printing_attachment(
         "file_name": file.filename or safe_name,
         "content_type": content_type,
     }
+
+
+@router.get("/production-orders/{pid}/cutting-factory", response_model=ProductionCuttingFactoryOut)
+def get_production_cutting_factory(
+    pid: int, db: DbSession, current: User = Depends(require_permissions("planning.production")),
+):
+    return cutting_factory_options(db, pid, current)
+
+
+@router.patch("/production-orders/{pid}/cutting-factory", response_model=ProductionCuttingFactoryOut)
+def patch_production_cutting_factory(
+    pid: int, payload: ProductionCuttingFactoryIn, db: DbSession,
+    current: User = Depends(require_permissions("planning.production")),
+):
+    return change_cutting_factory(db, pid, payload, current)
 
 
 @router.get("/production-orders/{pid}", response_model=ProductionOrderDetail)
@@ -3523,6 +3540,9 @@ def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depend
         raise HTTPException(404, "Production order not found")
     db.refresh(wo, with_for_update=True)
     _gate_record_submission(wo)
+    # Planning can correct routing while this request waits for the order lock.
+    # Authorize the refreshed destination before persisting Cutting evidence.
+    require_work_order_factory_access(current, db, wo)
     if po.source_type == "usluga" and (payload.fabric_batch_id is not None or payload.materials):
         raise HTTPException(400, "Usluga material usage is recorded without an inventory batch")
     usluga_material = _usluga_cutting_material(db, po, payload.model_bom_id) if po.source_type == "usluga" else None
@@ -6183,6 +6203,10 @@ def post_quality(payload: QualityCheckIn, db: DbSession, current: User = Depends
     work_order = db.get(WorkOrder, payload.work_order_id)
     if not work_order:
         raise HTTPException(404, "Work order not found")
+    if work_order.operation == "cutting":
+        # Serialize Cutting evidence with Planning's PO -> WO routing lock.
+        db.query(ProductionOrder.id).filter_by(id=work_order.production_order_id).with_for_update().one()
+        db.refresh(work_order, with_for_update={"of": WorkOrder})
     require_work_order_factory_access(current, db, work_order)
     q = QualityCheck(**payload.model_dump(), checked_by=current.id, checked_at=datetime.now(timezone.utc))
     db.add(q); db.flush()
