@@ -103,6 +103,7 @@ from app.schemas import (
     User,
 )
 from app.schemas.catalog.bom_persistence import delete_model_bom, insert_model_bom, update_model_bom
+from app.schemas.catalog.model_update_persistence import apply_model_update
 from app.schemas.catalog.model_approval_persistence import apply_model_approval
 from app.schemas.catalog.model_size_persistence import insert_model_size
 from app.schemas.catalog.model_color_persistence import insert_model_color
@@ -1181,11 +1182,13 @@ def _model_identity_details(details: object, *, model_no: str, variant_no: str) 
     return result
 
 
-def _set_model_identity(model: Model, *, model_no: str, variant_no: str) -> None:
-    model.code = _build_model_code(model_no, variant_no)
-    model.details_json = _model_identity_details(
-        model.details_json, model_no=model_no, variant_no=variant_no
-    )
+def _set_model_identity(db: Session, model: Model, *, model_no: str, variant_no: str) -> None:
+    apply_model_update(db, row=model, values={
+        "code": _build_model_code(model_no, variant_no),
+        "details_json": _model_identity_details(
+            model.details_json, model_no=model_no, variant_no=variant_no
+        ),
+    })
 
 
 def _rename_model_group(
@@ -1265,7 +1268,7 @@ def _rename_model_group(
     renamed: list[tuple[Model, str]] = []
     for model, variant_no, _ in planned:
         old_code = model.code
-        _set_model_identity(model, model_no=clean_new_model_no, variant_no=variant_no)
+        _set_model_identity(db, model, model_no=clean_new_model_no, variant_no=variant_no)
         renamed.append((model, old_code))
     return renamed
 
@@ -2314,8 +2317,7 @@ def update_model(
     if incoming_model_no and _normalized_key(incoming_model_no) != _normalized_key(current_model_no):
         renamed = _rename_model_group(db, m, incoming_model_no, catalog_scope)
 
-    for k, v in update_data.items():
-        setattr(m, k, v)
+    apply_model_update(db, row=m, values=update_data)
     for renamed_model, old_code in renamed:
         if renamed_model.id == m.id:
             continue
