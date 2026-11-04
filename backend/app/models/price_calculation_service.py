@@ -14,6 +14,7 @@ from app.models.user_access_service import access_configured, permission_denied
 from app.schemas import CuttingPassport, User
 from app.schemas.core_persistence import add_notification_row
 from app.schemas.catalog.catalog import Model
+from app.schemas.catalog.model_price_persistence import apply_request_selling_price
 from app.schemas.planning.price_calculation import PriceCalculationRequest
 from app.libs.types.planning import PriceCalculationPurchasingCommand
 from app.schemas.planning.price_calculation_persistence import apply_purchasing_contribution
@@ -228,12 +229,9 @@ def attach_completed_selling_price(
         "selling_price_source": model.selling_price_source,
         "selling_price_request_id": model.selling_price_request_id,
     }
-    model.selling_price = price
-    model.selling_price_currency = "USD"
-    model.selling_price_source = "price_request"
-    model.selling_price_request_id = request.id
-    model.selling_price_updated_at = datetime.now(timezone.utc)
-    db.flush()
+    apply_request_selling_price(
+        db, model, price=price, request_id=request.id, updated_at=datetime.now(timezone.utc)
+    )
     log_action(
         db,
         current,
