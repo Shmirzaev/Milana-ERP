@@ -15,6 +15,9 @@ Contract per operation:
 from fastapi import HTTPException
 from sqlalchemy.orm import Session, joinedload, selectinload
 
+from app.libs.dto.planning.branded_order_parties_output import (
+    BrandedOrderCompanyOut, BrandedOrderCustomerOut, BrandedOrderPartiesOut,
+)
 from app.libs.dto.planning.branded_planning_order_input import BrandedPlanningOrderIn
 from app.libs.dto.planning.branded_planning_order_output import (
     BrandedCuttingDepartmentOut,
@@ -196,13 +199,13 @@ def list_branded_orders(
     return [branded_order_payload(row, model_by_id, cutting_by_id, cutting_details_by_id) for row in rows]
 
 
-def branded_order_parties(db: Session) -> dict:
+def branded_order_parties(db: Session) -> BrandedOrderPartiesOut:
     """Return the selectable parties for a branded order."""
     customers = db.query(Customer).order_by(Customer.name.asc()).all()
-    return {
-        "companies": [{"type": key.value, "name": name} for key, name in BRANDED_ORDER_PARTIES.items()],
-        "customers": [{"id": row.id, "name": row.name} for row in customers],
-    }
+    return BrandedOrderPartiesOut(
+        companies=[BrandedOrderCompanyOut(type=key, name=name) for key, name in BRANDED_ORDER_PARTIES.items()],
+        customers=[BrandedOrderCustomerOut(id=row.id, name=row.name) for row in customers],
+    )
 
 
 def branded_order_customers(db: Session, q: str) -> list[dict]:
