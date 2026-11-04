@@ -1,6 +1,7 @@
 """Reservation readiness stays distinct from persisted reservation lifecycle."""
 
 import json
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -57,6 +58,9 @@ def test_no_bom_is_complete_and_serializes(monkeypatch):
     plan = inventory_service.reservation_plan_for_production_order(db, 1)
     assert plan["status"] is ReservationPlanStatus.NO_BOM
     assert plan["is_complete"] is True
+    assert all(type(plan["summary"][key]) is int for key in (
+        "required_quantity", "already_reserved_quantity", "remaining_to_reserve", "shortage"
+    ))
     wire = json.loads(MaterialReservationPlanOut.model_validate(plan).model_dump_json())
     assert wire["status"] == "no_bom" and wire["rows"] == []
     plan["status"] = "unknown"
@@ -109,3 +113,20 @@ def test_inventory_plan_route_serializes_mixed_readiness_and_counts(client, auth
     assert plan["summary"]["shortage_line_count"] == 1
     assert plan["summary"]["remaining_to_reserve"] == 10
     assert plan["summary"]["shortage"] == 3
+
+
+def test_internal_suggestion_and_composition_keep_raw_values():
+    received = datetime(2026, 1, 2, tzinfo=timezone.utc)
+    batch = SimpleNamespace(id=7, item_id=3, unit="kg", quantity=2,
+                            batch_no="B-7", warehouse_id=4, received_date=received)
+    suggestion = inventory_service._suggest_batches_for_requirement(
+        candidates=[batch], candidate_ids={7: batch}, reserved_by_batch={7: 0.5},
+        item_id=3, unit="kg", quantity=1.0,
+    )[0]
+    assert suggestion["received_date"] is received
+    assert suggestion["suggested_quantity"] == 1.0
+    assert type(suggestion["current_quantity"]) is float
+    item = SimpleNamespace(composition_json=[{"name": " Cotton ", "percentage": "75"}])
+    composition = inventory_service._item_composition(item)
+    assert composition == [{"name": "Cotton", "percentage": 75.0}]
+    assert isinstance(composition[0], dict)
