@@ -57,6 +57,11 @@ jobs:
         run: |
           python -m ruff check app
           python -m compileall -q app scripts
+      - name: ECO material PostgreSQL migration and concurrency
+        working-directory: backend
+        env:
+          STABILIZATION_POSTGRES_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/first_grade_qa_ci
+        run: python -m pytest -q app/tests/test_eco_inventory_postgres.py
       - name: Backend regression suite
         working-directory: backend
         run: python -m pytest -q

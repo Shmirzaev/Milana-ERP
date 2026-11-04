@@ -1,4 +1,6 @@
 from app.schemas.inventory.eco_transfer import EcoFabricDispatch, EcoFabricRoll
+from app.schemas.inventory.eco_accessory import EcoAccessoryPlan, EcoAccessoryRequirement, EcoAccessoryAllocation
+from app.schemas.inventory.eco_inventory import EcoMaterialBatch, EcoMaterialMovement, FactoryFabricTransfer, FactoryFabricTransferLine
 from app.schemas.catalog.paid_process import PaidProcess
 from app.schemas.order_reference import BusinessOrderAlias
 from app.schemas.core import (
@@ -46,6 +48,8 @@ from app.schemas.fulfillment.package_customer_release import PackageCustomerRele
 from app.schemas.inventory.fabric_scan import FabricScan
 
 __all__ = [
+    "EcoAccessoryPlan", "EcoAccessoryRequirement", "EcoAccessoryAllocation",
+    "EcoMaterialBatch", "EcoMaterialMovement", "FactoryFabricTransfer", "FactoryFabricTransferLine",
     "EcoFabricDispatch", "EcoFabricRoll",
     "FabricScan",
     "PaidProcess",

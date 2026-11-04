@@ -1,4 +1,5 @@
 "use client";
+import { packageIdentityText, sewingFactoryLabel } from "@/lib/packageIdentity";
 import { formatModelVariantCode } from "@/lib/variantDisplay";
 import Link from "next/link";
 import { firstGradeText } from "@/lib/firstGradeText";
@@ -14,6 +15,7 @@ import { useT } from "@/lib/i18n";
 export default function PackageDetail() {
   const { t, lang } = useT();
   const { me } = useMe();
+  const identityText = packageIdentityText[lang];
   const params = useParams<{ id: string }>();
   const id = params.id;
   const { data: p } = useSWR<any>(`/api/packages/${id}`, fetcher);
@@ -46,6 +48,9 @@ export default function PackageDetail() {
             <div className="flex justify-between"><dt className="text-slate-500">{t("field.barcode")}</dt><dd><code>{p.barcode}</code></dd></div>
             <div className="flex justify-between"><dt className="text-slate-500">{t("page.packageDetail.productionOrder")}</dt><dd>{p.production_no || "—"}</dd></div>
             <div className="flex justify-between"><dt className="text-slate-500">{t("page.packageDetail.mc")}</dt><dd>{formatModelVariantCode(p.model_code) || "—"} / {p.color}</dd></div>
+            <div className="flex justify-between"><dt className="text-slate-500">{identityText.model}</dt><dd>{p.model_no || identityText.unknown}</dd></div>
+            <div className="flex justify-between"><dt className="text-slate-500">{identityText.variant}</dt><dd>{p.variant_no || identityText.unknown}</dd></div>
+            <div className="flex justify-between"><dt className="text-slate-500">{identityText.factory}</dt><dd>{sewingFactoryLabel(p, identityText.unknown)}</dd></div>
             <div className="flex justify-between"><dt className="text-slate-500">{t("field.totalQty")}</dt><dd>{p.total_quantity}</dd></div>
             <div className="flex justify-between"><dt className="text-slate-500">{t("field.capacity")}</dt><dd>{p.capacity}</dd></div>
             <div className="flex justify-between"><dt className="text-slate-500">{t("field.weightKg")}</dt><dd>{p.weight_kg != null ? `${p.weight_kg} kg` : "-"}</dd></div>
