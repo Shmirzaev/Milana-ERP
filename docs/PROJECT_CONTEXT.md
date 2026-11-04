@@ -15,6 +15,25 @@ Last updated 2026-11-04. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
+## BST historical assignable queue corrected (4 November)
+
+Owner-confirmed status-only correction closed 14 BST Sewing work orders,
+removing 21 genuine BST batch rows (8,277 received pieces) from Assignable work.
+Existing output/plans/history/stock were preserved; no business rows were deleted
+or production quantities/receipts created. Fresh validated full backup, exact CAS,
+35-table conservation, real PostgreSQL rollback/refusal checks, independent AI
+review, persisted readback, 14 new chained audits and all four health checks passed.
+Browser visual QA was blocked by the adapter, not reported as passed.
+
+One Milana row, PO-0377 Nastil 1 / 600 pieces, remains wrongly included in BST;
+it was excluded from mutation. Factory-filter bug `SEW-BST-ASSIGNABLE-FACTORY-20261104`
+remains open. PO-0377 BST Nastil 3 was explicitly confirmed sewn/handed over but its
+stored zero output was preserved. Future real evidence may reopen work; positive
+planned Nastils may appear in Process QR at zero output, without UI label creation.
+Active blue `20261103_094602`, green rollback `20261103_112256`, schema 0150 and both
+manifests are unchanged; no application deployment occurred. See the
+[correction and verification record](archive/BST_ASSIGNABLE_CLEANUP_2026-11-04.md).
+
 ## Current refactor: Finance shipment invoice reversal (4 November)
 
 The [operation packet](REF350_INVOICE_REVERSAL_20261104.md) records

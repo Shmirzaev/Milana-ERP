@@ -1,5 +1,19 @@
 # Team bug tracker — clone_main
 
+## SEW-BST-ASSIGNABLE-FACTORY-20261104 — Milana Nastil included in BST assignable list
+
+- **Confirmed open; not fixed or deployed.** Production owner Mirshoir/reviewer
+  Ismail. `list_wos(only_received_sewing=true, sewing_factory_code=BST)` selects
+  order IDs from BST bundles, then expands other factories' shared work/batches
+  on those orders. PO-0377 Milana Nastil 1 (`0416-01`), 600 pieces, appears in BST.
+- The owner-authorized [historical BST correction](../docs/archive/BST_ASSIGNABLE_CLEANUP_2026-11-04.md)
+  removed 21 actual BST queue rows; Milana work order 1627 and all its evidence
+  were deliberately unchanged. Do not close/delete foreign work to hide the leak.
+- Next: scope the received-batch projection and assignment authorization to the
+  exact factory/work/batch; test mixed-factory orders and both shared/dedicated
+  Sewing work orders. Preserve real counts/history; obtain deployment authorization
+  separately. Browser verification of this correction remains unavailable.
+
 ## REF350-INVOICE-REVERSAL-20261104 - Finance participant / remaining Shipment debt
 
 - **AI_VERIFIED_AWAITING_HUMAN for Finance participant; whole Shipment incomplete;
