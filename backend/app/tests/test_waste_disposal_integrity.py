@@ -77,6 +77,16 @@ def test_request_disposal_refuses_duplicate_without_second_request_or_audit(clie
     assert _snapshot(wid) == before
 
 
+def test_request_disposal_checks_state_before_sellable_and_quantity(client):
+    _, headers = _actor()
+    wid, _ = _fixture(state="recorded", sellable=True, quantity=0)
+    before = _snapshot(wid)
+    response = client.post(f"/api/waste/{wid}/request-disposal", headers=headers, json={})
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Cannot dispose from status 'recorded'"
+    assert _snapshot(wid) == before
+
+
 @pytest.mark.parametrize("action", ["approve", "reject"])
 @pytest.mark.parametrize(("request_state", "state"), [
     ("approved", "disposal_approved"), ("rejected", "received_by_waste_department"), ("disposed", "disposed"),
