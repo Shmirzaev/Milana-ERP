@@ -15,7 +15,31 @@ Last updated 2026-11-04. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
-## ECO inventory deployment preparation (4 November)
+## Current ECO runtime and narrow feature candidate (4 November)
+
+Both production hosts were reverified on blue `20261104_080711`, runtime
+`984aeffb22aedd3262d7cd61e2d88a905b589e8d`, manifest
+`0221829adfc216391679b744ae512b6c4d96913bb0316c31dfe12fb9a1641be7`.
+Live database readback is `0154_eco_receipt_details`; compatible retained rollback
+is green `20261104_093330` / `bd7d572282b50886e9d03a650bcf886ca9109175`.
+
+The owner approved reconciling the deployed ECO application into clone_main while
+preserving existing integration work, and preparing Planning cutting-factory
+reassignment, floor print pictures and a BST master handoff. This narrow runtime
+candidate starts from exact deployed984 source and ports only those small changes.
+No migration file or dependency version changes; it retains0154. Undeployed
+turnstile and other clone_main changes remain preserved in the separate source
+integration candidate, not included implicitly in this release. A future combined
+migration graph needs separate approval. See [candidate evidence](PLANNING_FLOORS_RELEASE_20261104.md).
+
+No production mutation, cutover or timed observation occurred. Connected-browser
+verification is BLOCKED after the policy helper could not reliably establish the
+current URL. BST execution also awaits confirmation whether stored employee620,
+Yo'ldasheva Dilfuzaxon, is the requested Yoldashova Dilfuza. Payroll rows remain
+untouched; existing historical reports would regroup under current managers.
+Historical performance exceptions apply only to the old release, not this candidate.
+
+## Historical ECO inventory deployment preparation (4 November)
 
 The owner authorized PR375 deployment and explicitly waived the30-minute timed
 monitoring window. The [narrow release record](archive/ECO_INVENTORY_RELEASE_2026-11-04.md)

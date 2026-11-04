@@ -57,6 +57,19 @@ jobs:
         run: |
           python -m ruff check app
           python -m compileall -q app scripts
+      - name: Planning cutting factory PostgreSQL routing and stale-scope races
+        working-directory: backend
+        env:
+          PLANNING_CUTTING_POSTGRES_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/first_grade_qa_ci
+        run: python -m pytest -q app/tests/test_planning_cutting_factory_postgres.py
+      - name: BST handoff PostgreSQL preservation and recovery
+        env:
+          PYTHONPATH: ./backend
+          BST_HANDOFF_TEST_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/bst_handoff_test
+        run: |
+          docker exec milana-ci-postgres createdb -U postgres bst_handoff_test
+          trap 'docker exec milana-ci-postgres dropdb -U postgres bst_handoff_test' EXIT
+          python -m pytest -q backend/tests/test_bst_master_handoff_postgres.py
       - name: ECO material PostgreSQL migration and concurrency
         working-directory: backend
         env:
