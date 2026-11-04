@@ -217,7 +217,7 @@ async def upload_printing_attachment(file: UploadFile):
 
 def list_sales_orders(
     db: Session,
-    status: str | None = None,
+    status: SalesOrderStatus | None = None,
     order_type: str | None = None,
     customer_id: int | None = None,
     q: str | None = None,
