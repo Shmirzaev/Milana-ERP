@@ -645,6 +645,46 @@ def test_forecasting_item_reorder_suggestions_when_below_level(client, auth_head
     assert r.json() == []
 
 
+def test_item_reorder_json_shape_and_scoped_exclusion(client, auth_headers, monkeypatch):
+    import app.api.routes.forecasting as forecast_routes
+
+    item_id, sku = _create_reorder_item(reorder_level=50)
+    # The production route receives an explicit factory scope and must not expose
+    # items without factory ownership, including through the dashboard.
+    for path in ("/api/forecasting/item-reorder-suggestions", "/api/forecasting/dashboard"):
+        response = client.get(path, headers=auth_headers)
+        assert response.status_code == 200, response.text
+        rows = response.json() if path.endswith("suggestions") else response.json()["item_reorder_suggestions"]
+        assert rows == []
+
+    # Exercise the legacy unscoped service branch through the actual HTTP routes.
+    # This override does not assert that any real actor is granted unscoped access.
+    monkeypatch.setattr(forecast_routes, "factory_codes_with_permission", lambda _user, _permission: None)
+    endpoint = client.get("/api/forecasting/item-reorder-suggestions", headers=auth_headers)
+    dashboard = client.get("/api/forecasting/dashboard", headers=auth_headers)
+    assert endpoint.status_code == dashboard.status_code == 200
+    row = next(row for row in endpoint.json() if row["item_id"] == item_id)
+    assert row == {
+        "recommendation_type": "item_reorder",
+        "item_id": item_id,
+        "item_sku": sku,
+        "item_name": f"Forecast reorder {sku.removeprefix('FC-RE-')}",
+        "category": "accessory",
+        "unit": "pcs",
+        "current_quantity": 0.0,
+        "reserved_quantity": 0.0,
+        "available_quantity": 0.0,
+        "reorder_level": 50.0,
+        "planned_bom_demand": 0.0,
+        "recent_usage_90d": 0.0,
+        "suggested_quantity": 50.0,
+        "confidence": "low",
+        "reason": "available 0 pcs is below reorder level 50.",
+    }
+    dashboard_row = next(row for row in dashboard.json()["item_reorder_suggestions"] if row["item_id"] == item_id)
+    assert dashboard_row == row
+
+
 def test_forecasting_item_reorder_uses_planned_bom_demand_without_reorder_level(client, auth_headers):
     db = SessionLocal()
     try:
