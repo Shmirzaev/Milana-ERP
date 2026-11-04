@@ -16,7 +16,9 @@ from app.libs.dto.inventory.warehouse_stocktake_input import (
 )
 from app.models.audit_service import log_action
 from app.schemas import FinishedGoodsStock, Model, Package, PackageItem, User
-from app.schemas.inventory.stocktake import WarehouseStocktake, WarehouseStocktakeRow
+from app.schemas.inventory.stocktake import (
+    WarehouseStocktake, WarehouseStocktakeRow, add_scan_row, record_first_scan,
+)
 from app.models.package_identity_service import resolve_warehouse_package
 
 STORAGE_STATUSES = ("received_in_storage", "reserved", "damaged")
@@ -465,21 +467,19 @@ def scan_count(db, count_id: int, body: ScanCount, current: User) -> dict:
     observed = package_snapshots(db, [pid], include_items=True).get(pid, {}) if pid else {}
     if not row:
         snapshot = {key: value for key, value in observed.items() if key != "items"}
-        row = WarehouseStocktakeRow(
+        row = add_scan_row(
+            db,
             stocktake_id=count_id,
             identity=identity,
             package_id=pid,
-            expected=False,
             category="ambiguous" if ambiguous else "unexpected" if pid else "unknown",
             snapshot=snapshot,
         )
-        db.add(row)
     if not duplicate:
-        row.scan_snapshot = observed if pid else None
-        row.scan_code = code
-        row.scanned_at = datetime.now(timezone.utc)
-        row.scanned_by = current.id
-        db.flush()
+        record_first_scan(
+            db, row, snapshot=observed if pid else None, code=code,
+            scanned_at=datetime.now(timezone.utc), scanned_by=current.id,
+        )
         log_action(
             db,
             current,

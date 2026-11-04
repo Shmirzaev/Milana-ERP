@@ -32,3 +32,22 @@ class WarehouseStocktakeRow(Base, PkMixin):
     scan_code: Mapped[str | None] = mapped_column(String(512))
     scanned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     scanned_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+
+
+def add_scan_row(db, *, stocktake_id, identity, package_id, category, snapshot):
+    """Add a scan-created row to the caller's transaction."""
+    row = WarehouseStocktakeRow(
+        stocktake_id=stocktake_id, identity=identity, package_id=package_id,
+        expected=False, category=category, snapshot=snapshot,
+    )
+    db.add(row)
+    return row
+
+
+def record_first_scan(db, row, *, snapshot, code, scanned_at, scanned_by):
+    """Persist first-scan evidence and expose the row ID before audit."""
+    row.scan_snapshot = snapshot
+    row.scan_code = code
+    row.scanned_at = scanned_at
+    row.scanned_by = scanned_by
+    db.flush()

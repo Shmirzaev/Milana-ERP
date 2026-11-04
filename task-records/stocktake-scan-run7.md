@@ -1,0 +1,11 @@
+# Stocktake scan operation — frozen candidate
+
+Owner: Ismail; technical reviewer: Mirshoir. Base: 61cd16bd9591901e31f91682e26bc65a7cbe5c04. Scope: POST /warehouse-stocktakes/{count_id}/scan. Cleanup plan: preserve behavior and move only creation and first-evidence mapped writes into supplied-session schema functions; retain service decisions and transaction.
+
+Route requires storage.packages or storage.shipment via existing access dependency. Service locks the count before validation and identity resolution, then locks a resolved package before snapshotting. Trimmed codes resolve through package identity service; unresolved identity is SHA-256 of code. An existing scan keeps its first evidence even when rescanned through another label. New rows retain category decision and snapshot minus items. First scan flushes before audit; duplicate only audits. Both audit paths and commit remain in the service; shared audit persistence uses its existing schema-owned writer and transaction hooks. Response snapshots are read after commit. Other writers: undo/delete, legacy_package_identity_service.correct_open_scans and package workflows are outside this operation and unchanged.
+
+Types: code and identity are free-form/derived strings, timestamps and IDs retain existing types. Category values ambiguous/unexpected/unknown and detail result/status vocabularies remain unresolved for a coordinated canonical Enum audit; no narrowing is claimed. Existing authorization and database behavior unchanged.
+
+Overlap: frozen stocktake completion candidate 2cae3300 touches the same stocktake service/schema. Integrator must reconcile both and verify exact combined revision including scan versus completion locking, first-evidence preservation, audit ordering, persisted data and recovery. No shared checkout edits or application runtime allocations were made.
+
+Evidence: existing test_stocktake_scan_evidence covers alias duplicates, first evidence, changed package and completion; new targeted helper test checks session add, evidence, flush and no commit. Tests, PostgreSQL, browser, stress and independent review are BLOCKED/not run in this allocation. State: candidate only, not AI_VERIFIED_AWAITING_HUMAN. Human visual/DB acceptance remains with laptop integrator before merge. No push, merge or deployment.
