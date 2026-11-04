@@ -79,7 +79,7 @@ def test_unlinked_hard_delete_and_force_permission_precedence(client, auth_heade
     assert client.delete(f'/api/inventory/items/{item_id + 1000000}?force=true', headers=override).status_code == 404
     assert client.delete(f'/api/inventory/items/{linked_id}?force=true', headers=plain).status_code == 403
     assert client.delete(f'/api/inventory/items/{linked_id}?force=true', headers=override).status_code == 204
-    assert client.delete(f'/api/inventory/items/{item_id}', headers=auth_headers).status_code == 200
+    assert client.delete(f'/api/inventory/items/{item_id}', headers=auth_headers).status_code == 204
     with TestSessionLocal() as db:
         assert db.get(Item, item_id) is None
         assert db.get(Item, linked_id).is_active is False
