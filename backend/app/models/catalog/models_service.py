@@ -103,6 +103,7 @@ from app.schemas import (
     User,
 )
 from app.schemas.catalog.bom_persistence import delete_model_bom, insert_model_bom, update_model_bom
+from app.schemas.catalog.model_approval_persistence import apply_model_approval
 from app.schemas.catalog.model_size_persistence import insert_model_size
 from app.schemas.catalog.model_color_persistence import insert_model_color
 
@@ -2416,9 +2417,7 @@ def approve_model(
                 raise HTTPException(409, "Usluga model approval requires exactly one main fabric")
     approved_at = datetime.now(timezone.utc)
     for row in pending:
-        row.status = "approved"
-        row.approved_by = current.id
-        row.approved_at = approved_at
+        apply_model_approval(db, row, actor_id=current.id, approved_at=approved_at)
         log_action(db, current, "approve", "Model", row.id,
                    new_value={"approval_scope": "model_family", "requested_model_id": mid})
     db.commit(); db.refresh(m)
