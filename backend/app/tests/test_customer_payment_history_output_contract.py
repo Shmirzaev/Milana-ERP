@@ -12,7 +12,8 @@ from app.models.finance.customer_ledger_service import _serialize_customer_payme
 
 
 @pytest.mark.parametrize("advance", [True, False])
-@pytest.mark.parametrize("paid_at", [None, datetime(2026, 1, 2, 3, 4, tzinfo=timezone.utc),
+@pytest.mark.parametrize("paid_at", [None, datetime(2026, 1, 2, 3, 4),
+                                    datetime(2026, 1, 2, 3, 4, tzinfo=timezone.utc),
                                     datetime(2026, 1, 2, 3, 4, tzinfo=timezone(timedelta(hours=5)))])
 def test_receipt_history_preserves_existing_json_shape_and_dates(advance, paid_at):
     payment = SimpleNamespace(id=7, amount=Decimal("12.50"), payment_method="legacy custom method",
