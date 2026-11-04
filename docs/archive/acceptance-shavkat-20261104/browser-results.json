@@ -1,0 +1,44 @@
+{
+  "A1": {
+    "status": "PASS",
+    "evidence": "Browser saved On leave, reloaded/reopened it, saved Active and reloaded/reopened Active."
+  },
+  "A2": {
+    "status": "PASS",
+    "evidence": "Valid 1500000 saved and reopened; browser refused -100 and 10000000000; reload retained 1500000."
+  },
+  "A3": {
+    "status": "PASS",
+    "evidence": "Load more reached Alice among 501 unique employees; search found 910001 directly; selected manager 910500 survived clearing search, closed without saving."
+  },
+  "A5": {
+    "status": "FAIL",
+    "evidence": "Accepted attendance behavior passes, but the handout’s raw event-history screen is absent in this release."
+  },
+  "A6": {
+    "status": "PASS",
+    "evidence": "Both attendance screens displayed 31 October 00:30–23:30; HR 8h scheduled, 23h actual."
+  },
+  "A7": {
+    "status": "PASS",
+    "evidence": "Browser rapid A/B/work scans auto-saved Bob; unknown badge cleared selection. HTTP readback confirms no earning for unknown-badge label."
+  },
+  "A8": {
+    "status": "PASS",
+    "evidence": "Browser issued rate locked at 1.25 for 20 pieces; issue/manual-pay HTTP requests denied 403."
+  },
+  "A11": {
+    "status": "PASS",
+    "evidence": "Browser loaded all 407 open-period records, 401 employee groups and 403 adjustments; stable totals and unique rows. Independent API pagination also passed."
+  },
+  "A10": {
+    "status": "PASS",
+    "evidence": "API created bonus 1000.50 and deduction 500, refused 10.555 and 256-character reason; browser reloaded both saved adjustments.",
+    "bonus_visible": true,
+    "deduction_visible": true
+  },
+  "A9": {
+    "status": "PASS",
+    "evidence": "Browser open-period filter excluded unmatched September work and included HISTORY-0001 after pagination; All periods showed 1 September unmatched work with no period. HTTP readback agreed."
+  }
+}

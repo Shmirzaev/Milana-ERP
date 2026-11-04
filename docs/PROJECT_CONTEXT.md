@@ -25,7 +25,13 @@ The isolated synthetic lab is at `http://172.16.10.5.sslip.io:18180`, captured
 inbox `http://172.16.10.4:18125`. Exact live images, fresh PostgreSQL/storage/test
 secrets and internal Docker networks were used; no production data/config was
 copied. The unchanged supplied seed and 12 HTTP logins passed, and HR/inbox
-browser access was verified. Operator/admin A1–A19 acceptance remains pending.
+browser access was verified. Subsequent owner-requested agent checks verified
+15 behaviors with explicit browser/API coverage; A4 live UI and A14 native print
+dialog remain partial. A5's requested raw event-history UI is absent; A12's
+printed payroll stickers omit rates despite correct corrected earnings. The
+synthetic A16 first-click fixture is consumed; original handout and production
+remain unchanged. This is agent evidence, not operator sign-off. See
+[individual results and limits](archive/ACCEPTANCE_CHECK_RESULTS_2026-11-04.md).
 Private HTTP gateway CSP transport adaptations are test-only, not production
 security evidence. Read-only production checks found SQLite counters, no effective
 SMTP/Resend sender, archiving off, zero connected replicas and three old stopped

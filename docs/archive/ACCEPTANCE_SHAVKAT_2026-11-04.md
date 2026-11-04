@@ -114,10 +114,12 @@ were inspected and discarded; only the successful r2 backend lab remains.
   and listing/hash verification of one existing backup. No production business
   data, passwords, secrets, services, migrations or traffic routing were changed.
 
-The A1–A19 human results table is deliberately unfilled. Operator/admin acceptance
-was not replaced by this setup smoke test. A16's first-click order remains
-untouched: no reservation and no task. A17 should request two fresh emails and
-ignore the setup emails. Part B tests were not rerun or relabeled as passed.
+The initial setup left the A1–A19 human results table unfilled. The owner then
+requested agent execution; see [the check results](ACCEPTANCE_CHECK_RESULTS_2026-11-04.md)
+for individual coverage, two checklist gaps and remaining screen/print limits.
+A16's first-click fixture has now been consumed and A17 completed through fresh
+captured test emails. The original handout remains preserved. Part B tests were
+not rerun or relabeled as passed.
 
 ## A4 production readback
 
@@ -164,7 +166,10 @@ database readback only; the human live-card/history check remains pending.
 
 ## What is needed next
 
-1. Operators perform A1–A16; Shavkat performs A17–A19 and returns the results table.
+1. Review the [agent check results](ACCEPTANCE_CHECK_RESULTS_2026-11-04.md).
+   Operator sign-off, A4 live-card/history and A14 native print-dialog evidence
+   remain distinct from the completed browser/API/DB checks. Do not repeat the
+   consumed A16 first-click fixture without a fresh disposable seed.
 2. Shavkat or the infrastructure owner supplies the unknown physical/PBS/recovery,
    access/vault/credential-ownership and connector details in Part C. Names, IDs,
    locations and a rotation window only; no passwords, tokens or private keys.

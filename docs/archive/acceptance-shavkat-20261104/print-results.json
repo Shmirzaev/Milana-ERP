@@ -1,0 +1,30 @@
+{
+  "A14-packages": {
+    "status": "PARTIAL: document and Edge DOM verified; native preview pending",
+    "cards": 6,
+    "page_sections": 2,
+    "package_refs": [
+      "QA-PKG-0001",
+      "QA-PKG-0002",
+      "QA-PKG-0003",
+      "QA-PKG-0004",
+      "QA-PKG-0005",
+      "QA-PKG-0006"
+    ],
+    "page_footer": false,
+    "cards_per_section": [
+      4,
+      2
+    ],
+    "qr_images_loaded": 6,
+    "qr_image_natural_width": 370
+  },
+  "A15-customer": {
+    "status": "PASS: HTTP document and Edge rendered DOM customer content; native layout not verified",
+    "customer_present": true
+  },
+  "A15-no-customer": {
+    "status": "PASS: HTTP document and Edge rendered DOM customer content; native layout not verified",
+    "customer_present": false
+  }
+}

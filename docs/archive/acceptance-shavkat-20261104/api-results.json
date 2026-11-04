@@ -1,0 +1,201 @@
+{
+  "A1-A2-readback": {
+    "status": "PASS",
+    "coverage": "HTTP API and persisted readback",
+    "details": {
+      "employee": "910001",
+      "status": "active",
+      "salary": 1500000.0
+    }
+  },
+  "A5-A6-core": {
+    "status": "PASS",
+    "coverage": "HTTP API and persisted readback",
+    "details": {
+      "bob": {
+        "employee_id": 2,
+        "employee_no": "910002",
+        "full_name": "Acceptance 0002 Bob",
+        "arrival_at": "2026-10-31T03:00:00+00:00",
+        "departure_at": null,
+        "worked_minutes": 0,
+        "scheduled_minutes": 480,
+        "variance_minutes": -480,
+        "status": "present"
+      },
+      "alice": {
+        "employee_id": 1,
+        "employee_no": "910001",
+        "full_name": "Acceptance 0001 Alice",
+        "arrival_at": "2026-10-30T19:30:00+00:00",
+        "departure_at": "2026-10-31T18:30:00+00:00",
+        "worked_minutes": 1380,
+        "scheduled_minutes": 480,
+        "variance_minutes": 900,
+        "status": "present"
+      }
+    }
+  },
+  "A7": {
+    "status": "PASS",
+    "coverage": "HTTP API and persisted readback",
+    "details": {
+      "fast_record_employee": 2,
+      "unknown_badge_records": 0,
+      "auto_saved": true
+    }
+  },
+  "A8": {
+    "status": "PASS",
+    "coverage": "HTTP API and persisted readback",
+    "details": {
+      "issued_record_rate": "1.2500",
+      "issue_denied": 403,
+      "manual_pay_denied": 403
+    }
+  },
+  "A9": {
+    "status": "PASS",
+    "coverage": "HTTP API and persisted readback",
+    "details": {
+      "open_total": 406,
+      "unmatched_period": null,
+      "unmatched_scanned_at": "2026-09-01T07:00:00Z"
+    }
+  },
+  "A11-api": {
+    "status": "PASS",
+    "coverage": "HTTP API and persisted readback",
+    "details": {
+      "record_totals": [
+        406,
+        406,
+        406,
+        406,
+        406,
+        406,
+        406,
+        406,
+        406
+      ],
+      "adjustment_totals": [
+        401,
+        401,
+        401,
+        401,
+        401,
+        401,
+        401,
+        401,
+        401
+      ],
+      "employee_totals": [
+        401,
+        401,
+        401,
+        401,
+        401,
+        401,
+        401,
+        401,
+        401
+      ],
+      "all_ids_unique": true
+    }
+  },
+  "A10": {
+    "status": "PASS",
+    "coverage": "HTTP API and persisted readback",
+    "details": {
+      "before_total": "36.75",
+      "after_bonus": "1037.25",
+      "after_deduction": "537.25",
+      "new_adjustment_ids": [
+        402,
+        403
+      ],
+      "count_delta": 2,
+      "invalid_attempts_refused": true
+    }
+  },
+  "A16": {
+    "status": "PASS",
+    "coverage": "HTTP API and persisted readback",
+    "details": {
+      "one_first_click": true,
+      "shortage_pieces": 25,
+      "task": {
+        "id": 2,
+        "title": "Stock shortage for QA-SO-SHORTAGE-FIRST",
+        "description": "Auto-created from reserve-stock. Resolve shortages: M1 QA red/M: 25",
+        "assigned_to": 5,
+        "created_by": 6,
+        "status": "pending",
+        "priority": "high",
+        "due_date": "2026-11-07T03:00:23.955082Z",
+        "entity_type": null,
+        "entity_id": null,
+        "completed_at": null,
+        "created_at": "2026-11-04T09:16:14.469545Z",
+        "updated_at": "2026-11-04T09:16:14.469545Z"
+      },
+      "readback_stable": true
+    }
+  },
+  "A18": {
+    "status": "PASS",
+    "coverage": "HTTP API and persisted readback",
+    "details": {
+      "protected_admin_delete_refused": 403,
+      "account_still_exists": true
+    }
+  },
+  "A19": {
+    "status": "PASS",
+    "coverage": "HTTP API and persisted readback",
+    "details": {
+      "mover_factory": "BST",
+      "last_admin_deactivation_refused": 400,
+      "control_relogin_and_users_access": true
+    }
+  },
+  "A12": {
+    "status": "PASS",
+    "coverage": "HTTP API and persisted readback",
+    "details": {
+      "quantities": [
+        8,
+        12
+      ],
+      "totals": [
+        "10.00",
+        "15.00"
+      ],
+      "invalid_sum_refused": true,
+      "stale_revision_refused": 409,
+      "scanner_edit_denied": 403,
+      "print_labels_present": true
+    }
+  },
+  "A13": {
+    "status": "PASS",
+    "coverage": "HTTP API and persisted readback",
+    "details": {
+      "returned_unassigned_before_scan": true,
+      "alice_new_amount": "132.50",
+      "bob_unchanged_amount": "65.00"
+    }
+  },
+  "A17": {
+    "status": "PASS",
+    "coverage": "HTTP API and persisted readback",
+    "details": {
+      "fresh_reset_emails": 2,
+      "newer_link_changed_test_password": true,
+      "new_login_succeeded": true,
+      "older_link_rejected": 400,
+      "documented_test_password_restored": true,
+      "browser_password_entry_performed": false
+    }
+  }
+}
