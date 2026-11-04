@@ -4,6 +4,8 @@ SQLite runs offline. The opt-in CI gate repeats migration and cold lifespan
 startup on one newly-created, job-owned PostgreSQL schema, never public DBs.
 """
 import os
+import json
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
@@ -62,6 +64,44 @@ def test_canonical_graph_excludes_unreleased_hr():
     assert scripts.get_heads() == [SUCCESSOR]
     assert set(scripts.get_revision(SUCCESSOR).down_revision) == {"0151_eco_accessory_approval", PREDECESSOR}
     assert all("gate_enrollment" not in revision.revision for revision in scripts.walk_revisions())
+
+
+def test_bridge_image_default_command_never_migrates_or_seeds():
+    """The actual Docker default must reach the read-only lifespan first.
+
+    Accepting 0150 in Python cannot protect it if a shell upgrades it to 0154
+    before importing the app. Keep this exact narrow launch contract explicit.
+    """
+    lines = (Path(__file__).resolve().parents[2] / "Dockerfile").read_text().splitlines()
+    commands = [json.loads(line.removeprefix("CMD ")) for line in lines if line.startswith("CMD ")]
+    assert commands == [["sh", "-c", "exec env PYTHONPATH=/app:/app/backend uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-10000} --workers ${WEB_CONCURRENCY:-2}"]]
+    assert not any(line.startswith("ENTRYPOINT ") for line in lines)
+
+
+@pytest.mark.parametrize("revision", [PREDECESSOR, SUCCESSOR])
+def test_strict_bridge_lifespan_is_read_only_on_each_supported_schema(rollback_engine, monkeypatch, revision):
+    if revision == SUCCESSOR:
+        command.upgrade(config(), revision)
+    from app.db import seed
+    seed_calls, sync_calls, writes = [], [], []
+    monkeypatch.setattr(seed, "seed", lambda **kwargs: seed_calls.append(kwargs))
+    monkeypatch.setattr(main, "_run_local_schema_sync", lambda: sync_calls.append(True))
+    monkeypatch.setattr(main.settings, "STARTUP_SCHEMA_SYNC", False)
+
+    def observe(_conn, _cursor, statement, _parameters, _context, _executemany):
+        verb = statement.lstrip().split(None, 1)[0].upper()
+        if verb in {"CREATE", "ALTER", "DROP", "INSERT", "UPDATE", "DELETE", "REPLACE", "TRUNCATE", "VACUUM"}:
+            writes.append(statement)
+
+    sa.event.listen(rollback_engine, "before_cursor_execute", observe)
+    try:
+        cold_start(monkeypatch)
+        cold_start(monkeypatch)
+    finally:
+        sa.event.remove(rollback_engine, "before_cursor_execute", observe)
+    assert not writes and not seed_calls and not sync_calls
+    with rollback_engine.connect() as connection:
+        assert MigrationContext.configure(connection).get_current_heads() == (revision,)
 
 
 def verify_upgrade_and_restart(engine, monkeypatch):
