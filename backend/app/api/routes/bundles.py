@@ -789,7 +789,7 @@ def manual_receive_sewing(
     if not bundles:
         raise HTTPException(404, "No bundles are waiting for sewing receive")
 
-    accessory_gate = verify_sewing_accessory_gate(db, payload.production_order_id)
+    accessory_gate = verify_sewing_accessory_gate(db, payload.production_order_id, sewing_factory_code=factory)
     received_ids = receive_many_at_sewing(
         db,
         bundles,
@@ -1007,7 +1007,7 @@ def accept_sewing_batch(
         )
 
     accessory_gate = (
-        verify_sewing_accessory_gate(db, int(batch.production_order_id))
+        verify_sewing_accessory_gate(db, int(batch.production_order_id), sewing_factory_code=flow.factory_code)
         if has_unreceived_bundles
         else None
     )

@@ -2913,7 +2913,12 @@ def missing_accessory_issue_for_sewing(db: Session, production_order_id: int) ->
     return not bool(plan.get("is_complete"))
 
 
-def ensure_accessories_issued_for_sewing(db: Session, production_order_id: int) -> dict:
+def ensure_accessories_issued_for_sewing(db: Session, production_order_id: int, *,
+                                       sewing_factory_code: str | None = None,
+                                       sewing_work_order_id: int | None = None) -> dict:
+    from app.db.eco_schema_compatibility import freeze_eco_sewing_on_rollback
+    freeze_eco_sewing_on_rollback(db, production_order_id, sewing_factory_code=sewing_factory_code,
+                                sewing_work_order_id=sewing_work_order_id)
     plan = sync_sewing_accessory_block(db, production_order_id)
     if plan.get("sewing_gate_active") and not plan.get("is_complete"):
         summary = plan.get("summary") or {}

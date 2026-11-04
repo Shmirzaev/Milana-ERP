@@ -254,8 +254,17 @@ def _assert_schema_contract_with_known_drift(engine):
         for table in Base.metadata.tables.values():
             columns = {column["name"] for column in inspector.get_columns(table.name)}
             assert set(table.columns.keys()) <= columns, f"Missing ORM-mapped columns in {table.name}"
+        # The bounded rollback intentionally carries additive ECO migrations
+        # without registering their runtime ORM/API. Validate their complete
+        # shape, then retain the exact old-runtime drift baseline for all other
+        # objects. Unknown tables are still compared and cannot disappear here.
+        from app.db.eco_schema_compatibility import ECO_COLUMNS, SUCCESSOR, accepts_eco_rollback_predecessor
+        accepts_eco_rollback_predecessor(connection, {SUCCESSOR}, {SUCCESSOR})
         context = MigrationContext.configure(connection, opts={
             "compare_type": True, "compare_server_default": _compare_json_server_default,
+            "include_object": lambda obj, name, kind, reflected, compare_to: not (
+                kind == "table" and reflected and compare_to is None and name in ECO_COLUMNS
+            ),
         })
         differences = compare_metadata(context, Base.metadata)
         known_drift = []

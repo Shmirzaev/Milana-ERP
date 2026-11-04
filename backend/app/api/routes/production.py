@@ -1969,7 +1969,7 @@ def start_wo(wid: int, db: DbSession, current: User = Depends(require_permission
         db.commit()
         raise HTTPException(400, "Material reservation is incomplete. Reserve required materials before starting cutting.")
     if wo.operation == "sewing":
-        ensure_accessories_issued_for_sewing(db, int(wo.production_order_id))
+        ensure_accessories_issued_for_sewing(db, int(wo.production_order_id), sewing_work_order_id=wo.id)
     wo.status = "in_progress"
     wo.start_time = datetime.now(timezone.utc)
     reservation_status = None
@@ -5310,7 +5310,7 @@ def post_sewing(payload: SewingRecordIn, db: DbSession, current: User = Depends(
     from app.models.factory_scope_service import require_work_order_factory_access
     require_work_order_factory_access(current, db, wo)
     if wo.operation != "sewing": raise HTTPException(400, "Work order is not a sewing operation")
-    ensure_accessories_issued_for_sewing(db, int(wo.production_order_id))
+    ensure_accessories_issued_for_sewing(db, int(wo.production_order_id), sewing_work_order_id=wo.id)
     _gate_record_submission(wo)
 
     assignment = None

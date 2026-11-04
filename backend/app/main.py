@@ -25,6 +25,7 @@ from app.core.security import decode_token
 from app.core.shared_store import get_shared_counter_store
 from app.api.router import api_router
 from app.db.session import SessionLocal, engine
+from app.db.eco_schema_compatibility import accepts_eco_rollback_predecessor
 import app.schemas  # noqa: F401 — register models with metadata
 
 logging.basicConfig(level=logging.INFO)
@@ -47,14 +48,18 @@ def _verify_alembic_current() -> None:
     expected_heads = set(script.get_heads())
     with engine.connect() as conn:
         current_heads = set(MigrationContext.configure(conn).get_current_heads())
-    if current_heads != expected_heads:
+        predecessor_accepted = accepts_eco_rollback_predecessor(conn, current_heads, expected_heads)
+    if current_heads != expected_heads and not predecessor_accepted:
         current = ", ".join(sorted(current_heads)) or "<none>"
         expected = ", ".join(sorted(expected_heads)) or "<none>"
         raise RuntimeError(
             "Database schema is not at the required Alembic head. "
             f"current={current}; expected={expected}. Run `alembic upgrade head` before starting the app."
         )
-    log.info("startup: database migration head verified (%s)", ", ".join(sorted(expected_heads)))
+    if predecessor_accepted:
+        log.info("startup: verified empty ECO rollback predecessor accepted (%s)", ", ".join(sorted(current_heads)))
+    else:
+        log.info("startup: database migration head verified (%s)", ", ".join(sorted(expected_heads)))
 
 
 def _run_local_schema_sync() -> None:

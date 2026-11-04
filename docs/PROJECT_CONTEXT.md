@@ -11,9 +11,23 @@ this checkout, a new combined candidate or deployed production. Inspect current
 code and the operation ledger before advancing a gate. Schema-owned writers,
 system-wide enum/type adoption and human acceptance remain incomplete.
 
-Last updated 2026-11-03. Keep this file short: current decisions, release pointers and
+Last updated 2026-11-04. Keep this file short: current decisions, release pointers and
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
+
+## ECO schema-compatible rollback preparation (4 November)
+
+The root coordinator verified active blue `20261103_094602` / exact runtime
+`11f80a2995daeeb90b5c01318aec9e9c6a40f1c9`, manifest
+`ee765f999e782193878390897873c7b5865749460d4d776cf321fcd28490f8a9`, schema
+`0150_package_customer_release`; retained green is `20261103_112256` / `37337ea6`.
+The [bounded compatibility rollback](archive/ECO_ROLLBACK_COMPATIBILITY_2026-11-04.md)
+adds the ECO-only migration graph with canonical head `0154_eco_receipt_details`,
+accepts the verified empty predecessor for staging, freezes ECO sewing after
+upgrade and protects new ECO item evidence. It introduces no ECO application API
+or HR ancestry. The worker made no production changes; independent review,
+PostgreSQL CI, image staging and release gates remain with the coordinator.
+The user's observation waiver removes only the 30-minute monitor.
 
 ## Customer-pack and FG release preparation (3 November)
 
