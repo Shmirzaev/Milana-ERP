@@ -32,6 +32,8 @@ from app.libs.enums.inventory import (
     MaterialReservationSource,
     MaterialReservationStatus,
     MaterialReservationType,
+    ReservationPlanRowStatus,
+    ReservationPlanStatus,
 )
 from app.libs.dto.inventory.reservation_type_selection import DeferredReservationType, reservation_type_selection
 from app.models.numbering_service import next_material_reservation_nos
@@ -692,11 +694,11 @@ def reservation_plan_for_production_order(db: Session, production_order_id: int,
             stock_batch_id=stock_batch_id,
         )
         if remaining <= EPSILON:
-            status = "ready"
+            status = ReservationPlanRowStatus.READY
         elif shortage > EPSILON:
-            status = "shortage"
+            status = ReservationPlanRowStatus.SHORTAGE
         else:
-            status = "partial"
+            status = ReservationPlanRowStatus.PARTIAL
         rows.append({
             **row,
             "required_quantity": required,
@@ -715,13 +717,13 @@ def reservation_plan_for_production_order(db: Session, production_order_id: int,
     total_remaining = sum(float(row["remaining_to_reserve"] or 0) for row in rows)
     total_shortage = sum(float(row["shortage"] or 0) for row in rows)
     if not rows:
-        readiness_status = "no_bom"
+        readiness_status = ReservationPlanStatus.NO_BOM
     elif total_remaining <= EPSILON:
-        readiness_status = "ready"
+        readiness_status = ReservationPlanStatus.READY
     elif total_shortage > EPSILON:
-        readiness_status = "shortage"
+        readiness_status = ReservationPlanStatus.SHORTAGE
     else:
-        readiness_status = "partial"
+        readiness_status = ReservationPlanStatus.PARTIAL
 
     return {
         "production_order_id": int(po.id),
@@ -741,8 +743,8 @@ def reservation_plan_for_production_order(db: Session, production_order_id: int,
             "remaining_to_reserve": total_remaining,
             "shortage": total_shortage,
             "line_count": len(rows),
-            "ready_line_count": sum(1 for row in rows if row["status"] == "ready"),
-            "shortage_line_count": sum(1 for row in rows if row["status"] == "shortage"),
+            "ready_line_count": sum(1 for row in rows if row["status"] == ReservationPlanRowStatus.READY),
+            "shortage_line_count": sum(1 for row in rows if row["status"] == ReservationPlanRowStatus.SHORTAGE),
         },
         "rows": rows,
     }
