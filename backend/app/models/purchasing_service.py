@@ -69,7 +69,11 @@ ORDER_CREATE_STATUSES: frozenset[PurchaseOrderStatus] = frozenset({
     PurchaseOrderStatus.DRAFT,
     PurchaseOrderStatus.SENT,
 })
-ORDER_RECEIVABLE_STATUSES = {"sent", "approved", "partially_received"}
+ORDER_RECEIVABLE_STATUSES: frozenset[PurchaseOrderStatus] = frozenset({
+    PurchaseOrderStatus.SENT,
+    PurchaseOrderStatus.APPROVED,
+    PurchaseOrderStatus.PARTIALLY_RECEIVED,
+})
 
 # One bound parameter per id, so keep each batch well under the driver's limit.
 _REFERENCE_CHUNK = 400
