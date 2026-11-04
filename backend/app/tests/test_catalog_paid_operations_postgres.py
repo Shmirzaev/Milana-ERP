@@ -29,7 +29,7 @@ def _audit_snapshot(db):
              row.prev_hash, row.entry_hash) for row in db.query(AuditLog).order_by(AuditLog.id)]
 
 
-def test_paid_family_postgres_lock_serializes_distinct_factory_saves(pg_sessions, monkeypatch):
+def test_paid_family_postgres_lock_serializes_distinct_factory_saves(pg_sessions, monkeypatch):  # noqa: F811
     actor_id, ids, control_id, _ = seed(pg_sessions.kw['bind'])
     original = models_service._approval_family
     locked, release, waiting = threading.Event(), threading.Event(), threading.Event()
@@ -88,7 +88,7 @@ def test_paid_family_postgres_lock_serializes_distinct_factory_saves(pg_sessions
         assert audit_service.verify_audit_hash_chain(db)['ok']
 
 
-def test_paid_family_postgres_second_audit_queue_failure_rolls_back_then_recovers(pg_sessions, monkeypatch):
+def test_paid_family_postgres_second_audit_queue_failure_rolls_back_then_recovers(pg_sessions, monkeypatch):  # noqa: F811
     actor_id, ids, control_id, key = seed(pg_sessions.kw['bind'])
     monkeypatch.setattr(models_service, '_catalog_paid_operation_factory_scope', lambda *args: None)
     monkeypatch.setattr(models_service, '_model_out_payload', lambda row, scope: {'id': row.id})
