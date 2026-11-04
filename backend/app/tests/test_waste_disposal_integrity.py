@@ -236,6 +236,28 @@ def test_approval_refusal_checks_request_before_invalid_parent(client):
     assert _snapshot(wid) == before
 
 
+def test_approval_schema_helper_failure_rolls_back_before_audit(client, monkeypatch):
+    actor_id, headers = _actor()
+    wid, rid = _fixture(state="pending_disposal_approval", request_state="pending")
+    before = _snapshot(wid)
+    calls = []
+
+    def fail_after_mutation(db, request, record, *, approved_by, approved_at):
+        calls.append((request.id, record.id, approved_by, approved_at))
+        request.status = "approved"
+        record.status = "disposal_approved"
+        db.flush()
+        raise RuntimeError("Synthetic approval persistence failure")
+
+    monkeypatch.setattr(waste_service, "apply_disposal_approval", fail_after_mutation)
+    with pytest.raises(RuntimeError, match="Synthetic approval persistence failure"):
+        client.post(f"/api/waste/disposal/{rid}/approve", headers=headers)
+    assert len(calls) == 1
+    assert calls[0][:3] == (rid, wid, actor_id)
+    assert calls[0][3] is not None
+    assert _snapshot(wid) == before
+
+
 @pytest.mark.parametrize(("quantity", "sellable"), [
     (0, False), (-0.25, False), (float("inf"), False), (float("-inf"), False), (2.75, True),
 ])
