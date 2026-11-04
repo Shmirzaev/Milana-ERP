@@ -57,11 +57,14 @@ jobs:
         run: |
           python -m ruff check app
           python -m compileall -q app scripts
-      - name: ECO compatibility rollback PostgreSQL migration and cold startup
+      - name: ECO compatibility rollback PostgreSQL migration, cold startup and legacy band handoff
         working-directory: backend
         env:
           STABILIZATION_POSTGRES_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/first_grade_qa_ci
-        run: python -m pytest -q app/tests/test_eco_rollback_compatibility.py -k postgres
+        run: >-
+          python -m pytest -q -k postgres
+          app/tests/test_eco_rollback_compatibility.py
+          app/tests/test_sewing_band_postgres.py
       - name: Backend regression suite
         working-directory: backend
         run: python -m pytest -q

@@ -3,13 +3,18 @@ from alembic import command
 from datetime import date
 from sqlalchemy.orm import sessionmaker
 
+from app.db.eco_schema_compatibility import PREDECESSOR
 from app.schemas import Bundle, CuttingRecord, Department, Model, ProductionOrder, Role, SewingAssignment, SewingFlow, User, WorkOrder
 from app.models.sewing_band_setup_service import configure_eco_bands
 from app.tests.test_fresh_migration_bootstrap import postgres_migrations  # noqa: F401
 
 
 def test_band_provisioning_outer_join_lock_and_retry(postgres_migrations):
-    command.upgrade(postgres_migrations.config, "head")
+    # This compatibility image supports legacy ECO sewing only before the ECO
+    # inventory upgrade. Keep the positive lock/retry handoff on that exact
+    # schema; test_eco_rollback_postgres_migration_and_cold_restart separately
+    # upgrades to 0154 and proves the intentional sewing freeze.
+    command.upgrade(postgres_migrations.config, PREDECESSOR)
     sessions = sessionmaker(bind=postgres_migrations.engine, expire_on_commit=False)
     with sessions() as db:
         role = Role(name="Band QA Admin", permissions=["*"])
