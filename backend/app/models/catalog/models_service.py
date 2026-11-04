@@ -103,6 +103,7 @@ from app.schemas import (
     User,
 )
 from app.schemas.catalog.bom_persistence import delete_model_bom, insert_model_bom, update_model_bom
+from app.schemas.catalog.model_delete_persistence import delete_checked_model
 from app.schemas.catalog.model_size_persistence import insert_model_size
 from app.schemas.catalog.model_color_persistence import insert_model_color
 
@@ -2895,8 +2896,7 @@ def delete_model(
     if blockers:
         raise HTTPException(409, f"Model is in use by: {', '.join(blockers)}")
 
-    db.query(CollectionModel).filter(CollectionModel.model_id == mid).delete(synchronize_session=False)
-    db.delete(m)
+    delete_checked_model(db, m)
     log_action(db, current, "delete", "Model", mid, new_value={"code": m.code, "name": m.name})
     db.commit()
 
