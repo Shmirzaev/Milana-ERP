@@ -124,3 +124,10 @@ class FabricScanDepartment(str, Enum):
 
     CUT = "CUT"
     ECT = "ECT"
+
+
+class MaterialReservationAutoMode(str, Enum):
+    """Request modes for automatically reserving production materials."""
+
+    SHORTAGE_ONLY = "shortage_only"
+    FULL_REMAINING = "full_remaining"

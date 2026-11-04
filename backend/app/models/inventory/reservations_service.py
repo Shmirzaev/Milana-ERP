@@ -138,7 +138,7 @@ def auto_create_material_reservations(db, payload: MaterialReservationAutoIn, cu
     result = auto_reserve_materials_for_production_order(
         db,
         production_order_id=payload.production_order_id,
-        mode=payload.mode,
+        mode=payload.mode.value,
         reserve_accessories=payload.reserve_accessories,
         reserve_materials=payload.reserve_materials,
         reserve_packaging=payload.reserve_packaging,
@@ -154,7 +154,7 @@ def auto_create_material_reservations(db, payload: MaterialReservationAutoIn, cu
         "ProductionOrder",
         payload.production_order_id,
         new_value={
-            "mode": payload.mode,
+            "mode": payload.mode.value,
             "created_count": len(reservations),
             "reservation_ids": [int(row.id) for row in reservations],
         },
