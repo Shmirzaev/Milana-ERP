@@ -13,7 +13,8 @@ from sqlalchemy import event, select
 from app.libs.dto.catalog.model_image_input import ModelImageIn
 from app.models.catalog import models_service
 from app.schemas import AuditLog, ModelImage, User
-from app.tests.test_modelcolor_create_postgres import pg_sessions, pg_case  # shared approved-target fixture
+
+pytest_plugins = ("app.tests.test_modelcolor_create_postgres",)
 
 
 def _audits(db, model_id):
@@ -48,7 +49,9 @@ def test_postgres_before_commit_failure_rolls_back_primary_insert_and_audit(pg_s
     actor_id = pg_case["actors"]["standard"]
     with pg_sessions.begin() as db:
         old = ModelImage(model_id=mid, file_url="https://example.invalid/old", is_primary=True)
-        db.add(old); db.flush(); old_id = old.id
+        db.add(old)
+        db.flush()
+        old_id = old.id
     with pg_sessions() as db:
         actor = db.get(User, actor_id)
         def fail_after_audit_queued(_session):

@@ -22,13 +22,17 @@ def env():
     with sessions.begin() as db:
         allow = Role(name="Image access", permissions=["modeling.models", "usluga.manage"])
         deny = Role(name="Image denied", permissions=[])
-        db.add_all([allow, deny]); db.flush()
+        db.add_all([allow, deny])
+        db.flush()
         users = {name: User(name=name, email=f"{name}@example.invalid", password_hash="unused", role_id=role.id, factory_code=factory) for name, role, factory in [("standard", allow, "MIL"), ("usluga", allow, "ECO"), ("wrong", allow, "MIL"), ("denied", deny, "MIL")]}
         models = {name: Model(code=f"IMAGE-{name}", name=name, catalog_scope=scope, factory_code=factory) for name, scope, factory in [("standard", "standard", "MIL"), ("usluga", "usluga", "ECO")]}
-        db.add_all([*users.values(), *models.values()]); db.flush()
+        db.add_all([*users.values(), *models.values()])
+        db.flush()
         db.add_all([ModelImage(model_id=m.id, file_url="https://old.test/image", is_primary=True) for m in models.values()])
         ids = {"users": {name: u.id for name, u in users.items()}, "models": {name: m.id for name, m in models.items()}}
-    app = FastAPI(); app.include_router(catalog_router, prefix="/api"); app.include_router(usluga_router, prefix="/api")
+    app = FastAPI()
+    app.include_router(catalog_router, prefix="/api")
+    app.include_router(usluga_router, prefix="/api")
     def db_override():
         with sessions() as db:
             yield db
