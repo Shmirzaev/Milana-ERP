@@ -226,6 +226,16 @@ def test_legacy_sellable_disposal_request_cannot_progress(client, action):
     assert _snapshot(wid) == before
 
 
+def test_approval_refusal_checks_request_before_invalid_parent(client):
+    _, headers = _actor()
+    wid, rid = _fixture(state="sold", request_state="rejected", quantity=0, sellable=True)
+    before = _snapshot(wid)
+    response = client.post(f"/api/waste/disposal/{rid}/approve", headers=headers)
+    assert response.status_code == 400
+    assert response.json() == {"detail": "Disposal request is not pending"}
+    assert _snapshot(wid) == before
+
+
 @pytest.mark.parametrize(("quantity", "sellable"), [
     (0, False), (-0.25, False), (float("inf"), False), (float("-inf"), False), (2.75, True),
 ])

@@ -1,7 +1,7 @@
 from __future__ import annotations
 from datetime import datetime
 from sqlalchemy import String, Boolean, ForeignKey, DateTime, Text, Numeric
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from app.db.base import Base, PkMixin, TimestampMixin
 
@@ -43,3 +43,14 @@ class WasteDisposalRequest(Base, PkMixin, TimestampMixin):
     approved_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     proof_file_url: Mapped[str | None] = mapped_column(String(512))
+
+
+def apply_disposal_approval(
+    db: Session, request: WasteDisposalRequest, waste: WasteRecord, *,
+    approved_by: int, approved_at: datetime,
+) -> None:
+    """Apply a validated approval in the caller's existing transaction."""
+    request.status = "approved"
+    request.approved_by = approved_by
+    request.approved_at = approved_at
+    waste.status = "disposal_approved"
