@@ -45,3 +45,63 @@ def test_receipt_refusals_do_not_audit_or_commit(monkeypatch, status, code):
     assert error.value.status_code == code
     audit.assert_not_called()
     db.commit.assert_not_called()
+
+
+def _receipt_fixture(permissions):
+    from uuid import uuid4
+    from app.core.security import create_access_token
+    from app.db.session import SessionLocal
+    from app.schemas import User
+
+    with SessionLocal() as db:
+        user = User(name="Receipt test operator", email=f"receive-{uuid4().hex}@example.com",
+                    password_hash="unused", factory_code="MIL", extra_permissions=permissions)
+        record = WasteRecord(waste_type="Offcuts", quantity=2.5, unit="kg", sellable=True,
+                             estimated_value=12, status="recorded")
+        db.add_all([user, record])
+        db.commit()
+        return record.id, user.id, {"Authorization": f"Bearer {create_access_token(user.id)}"}
+
+
+def _receipt_readback(wid):
+    from app.db.session import SessionLocal
+    from app.schemas import AuditLog
+
+    with SessionLocal() as db:
+        record = db.get(WasteRecord, wid)
+        audits = db.query(AuditLog).filter_by(entity_type="WasteRecord", entity_id=wid, action="receive").all()
+        return record.status, [(entry.user_id, entry.action, entry.entity_type, entry.entity_id) for entry in audits]
+
+
+def test_receive_route_persists_status_and_audit_and_refuses_replay(client):
+    wid, actor_id, headers = _receipt_fixture(["waste.receive"])
+    response = client.post(f"/api/waste/{wid}/receive", headers=headers)
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "received_by_waste_department"
+    expected = ("received_by_waste_department", [(actor_id, "receive", "WasteRecord", wid)])
+    assert _receipt_readback(wid) == expected
+    assert client.post(f"/api/waste/{wid}/receive", headers=headers).status_code == 400
+    assert _receipt_readback(wid) == expected
+
+
+def test_receive_route_denies_without_permission_and_missing_record(client):
+    wid, _, headers = _receipt_fixture([])
+    assert client.post(f"/api/waste/{wid}/receive", headers=headers).status_code == 403
+    assert _receipt_readback(wid) == ("recorded", [])
+    _, _, allowed = _receipt_fixture(["waste.receive"])
+    assert client.post("/api/waste/999999999/receive", headers=allowed).status_code == 404
+    assert _receipt_readback(wid) == ("recorded", [])
+
+
+def test_receive_rolls_back_flushed_status_and_audit_if_audit_fails(client, monkeypatch):
+    wid, _, headers = _receipt_fixture(["waste.receive"])
+    real_log_action = waste_service.log_action
+
+    def fail_after_audit(*args, **kwargs):
+        real_log_action(*args, **kwargs)
+        raise RuntimeError("injected failure after audit flush")
+
+    monkeypatch.setattr(waste_service, "log_action", fail_after_audit)
+    with pytest.raises(RuntimeError, match="injected failure"):
+        client.post(f"/api/waste/{wid}/receive", headers=headers)
+    assert _receipt_readback(wid) == ("recorded", [])
