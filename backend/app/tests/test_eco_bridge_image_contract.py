@@ -16,6 +16,85 @@ IMAGE = "ghcr.io/shmirzaev/milana-erp-backend@sha256:" + "2" * 64
 COMMIT = "a" * 40
 
 
+@pytest.mark.parametrize("kind,diagnostic", [
+    ("network", "Error response from daemon: network eco-bridge-ci-resource not found"),
+    ("network", "Error response from daemon: No such network: eco-bridge-ci-resource"),
+    ("container", "Error response from daemon: No such container: eco-bridge-ci-resource"),
+    ("container", "Error: No such object: eco-bridge-ci-resource"),
+    ("network", "Error: No such object: eco-bridge-ci-resource"),
+])
+def test_inspect_recognizes_only_exact_requested_resource_absence(kind, diagnostic):
+    proof = gate.BridgeImageProof(IMAGE, COMMIT)
+    result = SimpleNamespace(returncode=1, stdout="[]\n", stderr=diagnostic + "\n")
+    with patch.object(gate.subprocess, "run", return_value=result) as run:
+        assert proof.inspect(kind, "eco-bridge-ci-resource") is None
+    run.assert_called_once_with(["docker", kind, "inspect", "eco-bridge-ci-resource"],
+                                capture_output=True, text=True, timeout=20)
+
+
+@pytest.mark.parametrize("diagnostic", [
+    "Error response from daemon: network another-resource not found",
+    "Error response from daemon: No such network: another-resource",
+    "Error response from daemon: No such container: eco-bridge-ci-resource",
+    "Error: No such object: eco-bridge-ci-resource-suffix",
+    "Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?",
+    "permission denied while trying to connect to the Docker daemon socket",
+    "Error response from daemon: network eco-bridge-ci-resource not found\npermission denied",
+    "Error response from daemon: No such network: eco-bridge-ci-resource\npermission denied",
+    "network eco-bridge-ci-resource not found",
+    "malformed daemon reply (No such resource)",
+    "",
+])
+def test_inspect_refuses_foreign_resource_wrong_kind_or_unestablished_absence(diagnostic):
+    proof = gate.BridgeImageProof(IMAGE, COMMIT)
+    result = SimpleNamespace(returncode=1, stdout="[]\n", stderr=diagnostic)
+    with patch.object(gate.subprocess, "run", return_value=result), pytest.raises(AssertionError, match="absence"):
+        proof.inspect("network", "eco-bridge-ci-resource")
+
+
+@pytest.mark.parametrize("returncode,stdout", [(125, "[]"), (1, '[{"Id":"present"}]'), (1, "malformed")])
+@pytest.mark.parametrize("diagnostic", [
+    "Error response from daemon: network eco-bridge-ci-resource not found",
+    "Error: No such network: eco-bridge-ci-resource",
+])
+def test_inspect_absence_diagnostic_cannot_hide_unexpected_exit_or_output(returncode, stdout, diagnostic):
+    proof = gate.BridgeImageProof(IMAGE, COMMIT)
+    result = SimpleNamespace(returncode=returncode, stdout=stdout, stderr=diagnostic)
+    with patch.object(gate.subprocess, "run", return_value=result), pytest.raises(AssertionError, match="absence"):
+        proof.inspect("network", "eco-bridge-ci-resource")
+
+
+def test_inspect_returns_present_network_unchanged():
+    proof = gate.BridgeImageProof(IMAGE, COMMIT)
+    present = dict(Id="network-id", Name="eco-bridge-ci-resource", Internal=True,
+                   Labels={gate.LABEL: proof.owner})
+    result = SimpleNamespace(returncode=0, stdout=json.dumps([present]), stderr="")
+    with patch.object(gate.subprocess, "run", return_value=result):
+        assert proof.inspect("network", "eco-bridge-ci-resource") == present
+
+
+def test_unestablished_absence_stops_removal_before_any_mutation():
+    proof = gate.BridgeImageProof(IMAGE, COMMIT)
+    result = SimpleNamespace(returncode=1, stdout="[]",
+        stderr="Error: No such network: another-resource")
+    with patch.object(gate.subprocess, "run", return_value=result) as run, pytest.raises(AssertionError, match="absence"):
+        proof.remove("network", "eco-bridge-ci-resource")
+    assert run.call_count == 1
+    assert run.call_args.args[0] == ["docker", "network", "inspect", "eco-bridge-ci-resource"]
+
+
+def test_unrecognized_absence_reports_bounded_stderr_and_exit_without_stdout():
+    proof = gate.BridgeImageProof(IMAGE, COMMIT)
+    result = SimpleNamespace(returncode=125, stdout="never-print-inspect-output",
+        stderr="daemon failed: " + "x" * 1000 + "stderr-trailing-value")
+    with patch.object(gate.subprocess, "run", return_value=result), pytest.raises(AssertionError) as error:
+        proof.inspect("network", "eco-bridge-ci-resource")
+    message = str(error.value)
+    assert "exit=125" in message and "daemon failed: " in message
+    assert "never-print-inspect-output" not in message and "stderr-trailing-value" not in message
+    assert len(message) < 600
+
+
 class FakeProof(gate.BridgeImageProof):
     def __init__(self, fault=None):
         super().__init__(IMAGE, COMMIT)

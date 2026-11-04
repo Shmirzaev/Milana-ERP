@@ -92,9 +92,24 @@ class BridgeImageProof:
         return result.stdout
 
     def inspect(self, kind, name):
+        assert kind in ("container", "network"), "Unsupported disposable resource kind"
         result = subprocess.run(["docker", kind, "inspect", name], capture_output=True, text=True, timeout=20)
         if result.returncode:
-            assert "No such" in result.stderr, "Cannot establish Docker resource absence"
+            # Docker uses "network NAME not found" for network inspection,
+            # while container inspection uses "No such container: NAME".
+            # Match the entire diagnostic and requested resource, never a
+            # substring that could hide daemon/permission or another-name errors.
+            absent = {
+                prefix + "No such " + resource + ": " + name
+                for prefix in ("Error response from daemon: ", "Error: ")
+                for resource in (kind, "object")
+            }
+            if kind == "network":
+                absent.add("Error response from daemon: network " + name + " not found")
+            assert (result.returncode == 1 and result.stdout.strip() in ("", "[]")
+                    and result.stderr.strip() in absent), (
+                "Cannot establish Docker resource absence: exit=" + str(result.returncode)
+                + "; stderr=" + repr(result.stderr[:500]))
             return None
         return json.loads(result.stdout)[0]
 
