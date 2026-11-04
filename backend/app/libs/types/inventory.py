@@ -3,7 +3,10 @@
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
-from typing import TypedDict
+from typing import TYPE_CHECKING, TypedDict
+
+if TYPE_CHECKING:
+    from app.schemas import StockBatch
 
 from app.libs.enums.inventory import (
     FabricScanDepartment, FabricScanDirection, MaterialReservationType,
@@ -97,6 +100,15 @@ class ReservationPlanSummary(TypedDict):
     line_count: int
     ready_line_count: int
     shortage_line_count: int
+
+
+class ReservationPlanStockContext(TypedDict):
+    current_by_item: dict[int, float]
+    reserved_by_item: dict[int, float]
+    reserved_by_batch: dict[int, float]
+    candidates_by_item: dict[int, list["StockBatch"]]
+    candidate_ids: dict[int, "StockBatch"]
+    batches_by_id: dict[int, "StockBatch"]
 
 
 class ReservationPlan(TypedDict):
