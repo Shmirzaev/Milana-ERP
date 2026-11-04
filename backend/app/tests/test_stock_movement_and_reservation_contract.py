@@ -23,6 +23,7 @@ from app.libs.enums.inventory import (
     MaterialReservationSource,
     MaterialReservationStatus,
     MaterialReservationType,
+    ReservationPlanRowStatus,
     StockMovementType,
 )
 from app.schemas import Item, StockMovement, Warehouse
@@ -119,7 +120,8 @@ def test_reservation_schema_insert_requires_canonical_type_annotation():
 
 def test_plan_readiness_status_is_not_the_reservation_status():
     """The plan's own readiness status is a different concept."""
-    assert MaterialReservationPlanRow.model_fields["status"].annotation is str
+    assert MaterialReservationPlanRow.model_fields["status"].annotation is ReservationPlanRowStatus
+    assert ReservationPlanRowStatus is not MaterialReservationStatus
     assert MaterialReservationPlanRow.model_fields["reservation_type"].annotation is MaterialReservationType
 
 
