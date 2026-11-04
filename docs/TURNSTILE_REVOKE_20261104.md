@@ -98,3 +98,35 @@ fencing. Source integration and further refactoring may continue while the human
 remains unrecorded. Real hardware requires separately approved vendor/API, device,
 rights, readback and two-writer decisions; this packet does not authorize production
 access or release.
+
+## Final combined verification and resource follow-up
+
+Combined functional source 72bb4dc6 includes current integration, reviewed user creation
+and factory-switch/audit changes, and PR373 auth outage/localization. The functional
+Revoke files are byte-identical to freeze 75083615; relevant auth files match 97aee2fa.
+See owned-runtime evidence/combined-source-equivalence.json and
+evidence/combined-72bb-manifest.json for exact paths, commands, images and exits.
+
+- 407 combined backend tests passed with zero skips. The compound command subsequently
+  exited 127 because that dependency image lacked Ruff; the separate networkless lint
+  image ran full backend Ruff successfully. Passed pytest was not replayed.
+- A fresh guarded PostgreSQL proof passed and finalized review_revoke_26e3dcb43170.
+- Frontend typecheck, strict checks and lint passed. Build v2's static worker aborted
+  with SIGABRT; OOMKilled=false alone does not establish its cause. Evidence remains.
+  After six confirmed-drained, non-HOLD owned QA lanes closed, build-only v3 passed
+  all 98 static pages with 2CPU/4GiB/1024 task limits and no production config change.
+  Its cgroup samples recorded no OOM or task-limit event; earlier failure is not relabeled.
+- Turnstile bridge and localized auth503 error checks passed separately.
+- After the owned backend restart loaded 72bb4dc6, authenticated GETs reopened operations
+  44/45/46 and all revoked contexts, and read attendance overview. HR/attendance controls,
+  simulator bindings, assets and operation metadata matched the earlier visual evidence.
+  This extra native screenshot attempt timed out; its formal HOLD lane is retained.
+  Its memory-only user security snapshot was unavailable, so that additional comparison
+  is not claimed. The original functional Revoke UI screenshots remain valid by exact
+  source equivalence; no additional combined native screenshot pass is inferred.
+- The original locator-failure lane agent-bcd7af6c was later closed through the supported
+  lane manager after exact ownership, no HOLD marker, terminal operations and drained
+  connections were verified. Formal HOLD lanes and their evidence remain untouched.
+  No system task limit, shared observer or other service was changed.
+
+These are development evidence updates, not human acceptance or deployment.
