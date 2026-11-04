@@ -5,7 +5,8 @@ from uuid import uuid4
 
 from app.db.session import SessionLocal
 from app.tests.conftest import TestSessionLocal
-from app.models.forecasting_service import item_reorder_suggestions
+from app.models.forecasting_service import item_reorder_suggestions, branded_stock_suggestions
+from app.libs.enums.planning import ForecastRecommendationType
 from app.schemas import (
     FinishedGoodsStock,
     Item,
@@ -532,6 +533,13 @@ def test_forecasting_branded_stock_suggestions_from_history(client, auth_headers
     assert r.status_code == 200, r.text
     row = next((item for item in r.json() if item["color"] == color and item["size"] == size), None)
     assert row is not None
+    assert row["recommendation_type"] == "branded_stock_production"
+    with TestSessionLocal() as db:
+        generated = next(item for item in branded_stock_suggestions(db) if item["color"] == color and item["size"] == size)
+    assert generated["recommendation_type"] is ForecastRecommendationType.BRANDED_STOCK_PRODUCTION
+    dashboard = client.get("/api/forecasting/dashboard", headers=auth_headers)
+    assert dashboard.status_code == 200
+    assert next(item for item in dashboard.json()["branded_stock_suggestions"] if item["color"] == color)["recommendation_type"] == "branded_stock_production"
     assert int(row["suggested_quantity"]) > 0
     assert row["confidence"] in {"low", "medium", "high"}
     assert "Projected" in row["reason"]
@@ -628,6 +636,7 @@ def test_forecasting_item_reorder_suggestions_when_below_level(client, auth_head
         row = next((item for item in item_reorder_suggestions(db) if int(item["item_id"]) == item_id), None)
     assert row is not None
     assert row["item_sku"] == sku
+    assert row["recommendation_type"] is ForecastRecommendationType.ITEM_REORDER
     assert float(row["suggested_quantity"]) >= 50
     assert "reorder level" in row["reason"]
 
