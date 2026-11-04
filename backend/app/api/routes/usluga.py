@@ -570,7 +570,7 @@ def delete_usluga_model_size(
     current: User = Depends(require_permissions("usluga.manage", "*")),
 ):
     _require_eco(current)
-    return models_service.delete_size(current, db, mid, size_id, "usluga")
+    return models_service.delete_size(current, db, mid, size_id, CatalogScope.USLUGA)
 
 
 @router.post("/models/{mid}/colors", status_code=201)
