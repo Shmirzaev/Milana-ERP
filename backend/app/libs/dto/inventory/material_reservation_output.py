@@ -107,7 +107,14 @@ class MaterialReservationPlanOut(BaseModel):
     rows: list[MaterialReservationPlanRow]
 
 
+class ReservationStatusSummaryOut(ReservationPlanSummaryOut):
+    active_reserved_quantity: int | float
+    consumed_quantity: int | float
+    released_quantity: int | float
+    reservation_count: int
+
+
 class MaterialReservationStatusOut(BaseModel):
     plan: MaterialReservationPlanOut
-    summary: dict
+    summary: ReservationStatusSummaryOut
     reservations: list[MaterialReservationOut]

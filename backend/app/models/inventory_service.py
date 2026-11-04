@@ -38,7 +38,7 @@ from app.libs.enums.inventory import (
 from app.libs.dto.inventory.reservation_type_selection import DeferredReservationType, reservation_type_selection
 from app.libs.types.inventory import (
     ItemCompositionValue, ReservationBatchSuggestionValue, ReservationPlan,
-    ReservationPlanRow, ReservationRequirement,
+    ReservationPlanRow, ReservationPlanStockContext, ReservationRequirement,
 )
 from app.models.numbering_service import next_material_reservation_nos
 from app.schemas.inventory import material_reservation_persistence
@@ -519,7 +519,9 @@ def _reservation_coverage_maps(
     return by_item, by_batch
 
 
-def _reservation_plan_stock_context(db: Session, requirement_rows: list[dict]) -> dict:
+def _reservation_plan_stock_context(
+    db: Session, requirement_rows: list[ReservationRequirement]
+) -> ReservationPlanStockContext:
     """Load every stock, claim and candidate read a reservation plan needs once.
 
     The plan loop used to ask for the same numbers row by row: a candidate
