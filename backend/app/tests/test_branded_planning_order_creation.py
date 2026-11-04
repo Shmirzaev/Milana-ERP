@@ -897,7 +897,9 @@ def test_alternate_writer_refuses_missing_and_closed_orders_without_writes(clien
     with TestSessionLocal() as db:
         order = BrandedPlanningOrder(order_no=f"CLOSED-{uuid4().hex}", ordered_for_type="milana",
                                      ordered_for_name="Milana", status="closed")
-        db.add(order); db.commit(); closed_id = order.id
+        db.add(order)
+        db.commit()
+        closed_id = order.id
     before = _alternate_counts()
     for order_id, status in ((closed_id, 400), (2147483647, 404)):
         response = client.post("/api/planning/create-branded-production", headers=auth_headers,
