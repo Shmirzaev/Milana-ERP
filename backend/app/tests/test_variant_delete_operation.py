@@ -3,6 +3,7 @@ from unittest.mock import Mock
 
 import pytest
 from fastapi import HTTPException
+from sqlalchemy import select
 
 from app.api.routes import catalog, usluga
 from app.models.catalog import models_service as service
@@ -59,23 +60,29 @@ def test_persistence_cascades_and_rollback():
         brand = Brand(name=key)
         collection = Collection(brand=brand, name=key, year=2024)
         model = Model(code=key, name=key, images=[ModelImage(file_url='test')], sizes=[ModelSize(size='M')], colors=[ModelColor(color_name='blue')], bom=[ModelBOM(quantity_per_piece=1, unit='m')])
-        db.add_all([collection, model]); db.flush()
+        db.add_all([collection, model])
+        db.flush()
         link = CollectionModel(collection_id=collection.id, model_id=model.id)
-        db.add(link); db.commit()
+        db.add(link)
+        db.commit()
         mid, lid = model.id, link.id
         child_ids = [(type(row), row.id) for row in [*model.images, *model.sizes, *model.colors, *model.bom]]
         delete_variant_rows(db, target=model, variant_id=mid)
         db.flush()
-        db.expire_all()
-        assert db.get(Model, mid) is None and db.get(CollectionModel, lid) is None
-        assert all(db.get(cls, rid) is None for cls, rid in child_ids)
+        # Query scalar IDs directly: bulk delete intentionally leaves loaded ORM
+        # identities unsynchronized until the caller's session ends.
+        for cls, row_id in [(Model, mid), (CollectionModel, lid), *child_ids]:
+            assert db.scalar(select(cls.id).where(cls.id == row_id)) is None
         db.rollback()
-        assert db.get(Model, mid) is not None and db.get(CollectionModel, lid) is not None
-        assert all(db.get(cls, rid) is not None for cls, rid in child_ids)
+    with TestSessionLocal() as readback:
+        for cls, row_id in [(Model, mid), (CollectionModel, lid), *child_ids]:
+            assert readback.get(cls, row_id) is not None
+    with TestSessionLocal() as db:
         delete_variant_rows(db, target=db.get(Model, mid), variant_id=mid)
         db.commit()
-        assert db.get(Model, mid) is None and db.get(CollectionModel, lid) is None
-        assert all(db.get(cls, rid) is None for cls, rid in child_ids)
+    with TestSessionLocal() as readback:
+        for cls, row_id in [(Model, mid), (CollectionModel, lid), *child_ids]:
+            assert readback.get(cls, row_id) is None
 
 
 def test_audit_failure_leaves_outer_transaction_recoverable(monkeypatch):
@@ -84,7 +91,8 @@ def test_audit_failure_leaves_outer_transaction_recoverable(monkeypatch):
     with TestSessionLocal() as db:
         source = Model(code=key + '-1', name='family', details_json={'general': {'model_no': key, 'variant_no': '1'}})
         target = Model(code=key + '-2', name='family', details_json={'general': {'model_no': key, 'variant_no': '2'}}, sizes=[ModelSize(size='L')])
-        db.add_all([source, target]); db.commit()
+        db.add_all([source, target])
+        db.commit()
         sid, tid, size_id = source.id, target.id, target.sizes[0].id
         def fail(*args, **kwargs):
             db.flush()
@@ -109,13 +117,17 @@ def test_http_delete_persists_scope_and_audit(scope, prefix, factory):
     key = uuid4().hex
     with TestSessionLocal() as db:
         role = Role(name=key, permissions=['modeling.models', 'usluga.manage'])
-        db.add(role); db.flush()
+        db.add(role)
+        db.flush()
         actor = User(name=key, email=key + '@example.invalid', password_hash='unused', role_id=role.id, factory_code=factory, is_active=True)
         source = Model(code=key+'-1', name='family', catalog_scope=scope, factory_code=factory, details_json={'general': {'model_no': key, 'variant_no': '1'}})
         target = Model(code=key+'-2', name='family', catalog_scope=scope, factory_code=factory, details_json={'general': {'model_no': key, 'variant_no': '2'}}, sizes=[ModelSize(size='M')])
-        db.add_all([actor, source, target]); db.commit()
+        db.add_all([actor, source, target])
+        db.commit()
         actor_id, sid, tid, child_id = actor.id, source.id, target.id, target.sizes[0].id
-    app = FastAPI(); app.include_router(catalog.router, prefix='/api'); app.include_router(usluga.router, prefix='/api')
+    app = FastAPI()
+    app.include_router(catalog.router, prefix='/api')
+    app.include_router(usluga.router, prefix='/api')
     def db_override():
         with TestSessionLocal() as db:
             yield db
