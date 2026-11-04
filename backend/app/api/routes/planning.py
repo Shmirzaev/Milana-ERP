@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import Response
 
 from app.core.deps import DbSession, require_permissions
-from app.libs.dto.planning.branded_order_parties_output import BrandedOrderPartiesOut
+from app.libs.dto.planning.branded_order_parties_output import BrandedOrderCustomerOut, BrandedOrderPartiesOut
 from app.libs.dto.planning.branded_planning_order_input import (
     BrandedPlanningOrderIn,
     BrandedStatusFilter,
@@ -44,10 +44,10 @@ def list_branded_orders(
     return branded_orders_service.list_branded_orders(db, status)
 
 
-@router.get("/branded-order-customers")
+@router.get("/branded-order-customers", response_model=list[BrandedOrderCustomerOut])
 def branded_order_customers(db: DbSession,
                            _: User = Depends(require_permissions("planning.production", "*")),
-                           q: str = Query("", max_length=100)):
+                           q: str = Query("", max_length=100)) -> list[BrandedOrderCustomerOut]:
     return branded_orders_service.branded_order_customers(db, q)
 
 

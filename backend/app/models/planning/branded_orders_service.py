@@ -208,13 +208,13 @@ def branded_order_parties(db: Session) -> BrandedOrderPartiesOut:
     )
 
 
-def branded_order_customers(db: Session, q: str) -> list[dict]:
+def branded_order_customers(db: Session, q: str) -> list[BrandedOrderCustomerOut]:
     """Return the customers that can be named on a branded order."""
     query = db.query(Customer.id, Customer.name)
     if q.strip():
         pattern = "%" + q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
         query = query.filter(Customer.name.ilike(pattern, escape="\\"))
-    return [{"id": row.id, "name": row.name} for row in query.order_by(Customer.name, Customer.id).limit(50)]
+    return [BrandedOrderCustomerOut(id=row.id, name=row.name) for row in query.order_by(Customer.name, Customer.id).limit(50)]
 
 
 def create_branded_order(
