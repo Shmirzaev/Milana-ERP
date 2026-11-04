@@ -930,7 +930,11 @@ def test_alternate_writer_failure_rolls_back_and_retry_succeeds(client, auth_hea
 
 
 def test_parties_contract_preserves_customers_and_company_names(client, auth_headers):
-    customer_id = _customer(f"Parties customer {uuid4()}")
+    suffix = str(uuid4())
+    first_name = f"Parties Alpha {suffix}"
+    second_name = f"Parties Beta {suffix}"
+    first_id = _customer(first_name)
+    second_id = _customer(second_name)
     response = client.get("/api/planning/branded-order-parties", headers=auth_headers)
     assert response.status_code == 200, response.text
     assert response.json()["companies"] == [
@@ -939,8 +943,11 @@ def test_parties_contract_preserves_customers_and_company_names(client, auth_hea
         {"type": "besttex", "name": "Besttex"},
     ]
     customers = response.json()["customers"]
-    assert any(row["id"] == customer_id for row in customers)
-    assert [row["name"] for row in customers] == sorted(row["name"] for row in customers)
+    selected = [row for row in customers if row["id"] in {first_id, second_id}]
+    assert selected == [
+        {"id": first_id, "name": first_name},
+        {"id": second_id, "name": second_name},
+    ]
 
 
 def test_parties_contract_uses_canonical_enum_and_rejects_customer():
