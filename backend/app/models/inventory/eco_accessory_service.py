@@ -448,20 +448,19 @@ def ensure_eco_accessory_approval(db: Session, order_id: int) -> dict | None:
 
 
 def accessory_gate_factories(db: Session, order_id: int, batch_id: int | None = None) -> set[SewingFactoryCode]:
-    query = db.query(Bundle.sewing_factory_code).filter(Bundle.production_order_id == order_id, Bundle.status != "cancelled")
+    from sqlalchemy import select
+    query = select(Bundle.sewing_factory_code).where(Bundle.production_order_id == order_id, Bundle.status != "cancelled")
     if batch_id is not None:
-        query = query.filter(Bundle.production_batch_id == batch_id)
-    factories = {canonical_sewing_factory(code) for (code,) in query.distinct().all()}
+        query = query.where(Bundle.production_batch_id == batch_id)
     assignments = _active_assignment_query().with_only_columns(SewingFlow.factory_code).where(WorkOrder.production_order_id == order_id)
     if batch_id is not None:
         assignments = assignments.where(
             or_(SewingAssignment.production_batch_id == batch_id, SewingAssignment.production_batch_id.is_(None)),
             or_(WorkOrder.production_batch_id == batch_id, WorkOrder.production_batch_id.is_(None)))
-    factories.update(canonical_sewing_factory(code) for code in db.scalars(assignments.distinct()))
     direct = _direct_flow_query().with_only_columns(SewingFlow.factory_code).where(WorkOrder.production_order_id == order_id)
     if batch_id is not None:
         direct = direct.where(or_(WorkOrder.production_batch_id == batch_id, WorkOrder.production_batch_id.is_(None)))
-    factories.update(canonical_sewing_factory(code) for code in db.scalars(direct.distinct()))
+    factories = {canonical_sewing_factory(code) for code in db.scalars(query.union(assignments, direct))}
     if factories:
         return factories
     query = db.query(Department.code).join(WorkOrder, WorkOrder.department_id == Department.id).filter(

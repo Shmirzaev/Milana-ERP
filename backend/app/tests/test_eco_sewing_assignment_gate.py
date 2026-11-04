@@ -3,6 +3,7 @@ from decimal import Decimal
 
 import pytest
 from fastapi import HTTPException
+from sqlalchemy import event
 
 from app.api.routes.production import post_sewing
 from app.libs.dto.inventory.eco_accessory_input import EcoAccessoryDecisionIn, EcoAccessoryIssueIn, EcoAccessoryPlanIn
@@ -293,3 +294,25 @@ def test_stale_direct_eco_line_does_not_override_active_mil_split(shared_order):
     assert service.accessory_gate_factories(db, order.id) == {"MIL"}
     result = post_sewing(output(work, assignment), db, user)
     assert db.get(SewingRecord, result["id"]).passed_qty == 1
+
+
+def test_inferred_factory_union_reads_all_authoritative_scopes_once(shared_order):
+    db, _, order, work, _, _ = shared_order
+    direct_flow = SewingFlow(factory_code="BST", code="DIRECT-BST-UNION", name="Direct BST union")
+    db.add(direct_flow); db.flush()
+    db.add(WorkOrder(production_order_id=order.id, department_id=work.department_id, operation="sewing",
+        sewing_flow_id=direct_flow.id, status="in_progress"))
+    db.add(Bundle(bundle_no="MIL-UNION", barcode="MIL-UNION", production_order_id=order.id,
+        model_id=order.model_id, color="black", size="M", quantity=10, sewing_factory_code="MIL", status="created"))
+    db.commit()
+    statements = []
+    def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+        if statement.lstrip().upper().startswith("SELECT"):
+            statements.append(statement)
+    engine = db.get_bind()
+    event.listen(engine, "before_cursor_execute", capture)
+    try:
+        assert service.accessory_gate_factories(db, order.id) == {"MIL", "BST", "ECO"}
+    finally:
+        event.remove(engine, "before_cursor_execute", capture)
+    assert len(statements) == 1
