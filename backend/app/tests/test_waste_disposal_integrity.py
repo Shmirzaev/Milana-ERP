@@ -216,6 +216,23 @@ def test_disposal_audit_failure_rolls_back_state_and_allows_retry(client, monkey
     assert response.status_code == 200, response.text
 
 
+def test_mark_disposed_schema_write_failure_rolls_back_both_statuses(client, monkeypatch):
+    _, headers = _actor()
+    wid, rid = _fixture(state="disposal_approved", request_state="approved")
+    before = _snapshot(wid)
+    original = waste_service.mark_waste_disposed
+
+    def fail_after_write(db, request, record):
+        original(db, request, record)
+        db.flush()
+        raise RuntimeError("Synthetic disposal persistence failure")
+
+    monkeypatch.setattr(waste_service, "mark_waste_disposed", fail_after_write)
+    with pytest.raises(RuntimeError, match="Synthetic disposal persistence failure"):
+        client.post(f"/api/waste/disposal/{rid}/mark-disposed", headers=headers)
+    assert _snapshot(wid) == before
+
+
 @pytest.mark.parametrize("action", ["approve", "mark-disposed"])
 def test_legacy_sellable_disposal_request_cannot_progress(client, action):
     _, headers = _actor()

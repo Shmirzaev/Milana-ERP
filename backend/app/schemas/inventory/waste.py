@@ -2,6 +2,7 @@ from __future__ import annotations
 from datetime import datetime
 from sqlalchemy import String, Boolean, ForeignKey, DateTime, Text, Numeric
 from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Session
 
 from app.db.base import Base, PkMixin, TimestampMixin
 
@@ -43,3 +44,9 @@ class WasteDisposalRequest(Base, PkMixin, TimestampMixin):
     approved_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     proof_file_url: Mapped[str | None] = mapped_column(String(512))
+
+
+def mark_waste_disposed(db: Session, request: WasteDisposalRequest, waste: WasteRecord) -> None:
+    """Apply the already-authorized disposal using the caller's transaction."""
+    request.status = "disposed"
+    waste.status = "disposed"
