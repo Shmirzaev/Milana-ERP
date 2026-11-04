@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, UniqueConstraint
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, Query, Session, mapped_column
 
 from app.db.base import Base, PkMixin, TimestampMixin
 
@@ -32,3 +32,9 @@ class WarehouseStocktakeRow(Base, PkMixin):
     scan_code: Mapped[str | None] = mapped_column(String(512))
     scanned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     scanned_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+
+
+def delete_stocktake(db: Session, count: WarehouseStocktake, rows: Query) -> None:
+    """Delete a locked count and its rows in the caller's transaction."""
+    rows.delete(synchronize_session=False)
+    db.delete(count)
