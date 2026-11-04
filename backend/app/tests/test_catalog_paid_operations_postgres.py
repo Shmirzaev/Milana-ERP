@@ -135,12 +135,23 @@ def test_paid_family_postgres_audit_finalization_failure_rolls_back_then_recover
         db.commit()
 
     def complete_snapshot(db):
-        models = db.execute(Model.__table__.select().where(Model.id.in_(ids + [control_id])).order_by(Model.id)).mappings().all()
-        audits = db.execute(AuditLog.__table__.select().order_by(AuditLog.id)).mappings().all()
-        return [dict(row) for row in models], [dict(row) for row in audits]
+        # Read every ordinary/partitioned table in this fresh migrated database,
+        # including tables outside SQLAlchemy's mapped metadata.
+        tables = db.execute(text("SELECT tablename FROM pg_catalog.pg_tables WHERE schemaname = 'public' ORDER BY tablename")).scalars().all()
+        quote = db.bind.dialect.identifier_preparer.quote
+        return {
+            name: db.execute(text(f'SELECT row_to_json(t)::text FROM public.{quote(name)} AS t ORDER BY 1')).scalars().all()
+            for name in tables
+        }
+
+    def sequence_snapshot(db):
+        # PostgreSQL sequences are nontransactional: record changes, do not
+        # incorrectly require rollback of consumed identifiers.
+        return dict(db.execute(text("SELECT sequencename, last_value FROM pg_catalog.pg_sequences WHERE schemaname = 'public' ORDER BY sequencename")).all())
 
     with pg_sessions() as db:
         before = complete_snapshot(db)
+        sequences_before = sequence_snapshot(db)
         assert audit_service.verify_audit_hash_chain(db)['ok']
 
     original = audit_service.add_audit_log_rows
@@ -161,6 +172,8 @@ def test_paid_family_postgres_audit_finalization_failure_rolls_back_then_recover
     assert calls == [len(ids)]
     with pg_sessions() as db:
         assert complete_snapshot(db) == before
+        sequences_after = sequence_snapshot(db)
+        print('SEQUENCE_DELTAS', {name: (sequences_before.get(name), value) for name, value in sequences_after.items() if sequences_before.get(name) != value})
         assert audit_service.verify_audit_hash_chain(db)['ok']
 
     with pg_sessions() as db:
