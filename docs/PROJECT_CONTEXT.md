@@ -34,6 +34,16 @@ integration and release authorization remain separate. The inherited missing
 `common.noData` i18n check and extension-injected browser hydration warnings are
 disclosed in the packet; neither is claimed fixed by this task.
 
+The follow-up [ECO fabric/Qolip packet](ECO_FABRIC_QOLIP_FIXES_20261105.md) records
+Milana-style ECO batch photos/metadata and responsive stock views, plus opaque
+20 MiB .gem/.gemx pattern attachments on standard/Usluga models. Final frontend
+build, 161 scoped backend cases, isolated HTTP byte-preserving readback and
+inventory browser checks pass; independent AI source review found no blocker.
+Complete browser file upload remains BLOCKED by extension/native policy checks;
+genuine Gemini and human acceptance are not claimed. No migration/deployment or
+production data change; both hosts remain065721. Owned QA services/database were
+removed; automatic command review blocked temporary QA configuration-file cleanup.
+
 ## Current ECO runtime and narrow feature candidate (4 November)
 
 Both production hosts were reverified on blue `20261104_080711`, runtime
