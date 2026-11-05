@@ -5,7 +5,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 from app.core.deps import require_permissions
 from app.schemas import Department, Notification, Role, User
-from app.schemas.work_management.notification_persistence import mark_notification_read
+from app.schemas.work_management.notification_persistence import mark_notification_read, mark_user_notifications_read
 from app.libs.dto.work_management.notification_send import NotificationSendIn
 from app.models.audit_service import log_action
 from app.models.notifications_service import notify_many, _max_bulk_recipients
@@ -155,3 +155,9 @@ def mark_read(nid: int, db: Session, current: User):
     mark_notification_read(db, n)
     db.commit(); db.refresh(n)
     return n
+
+
+def mark_all_read(db: Session, current: User):
+    mark_user_notifications_read(db, user_id=current.id)
+    db.commit()
+    return {"message": "all read"}
