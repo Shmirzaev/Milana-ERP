@@ -35,3 +35,17 @@ def save_settings_section(
     db.commit()
     return validated
 
+
+def _default_payload() -> dict:
+    return {key: schema().model_dump() for key, schema in _SCHEMAS.items()}
+
+
+def _get_or_default(db: Session, key: str) -> dict:
+    row = db.query(SystemSetting).filter(SystemSetting.key == key).first()
+    if row and isinstance(row.value_json, dict):
+        return _SCHEMAS[key](**row.value_json).model_dump()
+    return _SCHEMAS[key]().model_dump()
+
+
+def get_settings(db: Session) -> dict:
+    return {key: _get_or_default(db, key) for key in _SCHEMAS}

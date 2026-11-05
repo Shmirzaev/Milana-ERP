@@ -8,7 +8,7 @@ from app.core.deps import CurrentUser, DbSession, require_permissions
 from app.schemas import SystemSetting, User
 from app.models.audit_service import log_action
 from app.models.support import settings_service
-from app.libs.dto.support.settings import CompanyInfo, FinancialSettings as FinancialSettings, SystemPreferences as SystemPreferences, _SCHEMAS
+from app.libs.dto.support.settings import CompanyInfo, FinancialSettings as FinancialSettings, SystemPreferences as SystemPreferences, _SCHEMAS as _SCHEMAS
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
@@ -16,20 +16,13 @@ router = APIRouter(prefix="/settings", tags=["settings"])
 _setting_for_update = SystemSetting.for_section_update
 
 
-def _default_payload() -> dict:
-    return {key: schema().model_dump() for key, schema in _SCHEMAS.items()}
-
-
-def _get_or_default(db: DbSession, key: str) -> dict:
-    row = db.query(SystemSetting).filter(SystemSetting.key == key).first()
-    if row and isinstance(row.value_json, dict):
-        return _SCHEMAS[key](**row.value_json).model_dump()
-    return _SCHEMAS[key]().model_dump()
+_default_payload = settings_service._default_payload
+_get_or_default = settings_service._get_or_default
 
 
 @router.get("")
 def get_settings(db: DbSession, _: CurrentUser):
-    return {key: _get_or_default(db, key) for key in _SCHEMAS}
+    return settings_service.get_settings(db)
 
 
 @router.patch("/{section}")
