@@ -15,7 +15,7 @@ from app.models.factory_scope_service import available_factory_codes, factory_fo
 from app.models.packaging_scope_service import normalize_packaging_department_code, require_package_access
 from app.schemas import Bundle, Invoice, Package, ProductionOrder, SalesOrder, Shipment, Task, User, WorkOrder
 from app.libs.enums.work_management import TaskPriority, TaskStatus
-from app.schemas.work_management.task_persistence import apply_task_update, add_stock_shortage_task, add_created_task
+from app.schemas.work_management.task_persistence import complete_task_row, apply_task_update, add_stock_shortage_task, add_created_task
 from app.schemas.core_persistence import add_notification_row
 from app.libs.dto.work_management.tasks import TaskIn, TaskUpdate
 from app.models.audit_service import log_action
@@ -332,4 +332,23 @@ def update_task(tid: int, payload: TaskUpdate, db: Session, current: User, *, au
         db.rollback()
         raise HTTPException(404, "Task not found") from exc
     db.refresh(t)
+    return t
+
+
+def complete_task(tid: int, db: Session, current: User, *, audit=log_action):
+    t = db.get(Task, tid)
+    if not t: raise HTTPException(404, "Task not found")
+    if t.assigned_to != current.id and not _can_manage(current):
+        raise HTTPException(403, "Only the assignee or a manager may complete this task")
+    complete_task_row(db, t, completed_at=datetime.now(timezone.utc))
+    # Notify creator that the task is done.
+    if t.created_by and t.created_by != current.id:
+        notify(
+            db, user_id=t.created_by,
+            title=f"Task completed: {t.title}",
+            message=f"Completed by user #{current.id}",
+            link=_task_link(t, db=db),
+        )
+    audit(db, current, "complete", "Task", t.id)
+    db.commit(); db.refresh(t)
     return t
