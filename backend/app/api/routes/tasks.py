@@ -1,16 +1,15 @@
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException
 from sqlalchemy import func
-from sqlalchemy.orm.exc import StaleDataError
 
 from app.core.deps import DbSession, CurrentUser
-from app.schemas import Task, User
+from app.schemas import Task
 from app.libs.dto.work_management.tasks import TaskIn, TaskUpdate, TaskOut
 from app.models.audit_service import log_action
 from app.models.notifications_service import notify
 from app.models.work_management.tasks_service import (
-    _can_manage, _require_single_assignee, _task_link, create_task as create_task_operation,
-    validate_task_reference_update,
+    _can_manage, _task_link, create_task as create_task_operation,
+    update_task as update_task_operation,
 )
 from app.libs.enums.work_management import TaskStatus
 
@@ -66,53 +65,7 @@ def get_task(tid: int, db: DbSession, current: CurrentUser):
 
 @router.patch("/{tid}", response_model=TaskOut)
 def update_task(tid: int, payload: TaskUpdate, db: DbSession, current: CurrentUser):
-    t = db.get(Task, tid)
-    if not t: raise HTTPException(404, "Task not found")
-    # Assignees may update status; only managers / creator may change other fields.
-    changes = payload.model_dump(exclude_unset=True)
-    is_assignee = t.assigned_to == current.id
-    is_manager = _can_manage(current)
-    can_edit = is_manager or t.created_by == current.id
-
-    if not can_edit:
-        if not is_assignee:
-            raise HTTPException(403, "Not allowed")
-        # Restrict assignees to status-only changes.
-        allowed = {"status"}
-        if set(changes.keys()) - allowed:
-            raise HTTPException(403, "Assignees can only change status")
-
-    previous_assignee = t.assigned_to
-    if "assigned_to" in changes and changes["assigned_to"] != previous_assignee:
-        _require_single_assignee(changes["assigned_to"], db, current, is_manager)
-    next_assignee_id = changes.get("assigned_to", previous_assignee)
-    next_assignee = db.get(User, next_assignee_id) if next_assignee_id is not None else None
-    reference = validate_task_reference_update(db, current, t, changes, next_assignee)
-    for k, v in changes.items():
-        setattr(t, k, v)
-
-    if changes.get("status") == "completed" and not t.completed_at:
-        t.completed_at = datetime.now(timezone.utc)
-    elif changes.get("status") and changes["status"] != "completed":
-        t.completed_at = None
-
-    try:
-        # Notify new assignee if task was reassigned.
-        if "assigned_to" in changes and t.assigned_to and t.assigned_to != previous_assignee:
-            notify(
-                db, user_id=t.assigned_to,
-                title=f"Task reassigned to you: {t.title}",
-                message=(t.description or "")[:280],
-                link=_task_link(t, db=db, reference=reference),
-            )
-
-        log_action(db, current, "update", "Task", t.id, new_value=changes)
-        db.commit()
-    except StaleDataError as exc:
-        db.rollback()
-        raise HTTPException(404, "Task not found") from exc
-    db.refresh(t)
-    return t
+    return update_task_operation(tid, payload, db, current, audit=log_action)
 
 
 @router.delete("/{tid}", status_code=204)
