@@ -12,10 +12,10 @@ from fastapi import HTTPException, UploadFile
 from app.core.config import settings
 from sqlalchemy.orm import Session
 
-from app.libs.dto.people.hr_workspace import OrgUnitIn, PositionIn, CandidateIn, CalendarEventIn
+from app.libs.dto.people.hr_workspace import OrgUnitIn, PositionIn, CandidateIn, CalendarEventIn, HrSettingsIn
 from app.models.factory_scope_service import factory_for_department, selected_factory_code
-from app.schemas import Department, Employee, HrOrgUnit, HrPosition, HrRecruitmentCandidate, HrEmployeeDocument, User
-from app.schemas.people.hr_workspace_persistence import insert_org_unit, delete_org_unit_row, insert_position, update_position_row, insert_candidate, update_candidate_row, insert_document, delete_document_row, insert_calendar_event
+from app.schemas import Department, Employee, HrOrgUnit, HrPosition, HrRecruitmentCandidate, HrEmployeeDocument, SystemSetting, User
+from app.schemas.people.hr_workspace_persistence import insert_org_unit, delete_org_unit_row, insert_position, update_position_row, insert_candidate, update_candidate_row, insert_document, delete_document_row, insert_calendar_event, write_hr_settings
 
 
 def _factory(current: User) -> str:
@@ -278,3 +278,14 @@ def create_calendar_event(payload: CalendarEventIn, db: Session, current: User, 
     row = insert_calendar_event(db, factory_code=factory, values=payload.model_dump())
     db.flush(); audit(db, current, "create", "HrCalendarEvent", row.id, new_value={"title": row.title, "event_type": row.event_type}); db.commit(); db.refresh(row)
     return {"id": row.id}
+
+
+def _settings_key(factory: str) -> str:
+    return f"hr.settings.{factory.lower()}"
+
+
+def put_hr_settings(payload: HrSettingsIn, db: Session, current: User, *, audit: Callable):
+    key = _settings_key(_factory(current)); row = db.query(SystemSetting).filter(SystemSetting.key == key).first()
+    row = write_hr_settings(db, key=key, row=row, values=payload.model_dump())
+    audit(db, current, "update", "HrSettings", row.id, new_value=row.value_json); db.commit()
+    return row.value_json

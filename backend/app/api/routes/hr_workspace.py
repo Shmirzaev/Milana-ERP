@@ -6,7 +6,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field, ValidationError, field_validator
+from pydantic import ValidationError
 from sqlalchemy import func
 
 from app.core.config import settings
@@ -25,7 +25,7 @@ from app.schemas import (
 )
 from app.models.audit_service import log_action
 from app.models.people import hr_workspace_service
-from app.libs.dto.people.hr_workspace import OrgUnitIn as OrgUnitIn, PositionIn as PositionIn, CandidateIn as CandidateIn, CalendarEventIn as CalendarEventIn, _required_text as _required_text
+from app.libs.dto.people.hr_workspace import OrgUnitIn as OrgUnitIn, PositionIn as PositionIn, CandidateIn as CandidateIn, CalendarEventIn as CalendarEventIn, HrSettingsIn as HrSettingsIn
 from app.models.people.hr_workspace_service import (
     _factory as _factory, _employee as _employee, _department as _department,
     _org_unit as _org_unit, _validate_org_unit_links as _validate_org_unit_links,
@@ -33,7 +33,7 @@ from app.models.people.hr_workspace_service import (
     _validate_candidate_links as _validate_candidate_links,
     _document_dict as _document_dict, _write_new_hr_document as _write_new_hr_document,
     _require_hr_upload_employee as _require_hr_upload_employee,
-    _create_hr_upload_document as _create_hr_upload_document,
+    _create_hr_upload_document as _create_hr_upload_document, _settings_key as _settings_key,
 )
 from app.models.attendance_reports_service import TASHKENT
 from app.models.attendance_event_policy_service import accepted_attendance_result
@@ -42,22 +42,6 @@ from app.models.attendance_event_policy_service import accepted_attendance_resul
 router = APIRouter(prefix="/hr", tags=["hr-workspace"])
 HrUser = Depends(require_permissions("hr.employees", "*"))
 MAX_INT4 = 2_147_483_647
-
-
-class HrSettingsIn(BaseModel):
-    company_name: str = "Milana Premium"
-    default_workday_hours: float = Field(default=8, gt=0, le=24, allow_inf_nan=False)
-    default_monthly_hours: float = Field(default=176, ge=0, le=744, allow_inf_nan=False)
-    probation_days: int = Field(default=90, ge=0, le=730)
-    contract_warning_days: int = Field(default=30, ge=0, le=365)
-    weekend_days: list[int] = Field(default_factory=lambda: [6, 7])
-
-    @field_validator("default_workday_hours", "default_monthly_hours", mode="before")
-    @classmethod
-    def validate_finite_hours(cls, value):
-        if isinstance(value, float) and not isfinite(value):
-            raise HTTPException(422, "Scheduled hours must be finite")
-        return value
 
 
 def _attendance_day_bounds(day: date) -> tuple[datetime, datetime]:
@@ -304,10 +288,6 @@ def create_calendar_event(payload: CalendarEventIn, db: DbSession, current: User
     return hr_workspace_service.create_calendar_event(payload, db, current, audit=log_action)
 
 
-def _settings_key(factory: str) -> str:
-    return f"hr.settings.{factory.lower()}"
-
-
 @router.get("/settings")
 def get_hr_settings(db: DbSession, current: User = HrUser):
     return _load_hr_settings(db, _factory(current))
@@ -315,7 +295,4 @@ def get_hr_settings(db: DbSession, current: User = HrUser):
 
 @router.put("/settings")
 def put_hr_settings(payload: HrSettingsIn, db: DbSession, current: User = HrUser):
-    key = _settings_key(_factory(current)); row = db.query(SystemSetting).filter(SystemSetting.key == key).first()
-    if not row: row = SystemSetting(key=key, value_json={}); db.add(row)
-    row.value_json = payload.model_dump(); log_action(db, current, "update", "HrSettings", row.id, new_value=row.value_json); db.commit()
-    return row.value_json
+    return hr_workspace_service.put_hr_settings(payload, db, current, audit=log_action)

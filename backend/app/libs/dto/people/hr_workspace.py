@@ -133,3 +133,20 @@ class CalendarEventIn(BaseModel):
             raise ValueError("Calendar end cannot precede its start")
         return self
 
+
+
+class HrSettingsIn(BaseModel):
+    company_name: str = "Milana Premium"
+    default_workday_hours: float = Field(default=8, gt=0, le=24, allow_inf_nan=False)
+    default_monthly_hours: float = Field(default=176, ge=0, le=744, allow_inf_nan=False)
+    probation_days: int = Field(default=90, ge=0, le=730)
+    contract_warning_days: int = Field(default=30, ge=0, le=365)
+    weekend_days: list[int] = Field(default_factory=lambda: [6, 7])
+
+    @field_validator("default_workday_hours", "default_monthly_hours", mode="before")
+    @classmethod
+    def validate_finite_hours(cls, value):
+        if isinstance(value, float) and not isfinite(value):
+            raise HTTPException(422, "Scheduled hours must be finite")
+        return value
+
