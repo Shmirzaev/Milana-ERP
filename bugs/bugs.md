@@ -1,5 +1,10 @@
 # Team bug tracker — clone_main
 
+## WRK-TASK-ASSIGNEE-PICKER-20261105 — task assignee picker omits individual users
+
+- **P3 · Open · Work/Tasks UI · Owner: Dilmurod. Decision pending Dilmurod.** Tasks drawer says managers can assign to anyone, but the picker offers only Myself and Everyone; Management gets 403 on /api/users.
+- Reported in the isolated connected-browser W4 results dated 2026-11-05 on the [#467 stack](https://github.com/Shmirzaev/Milana-ERP/pull/467), localhost:19750. Existing behavior retained; no permission or application change, production occurrence, or fix acceptance is claimed.
+
 ## PEO01-EMPLOYEE-SAVE-CONFIRMATION-20261105 — successful save has no confirmation
 
 - **P3 · Watch · People/Employees UI · Dilmurod; reviewer Mirshoir.** In the
