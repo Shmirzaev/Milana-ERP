@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, UniqueConstraint
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from app.db.base import Base, PkMixin, TimestampMixin
 
@@ -51,3 +51,13 @@ def record_first_scan(db, row, *, snapshot, code, scanned_at, scanned_by):
     row.scanned_at = scanned_at
     row.scanned_by = scanned_by
     db.flush()
+
+
+def freeze_stocktake_completion(
+    db: Session, count: WarehouseStocktake, rows: list[WarehouseStocktakeRow],
+    snapshots: dict, completed_at: datetime,
+) -> None:
+    """Apply completion evidence in the caller's existing transaction."""
+    for row in rows:
+        row.final_snapshot = snapshots.get(row.package_id, {})
+    count.completed_at = completed_at

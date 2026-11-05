@@ -17,7 +17,7 @@ from app.libs.dto.inventory.warehouse_stocktake_input import (
 from app.models.audit_service import log_action
 from app.schemas import FinishedGoodsStock, Model, Package, PackageItem, User
 from app.schemas.inventory.stocktake import (
-    WarehouseStocktake, WarehouseStocktakeRow, add_scan_row, record_first_scan,
+    WarehouseStocktake, WarehouseStocktakeRow, freeze_stocktake_completion, add_scan_row, record_first_scan,
 )
 from app.models.package_identity_service import resolve_warehouse_package
 
@@ -548,9 +548,7 @@ def complete_count(db, count_id: int, current: User) -> dict:
     if not count.completed_at:
         rows = db.query(WarehouseStocktakeRow).filter_by(stocktake_id=count_id).all()
         snapshots = package_snapshots(db, [row.package_id for row in rows if row.package_id])
-        for row in rows:
-            row.final_snapshot = snapshots.get(row.package_id, {})
-        count.completed_at = datetime.now(timezone.utc)
+        freeze_stocktake_completion(db, count, rows, snapshots, datetime.now(timezone.utc))
         log_action(db, current, "complete", "WarehouseStocktake", count_id)
         db.commit()
     return count_info(count)
