@@ -63,7 +63,7 @@ export default function ProfilePage() {
           <h2 className="text-sm font-semibold uppercase tracking-wide text-[#56503f]">{t("page.profile.userProfile")}</h2>
           <div><label className="label">{t("common.name")}</label><input className="input" value={profile.name} onChange={(e) => setProfile({ ...profile, name: e.target.value })} /></div>
           {errors.name && <div className="text-xs text-red-600">{errors.name}</div>}
-          <div><label className="label">{t("field.email")}</label><input className="input" type="email" value={profile.email} onChange={(e) => setProfile({ ...profile, email: e.target.value })} /></div>
+          <div><label className="label">{t("field.email")}</label><input className="input" type="email" value={profile.email} readOnly aria-readonly="true" /></div>
           {errors.email && <div className="text-xs text-red-600">{errors.email}</div>}
           <div className="grid grid-cols-2 gap-3">
             <div><label className="label">{t("field.role")}</label><input className="input" value={me?.role || "-"} readOnly /></div>

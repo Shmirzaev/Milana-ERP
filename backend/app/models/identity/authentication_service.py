@@ -191,10 +191,10 @@ def update_current_profile(db: Session, user: User, payload: ProfileUpdateIn) ->
     if len(payload.name) > 128:
         raise HTTPException(422, "Name must be at most 128 characters")
     email = normalize_email(str(payload.email))
-    if db.query(User).filter(User.email == email, User.id != user.id).first():
-        raise HTTPException(400, "Email already exists")
+    if email != user.email:
+        raise HTTPException(400, "Email cannot be changed from Profile")
     old_value = {"name": user.name, "email": user.email}
-    set_user_profile(db, user, name=payload.name.strip(), email=email)
+    set_user_profile(db, user, name=payload.name.strip())
     log_action(db, user, "update_profile", "User", user.id, old_value=old_value,
                new_value={"name": user.name, "email": user.email})
     db.commit()
