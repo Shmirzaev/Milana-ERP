@@ -3,65 +3,18 @@ from fastapi import APIRouter, HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm.exc import StaleDataError
 
-from app.api.routes.notifications import _max_bulk_recipients
-from app.core.deps import DbSession, CurrentUser, is_admin, user_permissions
-from app.schemas import Notification, Task, User, WorkOrder
+from app.core.deps import DbSession, CurrentUser
+from app.schemas import Task, User
 from app.libs.dto.work_management.tasks import TaskIn, TaskUpdate, TaskOut
 from app.models.audit_service import log_action
 from app.models.notifications_service import notify
-from app.models.user_access_service import access_configured, permission_denied
 from app.models.work_management.tasks_service import (
-    require_assignee_reference_access, resolve_task_reference, task_reference_key, validate_task_reference_update,
+    _can_manage, _require_single_assignee, _task_link, create_task as create_task_operation,
+    validate_task_reference_update,
 )
 from app.libs.enums.work_management import TaskStatus
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
-
-
-def _can_manage(user: User) -> bool:
-    """Admins and Management can create / reassign / delete tasks for anyone."""
-    if permission_denied(user, "tasks.manage"):
-        return False
-    if is_admin(user):
-        return True
-    if not access_configured(user) and user.role and user.role.name in ("Admin", "Management"):
-        return True
-    perms = user_permissions(user)
-    return "tasks.manage" in perms or "management.approve" in perms
-
-
-def _require_single_assignee(assigned: int | None, db: DbSession, current: User, is_manager: bool) -> None:
-    if assigned != current.id and not is_manager:
-        raise HTTPException(403, "Only managers can assign tasks to other users")
-    if assigned is not None and not db.get(User, assigned):
-        raise HTTPException(404, "Assigned user not found")
-
-
-def _task_link(t: Task, db: DbSession | None = None, reference=None) -> str | None:
-    """Build a frontend URL for a task notification when the task references
-    a concrete entity. Returns None when no mapping exists."""
-    et = task_reference_key(t.entity_type)
-    eid = t.entity_id
-    if not eid:
-        return None
-    if et == "workorder":
-        work_order = reference.row if reference is not None and reference.key == et else None
-        if work_order is None and db is not None:
-            with db.no_autoflush:
-                work_order = db.get(WorkOrder, eid)
-        operation = str(getattr(work_order, "operation", "") or "").strip().lower()
-        if operation in {"cutting", "printing", "sewing", "packaging"}:
-            return f"/work-orders/{eid}/{operation}"
-        return None
-    mapping = {
-        "salesorder": f"/sales-orders/{eid}",
-        "productionorder": f"/production-orders/{eid}",
-        "bundle": f"/bundles/{eid}",
-        "package": f"/packages/{eid}",
-        "shipment": "/shipments",
-        "invoice": "/finance",
-    }
-    return mapping.get(et)
 
 
 @router.get("", response_model=list[TaskOut])
@@ -99,101 +52,7 @@ def open_task_count(db: DbSession, current: CurrentUser):
 
 @router.post("", response_model=TaskOut, status_code=201)
 def create_task(payload: TaskIn, db: DbSession, current: CurrentUser):
-    reference = resolve_task_reference(db, current, payload.entity_type, payload.entity_id)
-    is_manager = _can_manage(current)
-    requested_assignee = payload.assigned_to
-
-    # Special manager-only broadcast mode: assigned_to == -1 means "everyone".
-    if requested_assignee == -1:
-        if not is_manager:
-            raise HTTPException(403, "Only managers can assign tasks to everyone")
-        max_recipients = _max_bulk_recipients()
-        targets = db.query(User.id).filter(User.is_active.is_(True)).order_by(User.id).limit(max_recipients + 1).all()
-        if len(targets) > max_recipients:
-            raise HTTPException(400, f"Recipient count exceeds ERP_MCP_MAX_BULK_RECIPIENTS={max_recipients}")
-        if not targets:
-            raise HTTPException(404, "No active users found")
-        if reference:
-            recipients = db.query(User).filter(User.id.in_([row.id for row in targets])).all()
-            for user in recipients:
-                if user.id != current.id:
-                    require_assignee_reference_access(user, reference)
-
-        created: list[Task] = []
-        for user in targets:
-            t = Task(
-                title=payload.title,
-                description=payload.description,
-                assigned_to=user.id,
-                created_by=current.id,
-                status=payload.status,
-                priority=payload.priority,
-                due_date=payload.due_date,
-                entity_type=payload.entity_type,
-                entity_id=payload.entity_id,
-            )
-            db.add(t)
-            created.append(t)
-            db.add(Notification(
-                user_id=user.id,
-                title=f"New task: {t.title}",
-                message=(t.description or "")[:280],
-                link=_task_link(t, reference=reference),
-            ))
-
-        # No per-recipient generated ID is needed until the audit below.
-        # Flush once so PostgreSQL can batch task/notification inserts.
-        db.flush()
-        first_task = created[0]
-        log_action(
-            db,
-            current,
-            "create",
-            "Task",
-            first_task.id,
-            new_value={
-                "title": payload.title,
-                "assigned_to": "everyone",
-                "created_count": len(created),
-            },
-        )
-        db.commit()
-        db.refresh(first_task)
-        return first_task
-
-    # Non-managers can only assign tasks to themselves.
-    assigned = requested_assignee or current.id
-    _require_single_assignee(assigned, db, current, is_manager)
-    if reference and assigned != current.id:
-        require_assignee_reference_access(db.get(User, assigned), reference)
-
-    t = Task(
-        title=payload.title,
-        description=payload.description,
-        assigned_to=assigned,
-        created_by=current.id,
-        status=payload.status,
-        priority=payload.priority,
-        due_date=payload.due_date,
-        entity_type=payload.entity_type,
-        entity_id=payload.entity_id,
-    )
-    db.add(t)
-    db.flush()
-
-    # Notify the assignee unless they assigned to themselves.
-    if assigned != current.id:
-        notify(
-            db, user_id=assigned,
-            title=f"New task: {t.title}",
-            message=(t.description or "")[:280],
-            link=_task_link(t, reference=reference),
-        )
-
-    log_action(db, current, "create", "Task", t.id, new_value={"title": t.title, "assigned_to": assigned})
-    db.commit()
-    db.refresh(t)
-    return t
+    return create_task_operation(payload, db, current, audit=log_action)
 
 
 @router.get("/{tid}", response_model=TaskOut)

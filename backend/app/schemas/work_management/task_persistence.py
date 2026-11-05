@@ -1,9 +1,19 @@
-"""Schema-owned task insert for the system stock-shortage participant only."""
+"""Schema-owned task inserts using the caller's transaction."""
 from datetime import datetime
 from sqlalchemy.orm import Session
 
 from app.libs.enums.work_management import TaskPriority, TaskStatus
 from app.schemas.work_management.tasks import Task
+
+
+def add_created_task(db: Session, *, title: str, description: str | None, assigned_to: int,
+                     created_by: int, status: TaskStatus, priority: TaskPriority,
+                     due_date: datetime | None, entity_type: str | None, entity_id: int | None) -> Task:
+    task = Task(title=title, description=description, assigned_to=assigned_to,
+                created_by=created_by, status=status, priority=priority,
+                due_date=due_date, entity_type=entity_type, entity_id=entity_id)
+    db.add(task)
+    return task
 
 
 def add_stock_shortage_task(
