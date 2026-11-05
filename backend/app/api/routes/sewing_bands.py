@@ -169,7 +169,7 @@ def receive(payload: ReceiveIn, db: DbSession, current: CurrentUser):
             return {"already_accepted": True, "received_count": 0}
         # Already received by a manager: claim only through manager assignment.
         raise HTTPException(409, "Already received; ask a manager to assign this work")
-    gate = verify_sewing_accessory_gate(db, po_id)
+    gate = verify_sewing_accessory_gate(db, po_id, sewing_factory_code="ECO")
     ids = receive_many_at_sewing(db, bundles, current, gate)
     db.flush()
     received_total = int(db.query(func.coalesce(func.sum(Bundle.quantity), 0)).filter(

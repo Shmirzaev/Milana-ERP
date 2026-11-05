@@ -11,9 +11,52 @@ this checkout, a new combined candidate or deployed production. Inspect current
 code and the operation ledger before advancing a gate. Schema-owned writers,
 system-wide enum/type adoption and human acceptance remain incomplete.
 
-Last updated 2026-11-04. Keep this file short: current decisions, release pointers and
+Last updated 2026-11-05. Keep this file short: current decisions, release pointers and
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
+
+## ECO release and application reconciliation (4 November)
+
+Verified production is blue `20261104_080711`, runtime `984aeffb22aedd3262d7cd61e2d88a905b589e8d`,
+manifest `0221829adfc216391679b744ae512b6c4d96913bb0316c31dfe12fb9a1641be7`.
+Recorded database head is `0154_eco_receipt_details`; compatible retained rollback
+is green `20261104_093330` / `bd7d572282b50886e9d03a650bcf886ca9109175`.
+The source integration branch had retained the older production pointer. The owner
+approved reconciling the deployed ECO application changes while preserving all
+existing clone_main work, followed by Planning cutting-factory changes, floor
+printing pictures and a BST master handoff. Migration changes and execution are
+separate and await approval; this combined application candidate must not deploy
+against an unreconciled graph. See the [task record](PLANNING_FLOORS_BST_20261104.md).
+The historical ECO release exceptions are specific to that release; they grant
+no performance exception for this new candidate. No production cutover or data
+change has occurred in this task.
+
+The requested small changes also have a separate narrow runtime candidate in
+`C:\ERP\.codex-work\planning-floors-release-20261104`, derived from exact deployed984
+and retaining0154 with no migration/dependency changes. It excludes unrelated
+undeployed clone_main work, which stays preserved in this source candidate.
+Final local targeted109 cases and optimized frontend build pass. Exact runtime
+candidate94e4cfc54 passed complete CI:5116 backend cases,606 skips, plus explicit
+Planning19, BST27 and ECO8 PostgreSQL cases and the other dedicated database gates.
+The owner confirmed the existing Yo'ldasheva Dilfuzaxon on5 November; use her
+existing legal name for the new current team/flow label. A fresh read-only roster
+capture confirms the42/40 worker handoff. Chrome verification was blocked; the
+owner directed use of Edge, where actual isolated Planning save/reload/readback,
+all changed floor wrappers and synthetic BST manager/flow checks passed with no
+console errors. The owner then explicitly approved visual QA for exact94e on
+5 November. See the [visual review packet](PLANNING_FLOORS_VISUAL_QA_20261105.md).
+Production transfer and cutover remain pending. The
+earlier full local backend run was interrupted
+after six new constant-query failures; those caps are restored without weakened
+assertions and independently retested. Do not call that full run a pass.
+Immutable artifact workflow41961242842 was dispatched for exact94e4cfc54,
+release20261105_043000; a dispatched build is not a live release. See the
+[5 November checkpoint](PLANNING_FLOORS_CHECKPOINT_20261105.md).
+The supported retention pass on 5 November archived 49 old source directories,
+preserving five protected releases per host and all images/containers/data.
+Full archive verification, unchanged active/rollback identities, released leases
+and all four health checks passed. Application deployment remains pending; see
+the checkpoint for exact evidence hashes and measured staging capacity.
 
 ## Current refactor: Finance shipment invoice reversal (4 November)
 
@@ -28,13 +71,13 @@ still fails on its unchanged legacy scan write. Other writers and broader
 Finance/type coverage remain pending. QA master reviews before deployment.
 Production/rollback pointers are unchanged; closed PR350 is not reopened.
 
-## Customer-pack and FG release active with approved p95 exception (3 November)
+## Historical customer-pack and FG release with approved p95 exception (3 November)
 
 Only customer shipment-pack restriction/admin release and FG numbering were pushed,
-merged and deployed. Runtime is blue `20261103_094602` / `11f80a29` on both hosts,
+merged and deployed. Runtime was blue `20261103_094602` / `11f80a29` on both hosts,
 manifest `ee765f999e782193878390897873c7b5865749460d4d776cf321fcd28490f8a9`,
 schema `0150_package_customer_release`. Compatible green `20261103_112256` /
-`37337ea6` remains the running rollback. Other clone_main runtime changes, including
+`37337ea6` was the running rollback. Other clone_main runtime changes, including
 HR0151, were excluded. PR376/377 feature ancestry and PR383 incident records are
 preserved. Exact immutable CI passed 4,935 backend cases plus required PostgreSQL
 and frontend gates; isolated shipment denial/admin release/warehouse-role/FG-save

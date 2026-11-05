@@ -626,7 +626,7 @@ def get_passport(pid: int, db: DbSession, current: CurrentUser):
 def _passport_order(db, order_id, current, *, lock=False):
     order = db.query(ProductionOrder).filter(ProductionOrder.id == order_id)
     if lock:
-        order = order.with_for_update(of=ProductionOrder)
+        order = order.with_for_update(of=ProductionOrder).populate_existing()
     order = order.first()
     if order is None:
         raise HTTPException(404, "Production order not found")
@@ -634,7 +634,7 @@ def _passport_order(db, order_id, current, *, lock=False):
         WorkOrder.production_order_id == order.id, WorkOrder.operation == "cutting",
     )
     if lock:
-        work_order = work_order.with_for_update(of=WorkOrder)
+        work_order = work_order.with_for_update(of=WorkOrder).populate_existing()
     work_order = work_order.first()
     if work_order is None:
         raise HTTPException(400, "The order has no cutting work order")

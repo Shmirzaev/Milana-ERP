@@ -1,7 +1,12 @@
 from __future__ import annotations
+from typing import TYPE_CHECKING
 
 from fastapi import HTTPException
 from app.models.identity.access_policy_service import apply_policy, denied_for, policy_for
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
+    from app.schemas import WorkOrder
 
 FACTORY_CODES = ("MIL", "BST", "ECO")
 FACTORY_LABELS = {"MIL": "Milana", "BST": "Besttex", "ECO": "Eco Cotton"}
@@ -111,6 +116,18 @@ def require_work_order_factory_access(user, db, work_order) -> None:
     from app.schemas import Department
     code = db.query(Department.code).filter(Department.id == work_order.department_id).scalar()
     require_operational_department_access(user, code)
+
+
+def refresh_cutting_work_order_for_write(db: Session, work_order: WorkOrder) -> None:
+    """Serialize a Cutting write with routing, then authorize the refreshed row.
+
+    The caller retains authorization and transaction ownership. Other production
+    stages retain their existing lock behavior; this interlock covers CUT/ECT.
+    """
+    if work_order.operation == "cutting":
+        from app.schemas import ProductionOrder, WorkOrder
+        db.query(ProductionOrder.id).filter_by(id=work_order.production_order_id).with_for_update().one()
+        db.refresh(work_order, with_for_update={"of": WorkOrder})
 
 
 def cutting_department_scope(user, requested: str | None) -> str:

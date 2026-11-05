@@ -61,6 +61,16 @@ function isSuperAdmin(me: ReturnType<typeof useMe>["me"]) {
 
 const SECTIONS: Section[] = [
   {
+    titleKey: "ecoMaterials.section",
+    items: [
+      { href: "/eco-inventory?kind=fabric", labelKey: "ecoMaterials.fabric", perms: ["eco_inventory.read"], icon: Warehouse },
+      { href: "/eco-inventory?kind=accessory", labelKey: "ecoMaterials.accessory", perms: ["eco_inventory.read"], icon: PackageSearch },
+      { href: "/eco-inventory/catalog", labelKey: "nav.masterData", perms: ["storage.items", "storage.suppliers"], icon: Database },
+      { href: "/eco-accessories", labelKey: "ecoMaterials.approval", perms: ["eco_accessories.read", "eco_accessories.manage", "eco_accessories.approve", "eco_accessories.issue"], icon: ClipboardList },
+      { href: "/factory-fabric-transfers", labelKey: "ecoMaterials.incoming", perms: ["factory_fabric_transfers.read", "factory_fabric_transfers.receive"], icon: Truck },
+    ],
+  },
+  {
     titleKey: "section.ecoCottonTracking",
     items: [
       { href: "/processes?factory=ECO", labelKey: "nav.processes", icon: ClipboardList },
@@ -129,6 +139,7 @@ const SECTIONS: Section[] = [
     items: [
       { href: "/inventory/accessory-pricing", labelKey: "nav.accessoryPriceRequests", audience: "accessoryPricing", icon: Calculator },
       { href: "/inventory?group=materials", labelKey: "nav.materialInventory", perms: ["storage.items", "storage.receive"], icon: Warehouse },
+      { href: "/factory-fabric-transfers", labelKey: "ecoMaterials.dispatch", perms: ["factory_fabric_transfers.read", "factory_fabric_transfers.dispatch"], icon: Truck },
       { href: "/inventory/cutting-fabric-usage", labelKey: "cuttingUsage.title", perms: ["storage.items", "storage.receive", "cutting.records", "planning.production"], icon: Scissors },
       { href: "/inventory?group=accessories", labelKey: "nav.accessoryInventory", perms: ["storage.items", "storage.receive"], icon: PackageSearch },
       { href: "/inventory/master-data", labelKey: "nav.masterData", perms: ["storage.items", "storage.suppliers", "*"], icon: Database },
@@ -365,6 +376,7 @@ export default function Sidebar() {
         if (sec.titleKey === "section.besttexTextile" && can(me, "*")) return true;
         if (factory === "BST") return sec.titleKey === "section.besttexTextile" || sec.titleKey === "section.hr" || sec.titleKey === "section.payroll";
         const ecoSections = new Set([
+          "ecoMaterials.section",
           "section.ecoCottonCutting",
           "section.ecoCottonSewing",
           "section.ecoCottonPackaging",
@@ -430,6 +442,7 @@ export default function Sidebar() {
     const bundlesScanMismatch = basePath === "/bundles" && pathname.startsWith("/bundles/scan");
     const packagesScanMismatch = basePath === "/packages" && (pathname.startsWith("/packages/scan") || pathname.startsWith("/packages/print-runs"));
     const inventoryGroupMismatch = basePath === "/inventory" && (pathname !== "/inventory" || itemGroup !== inventoryGroup);
+    const ecoKindMismatch = basePath === "/eco-inventory" && (itemParams.get("kind") || "fabric") !== (searchParams.get("kind") || "fabric");
     const inventoryReceiveGroupMismatch = basePath === "/inventory/receive" && itemGroup !== inventoryGroup;
     const cuttingDepartmentMismatch = ["/dashboards/cutting", "/cutting-passports", "/cutting-inventory", "/bundles"].includes(basePath)
       && itemCuttingDepartment !== currentCuttingDepartment;
@@ -447,6 +460,7 @@ export default function Sidebar() {
       !bundlesScanMismatch &&
       !packagesScanMismatch &&
       !inventoryGroupMismatch &&
+      !ecoKindMismatch &&
       !inventoryReceiveGroupMismatch &&
       !cuttingDepartmentMismatch &&
       !sewingFactoryMismatch &&

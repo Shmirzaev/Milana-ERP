@@ -3,6 +3,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import enBase from "./i18n/locales/en-base";
 import enSupplemental from "./i18n/locales/en-supplemental";
 import type { Lang } from "./i18n/types";
+import { ecoNavigationMessages } from "./ecoNavigationMessages";
 
 export type { Lang } from "./i18n/types";
 export { LANG_NAMES } from "./i18n/types";
@@ -21,7 +22,7 @@ const LangCtx = createContext<Ctx | null>(null);
 const STORAGE_KEY = "erp_lang";
 type Messages = Record<string, string>;
 
-const englishMessages: Messages = { ...enBase, ...enSupplemental };
+const englishMessages: Messages = { ...enBase, ...enSupplemental, ...ecoNavigationMessages("en") };
 const messageCache: Partial<Record<Lang, Messages>> = { en: englishMessages };
 const messageLoaders: Record<Exclude<Lang, "en">, () => Promise<Messages>> = {
   ru: async () => {
@@ -29,14 +30,14 @@ const messageLoaders: Record<Exclude<Lang, "en">, () => Promise<Messages>> = {
       import("./i18n/locales/ru-base"),
       import("./i18n/locales/ru-supplemental"),
     ]);
-    return { ...base.default, ...supplemental.default };
+    return { ...base.default, ...supplemental.default, ...ecoNavigationMessages("ru") };
   },
   uz: async () => {
     const [base, supplemental] = await Promise.all([
       import("./i18n/locales/uz-base"),
       import("./i18n/locales/uz-supplemental"),
     ]);
-    return { ...base.default, ...supplemental.default };
+    return { ...base.default, ...supplemental.default, ...ecoNavigationMessages("uz") };
   },
 };
 

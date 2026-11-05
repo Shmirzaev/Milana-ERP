@@ -1,3 +1,4 @@
+from app.libs.enums.production import SewingFactoryCode
 from datetime import datetime
 from typing import Literal, Optional
 from pydantic import BaseModel, Field, field_serializer
@@ -180,6 +181,10 @@ class PackageChangeDecisionIn(BaseModel):
 
 
 class PackageOut(ORMModel):
+    model_no: Optional[str] = None
+    variant_no: Optional[str] = None
+    sewing_factory_codes: list[SewingFactoryCode] = Field(default_factory=list)
+    sewing_factory_code: Optional[SewingFactoryCode] = None
     stock_kind: str = "standard"
     manual_receipt_id: Optional[int] = None
     id: int
@@ -198,7 +203,7 @@ class PackageOut(ORMModel):
     order_type: Optional[str] = None
     brand_id: Optional[int] = None
     collection_id: Optional[int] = None
-    model_id: int
+    model_id: Optional[int] = None
     model_code: Optional[str] = None
     model_name: Optional[str] = None
     model_image_url: Optional[str] = None
