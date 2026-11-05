@@ -78,7 +78,8 @@ def test_update_normalizes_and_audits_once_without_last_seen(path, transport, h)
 
 @pytest.mark.parametrize("case,status,detail", [
     ("name_too_long", 422, "Name must be at most 128 characters"),
-    ("duplicate_email", 400, "Email already exists"),
+    # Decision (Dilmurod, 5 Nov): profile email is immutable, including duplicates.
+    ("duplicate_email", 400, "Email cannot be changed from Profile"),
     ("inactive", 401, "Inactive or unknown user"),
     ("unassigned", 403, "This account is not assigned to the selected factory"),
     ("missing", 401, "Not authenticated"),
@@ -97,3 +98,41 @@ def test_refusal_order_and_no_writes(case, status, detail, h):
     response = client.patch("/api/auth/me", json=payload, headers=headers)
     assert (response.status_code, response.json()) == (status, {"detail": detail})
     assert state(h) == before
+
+
+@pytest.mark.parametrize("path,transport", [
+    ("/api/auth/me", "bearer"), ("/api/session/me", "cookie"),
+])
+def test_self_email_change_refused_without_name_or_audit_write(path, transport, h):
+    _, user_id, email, _, _, client = h
+    token = create_access_token(user_id, {"factory_code": "MIL"})
+    headers = {"Authorization": f"Bearer {token}"} if transport == "bearer" else {}
+    if transport == "cookie":
+        client.cookies.set(settings.AUTH_COOKIE_NAME, token)
+    before = state(h)
+    changed = f"changed-{email}"
+    response = client.patch(path, headers=headers, json={"name": "Unauthorized rename", "email": changed})
+    assert (response.status_code, response.json()) == (400, {"detail": "Email cannot be changed from Profile"})
+    assert state(h) == before
+
+
+def test_admin_users_still_changes_another_users_email(h):
+    factory, user_id, email, _, _, client = h
+    with factory() as db:
+        role = Role(name=f"Email manager {uuid4().hex}", permissions=["admin.users"])
+        db.add(role)
+        db.flush()
+        admin = User(name="Email manager", email=f"manager-{uuid4().hex}@example.com",
+                     password_hash=hash_password("EmailManager!2026"), role_id=role.id,
+                     factory_code="MIL", is_active=True)
+        db.add(admin)
+        db.commit()
+        admin_id = admin.id
+    changed = f"new-{email}"
+    response = client.patch(f"/api/users/{user_id}",
+                            headers={"Authorization": f"Bearer {create_access_token(admin_id)}"},
+                            json={"email": changed})
+    assert response.status_code == 200, response.text
+    assert response.json()["email"] == changed
+    with factory() as db:
+        assert db.get(User, user_id).email == changed
