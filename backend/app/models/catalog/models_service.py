@@ -103,6 +103,7 @@ from app.schemas import (
     StockBatch,
     User,
 )
+from app.schemas.catalog.variant_persistence import delete_variant_rows
 from app.schemas.catalog.bom_persistence import delete_model_bom, insert_model_bom, update_model_bom
 from app.schemas.catalog.model_approval_persistence import apply_model_approval
 from app.schemas.catalog.model_size_persistence import insert_model_size
@@ -2246,8 +2247,7 @@ def delete_model_variant(
         "name": target.name,
         "variant_no": _model_code_parts(target)[1],
     }
-    db.query(CollectionModel).filter(CollectionModel.model_id == variant_id).delete(synchronize_session=False)
-    db.delete(target)
+    delete_variant_rows(db, target=target, variant_id=variant_id)
     log_action(db, current, "delete_variant", "Model", variant_id, new_value=old_value)
     db.commit()
 
