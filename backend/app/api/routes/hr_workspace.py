@@ -6,7 +6,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator
 from sqlalchemy import func
 
 from app.core.config import settings
@@ -25,7 +25,7 @@ from app.schemas import (
 )
 from app.models.audit_service import log_action
 from app.models.people import hr_workspace_service
-from app.libs.dto.people.hr_workspace import OrgUnitIn as OrgUnitIn, PositionIn as PositionIn, CandidateIn as CandidateIn, _required_text as _required_text
+from app.libs.dto.people.hr_workspace import OrgUnitIn as OrgUnitIn, PositionIn as PositionIn, CandidateIn as CandidateIn, CalendarEventIn as CalendarEventIn, _required_text as _required_text
 from app.models.people.hr_workspace_service import (
     _factory as _factory, _employee as _employee, _department as _department,
     _org_unit as _org_unit, _validate_org_unit_links as _validate_org_unit_links,
@@ -42,33 +42,6 @@ from app.models.attendance_event_policy_service import accepted_attendance_resul
 router = APIRouter(prefix="/hr", tags=["hr-workspace"])
 HrUser = Depends(require_permissions("hr.employees", "*"))
 MAX_INT4 = 2_147_483_647
-
-
-class CalendarEventIn(BaseModel):
-    employee_id: int | None = Field(default=None, gt=0, le=MAX_INT4)
-    event_type: str = Field(pattern="^(birthday|contract_expiry|probation_end|leave|training|interview|medical_check|certification|performance_review|other)$")
-    title: str = Field(min_length=1, max_length=255)
-    starts_at: datetime
-    ends_at: datetime | None = None
-    notes: str | None = None
-    status: str = Field(default="scheduled", pattern="^(scheduled|completed|cancelled)$")
-
-    @field_validator("title")
-    @classmethod
-    def validate_title(cls, value: str) -> str:
-        return _required_text(value, "Calendar event title")
-
-    @model_validator(mode="after")
-    def validate_date_range(self):
-        if self.ends_at is None:
-            return self
-        starts_aware = self.starts_at.tzinfo is not None and self.starts_at.utcoffset() is not None
-        ends_aware = self.ends_at.tzinfo is not None and self.ends_at.utcoffset() is not None
-        if starts_aware != ends_aware:
-            raise ValueError("Calendar start and end must use matching timezone formats")
-        if self.ends_at < self.starts_at:
-            raise ValueError("Calendar end cannot precede its start")
-        return self
 
 
 class HrSettingsIn(BaseModel):
@@ -328,11 +301,7 @@ def list_calendar(db: DbSession, current: User = HrUser):
 
 @router.post("/calendar", status_code=201)
 def create_calendar_event(payload: CalendarEventIn, db: DbSession, current: User = HrUser):
-    factory = _factory(current)
-    if payload.employee_id is not None: _employee(db, factory, payload.employee_id)
-    row = HrCalendarEvent(factory_code=factory, **payload.model_dump())
-    db.add(row); db.flush(); log_action(db, current, "create", "HrCalendarEvent", row.id, new_value={"title": row.title, "event_type": row.event_type}); db.commit(); db.refresh(row)
-    return {"id": row.id}
+    return hr_workspace_service.create_calendar_event(payload, db, current, audit=log_action)
 
 
 def _settings_key(factory: str) -> str:

@@ -2,7 +2,7 @@
 
 from sqlalchemy.orm import Session
 
-from app.schemas import HrOrgUnit, HrPosition, HrRecruitmentCandidate, HrEmployeeDocument
+from app.schemas import HrOrgUnit, HrPosition, HrRecruitmentCandidate, HrEmployeeDocument, HrCalendarEvent
 
 
 def insert_org_unit(db: Session, *, factory_code: str, values: dict) -> HrOrgUnit:
@@ -45,3 +45,9 @@ def insert_document(db: Session, *, values: dict) -> HrEmployeeDocument:
 
 def delete_document_row(db: Session, row: HrEmployeeDocument) -> None:
     db.delete(row)
+
+
+def insert_calendar_event(db: Session, *, factory_code: str, values: dict) -> HrCalendarEvent:
+    row = HrCalendarEvent(factory_code=factory_code, **values)
+    db.add(row)
+    return row

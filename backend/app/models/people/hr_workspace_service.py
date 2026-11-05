@@ -12,10 +12,10 @@ from fastapi import HTTPException, UploadFile
 from app.core.config import settings
 from sqlalchemy.orm import Session
 
-from app.libs.dto.people.hr_workspace import OrgUnitIn, PositionIn, CandidateIn
+from app.libs.dto.people.hr_workspace import OrgUnitIn, PositionIn, CandidateIn, CalendarEventIn
 from app.models.factory_scope_service import factory_for_department, selected_factory_code
 from app.schemas import Department, Employee, HrOrgUnit, HrPosition, HrRecruitmentCandidate, HrEmployeeDocument, User
-from app.schemas.people.hr_workspace_persistence import insert_org_unit, delete_org_unit_row, insert_position, update_position_row, insert_candidate, update_candidate_row, insert_document, delete_document_row
+from app.schemas.people.hr_workspace_persistence import insert_org_unit, delete_org_unit_row, insert_position, update_position_row, insert_candidate, update_candidate_row, insert_document, delete_document_row, insert_calendar_event
 
 
 def _factory(current: User) -> str:
@@ -270,3 +270,11 @@ def delete_document(document_id: int, db: Session, current: User, *, audit: Call
     delete_document_row(db, row); audit(db, current, "delete", "HrEmployeeDocument", document_id); db.commit()
     try: path.unlink(missing_ok=True)
     except OSError: pass
+
+
+def create_calendar_event(payload: CalendarEventIn, db: Session, current: User, *, audit: Callable):
+    factory = _factory(current)
+    if payload.employee_id is not None: _employee(db, factory, payload.employee_id)
+    row = insert_calendar_event(db, factory_code=factory, values=payload.model_dump())
+    db.flush(); audit(db, current, "create", "HrCalendarEvent", row.id, new_value={"title": row.title, "event_type": row.event_type}); db.commit(); db.refresh(row)
+    return {"id": row.id}

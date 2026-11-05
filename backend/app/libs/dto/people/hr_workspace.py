@@ -64,7 +64,6 @@ class PositionIn(BaseModel):
         return self
 
 
-
 class CandidateIn(BaseModel):
     position_id: int | None = Field(default=None, gt=0, le=MAX_INT4)
     department_id: int | None = Field(default=None, gt=0, le=MAX_INT4)
@@ -105,5 +104,32 @@ class CandidateIn(BaseModel):
             and self.passport_expiry_date < self.passport_issue_date
         ):
             raise ValueError("Passport expiry date cannot precede its issue date")
+        return self
+
+
+class CalendarEventIn(BaseModel):
+    employee_id: int | None = Field(default=None, gt=0, le=MAX_INT4)
+    event_type: str = Field(pattern="^(birthday|contract_expiry|probation_end|leave|training|interview|medical_check|certification|performance_review|other)$")
+    title: str = Field(min_length=1, max_length=255)
+    starts_at: datetime
+    ends_at: datetime | None = None
+    notes: str | None = None
+    status: str = Field(default="scheduled", pattern="^(scheduled|completed|cancelled)$")
+
+    @field_validator("title")
+    @classmethod
+    def validate_title(cls, value: str) -> str:
+        return _required_text(value, "Calendar event title")
+
+    @model_validator(mode="after")
+    def validate_date_range(self):
+        if self.ends_at is None:
+            return self
+        starts_aware = self.starts_at.tzinfo is not None and self.starts_at.utcoffset() is not None
+        ends_aware = self.ends_at.tzinfo is not None and self.ends_at.utcoffset() is not None
+        if starts_aware != ends_aware:
+            raise ValueError("Calendar start and end must use matching timezone formats")
+        if self.ends_at < self.starts_at:
+            raise ValueError("Calendar end cannot precede its start")
         return self
 
