@@ -6,6 +6,7 @@ from app.schemas import Task
 from app.libs.dto.work_management.tasks import TaskIn, TaskUpdate, TaskOut
 from app.models.audit_service import log_action
 from app.models.work_management.tasks_service import (
+    delete_task as delete_task_operation,
     complete_task as complete_task_operation,
     _can_manage, create_task as create_task_operation,
     update_task as update_task_operation,
@@ -69,13 +70,7 @@ def update_task(tid: int, payload: TaskUpdate, db: DbSession, current: CurrentUs
 
 @router.delete("/{tid}", status_code=204)
 def delete_task(tid: int, db: DbSession, current: CurrentUser):
-    t = db.get(Task, tid)
-    if not t: raise HTTPException(404, "Task not found")
-    if not (_can_manage(current) or t.created_by == current.id):
-        raise HTTPException(403, "Only managers or task creator may delete")
-    db.delete(t)
-    log_action(db, current, "delete", "Task", tid)
-    db.commit()
+    return delete_task_operation(tid, db, current, audit=log_action)
 
 
 @router.post("/{tid}/complete", response_model=TaskOut)
