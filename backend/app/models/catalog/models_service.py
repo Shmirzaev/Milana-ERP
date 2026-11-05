@@ -26,6 +26,7 @@ from uuid import uuid4
 from fastapi import HTTPException, UploadFile
 from sqlalchemy import and_, func, literal_column, or_, select
 from sqlalchemy.orm import Session, defer, selectinload
+from app.schemas.catalog import variant_update_persistence
 from app.core.config import settings
 from app.core.deps import user_permissions
 from app.core.dt import date_filter_bounds
@@ -492,27 +493,6 @@ def _variant_fabric_item_id_for_model(model: Model) -> int | None:
     return value or None
 
 
-def _set_variant_general_details(
-    model: Model,
-    *,
-    model_no: str,
-    variant_no: str,
-    fabric_item: Item | None = None,
-) -> None:
-    details = deepcopy(model.details_json or {})
-    general = details.get("general")
-    if not isinstance(general, dict):
-        general = {}
-    general["model_no"] = model_no
-    general["variant_no"] = variant_no
-    if fabric_item is not None:
-        general["variant_fabric"] = _fabric_item_label(fabric_item)
-        general["variant_fabric_item_id"] = int(fabric_item.id)
-        general.pop("variant_stock_batch_id", None)
-    details["general"] = general
-    model.details_json = details
-
-
 def _set_variant_material_image(db: Session, model: Model, picture_url: str) -> None:
     material_images = sorted(
         [img for img in (model.images or []) if img.image_type == "material"],
@@ -569,26 +549,6 @@ def _set_variant_print_image(db: Session, model: Model, picture_url: str) -> Non
             is_primary=False,
         )
     )
-
-
-def _apply_variant_fabric_item(
-    model: Model,
-    selected_item: Item,
-    *,
-    color_provided: bool = False,
-    color: str | None = None,
-    picture_url: str | None = None,
-) -> None:
-    fabric_row = _primary_material_bom_row(model)
-    if not fabric_row:
-        raise HTTPException(400, "Add a fabric BOM row to this model before editing variants")
-    fabric_row.item_id = int(selected_item.id)
-    fabric_row.stock_batch_id = None
-    if color_provided:
-        fabric_row.color = _clean_text(color) or None
-    if picture_url is not None:
-        fabric_row.photo_url = picture_url
-    fabric_row.unit = selected_item.unit or fabric_row.unit
 
 
 def _fabric_label_for_model(model: Model) -> str:
@@ -2109,6 +2069,21 @@ def create_model_variant(
     return _model_out_payload(cloned, _catalog_paid_operation_factory_scope(current, catalog_scope))
 
 
+def _save_variant_update_image(db: Session, model: Model, image_type: str, picture_url: str) -> None:
+    images = sorted(
+        [image for image in (model.images or []) if image.image_type == image_type],
+        key=lambda image: int(getattr(image, "id", 0) or 0),
+        reverse=True,
+    )
+    file_name = os.path.basename(picture_url.split("?", 1)[0]) or None
+    extension = os.path.splitext(file_name or "")[1].lower()
+    content_type = safe_content_type(extension) if extension in SAFE_IMAGE_EXTENSIONS else None
+    variant_update_persistence.save_image(
+        db, model_id=model.id, image=images[0] if images else None,
+        image_type=image_type, picture_url=picture_url, file_name=file_name, content_type=content_type,
+    )
+
+
 def update_model_variant(
     current: User,
     db: Session,
@@ -2166,13 +2141,19 @@ def update_model_variant(
     # and the bounds must be judged against what the variant actually had.
     _validate_model_details_json_bounds(target.details_json)
     original_details = deepcopy(target.details_json)
-    target.code = new_code
-    _set_variant_general_details(
-        target,
-        model_no=model_no,
-        variant_no=variant_no,
-        fabric_item=parent_fabric_item,
-    )
+    variant_update_persistence.set_variant_code(target, new_code)
+    details = deepcopy(target.details_json or {})
+    general = details.get("general")
+    if not isinstance(general, dict):
+        general = {}
+    general["model_no"] = model_no
+    general["variant_no"] = variant_no
+    if parent_fabric_item is not None:
+        general["variant_fabric"] = _fabric_item_label(parent_fabric_item)
+        general["variant_fabric_item_id"] = int(parent_fabric_item.id)
+        general.pop("variant_stock_batch_id", None)
+    details["general"] = general
+    variant_update_persistence.set_variant_details(target, details)
     if catalog_scope == "usluga":
         details = deepcopy(target.details_json or {})
         general = details.get("general") if isinstance(details.get("general"), dict) else {}
@@ -2181,22 +2162,23 @@ def update_model_variant(
         else:
             general.pop("variant_color", None)
         details["general"] = general
-        target.details_json = details
+        variant_update_persistence.set_variant_details(target, details)
     _validate_model_details_json_bounds(target.details_json, existing_details=original_details)
     fabric_row = _primary_material_bom_row(target)
     if fabric_row and parent_fabric_item:
-        _apply_variant_fabric_item(
-            target,
-            parent_fabric_item,
+        variant_update_persistence.set_fabric_item(
+            fabric_row,
+            item_id=int(parent_fabric_item.id),
+            unit=parent_fabric_item.unit or fabric_row.unit,
             color_provided=payload.color is not None,
             color=color,
             picture_url=picture_url,
         )
     elif parent_fabric_item and source_fabric_row:
-        fabric_row = ModelBOM(
+        fabric_row = variant_update_persistence.add_fabric_row(
+            db,
             model_id=target.id,
             item_id=parent_fabric_item.id,
-            stock_batch_id=None,
             size=source_fabric_row.size,
             color=color if payload.color is not None else source_fabric_row.color,
             photo_url=picture_url,
@@ -2204,21 +2186,19 @@ def update_model_variant(
             unit=parent_fabric_item.unit or source_fabric_row.unit,
             waste_percent=source_fabric_row.waste_percent,
         )
-        db.add(fabric_row)
     elif fabric_row:
-        if payload.color is not None:
-            fabric_row.color = color
-        if picture_url is not None:
-            fabric_row.photo_url = picture_url
+        variant_update_persistence.set_fabric_display(
+            fabric_row, color_provided=payload.color is not None, color=color, picture_url=picture_url
+        )
     if picture_url is not None:
-        _set_variant_material_image(db, target, picture_url)
+        _save_variant_update_image(db, target, "material", picture_url)
     if "print_picture_url" in payload.model_fields_set:
         if print_picture_url:
-            _set_variant_print_image(db, target, print_picture_url)
+            _save_variant_update_image(db, target, "print", print_picture_url)
         else:
-            for image in list(target.images or []):
-                if image.image_type == "print":
-                    db.delete(image)
+            variant_update_persistence.delete_print_images(
+                db, [image for image in list(target.images or []) if image.image_type == "print"]
+            )
     log_action(
         db,
         current,
