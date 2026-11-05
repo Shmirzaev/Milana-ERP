@@ -51,3 +51,12 @@ def add_password_reset_token(
     token = PasswordResetToken(user_id=user_id, token_hash=token_hash, expires_at=expires_at)
     db.add(token)
     return token
+
+
+def set_user_credential_cutoff(db: Session, user: User, now: datetime) -> None:
+    user.tokens_valid_from = now
+
+
+def apply_admin_user_changes(db: Session, user: User, changes: dict) -> None:
+    for key, value in changes.items():
+        setattr(user, key, value)

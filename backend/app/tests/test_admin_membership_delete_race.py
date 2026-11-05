@@ -13,6 +13,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
 from app.api.routes import admin
+from app.models.identity import users_service
 from app.core.deps import user_permissions
 from app.core.security import verify_password
 from app.db.base import Base
@@ -200,7 +201,7 @@ def test_concurrent_factory_move_and_deactivation_keep_one_admin(membership_post
     deactivation_started = Event()
     release_move = Event()
     backend_pids = {}
-    original_count = admin._count_active_admins
+    original_count = users_service._count_active_admins
 
     def hold_move_after_count(db, exclude_user_id=None):
         count = original_count(db, exclude_user_id=exclude_user_id)
@@ -210,7 +211,7 @@ def test_concurrent_factory_move_and_deactivation_keep_one_admin(membership_post
             assert release_move.wait(10), "Timed out waiting for lock observation"
         return count
 
-    monkeypatch.setattr(admin, "_count_active_admins", hold_move_after_count)
+    monkeypatch.setattr(users_service, "_count_active_admins", hold_move_after_count)
 
     def change(user_id, payload):
         with membership_postgres_sessions() as db:
