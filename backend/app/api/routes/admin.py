@@ -7,7 +7,6 @@ from sqlalchemy.exc import IntegrityError
 
 from app.core.config import settings
 from app.core.deps import (
-    SUPER_ADMIN_PERMISSION,
     DbSession,
     CurrentUser,
     is_super_admin,
@@ -28,11 +27,10 @@ from app.models.credentials_service import apply_password_credential_change, loc
 from app.models.audit_service import export_audit_hash_chain, log_action, verify_audit_hash_chain
 from app.models.password_reset_service import send_password_email_safely
 from app.db.reset_demo import reset_to_seed
-from app.core.permission_catalog import PERMISSION_KEYS
-from app.models.factory_scope_service import FACTORY_CODES, available_factory_codes
 from app.models.identity.users_service import create_user as create_user_account, require_strong_password as _require_strong_password
 from app.models.identity.access_service import (
-    get_access_catalog, _access_subject, _user_access_values, _assert_policy_change,
+    get_access_catalog, preview_user_access as preview_identity_access,
+    _user_access_values, _assert_policy_change,
     _assert_can_grant_role, _assert_can_grant_permissions,
 )
 
@@ -260,16 +258,7 @@ def access_catalog(current: User = Depends(require_permissions("admin.users", "*
 
 @router.post("/users/access-preview")
 def preview_user_access(payload: UserIn, db: DbSession, current: User = Depends(require_permissions("admin.users", "*"))):
-    values = payload.model_dump(exclude={"password"})
-    subject = _access_subject(db, values)
-    available = available_factory_codes(subject)
-    result = {}
-    for factory in FACTORY_CODES:
-        subject.session_factory_code = factory
-        effective = user_permissions(subject)
-        expanded = sorted((set(effective) - {"*"}) | (PERMISSION_KEYS - {"*", SUPER_ADMIN_PERMISSION} if "*" in effective else set()))
-        result[factory] = {"permissions": effective, "effective": sorted(set(expanded) | ({"*"} if "*" in effective else set())), "available": factory in available}
-    return result
+    return preview_identity_access(db, payload, current)
 
 
 def _count_active_admins(db: DbSession, exclude_user_id: int | None = None) -> int:
