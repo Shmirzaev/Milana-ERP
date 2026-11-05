@@ -41,3 +41,7 @@ def insert_document(db: Session, *, values: dict) -> HrEmployeeDocument:
     row = HrEmployeeDocument(**values)
     db.add(row)
     return row
+
+
+def delete_document_row(db: Session, row: HrEmployeeDocument) -> None:
+    db.delete(row)

@@ -274,12 +274,7 @@ def download_document(document_id: int, db: DbSession, current: User = HrUser):
 
 @router.delete("/documents/{document_id}", status_code=204)
 def delete_document(document_id: int, db: DbSession, current: User = HrUser):
-    row = db.query(HrEmployeeDocument).filter(HrEmployeeDocument.id == document_id, HrEmployeeDocument.factory_code == _factory(current)).first()
-    if not row: raise HTTPException(404, "Document not found")
-    path = Path(settings.HR_DOCUMENTS_DIR) / row.stored_name
-    db.delete(row); log_action(db, current, "delete", "HrEmployeeDocument", document_id); db.commit()
-    try: path.unlink(missing_ok=True)
-    except OSError: pass
+    return hr_workspace_service.delete_document(document_id, db, current, audit=log_action)
 
 
 @router.get("/attendance")

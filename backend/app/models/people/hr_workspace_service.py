@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from app.libs.dto.people.hr_workspace import OrgUnitIn, PositionIn, CandidateIn
 from app.models.factory_scope_service import factory_for_department, selected_factory_code
 from app.schemas import Department, Employee, HrOrgUnit, HrPosition, HrRecruitmentCandidate, HrEmployeeDocument, User
-from app.schemas.people.hr_workspace_persistence import insert_org_unit, delete_org_unit_row, insert_position, update_position_row, insert_candidate, update_candidate_row, insert_document
+from app.schemas.people.hr_workspace_persistence import insert_org_unit, delete_org_unit_row, insert_position, update_position_row, insert_candidate, update_candidate_row, insert_document, delete_document_row
 
 
 def _factory(current: User) -> str:
@@ -261,3 +261,12 @@ async def upload_document(
             await run_blocking_to_completion(partial(target.unlink, True))
         raise
     return document
+
+
+def delete_document(document_id: int, db: Session, current: User, *, audit: Callable):
+    row = db.query(HrEmployeeDocument).filter(HrEmployeeDocument.id == document_id, HrEmployeeDocument.factory_code == _factory(current)).first()
+    if not row: raise HTTPException(404, "Document not found")
+    path = Path(settings.HR_DOCUMENTS_DIR) / row.stored_name
+    delete_document_row(db, row); audit(db, current, "delete", "HrEmployeeDocument", document_id); db.commit()
+    try: path.unlink(missing_ok=True)
+    except OSError: pass
