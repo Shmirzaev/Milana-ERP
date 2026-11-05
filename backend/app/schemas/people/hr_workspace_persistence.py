@@ -2,7 +2,7 @@
 
 from sqlalchemy.orm import Session
 
-from app.schemas import HrOrgUnit, HrPosition, HrRecruitmentCandidate
+from app.schemas import HrOrgUnit, HrPosition, HrRecruitmentCandidate, HrEmployeeDocument
 
 
 def insert_org_unit(db: Session, *, factory_code: str, values: dict) -> HrOrgUnit:
@@ -35,3 +35,9 @@ def insert_candidate(db: Session, *, factory_code: str, values: dict) -> HrRecru
 def update_candidate_row(db: Session, *, row: HrRecruitmentCandidate, values: dict) -> None:
     for key, value in values.items():
         setattr(row, key, value)
+
+
+def insert_document(db: Session, *, values: dict) -> HrEmployeeDocument:
+    row = HrEmployeeDocument(**values)
+    db.add(row)
+    return row
