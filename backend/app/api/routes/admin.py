@@ -27,7 +27,10 @@ from app.models.credentials_service import apply_password_credential_change, loc
 from app.models.audit_service import export_audit_hash_chain, log_action, verify_audit_hash_chain
 from app.models.password_reset_service import send_password_email_safely
 from app.db.reset_demo import reset_to_seed
-from app.models.identity.users_service import create_user as create_user_account, require_strong_password as _require_strong_password
+from app.models.identity.users_service import (
+    create_user as create_user_account, require_strong_password as _require_strong_password,
+    list_users as list_identity_users,
+)
 from app.models.identity.access_service import (
     get_access_catalog, preview_user_access as preview_identity_access,
     _user_access_values, _assert_policy_change,
@@ -315,7 +318,7 @@ def _detach_user_references(db: DbSession, user_id: int) -> None:
 
 @router.get("/users", response_model=list[UserOut])
 def list_users(db: DbSession, _: User = Depends(require_permissions("admin.users", "*"))):
-    return db.query(User).order_by(User.id).all()
+    return list_identity_users(db, _)
 
 
 @router.post("/users", response_model=UserOut, status_code=201)

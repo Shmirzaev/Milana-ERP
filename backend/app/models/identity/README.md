@@ -2,7 +2,7 @@
 
 Business-service group guide, relocated into models/ on 24 October 2026. This
 directory contains pure policy evaluation in [access_policy_service.py](access_policy_service.py),
-access catalog, read-only access preview and shared grant checks in [access_service.py](access_service.py), and create-user
+access catalog, read-only access preview and shared grant checks in [access_service.py](access_service.py), and account listing/create-user
 coordination in [users_service.py](users_service.py). Authenticated role listing and role creation live in [roles_service.py](roles_service.py);
 other account operations remain in the existing *_service.py files and admin route.
 
