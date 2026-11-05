@@ -4,7 +4,7 @@ These reports preserve what was observed at their recorded date. They are not
 current implementation instructions or proof of today's production state.
 Start with [current context](../PROJECT_CONTEXT.md) for active work.
 
-- [Production-order cutting factory action, 5 November 2026](ORDER_DETAIL_CUTTING_FACTORY_2026-11-05.md): exact488f3d654, actual isolated verification, pending human review and capacity hold; not deployed.
+- [Production-order cutting factory action, 5 November 2026](ORDER_DETAIL_CUTTING_FACTORY_2026-11-05.md): exact 488f3d654 deployed blue 20261105_065721 after human approval; accepted paired latency exception retained, strict final public checks passed, green 043000 rollback preserved.
 
 - [FG model-number prefix, 3 November 2026](FG_MODEL_PREFIX_2026-11-03.md): FG202001 start, focused and local-browser verification; PostgreSQL gate pending, not deployed.
 

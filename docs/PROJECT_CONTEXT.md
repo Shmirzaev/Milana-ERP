@@ -17,12 +17,12 @@ not appended here. This summary does not replace live release verification.
 
 ## ECO release and application reconciliation (4 November)
 
-Verified production is green `20261105_043000`, runtime `94e4cfc54c6cc4fd5787bcbc7ba8483f4518a507`,
-manifest `dd662d889407378ce78d22ebb40e5ce3f53a3043377027b84315f8733234b257`.
-Both current links point to that release. Working rollback is blue
-`20261104_080711` / `984aeffb22aedd3262d7cd61e2d88a905b589e8d`, with original
-container/image/start identities and backend worker PIDs preserved. Database head
-remains `0154_eco_receipt_details`; no DDL ran.
+Verified production is blue `20261105_065721`, runtime `488f3d654b0669a9878b8efd3d34298994e9dc45`,
+manifest `e6c603d4c1954c64a75962cf189427eb5e316c039ea23de4699b9bd4f3112095`.
+Both current links point to that release. Working rollback is green
+`20261105_043000` / `94e4cfc54c6cc4fd5787bcbc7ba8483f4518a507`, manifest
+`dd662d889407378ce78d22ebb40e5ce3f53a3043377027b84315f8733234b257`.
+Database head remains `0154_eco_receipt_details`; no DDL ran.
 The source integration branch had retained the older production pointer. The owner
 approved reconciling the deployed ECO application changes while preserving all
 existing clone_main work, followed by Planning cutting-factory changes, floor
@@ -74,21 +74,40 @@ preserving five protected releases per host and all images/containers/data.
 Full archive verification, unchanged active/rollback identities, released leases
 and all four health checks passed at that retention checkpoint. A later reviewed
 exact unused-image removal and fresh capacity guards allowed preparation; see the
-checkpoint. Only narrow runtime 94e was deployed; combined source PR496 remains
+checkpoint. The original three-feature deployment used narrow runtime 94e; its detail-page
+follow-up now uses 488 as recorded below. Combined source PR496 remains
 draft and unmerged, with separate migration-graph approval held.
 
 ## Production-order cutting factory placement (5 November)
 
-The owner requested the existing Change cutting factory action on the Production
-Order detail page. Exact runtime `488f3d654b0669a9878b8efd3d34298994e9dc45` is
-pushed, unmerged and **not deployed**. CI, real isolated Edge/PostgreSQL save and
-readback, refusal/permission checks and bounded integrity/recovery checks passed.
-Independent review recorded AI_VERIFIED_AWAITING_HUMAN. New-build human acceptance
-is pending; earlier exact94e acceptance is not reused.
-Backend staging fails the unchanged disk-capacity guard; a read-only investigation
-is preparing an explicit archived-unused-image proposal. No production lease,
-image removal, backup, staging, cutover or business write occurred in this follow-up.
-Active green043000, rollback blue080711 and schema0154 above remain unchanged.
+The requested action is now beside Cascade deadlines on the Production Order
+header, fixed to the displayed order. Exact runtime
+`488f3d654b0669a9878b8efd3d34298994e9dc45` is pushed, unmerged and deployed as
+blue `20261105_065721`; rollback is green 043000 above. Complete CI (5,116 backend
+passes plus required PostgreSQL/frontend gates), actual isolated Edge/PostgreSQL
+save/readback, refusal/permission and bounded integrity/recovery checks passed.
+Independent AI review preceded the owner's explicit exact 488 visual approval.
+
+The original paired Inventory Stock comparison remains **FAIL**: median+16.25%
+and p95+21.87%. The owner explicitly accepted only that exception and authorized
+deployment; it was not resampled. The first activation was rolled back when the
+public benchmark command stopped before usable metrics. A separately reviewed
+ops helper then made the untimed native User seed query deterministic with
+ORDER BY id; actual rows/permissions and default timed API queries, samples and
+strict comparator limits were retained. This changes executed seed SQL methodology;
+the app's official benchmark selector remains unordered and needs a future tooling
+fix. It is not an application/backend change in 488.
+
+Retry2 final public comparison passed default 10% median/15% p95/15% payload limits
+with matching subject, queries and rows (largest median increase+0.15%; all p95
+improved; payload unchanged). All four health checks, normal public read-only Edge
+QA on actual PO-0684, runtime/source/security/pool/log and database checks passed.
+The retry2 backup is 112,369,333 bytes/1,329 restore objects, SHA-256
+`c59941b96e5eca00804dcf8166a0cdf1d17340daa10c3663edcc0465e1b756df`.
+Both owned deployment leases were released after closing PASS. No manufacturing
+or other business data was changed; no schema change or BST handoff replay.
+No 30-minute monitoring was created or run, as explicitly requested. Source PR496
+remains draft/unmerged with the combined migration graph separately held.
 See the [follow-up task packet](archive/ORDER_DETAIL_CUTTING_FACTORY_2026-11-05.md).
 
 ## Current refactor: Finance shipment invoice reversal (4 November)
