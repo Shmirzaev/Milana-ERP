@@ -1,0 +1,152 @@
+name: Built-image and dependency security gate
+
+on:
+  workflow_call:
+    inputs:
+      source_ref:
+        required: true
+        type: string
+      release_images:
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      TRIVY_VERSION: 0.76.1
+    steps:
+      - name: Start timing
+        id: clock
+        run: |
+          echo "SECURITY_STARTED=$(date +%s)" >> "$GITHUB_ENV"
+          echo "TRIVY_CACHE_DIR=$RUNNER_TEMP/trivy-cache" >> "$GITHUB_ENV"
+          echo "REPORT_DIR=$RUNNER_TEMP/security-reports" >> "$GITHUB_ENV"
+          echo "day=$(date -u +%F)" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v7
+        timeout-minutes: 3
+        with:
+          path: policy
+      - uses: actions/checkout@v7
+        timeout-minutes: 3
+        with:
+          ref: ${{ inputs.source_ref }}
+          path: source
+      - name: Record exact scanned source
+        working-directory: source
+        run: echo "SCANNED_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+      - name: Install pinned Trivy with checksum verification
+        timeout-minutes: 3
+        run: |
+          mkdir -p "$RUNNER_TEMP/trivy-bin" "$REPORT_DIR"
+          cd "$RUNNER_TEMP/trivy-bin"
+          base="https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}"
+          asset="trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          curl --fail --location --retry 2 --max-time 90 -o "$asset" "$base/$asset"
+          curl --fail --location --retry 2 --max-time 30 -o checksums.txt "$base/trivy_${TRIVY_VERSION}_checksums.txt"
+          grep "  $asset$" checksums.txt | sha256sum --check --strict
+          tar -xzf "$asset" trivy
+          echo "$RUNNER_TEMP/trivy-bin" >> "$GITHUB_PATH"
+      - uses: actions/cache@v4
+        timeout-minutes: 5
+        with:
+          path: ${{ env.TRIVY_CACHE_DIR }}/db
+          key: trivy-db-${{ runner.os }}-0.76.1-${{ steps.clock.outputs.day }}
+          restore-keys: trivy-db-${{ runner.os }}-0.76.1-
+      - name: Refresh database once; all scans use this snapshot
+        timeout-minutes: 5
+        run: |
+          trivy image --download-db-only
+          cp "$TRIVY_CACHE_DIR/db/metadata.json" "$REPORT_DIR/database.json"
+          trivy --version > "$REPORT_DIR/scanner.txt"
+      - name: Set up isolated job builder
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
+        timeout-minutes: 3
+      - name: Build backend image
+        timeout-minutes: 15
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          context: source/backend
+          pull: true
+          load: true
+          tags: milana-security-backend:${{ github.run_id }}
+          labels: org.opencontainers.image.revision=${{ env.SCANNED_SHA }}
+          cache-from: type=gha,scope=security-backend-v1
+          cache-to: type=gha,scope=security-backend-v1,mode=max
+      - name: Build frontend image
+        timeout-minutes: 15
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          context: source
+          file: source/frontend/Dockerfile
+          pull: true
+          load: true
+          tags: milana-security-frontend:${{ github.run_id }}
+          labels: org.opencontainers.image.revision=${{ env.SCANNED_SHA }}
+          build-args: |
+            NEXT_PUBLIC_API_URL=${{ inputs.release_images && 'https://erp.milanapremium.uz' || '' }}
+            API_URL=${{ inputs.release_images && 'http://172.16.10.4:8000' || 'http://localhost:20201' }}
+          cache-from: type=gha,scope=security-frontend-v1
+          cache-to: type=gha,scope=security-frontend-v1,mode=max
+      - name: Scan exact backend image
+        timeout-minutes: 8
+        run: trivy image --image-src docker --skip-db-update --scanners vuln --ignorefile '' --format json --output "$REPORT_DIR/backend-image.json" "milana-security-backend:$GITHUB_RUN_ID"
+      - name: Scan exact frontend image
+        timeout-minutes: 8
+        run: trivy image --image-src docker --skip-db-update --scanners vuln --ignorefile '' --format json --output "$REPORT_DIR/frontend-image.json" "milana-security-frontend:$GITHUB_RUN_ID"
+      - name: Scan Python requirements and npm lockfiles including development tools
+        timeout-minutes: 8
+        working-directory: source
+        run: trivy fs --skip-db-update --scanners vuln --include-dev-deps --file-patterns 'pip:requirements.*\.txt' --ignorefile '' --skip-dirs .git --format json --output "$REPORT_DIR/dependencies.json" .
+      - name: Enforce accepted findings and fixed high/critical policy
+        run: python policy/scripts/security_gate.py --reports "$REPORT_DIR" --accepted policy/security/accepted-findings.json --source-root source --output "$REPORT_DIR/gate.json"
+      - name: Preserve exact scanned images for manual release
+        timeout-minutes: 10
+        if: inputs.release_images
+        run: |
+          mkdir -p "$RUNNER_TEMP/scanned-images"
+          docker save -o "$RUNNER_TEMP/scanned-images/images.tar" "milana-security-backend:$GITHUB_RUN_ID" "milana-security-frontend:$GITHUB_RUN_ID"
+          python - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          images = {kind: subprocess.check_output(['docker', 'image', 'inspect', '--format', '{{.Id}}', f'milana-security-{kind}:{os.environ["GITHUB_RUN_ID"]}'], text=True).strip() for kind in ('backend', 'frontend')}
+          Path(os.environ['RUNNER_TEMP'], 'scanned-images', 'identity.json').write_text(json.dumps({'source_sha': os.environ['SCANNED_SHA'], 'images': images}))
+          PY
+      - uses: actions/upload-artifact@v4
+        timeout-minutes: 10
+        if: inputs.release_images
+        with:
+          name: scanned-release-images-${{ github.run_id }}
+          path: ${{ runner.temp }}/scanned-images/
+          compression-level: 0
+          retention-days: 1
+          if-no-files-found: error
+      - name: Record scan result and elapsed time
+        if: always()
+        run: |
+          elapsed=$(( $(date +%s) - SECURITY_STARTED ))
+          echo "Security job elapsed: ${elapsed}s" | tee -a "$GITHUB_STEP_SUMMARY"
+          if [ "$elapsed" -gt 600 ]; then echo 'Security job exceeded 10 minutes.' | tee -a "$GITHUB_STEP_SUMMARY"; fi
+          if [ -f "$REPORT_DIR/gate.json" ]; then
+            python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json, os
+          from pathlib import Path
+          report = json.loads(Path(os.environ['REPORT_DIR'], 'gate.json').read_text())
+          print(f"Scanned source: `{os.environ['SCANNED_SHA']}`; gate passed: {report['passed']}")
+          print('| Target | Critical | High |\n|---|---|---|')
+          for target, counts in report['counts'].items(): print(f"| {target} | {counts['CRITICAL']} | {counts['HIGH']} |")
+          for finding in report['blocked']: print(f"Blocked: {finding['package']} {finding['version']} {finding['advisory']} ({finding['severity']}); fix {finding['fixed_version']}")
+          PY
+          fi
+      - uses: actions/upload-artifact@v4
+        timeout-minutes: 10
+        if: always()
+        with:
+          name: security-reports-${{ github.run_id }}
+          path: ${{ env.REPORT_DIR }}/
+          if-no-files-found: error
+          retention-days: 30

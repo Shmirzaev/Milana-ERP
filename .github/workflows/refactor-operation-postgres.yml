@@ -3,8 +3,13 @@ name: Refactor operation PostgreSQL gate
 on:
   pull_request:
   push:
-    branches: [clone_main, "codex/**"]
+    branches: [main, clone_main]
   workflow_dispatch:
+
+# Only PRs share a group; even pending main/clone_main pushes stay independent.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('{0}-{1}', github.ref, github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
