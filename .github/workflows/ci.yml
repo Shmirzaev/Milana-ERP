@@ -172,6 +172,13 @@ jobs:
         run: npm run lint
       - working-directory: frontend
         run: npm run typecheck:strict
+      - name: All node-only frontend tests (quarantines reported separately)
+        working-directory: frontend
+        timeout-minutes: 15
+        env:
+          TZ: UTC
+          LANG: en_US.UTF-8
+        run: node scripts/run-node-tests.mjs
       - name: Sales enum contracts and mutation checks
         working-directory: frontend
         run: npm run test:sales-enum-contracts
