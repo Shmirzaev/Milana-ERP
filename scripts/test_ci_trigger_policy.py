@@ -46,6 +46,11 @@ class CITriggerPolicyTests(unittest.TestCase):
                 self.assertEqual(policy["group"], expected)
                 self.assertEqual(policy["cancel-in-progress"], "${{ github.event_name == 'pull_request' }}")
 
+    def test_policy_regression_check_is_wired_into_both_workflows(self):
+        for name in WORKFLOWS:
+            commands = [step.get("run", "") for job in workflow(name)["jobs"].values() for step in job["steps"]]
+            self.assertIn("python scripts/test_ci_trigger_policy.py", commands)
+
     def test_release_images_remain_manual_and_rollback_qa_keeps_its_separate_push(self):
         self.assertEqual(workflow("ci.yml")["jobs"]["release"]["if"], "github.event_name == 'workflow_dispatch'")
         rollback = workflow("rollback-image-qa.yml")
