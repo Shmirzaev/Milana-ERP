@@ -1,5 +1,37 @@
 # Production execution
 
+## One passport material with several source batches
+
+`PassportMaterial.batch_allocations` optionally records at least two distinct
+`{stock_batch_id, quantity, batch_no}` sources including the retained primary
+`stock_batch_id`. Labels are display-only input and canonicalized by
+`passport_material_allocation_service.py`; quantities have three-decimal precision
+and must total the existing authoritative stock-usage calculation. Sources must
+share item/color/unit and known width/grammage and belong to the complete assigned
+order-material set. Recognized warehouse factory mismatches are refused; existing
+STR/NULL/unmapped warehouse behavior is retained for routed orders. Usluga customer
+fabrics do not gain warehouse sourcing. Legacy empty-allocation rows remain independent.
+
+Saving checks stock without debiting it; Cutting confirmation expands physical
+usage/reservation debits and per-source pending-shortage evidence. This preserves
+the existing shortage evidence lifecycle without adding a reconciliation action.
+Only the anchor usage stores the full source list; other usages store its anchor
+pointer. Sheet projection resolves that metadata independently of usage ordering
+and shows common calculations and source amounts once. Full source labels remain
+in JSON; the legacy scalar lot summary stays within its 64-character column. Dashboard
+and Excel retain one logical row/output count, with source labels in the export.
+Grouped actual-usage projections use the authoritative calculation; legacy
+display formulas remain unchanged. Used grouped allocations/calculations cannot
+be edited; notes remain supported. A grouped-passport-linked Nastil requires that
+matching passport and its saved materials, including when a caller omits the
+passport ID or tries raw/deferred usage. Pre-use batch replacement rewrites grouped
+JSON through the same-transaction schema persistence helper and preserves source
+validation. No migration or permission is added. Fixed source/type/status
+vocabulary is retained; the new reservation projection uses the existing canonical
+MaterialReservationStatus. Wider legacy route/persistence/type extraction remains
+pending. Run the new `test_passport_batch_allocations.py` and PostgreSQL companion,
+plus passport submission/meter/Nastil/report/default-budget and reservation tests.
+
 ## Reject an unrecorded Cutting order
 
 `POST /api/work-orders/{wid}/reject-cutting` delegates to

@@ -3588,7 +3588,7 @@ def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depend
         if po.source_type == "usluga":
             raise HTTPException(400, "Usluga material usage is recorded without an inventory batch")
         from app.models.cutting_passport_usage_service import passport_material_usage
-        raw_materials = passport_material_usage(db, po, payload.cutting_passport_id)
+        raw_materials = passport_material_usage(db, po, payload.cutting_passport_id, current)
     if not raw_materials and payload.fabric_batch_id and float(payload.input_quantity or 0) > 0:
         raw_materials = [{
             "stock_batch_id": int(payload.fabric_batch_id),
@@ -3633,7 +3633,8 @@ def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depend
         raise HTTPException(400, "Enter cutting details for every fabric")
     primary_material = cutting_materials[0] if cutting_materials else None
     if detailed_materials:
-        details = detailed_materials[0]["details"]
+        from app.models.production.passport_material_allocation_service import primary_material_details
+        details = primary_material_details(detailed_materials)
         for field in ("layer_material_kg", "beika_kg", "material_rolls_used", "layup_operator_name", "waste_quantity", "waste_unit"):
             setattr(payload, field, details[field])
 
@@ -3645,6 +3646,8 @@ def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depend
     )
     require_cutting_batch_mutable(db, wo, batch_id)
 
+    from app.models.production.passport_material_allocation_service import require_grouped_passport_submission
+    require_grouped_passport_submission(db, batch_id, payload.cutting_passport_id, payload.use_passport_materials)
     bundle_specs = _parse_cutting_bundle_specs(payload.bundles or [])
     if po.source_type == "usluga":
         if any(spec["next_code"] == "PRT" for spec in bundle_specs):
@@ -4161,6 +4164,8 @@ def update_cutting_record_details(
     from app.models.factory_scope_service import require_work_order_factory_access
     require_work_order_factory_access(current, db, wo)
     require_cutting_batch_mutable(db, wo, rec.production_batch_id)
+    from app.models.production.passport_material_allocation_service import require_grouped_cutting_notes_only
+    require_grouped_cutting_notes_only(rec, payload.model_fields_set)
 
     numeric_fields = ("layer_material_kg", "beika_kg", "material_rolls_used")
     for field in numeric_fields:

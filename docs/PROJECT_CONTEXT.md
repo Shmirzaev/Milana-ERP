@@ -44,6 +44,16 @@ genuine Gemini and human acceptance are not claimed. No migration/deployment or
 production data change; both hosts remain065721. Owned QA services/database were
 removed; automatic command review blocked temporary QA configuration-file cleanup.
 
+The approved [cutting passport batch split](CUTTING_PASSPORT_BATCH_SPLIT_20261105.md)
+adds one shared calculation with exact per-batch allocations (100+200kg), preserving
+separate stock movements and one garment output.163 backend cases including7 real
+PostgreSQL cases, frontend build/type checks, actual save/reopen/confirmation and
+independent AI review pass; human acceptance remains pending. No migration or
+production change; both hosts remain065721. Older binaries do not understand new
+grouped JSON, so any future rollback needs explicit data compatibility review.
+Owned QA services/database were removed; temporary JSON cleanup was blocked by
+automatic review. Existing grouped-shortage reconciliation remains unchanged.
+
 ## Current ECO runtime and narrow feature candidate (4 November)
 
 Both production hosts were reverified on blue `20261104_080711`, runtime

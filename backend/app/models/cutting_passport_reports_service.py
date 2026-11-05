@@ -5,6 +5,7 @@ from io import BytesIO
 from openpyxl import Workbook
 from openpyxl.cell import WriteOnlyCell
 from openpyxl.styles import Font, PatternFill
+from app.models.production.passport_material_allocation_service import allocation_source_label
 
 
 def _zero():
@@ -88,6 +89,8 @@ def export_workbook(passports, lang="en"):
         count += 1
         for material in materials:
             material["unit"] = "m" if material.get("meter_mode") else "kg"
+            if material.get("batch_allocations"):
+                material["lot_no"] = allocation_source_label(material, material["unit"])
             material_identity = identity.copy()
             material_identity[6] = material.get("size_range") if material.get("size_range") is not None else p.size_range
             material_identity[7] = material.get("operator_name_manual") or identity[7]

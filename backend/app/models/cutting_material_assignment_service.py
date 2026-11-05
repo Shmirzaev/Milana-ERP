@@ -45,7 +45,15 @@ def replace_cutting_material_batch(db, current, work_order_id, old_batch_id, new
     )).first()
     if used:
         raise HTTPException(409, "This material has already been used in Cutting; its recorded batch cannot be replaced")
-    batches = db.query(StockBatch).filter(StockBatch.id.in_([old_batch_id, new_batch_id])).order_by(StockBatch.id).with_for_update(of=StockBatch).all()
+    passports = db.query(CuttingPassport).filter_by(production_order_id=order.id).with_for_update(of=CuttingPassport).all()
+    # Group validation must not acquire additional stock rows after reservation
+    # item/numbering locks; prelock the full involved source set in ID order.
+    from app.models.production.passport_material_allocation_service import material_source_ids
+    batch_ids = {old_batch_id, new_batch_id}
+    for passport in passports:
+        if any(part["stock_batch_id"] == old_batch_id for row in passport.materials or [] for part in row.get("batch_allocations") or []):
+            batch_ids.update(material_source_ids(passport.materials or []))
+    batches = db.query(StockBatch).filter(StockBatch.id.in_(sorted(batch_ids))).order_by(StockBatch.id).with_for_update(of=StockBatch).all()
     batch = next((row for row in batches if row.id == new_batch_id), None)
     item = db.get(Item, batch.item_id) if batch else None
     if not batch or not item or item.category not in {"fabric", "semi_finished"}:
@@ -83,9 +91,14 @@ def replace_cutting_material_batch(db, current, work_order_id, old_batch_id, new
         order.estimated_material_code = item.sku
         order.estimated_material_amount = material.estimated_quantity
         order.estimated_material_unit = material.unit
-    passports = db.query(CuttingPassport).filter_by(production_order_id=order.id).with_for_update(of=CuttingPassport).all()
     for passport in passports:
         rows = passport.materials or []
+        from app.models.production.passport_material_allocation_service import replace_grouped_passport_source
+        if replace_grouped_passport_source(db, order, passport, old_batch_id, batch, current):
+            log_action(db, current, "correct_material_batch", "CuttingPassport", passport.id,
+                       old_value={"stock_batch_id": old_batch_id},
+                       new_value={"stock_batch_id": batch.id, "grouped": True})
+            continue
         changed = any(row.get("stock_batch_id") == old_batch_id for row in rows)
         identity = {"stock_batch_id": batch.id, "fabric_type": item.name, "lot_no": batch.batch_no or batch.internal_batch_no}
         if changed:
