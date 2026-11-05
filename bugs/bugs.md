@@ -1,5 +1,13 @@
 # Team bug tracker — clone_main
 
+## PEO-ORG-MANAGER-ARCHIVED-20261105 — org-unit Manager dropdown lists archived employees
+
+- **P3 · Watch · People/Organization UI · Owner: Dilmurod.** The 5 November
+  W3 connected-browser check found archived “People archive target” in the
+  organization-unit Manager dropdown. Source: `W3_BROWSER_RESULTS_2026-11-05.md`,
+  isolated People copy; no production occurrence is claimed. Record as a separate
+  follow-up; the service-extraction PRs do not change the picker or fix this behavior.
+
 ## WRK-TASK-ASSIGNEE-PICKER-20261105 — task assignee picker omits individual users
 
 - **P3 · Open · Work/Tasks UI · Owner: Dilmurod. Decision pending Dilmurod.** Tasks drawer says managers can assign to anyone, but the picker offers only Myself and Everyone; Management gets 403 on /api/users.
