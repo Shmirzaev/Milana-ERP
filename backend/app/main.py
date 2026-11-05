@@ -298,6 +298,8 @@ async def _unhandled_exception(request: Request, exc: Exception):
     return JSONResponse(
         status_code=500,
         content={"detail": "Internal server error"},
+        # Uvicorn closes after an unhandled error; proxies must not pool this socket.
+        headers={"Connection": "close"},
     )
 
 
