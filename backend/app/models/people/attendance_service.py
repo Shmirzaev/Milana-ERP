@@ -99,3 +99,19 @@ def update_managed_attendance_device(device_id: int, payload: ManagedDeviceUpdat
     )
     db.commit()
     return _device_payload(device)
+
+
+def rotate_attendance_device_token(device_id: int, db: Session, current: User, *, audit: Callable):
+    device = db.query(AttendanceDevice).filter(
+        AttendanceDevice.id == device_id,
+        AttendanceDevice.factory_code == selected_factory_code(current),
+    ).one_or_none()
+    if not device:
+        raise HTTPException(404, "Attendance device not found")
+    connector_token = secrets.token_urlsafe(48)
+    update_managed_device(db, device=device, changes={"connector_token_hash": _connector_token_hash(connector_token), "configured_by": current.id})
+    audit(db, current, "rotate_connector_token", "AttendanceDeviceConfig", device.id)
+    db.commit()
+    result = _device_payload(device)
+    result["connector_token"] = connector_token
+    return result

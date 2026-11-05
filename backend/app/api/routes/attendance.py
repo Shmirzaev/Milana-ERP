@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import hmac
 import os
-import secrets
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from tempfile import NamedTemporaryFile
@@ -31,6 +30,7 @@ from app.models.attendance_event_policy_service import accepted_attendance_resul
 
 router = APIRouter(prefix="/attendance", tags=["attendance"])
 TASHKENT = ZoneInfo("Asia/Tashkent")
+secrets = attendance_service.secrets
 ATTENDANCE_IMPORT_LOCK_NAMESPACE = 1096043342
 ATTENDANCE_SOURCE_SETTING_PREFIX = "att_src:"
 
@@ -726,21 +726,7 @@ def rotate_attendance_device_token(
     db: DbSession,
     current: User = Depends(require_permissions("attendance.manage", "*")),
 ):
-    device = db.query(AttendanceDevice).filter(
-        AttendanceDevice.id == device_id,
-        AttendanceDevice.factory_code == selected_factory_code(current),
-    ).one_or_none()
-    if not device:
-        raise HTTPException(404, "Attendance device not found")
-    connector_token = secrets.token_urlsafe(48)
-    device.connector_token_hash = _connector_token_hash(connector_token)
-    device.configured_by = current.id
-    log_action(db, current, "rotate_connector_token", "AttendanceDeviceConfig", device.id)
-    db.commit()
-    result = _device_payload(device)
-    result["connector_token"] = connector_token
-    return result
-
+    return attendance_service.rotate_attendance_device_token(device_id, db, current, audit=log_action)
 
 @router.get("/overview")
 def attendance_overview(
