@@ -46,3 +46,10 @@ def update_source_checkpoint(db: Session, *, row: SystemSetting, state: dict[str
 
 def insert_attendance_event(db: Session, *, values: dict) -> None:
     db.add(AttendanceEvent(**values))
+
+
+def update_attendance_photo(
+    db: Session, *, person: AttendancePerson, file_name: str, digest: str,
+) -> None:
+    person.photo_file_name = file_name
+    person.photo_sha256 = digest
