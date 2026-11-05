@@ -29,7 +29,7 @@ from app.models.password_reset_service import send_password_email_safely
 from app.db.reset_demo import reset_to_seed
 from app.models.identity.users_service import (
     create_user as create_user_account, require_strong_password as _require_strong_password,
-    list_users as list_identity_users,
+    list_users as list_identity_users, get_user as get_identity_user,
 )
 from app.models.identity.access_service import (
     get_access_catalog, preview_user_access as preview_identity_access,
@@ -336,10 +336,7 @@ def create_user(
 
 @router.get("/users/{user_id}", response_model=UserOut)
 def get_user(user_id: int, db: DbSession, _: User = Depends(require_permissions("admin.users", "*"))):
-    u = db.get(User, user_id)
-    if not u:
-        raise HTTPException(404, "User not found")
-    return u
+    return get_identity_user(db, user_id, _)
 
 
 @router.patch("/users/{user_id}", response_model=UserOut)

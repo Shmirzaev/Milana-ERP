@@ -71,3 +71,12 @@ def list_users(db: Session, actor: User) -> list[User]:
     """Read all accounts in ID order after the existing management grant check."""
     require_permissions("admin.users", "*")(actor)
     return db.query(User).order_by(User.id).all()
+
+
+def get_user(db: Session, user_id: int, actor: User) -> User:
+    """Read one account with management authorization before the missing check."""
+    require_permissions("admin.users", "*")(actor)
+    u = db.get(User, user_id)
+    if not u:
+        raise HTTPException(404, "User not found")
+    return u
