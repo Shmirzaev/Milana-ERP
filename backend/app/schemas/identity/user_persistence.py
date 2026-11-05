@@ -12,6 +12,10 @@ def record_user_login_activity(db: Session, user: User, now: datetime) -> None:
     user.last_seen_at = now
 
 
+def record_user_seen(db: Session, user: User, now: datetime) -> None:
+    user.last_seen_at = now
+
+
 def set_password_and_invalidate_reset_tokens(db: Session, user: User, password_hash: str, now: datetime) -> None:
     user.password_hash = password_hash
     user.tokens_valid_from = now

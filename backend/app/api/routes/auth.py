@@ -8,7 +8,6 @@ from pydantic import BaseModel, EmailStr
 from app.core.config import settings
 from app.core.proxy_trust import client_ip, effective_request_scheme
 from app.core.deps import DbSession, CurrentUser, user_permissions
-from app.core.dt import utcnow
 from app.core.shared_store import get_shared_counter_store
 from app.core.security import (
     create_access_token,
@@ -18,7 +17,7 @@ from app.schemas import User
 from app.libs.dto.identity.auth import ChangePasswordIn, ForgotPasswordIn, LoginIn, LoginOk, ResetPasswordIn, TokenOut, UserMe
 from app.models.audit_service import log_action
 from app.models.factory_scope_service import assigned_factory_code, available_factory_codes, selected_factory_code
-from app.models.identity.authentication_service import change_own_password, complete_password_reset, login_user, request_password_reset, select_session_factory
+from app.models.identity.authentication_service import change_own_password, complete_password_reset, login_user, read_current_user, request_password_reset, select_session_factory
 from app.models.password_reset_service import (
     send_password_email_safely,
 )
@@ -139,23 +138,7 @@ def reset_password(payload: ResetPasswordIn, db: DbSession):
 @session_router.get("/me", response_model=UserMe)
 @router.get("/me", response_model=UserMe)
 def me(user: CurrentUser, db: DbSession):
-    user.last_seen_at = utcnow()
-    db.commit()
-    return UserMe(
-        sewing_band_id=user.sewing_band_id,
-        id=user.id,
-        name=user.name,
-        email=user.email,
-        role=user.role.name if user.role else None,
-        department=user.department.name if user.department else None,
-        department_code=user.department.code if user.department else None,
-        extra_permissions=user.extra_permissions or [],
-        permissions=user_permissions(user),
-        access_configured=selected_factory_code(user) in (user.access_policy or {}),
-        factory_code=selected_factory_code(user),
-        assigned_factory_code=assigned_factory_code(user),
-        available_factories=available_factory_codes(user),
-    )
+    return read_current_user(db, user)
 
 
 @session_router.patch("/me", response_model=UserMe)

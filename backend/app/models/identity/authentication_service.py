@@ -12,14 +12,14 @@ from app.core.deps import user_permissions
 from app.core.dt import as_utc, utcnow
 from app.core.security import hash_password, is_legacy_default_admin_login, normalize_email, validate_password_strength, verify_password
 from app.core.shared_store import SharedCounterStore
-from app.libs.dto.identity.auth import ChangePasswordIn, ResetPasswordIn
+from app.libs.dto.identity.auth import ChangePasswordIn, ResetPasswordIn, UserMe
 from app.models.audit_service import log_action
 from app.models.credentials_service import apply_password_credential_change, lock_user_for_credential_change
-from app.models.factory_scope_service import authorize_login_factory, selected_factory_code
+from app.models.factory_scope_service import assigned_factory_code, authorize_login_factory, available_factory_codes, selected_factory_code
 from app.models.password_reset_service import create_password_reset_token, password_reset_hash, password_reset_url
 from app.schemas import PasswordResetToken, User
 from app.schemas.core_persistence import add_notification_row
-from app.schemas.identity.user_persistence import record_user_login_activity
+from app.schemas.identity.user_persistence import record_user_login_activity, record_user_seen
 
 _DUMMY_PASSWORD_HASH = hash_password("dummy-login-password-0")
 
@@ -179,6 +179,26 @@ def change_own_password(db: Session, user: User, payload: ChangePasswordIn) -> N
         new_value={"credential_changed": True, "reset_links_invalidated": True},
     )
     db.commit()
+
+
+def read_current_user(db: Session, user: User) -> UserMe:
+    record_user_seen(db, user, utcnow())
+    db.commit()
+    return UserMe(
+        sewing_band_id=user.sewing_band_id,
+        id=user.id,
+        name=user.name,
+        email=user.email,
+        role=user.role.name if user.role else None,
+        department=user.department.name if user.department else None,
+        department_code=user.department.code if user.department else None,
+        extra_permissions=user.extra_permissions or [],
+        permissions=user_permissions(user),
+        access_configured=selected_factory_code(user) in (user.access_policy or {}),
+        factory_code=selected_factory_code(user),
+        assigned_factory_code=assigned_factory_code(user),
+        available_factories=available_factory_codes(user),
+    )
 
 
 def select_session_factory(db: Session, user: User, requested_factory_code: str) -> str:
