@@ -30,3 +30,8 @@ def insert_candidate(db: Session, *, factory_code: str, values: dict) -> HrRecru
     row = HrRecruitmentCandidate(factory_code=factory_code, **values)
     db.add(row)
     return row
+
+
+def update_candidate_row(db: Session, *, row: HrRecruitmentCandidate, values: dict) -> None:
+    for key, value in values.items():
+        setattr(row, key, value)

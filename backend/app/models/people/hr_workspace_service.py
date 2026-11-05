@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.libs.dto.people.hr_workspace import OrgUnitIn, PositionIn, CandidateIn
 from app.models.factory_scope_service import factory_for_department, selected_factory_code
 from app.schemas import Department, Employee, HrOrgUnit, HrPosition, HrRecruitmentCandidate, User
-from app.schemas.people.hr_workspace_persistence import insert_org_unit, delete_org_unit_row, insert_position, update_position_row, insert_candidate
+from app.schemas.people.hr_workspace_persistence import insert_org_unit, delete_org_unit_row, insert_position, update_position_row, insert_candidate, update_candidate_row
 
 
 def _factory(current: User) -> str:
@@ -117,4 +117,14 @@ def create_candidate(payload: CandidateIn, db: Session, current: User, *, audit:
     _validate_candidate_links(payload, db, factory)
     row = insert_candidate(db, factory_code=factory, values=payload.model_dump())
     db.flush(); audit(db, current, "create", "HrRecruitmentCandidate", row.id, new_value={"full_name": row.full_name}); db.commit(); db.refresh(row)
+    return {"id": row.id}
+
+
+def update_candidate(candidate_id: int, payload: CandidateIn, db: Session, current: User, *, audit: Callable):
+    factory = _factory(current)
+    row = db.query(HrRecruitmentCandidate).filter(HrRecruitmentCandidate.id == candidate_id, HrRecruitmentCandidate.factory_code == factory).first()
+    if not row: raise HTTPException(404, "Candidate not found")
+    _validate_candidate_links(payload, db, factory, candidate_id)
+    update_candidate_row(db, row=row, values=payload.model_dump())
+    audit(db, current, "update", "HrRecruitmentCandidate", row.id, new_value={"stage": row.stage}); db.commit()
     return {"id": row.id}
