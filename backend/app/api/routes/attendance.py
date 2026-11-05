@@ -718,27 +718,7 @@ def update_managed_attendance_device(
     db: DbSession,
     current: User = Depends(require_permissions("attendance.manage", "*")),
 ):
-    device = db.query(AttendanceDevice).filter(
-        AttendanceDevice.id == device_id,
-        AttendanceDevice.factory_code == selected_factory_code(current),
-    ).one_or_none()
-    if not device:
-        raise HTTPException(404, "Attendance device not found")
-    if payload.name is not None:
-        device.name = payload.name.strip()
-    if payload.sync_enabled is not None:
-        device.sync_enabled = payload.sync_enabled
-    log_action(
-        db,
-        current,
-        "update",
-        "AttendanceDeviceConfig",
-        device.id,
-        new_value={"name": device.name, "sync_enabled": device.sync_enabled},
-    )
-    db.commit()
-    return _device_payload(device)
-
+    return attendance_service.update_managed_attendance_device(device_id, payload, db, current, audit=log_action)
 
 @router.post("/devices/{device_id}/rotate-token")
 def rotate_attendance_device_token(
