@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.libs.dto.people.hr_workspace import OrgUnitIn
 from app.models.factory_scope_service import factory_for_department, selected_factory_code
 from app.schemas import Department, Employee, HrOrgUnit, User
-from app.schemas.people.hr_workspace_persistence import insert_org_unit
+from app.schemas.people.hr_workspace_persistence import insert_org_unit, delete_org_unit_row
 
 
 def _factory(current: User) -> str:
@@ -56,3 +56,12 @@ def create_org_unit(payload: OrgUnitIn, db: Session, current: User, *, audit: Ca
     audit(db, current, "create", "HrOrgUnit", row.id, new_value={"name": row.name, "unit_type": row.unit_type})
     db.commit(); db.refresh(row)
     return {"id": row.id}
+
+
+def delete_org_unit(unit_id: int, db: Session, current: User, *, audit: Callable):
+    factory = _factory(current)
+    row = db.query(HrOrgUnit).filter(HrOrgUnit.id == unit_id, HrOrgUnit.factory_code == factory).first()
+    if not row: raise HTTPException(404, "Organization unit not found")
+    delete_org_unit_row(db, row)
+    audit(db, current, "delete", "HrOrgUnit", unit_id)
+    db.commit()
