@@ -104,7 +104,9 @@ Four-health evidence: 0021562e70041b946c14e2a3e552c7d47fbff6d8c3b701defaf0dfd973
 Post-CAS evidence: 3e9061d4aef2402d0ccc9fe5e54a8f6e600d5823b6ad9165b3f185173ccd4313.
 
 The publication branch in C:\ERP\.codex-work\planning-floors-integration-20261105,
-codex/planning-floors-integration-20261105, commit 501ded302, preserves the exact
-reviewed 65eb4cd source tree on parent c5a0d2e4. Private operational history and
-ignored plans are excluded from its ancestry. No migration files differ from
-clone_main; this remains application reconciliation with the graph package held.
+codex/planning-floors-integration-20261105, starts from verified c5a0d2e4 and
+preserves the reviewed application tree. Public documentation and test identities
+were subsequently minimized; the remapped BST fixture passed all 27 PostgreSQL
+cases without changing runtime code. Private operational history and ignored
+plans are excluded from publication ancestry. No migration files differ from
+clone_main; application reconciliation remains a draft with the graph package held.
