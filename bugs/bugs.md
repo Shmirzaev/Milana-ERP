@@ -1,5 +1,14 @@
 # Team bug tracker — clone_main
 
+## PEO01-EMPLOYEE-SAVE-CONFIRMATION-20261105 — successful save has no confirmation
+
+- **P3 · Watch · People/Employees UI · Dilmurod; reviewer Mirshoir.** In the
+  isolated connected-browser check for [#447](https://github.com/Shmirzaev/Milana-ERP/pull/447),
+  saving employee 74002 closed the form and showed the new row, but no success
+  message. Reload and profile readback confirmed the record and salary persisted.
+  Consider an accessible confirmation in a separate UI change; no production
+  occurrence or PEO-01 extraction failure is claimed.
+
 ## UI-FORECAST-MOBILE-20261104 — forecasting page overflows on phones
 
 - **Open · Forecasting UI · Ismail; reviewer Mirshoir. Human verification pending; not deployed.** On an isolated 390px phone viewport, the forecasting page expanded to 730px in EN, 835px in RU and 758px in UZ. Independent inspection identified the chart's visually hidden data table as the overflowing element; the visible chart already had a local horizontal scroll region.
@@ -261,12 +270,15 @@ this update is not a new whole-register census or a production acceptance record
 
 ### UI-DASHBOARD-RESTRICTED-20261031 — restricted home shows unavailable work and New Order
 
-- **P2 · UI note, not a demonstrated permission bypass · Sales/home dashboard ·
+- **P3 · Watch; not a demonstrated permission bypass · Sales/home dashboard ·
   Ismail; reviewer Mirshoir; Production coordination Mirshoir and shared frontend
   coordination Dilmurod.** #314's `dashboard.view`-only account sees “Could not load
   active production” and New Order. Fresh isolated current `clone_main` `5bffd255`
   confirms active-production GET 403 and a valid New Order POST 403. All seven denied
   model/dashboard/order requests left model/order/image/audit snapshots unchanged.
+  The isolated connected-browser check for [#447](https://github.com/Shmirzaev/Milana-ERP/pull/447)
+  saw the same UI for a user without production permission; no production occurrence
+  or authorization bypass is claimed.
 - Sources: `frontend/src/app/(app)/page.tsx:135,284` fetches/renders these unconditionally;
   server guards `backend/app/api/routes/dashboards.py:93` and
   `backend/app/api/routes/sales.py:93` correctly refuse. Next: hide unavailable
