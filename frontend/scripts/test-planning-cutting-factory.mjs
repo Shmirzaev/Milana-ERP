@@ -34,7 +34,7 @@ function walk(tree) {
   return [tree, ...walk(tree.props?.children)];
 }
 
-function harness({ lang = "en", permissions = ["planning.production"] } = {}) {
+function harness({ lang = "en", permissions = ["planning.production"], order } = {}) {
   let values = [], cursor = 0, tree, response, failure, refreshFailure, validating = false, loading = false;
   let granted = permissions;
   const writes = [], reads = [], refreshes = [];
@@ -75,11 +75,11 @@ function harness({ lang = "en", permissions = ["planning.production"] } = {}) {
   };
   const Component = compile(source, deps).default;
   const render = () => { cursor = 0; tree = Component({ me: granted ? { permissions: granted } : undefined,
-    orders: [{ id: 71, order_no: "SO-0071", production_no: "PO-0071" }, { id: 72, production_no: "PO-0072" }], onChanged: async () => { changed++; } }); return renderToStaticMarkup(tree); };
+    orders: [{ id: 71, order_no: "SO-0071", production_no: "PO-0071" }, { id: 72, production_no: "PO-0072" }], order, onChanged: async () => { changed++; } }); return renderToStaticMarkup(tree); };
   const nodes = () => walk(tree);
   const button = label => nodes().find(node => node.type === "button" && node.props.children === label)?.props;
   const selectOrder = id => { nodes().find(node => node.props["data-order-select"]).props.onChange(id); return render(); };
-  const open = () => { render(); button(copy.title).onClick(); render(); return selectOrder(71); };
+  const open = () => { render(); button(copy.title).onClick(); const html = render(); return order ? html : selectOrder(71); };
   const target = value => { nodes().find(node => node.props.id === "cutting-factory-target").props.onChange({ target: { value } }); return render(); };
   const submit = async () => { await button("Save").onClick(); return render(); };
   return { render, open, selectOrder, target, submit, button, writes, reads, refreshes, copy, changed: () => changed,
@@ -135,6 +135,25 @@ test("changing order ignores stale capability belonging to previous order", asyn
   ui.target("CUT"); await ui.submit();
   assert.equal(ui.writes[0].url, "/api/production-orders/72/cutting-factory");
 });
+
+for (const lang of ["en", "ru", "uz"]) {
+  test(`${lang}: order-detail action targets its own order without an order picker`, async () => {
+    const ui = harness({ lang, order: { id: 72, production_no: "PO-0072" } });
+    const pending = ui.open();
+    assert.match(pending, /PO-0072/);
+    assert.doesNotMatch(pending, /data-order-select/);
+    assert.equal(ui.reads.at(-1), "/api/production-orders/72/cutting-factory");
+    // Cached options for a different order cannot enable this order's write.
+    assert.equal(ui.button("Save").disabled, true);
+    await ui.submit();
+    assert.equal(ui.writes.length, 0);
+    ui.response({ production_order_id: 72, cutting_department_code: "CUT", available_departments: ["CUT", "ECT"], can_change: true, lock_reason: null });
+    ui.render(); ui.target("ECT"); await ui.submit();
+    assert.deepEqual(ui.writes, [{ url: "/api/production-orders/72/cutting-factory", payload: { cutting_department_code: "ECT" } }]);
+    assert.equal(ui.changed(), 1);
+    assert.ok(ui.render().includes(ui.copy.saved));
+  });
+}
 
 test("loading, revalidation and read errors disable writes even through direct invocation", async () => {
   for (const state of ["loading", "validating", "error"]) {

@@ -13,8 +13,8 @@ import SearchableSelect from "./SearchableSelect";
 
 type PlanningOrder = { id: number; order_no?: string | null; production_no: string };
 
-export default function PlanningCuttingFactoryAction({ me, orders, onChanged }: {
-  me: Me | undefined; orders: PlanningOrder[]; onChanged: () => Promise<unknown>;
+export default function PlanningCuttingFactoryAction({ me, orders = [], order, onChanged }: {
+  me: Me | undefined; orders?: PlanningOrder[]; order?: PlanningOrder; onChanged: () => Promise<unknown>;
 }) {
   const { lang, t } = useT();
   const copy = cuttingFactoryMessages[lang];
@@ -25,11 +25,12 @@ export default function PlanningCuttingFactoryAction({ me, orders, onChanged }: 
   const [message, setMessage] = useState("");
   const [saved, setSaved] = useState(false);
   const permitted = can(me, "planning.production");
-  const url = open && permitted && orderId ? `/api/production-orders/${orderId}/cutting-factory` : null;
+  const activeOrderId = order?.id ?? orderId;
+  const url = open && permitted && activeOrderId ? `/api/production-orders/${activeOrderId}/cutting-factory` : null;
   const { data, error, isLoading, isValidating, mutate } = useSWR<CuttingFactoryOptions>(url, fetcher, {
     shouldRetryOnError: false,
   });
-  const current = data?.production_order_id === orderId ? data : undefined;
+  const current = data?.production_order_id === activeOrderId ? data : undefined;
   const choices = current?.available_departments.filter(code => code !== current.cutting_department_code) || [];
 
   function errorText(error: unknown) {
@@ -64,13 +65,13 @@ export default function PlanningCuttingFactoryAction({ me, orders, onChanged }: 
     }}>{copy.title}</button>
     <Modal open={open} onClose={() => { if (!saving) setOpen(false); }} title={copy.title}>
       <div className="space-y-4">
-        <div>
+        {order ? <p className="text-sm">{copy.order}: <strong>{formatOrderReference(order.order_no || order.production_no)}</strong></p> : <div>
           <label className="label" htmlFor="cutting-factory-order">{copy.order}</label>
           <SearchableSelect<number> inputId="cutting-factory-order" value={orderId} disabled={saving}
             options={orders.map(order => ({ value: order.id, label: formatOrderReference(order.order_no || order.production_no) }))}
             onChange={id => { setOrderId(id); setTarget(""); setMessage(""); setSaved(false); }}
             placeholder={copy.choose} noResultsText={t("common.noData")} />
-        </div>
+        </div>}
         {isLoading && <p role="status" className="text-sm">{t("common.loading")}</p>}
         {error && <p role="alert" className="text-sm text-red-700">{errorText(error)} <button type="button" className="underline" onClick={() => void mutate()}>{t("common.refresh")}</button></p>}
         {current && !error && <>

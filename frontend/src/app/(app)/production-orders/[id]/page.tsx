@@ -8,6 +8,7 @@ import { PackageCheck, RotateCcw } from "lucide-react";
 import { api, fetcher } from "@/lib/api";
 import ModelAsyncSelect from "@/components/ModelAsyncSelect";
 import ProductionOrderSizePlan from "@/components/ProductionOrderSizePlan";
+import PlanningCuttingFactoryAction from "@/components/PlanningCuttingFactoryAction";
 import { formatBatchLabel } from "@/lib/batchSerial";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
@@ -474,7 +475,9 @@ export default function ProductionOrderDetail() {
         title={t("page.poDetail.title", { productionNo: orderNo, orderNo })}
         subtitle={t("page.poDetail.subtitle", { type: productionTypeLabel(po.production_type, t), status: statusLabel(po.status, t) })}
         actions={canPlan ? (
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
+            <PlanningCuttingFactoryAction key={po.id} me={me}
+              order={{ id: po.id, production_no: orderNo }} onChanged={async () => { await mutate(); }} />
             <button className="btn" onClick={cascade} title={t("page.poDetail.cascadeDeadlinesHint")}>{t("page.poDetail.cascadeDeadlines")}</button>
             {isAdmin && (
               <button className="btn" onClick={repairTotals} disabled={repairing} title={t("page.poDetail.repairTotalsHint")}>
