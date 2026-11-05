@@ -13,7 +13,7 @@ from app.core.deps import DbSession, require_permissions
 from app.core.dt import utcnow
 from app.schemas import AttendanceDevice, AttendancePerson, User
 from app.models.factory_scope_service import selected_factory_code
-from app.models.attendance_reports_service import ReportLanguage, build_daily_attendance_xlsx
+from app.models.attendance_reports_service import ReportLanguage
 from app.models.audit_service import log_action
 from app.models.people import attendance_service
 from app.models.people.attendance_service import (
@@ -157,26 +157,7 @@ def download_daily_attendance_report(
     usage: str = Query(default="all", pattern="^(all|used|not_used)$"),
     lang: ReportLanguage = Query(default="uz"),
 ):
-    factory_code = selected_factory_code(current)
-    start, end = _day_bounds(day)
-    records = _attendance_people_query(
-        db,
-        factory_code=factory_code,
-        start=start,
-        end=end,
-        query=query,
-        usage=usage,
-    ).order_by(AttendancePerson.full_name.asc(), AttendancePerson.external_person_id.asc()).all()
-    rows = [
-        _attendance_row_payload(person, event_count, first_seen_at, last_seen_at)
-        for person, event_count, first_seen_at, last_seen_at in records
-    ]
-    content = build_daily_attendance_xlsx(
-        day=day,
-        rows=rows,
-        generated_at=utcnow(),
-        lang=lang,
-    )
+    content = attendance_service.daily_attendance_report(db, current, day, query, usage, lang, clock=utcnow)
     return Response(
         content=content,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

@@ -1,33 +1,41 @@
 """Attendance business operations; writes share the supplied transaction."""
-from app.models.attendance_event_policy_service import accepted_attendance_result
-from app.models.attendance_reports_service import TASHKENT
-from sqlalchemy import case, func, or_
-from datetime import date, time
 import hashlib
-import secrets
 import os
+import secrets
+from collections.abc import Callable
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from collections.abc import Callable
-from datetime import datetime, timedelta, timezone
 
 from anyio import CancelScope, to_thread
-from fastapi import HTTPException
-from sqlalchemy import text
-from sqlalchemy.orm import Session
-
 from app.core.config import settings
 from app.core.dt import as_utc, utcnow
-from app.models.image_storage_service import convert_image_to_webp
-
-from app.libs.dto.people.attendance import DeviceIn, ManagedDeviceIn, ManagedDeviceUpdateIn, PeopleSnapshotIn, EventBatchIn
+from app.libs.dto.people.attendance import (
+    DeviceIn,
+    EventBatchIn,
+    ManagedDeviceIn,
+    ManagedDeviceUpdateIn,
+    PeopleSnapshotIn,
+)
+from app.models.attendance_event_policy_service import accepted_attendance_result
+from app.models.attendance_reports_service import TASHKENT, ReportLanguage, build_daily_attendance_xlsx
 from app.models.factory_scope_service import normalize_factory_code, selected_factory_code
+from app.models.image_storage_service import convert_image_to_webp
 from app.schemas import AttendanceDevice, AttendanceEvent, AttendancePerson, SystemSetting, User
 from app.schemas.people.attendance_persistence import (
-    insert_managed_device, update_managed_device, insert_attendance_person,
-    update_attendance_person, mark_other_people_absent, insert_source_checkpoint,
-    update_source_checkpoint, insert_attendance_event, update_attendance_photo,
+    insert_attendance_event,
+    insert_attendance_person,
+    insert_managed_device,
+    insert_source_checkpoint,
+    mark_other_people_absent,
+    update_attendance_person,
+    update_attendance_photo,
+    update_managed_device,
+    update_source_checkpoint,
 )
+from fastapi import HTTPException
+from sqlalchemy import case, func, or_, text
+from sqlalchemy.orm import Session
 
 
 def _connector_token_hash(token: str) -> str:
@@ -731,3 +739,29 @@ def attendance_overview(
             "pages": max((total_filtered + page_size - 1) // page_size, 1),
         },
     }
+
+
+def daily_attendance_report(
+    db: Session, current: User, day: date, query: str, usage: str, lang: ReportLanguage, *, clock: Callable,
+) -> bytes:
+    factory_code = selected_factory_code(current)
+    start, end = _day_bounds(day)
+    records = _attendance_people_query(
+        db,
+        factory_code=factory_code,
+        start=start,
+        end=end,
+        query=query,
+        usage=usage,
+    ).order_by(AttendancePerson.full_name.asc(), AttendancePerson.external_person_id.asc()).all()
+    rows = [
+        _attendance_row_payload(person, event_count, first_seen_at, last_seen_at)
+        for person, event_count, first_seen_at, last_seen_at in records
+    ]
+    content = build_daily_attendance_xlsx(
+        day=day,
+        rows=rows,
+        generated_at=clock(),
+        lang=lang,
+    )
+    return content
