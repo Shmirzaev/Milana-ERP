@@ -5,10 +5,10 @@ from collections.abc import Callable
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from app.libs.dto.people.hr_workspace import OrgUnitIn, PositionIn
+from app.libs.dto.people.hr_workspace import OrgUnitIn, PositionIn, CandidateIn
 from app.models.factory_scope_service import factory_for_department, selected_factory_code
-from app.schemas import Department, Employee, HrOrgUnit, HrPosition, User
-from app.schemas.people.hr_workspace_persistence import insert_org_unit, delete_org_unit_row, insert_position, update_position_row
+from app.schemas import Department, Employee, HrOrgUnit, HrPosition, HrRecruitmentCandidate, User
+from app.schemas.people.hr_workspace_persistence import insert_org_unit, delete_org_unit_row, insert_position, update_position_row, insert_candidate
 
 
 def _factory(current: User) -> str:
@@ -92,3 +92,29 @@ def update_position(position_id: int, payload: PositionIn, db: Session, current:
     update_position_row(db, row=row, values=values)
     audit(db, current, "update", "HrPosition", row.id, new_value=values); db.commit(); db.refresh(row)
     return row
+
+
+def _validate_candidate_links(payload: CandidateIn, db: Session, factory: str, candidate_id: int | None = None) -> None:
+    if payload.position_id is not None and not db.query(HrPosition).filter(
+        HrPosition.id == payload.position_id, HrPosition.factory_code == factory,
+    ).first():
+        raise HTTPException(404, "Staffing position not found")
+    if payload.department_id is not None:
+        _department(db, factory, payload.department_id)
+    if payload.pinfl:
+        duplicate = db.query(HrRecruitmentCandidate).filter(
+            HrRecruitmentCandidate.factory_code == factory,
+            HrRecruitmentCandidate.pinfl == payload.pinfl,
+        )
+        if candidate_id is not None:
+            duplicate = duplicate.filter(HrRecruitmentCandidate.id != candidate_id)
+        if duplicate.first():
+            raise HTTPException(409, "A candidate with this PINFL already exists")
+
+
+def create_candidate(payload: CandidateIn, db: Session, current: User, *, audit: Callable):
+    factory = _factory(current)
+    _validate_candidate_links(payload, db, factory)
+    row = insert_candidate(db, factory_code=factory, values=payload.model_dump())
+    db.flush(); audit(db, current, "create", "HrRecruitmentCandidate", row.id, new_value={"full_name": row.full_name}); db.commit(); db.refresh(row)
+    return {"id": row.id}

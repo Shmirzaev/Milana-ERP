@@ -28,11 +28,12 @@ from app.schemas import (
 )
 from app.models.audit_service import log_action
 from app.models.people import hr_workspace_service
-from app.libs.dto.people.hr_workspace import OrgUnitIn as OrgUnitIn, PositionIn as PositionIn, _required_text as _required_text
+from app.libs.dto.people.hr_workspace import OrgUnitIn as OrgUnitIn, PositionIn as PositionIn, CandidateIn as CandidateIn, _required_text as _required_text
 from app.models.people.hr_workspace_service import (
     _factory as _factory, _employee as _employee, _department as _department,
     _org_unit as _org_unit, _validate_org_unit_links as _validate_org_unit_links,
     _validate_position_links as _validate_position_links,
+    _validate_candidate_links as _validate_candidate_links,
 )
 from app.models.attendance_reports_service import TASHKENT
 from app.models.attendance_event_policy_service import accepted_attendance_result
@@ -41,49 +42,6 @@ from app.models.attendance_event_policy_service import accepted_attendance_resul
 router = APIRouter(prefix="/hr", tags=["hr-workspace"])
 HrUser = Depends(require_permissions("hr.employees", "*"))
 MAX_INT4 = 2_147_483_647
-
-
-class CandidateIn(BaseModel):
-    position_id: int | None = Field(default=None, gt=0, le=MAX_INT4)
-    department_id: int | None = Field(default=None, gt=0, le=MAX_INT4)
-    full_name: str = Field(min_length=1, max_length=255)
-    first_name: str | None = Field(default=None, max_length=100)
-    last_name: str | None = Field(default=None, max_length=100)
-    middle_name: str | None = Field(default=None, max_length=100)
-    date_of_birth: date | None = None
-    gender: str | None = Field(default=None, pattern="^(male|female|other)$")
-    nationality: str | None = Field(default=None, max_length=80)
-    country: str | None = Field(default=None, max_length=80)
-    region: str | None = Field(default=None, max_length=120)
-    district: str | None = Field(default=None, max_length=120)
-    address: str | None = Field(default=None, max_length=255)
-    passport_number: str | None = Field(default=None, max_length=32)
-    passport_issued_by: str | None = Field(default=None, max_length=255)
-    passport_issue_date: date | None = None
-    passport_expiry_date: date | None = None
-    pinfl: str | None = Field(default=None, pattern="^[0-9]{14}$")
-    phone: str | None = Field(default=None, max_length=64)
-    email: str | None = None
-    source: str | None = None
-    stage: str = Field(default="applied", pattern="^(applied|screening|interview|offer|hired|rejected)$")
-    applied_on: date | None = None
-    interview_at: datetime | None = None
-    notes: str | None = None
-
-    @field_validator("full_name")
-    @classmethod
-    def validate_full_name(cls, value: str) -> str:
-        return _required_text(value, "Candidate name")
-
-    @model_validator(mode="after")
-    def validate_passport_dates(self):
-        if (
-            self.passport_issue_date is not None
-            and self.passport_expiry_date is not None
-            and self.passport_expiry_date < self.passport_issue_date
-        ):
-            raise ValueError("Passport expiry date cannot precede its issue date")
-        return self
 
 
 class CalendarEventIn(BaseModel):
@@ -271,31 +229,9 @@ def list_candidates(db: DbSession, current: User = HrUser):
     return [{key: getattr(row, key) for key in fields} for row in rows]
 
 
-def _validate_candidate_links(payload: CandidateIn, db: DbSession, factory: str, candidate_id: int | None = None) -> None:
-    if payload.position_id is not None and not db.query(HrPosition).filter(
-        HrPosition.id == payload.position_id, HrPosition.factory_code == factory,
-    ).first():
-        raise HTTPException(404, "Staffing position not found")
-    if payload.department_id is not None:
-        _department(db, factory, payload.department_id)
-    if payload.pinfl:
-        duplicate = db.query(HrRecruitmentCandidate).filter(
-            HrRecruitmentCandidate.factory_code == factory,
-            HrRecruitmentCandidate.pinfl == payload.pinfl,
-        )
-        if candidate_id is not None:
-            duplicate = duplicate.filter(HrRecruitmentCandidate.id != candidate_id)
-        if duplicate.first():
-            raise HTTPException(409, "A candidate with this PINFL already exists")
-
-
 @router.post("/recruitment", status_code=201)
 def create_candidate(payload: CandidateIn, db: DbSession, current: User = HrUser):
-    factory = _factory(current)
-    _validate_candidate_links(payload, db, factory)
-    row = HrRecruitmentCandidate(factory_code=factory, **payload.model_dump())
-    db.add(row); db.flush(); log_action(db, current, "create", "HrRecruitmentCandidate", row.id, new_value={"full_name": row.full_name}); db.commit(); db.refresh(row)
-    return {"id": row.id}
+    return hr_workspace_service.create_candidate(payload, db, current, audit=log_action)
 
 
 @router.patch("/recruitment/{candidate_id}")
