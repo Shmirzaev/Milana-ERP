@@ -1,5 +1,16 @@
 # Team bug tracker — clone_main
 
+## IDN-PASSWORD-CHANGE-STALE-PROFILE-20261105 — Profile stays visible after password change
+
+- **P3 · Open · Identity/Profile UI · Owner: Dilmurod.** After a successful
+  password change, the session ends, but Profile stays on screen with “Password
+  updated.” until the next click or reload. It should say “Please sign in again”
+  and go to sign-in immediately. Observed in the isolated W1 connected-browser
+  run on the [#485 stack](https://github.com/Shmirzaev/Milana-ERP/pull/485):
+  password change returned 200, then `/api/auth/me` returned 401. Source:
+  `W1_BROWSER_RESULTS_2026-11-05.md`. This is a UI follow-up, not a change to
+  the password or session-invalidation contract; no production occurrence is claimed.
+
 ## SUP-SETTINGS-NONADMIN-SILENT-403-20261105 — non-admin Settings controls and silent refusal
 
 - **P3 · Watch · Support/Settings UI · Owner: Dilmurod. Decision pending Dilmurod.**
