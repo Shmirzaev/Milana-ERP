@@ -19,8 +19,9 @@ not appended here. This summary does not replace live release verification.
 
 Verified production is blue `20261104_080711`, runtime `984aeffb22aedd3262d7cd61e2d88a905b589e8d`,
 manifest `0221829adfc216391679b744ae512b6c4d96913bb0316c31dfe12fb9a1641be7`.
-Recorded database head is `0154_eco_receipt_details`; compatible retained rollback
-is green `20261104_093330` / `bd7d572282b50886e9d03a650bcf886ca9109175`.
+Recorded database head is `0154_eco_receipt_details`. The preceding rollback
+release `20261104_093330` / `bd7d572282b50886e9d03a650bcf886ca9109175`
+remains retained as source/images; green now holds the staged candidate below.
 The source integration branch had retained the older production pointer. The owner
 approved reconciling the deployed ECO application changes while preserving all
 existing clone_main work, followed by Planning cutting-factory changes, floor
@@ -28,8 +29,8 @@ printing pictures and a BST master handoff. Migration changes and execution are
 separate and await approval; this combined application candidate must not deploy
 against an unreconciled graph. See the [task record](PLANNING_FLOORS_BST_20261104.md).
 The historical ECO release exceptions are specific to that release; they grant
-no performance exception for this new candidate. No production cutover or data
-change has occurred in this task.
+no performance exception for this new candidate. Production traffic cutover remains
+pending; the reviewed BST roster/flow handoff has now committed and been verified.
 
 The requested small changes also have a separate narrow runtime candidate in
 `C:\ERP\.codex-work\planning-floors-release-20261104`, derived from exact deployed984
@@ -38,25 +39,34 @@ undeployed clone_main work, which stays preserved in this source candidate.
 Final local targeted109 cases and optimized frontend build pass. Exact runtime
 candidate94e4cfc54 passed complete CI:5116 backend cases,606 skips, plus explicit
 Planning19, BST27 and ECO8 PostgreSQL cases and the other dedicated database gates.
-The owner confirmed the existing Yo'ldasheva Dilfuzaxon on5 November; use her
-existing legal name for the new current team/flow label. A fresh read-only roster
-capture confirms the42/40 worker handoff. Chrome verification was blocked; the
+The owner confirmed existing Yo'ldasheva Dilfuzaxon on 5 November; her stored name
+labels her current team/flow. The reviewed handoffs to her and Axunova Xayotxon
+committed with one audit receipt; old identities and protected historical records
+remain unchanged. Chrome verification was blocked; the
 owner directed use of Edge, where actual isolated Planning save/reload/readback,
 all changed floor wrappers and synthetic BST manager/flow checks passed with no
 console errors. The owner then explicitly approved visual QA for exact94e on
 5 November. See the [visual review packet](PLANNING_FLOORS_VISUAL_QA_20261105.md).
-Production transfer and cutover remain pending. The
-earlier full local backend run was interrupted
+The earlier full local backend run was interrupted
 after six new constant-query failures; those caps are restored without weakened
 assertions and independently retested. Do not call that full run a pass.
-Immutable artifact workflow41961242842 was dispatched for exact94e4cfc54,
-release20261105_043000; a dispatched build is not a live release. See the
+Immutable workflow41961242842 and exact artifacts passed for 94e4cfc54 /
+release 20261105_043000. Both hosts prepared and staged that candidate in green;
+active blue traffic, current links and proxies remain 20261104_080711. The existing
+0154 schema has zero pending revisions; no DDL ran. A 112,183,293-byte backup passed
+its 1,329-object restore-list check. Paired performance at the official default
+thresholds and the public baseline passed. The first BST attempt failed at its
+backup restore-list guard before apply; read-only reconciliation proved no commit,
+and the reviewed single-file read-only mount correction preceded successful apply.
+Normal signed-in inactive-preview QA, cutover, public QA and immediate closing
+checks remain pending. The owner waived only 30-minute monitoring. See the
 [5 November checkpoint](PLANNING_FLOORS_CHECKPOINT_20261105.md).
 The supported retention pass on 5 November archived 49 old source directories,
 preserving five protected releases per host and all images/containers/data.
 Full archive verification, unchanged active/rollback identities, released leases
-and all four health checks passed. Application deployment remains pending; see
-the checkpoint for exact evidence hashes and measured staging capacity.
+and all four health checks passed at that retention checkpoint. A later reviewed
+exact unused-image removal and fresh capacity guards allowed preparation; see the
+checkpoint. Application traffic cutover remains pending.
 
 ## Current refactor: Finance shipment invoice reversal (4 November)
 
