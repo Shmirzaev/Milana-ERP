@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -52,4 +54,37 @@ class ManagedDeviceUpdateIn(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=128)
     sync_enabled: bool | None = None
 
+
+
+
+class PersonIn(BaseModel):
+    external_person_id: str = Field(min_length=1, max_length=64)
+    full_name: str = Field(min_length=1, max_length=255)
+    user_type: str | None = Field(default=None, max_length=32)
+    valid_from: datetime | None = None
+    valid_to: datetime | None = None
+    is_valid: bool = True
+    has_face: bool = False
+    card_count: int = Field(default=0, ge=0, le=100)
+    fingerprint_count: int = Field(default=0, ge=0, le=100)
+
+    @field_validator("external_person_id", "full_name")
+    @classmethod
+    def strip_required_text(cls, value: str) -> str:
+        return value.strip()
+
+
+
+class PeopleSnapshotIn(BaseModel):
+    device: DeviceIn
+    people: list[PersonIn] = Field(max_length=5_000)
+    full_snapshot: bool = True
+    source_snapshot_at: datetime | None = None
+
+    @field_validator("source_snapshot_at")
+    @classmethod
+    def validate_source_snapshot_at(cls, value: datetime | None) -> datetime | None:
+        if value is not None and (value.tzinfo is None or value.utcoffset() is None):
+            raise ValueError("source_snapshot_at must include a timezone offset")
+        return value.astimezone(timezone.utc) if value is not None else None
 
