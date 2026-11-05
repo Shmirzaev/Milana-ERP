@@ -28,10 +28,11 @@ from app.schemas import (
 )
 from app.models.audit_service import log_action
 from app.models.people import hr_workspace_service
-from app.libs.dto.people.hr_workspace import OrgUnitIn as OrgUnitIn, _required_text as _required_text
+from app.libs.dto.people.hr_workspace import OrgUnitIn as OrgUnitIn, PositionIn as PositionIn, _required_text as _required_text
 from app.models.people.hr_workspace_service import (
     _factory as _factory, _employee as _employee, _department as _department,
     _org_unit as _org_unit, _validate_org_unit_links as _validate_org_unit_links,
+    _validate_position_links as _validate_position_links,
 )
 from app.models.attendance_reports_service import TASHKENT
 from app.models.attendance_event_policy_service import accepted_attendance_result
@@ -40,39 +41,6 @@ from app.models.attendance_event_policy_service import accepted_attendance_resul
 router = APIRouter(prefix="/hr", tags=["hr-workspace"])
 HrUser = Depends(require_permissions("hr.employees", "*"))
 MAX_INT4 = 2_147_483_647
-MAX_POSITION_SALARY = 999_999_999_999.99
-
-
-class PositionIn(BaseModel):
-    org_unit_id: int | None = Field(default=None, gt=0, le=MAX_INT4)
-    department_id: int | None = Field(default=None, gt=0, le=MAX_INT4)
-    name: str = Field(min_length=1, max_length=160)
-    job_description: str | None = None
-    required_skills: list[str] = Field(default_factory=list)
-    qualification_level: str | None = None
-    grade_level: str | None = None
-    salary_min: float | None = Field(default=None, ge=0, le=MAX_POSITION_SALARY, allow_inf_nan=False)
-    salary_max: float | None = Field(default=None, ge=0, le=MAX_POSITION_SALARY, allow_inf_nan=False)
-    approved_count: int = Field(default=0, ge=0)
-    is_active: bool = True
-
-    @field_validator("salary_min", "salary_max", mode="before")
-    @classmethod
-    def validate_finite_salary(cls, value):
-        if isinstance(value, float) and not isfinite(value):
-            raise HTTPException(422, "Salary must be a finite number")
-        return value
-
-    @field_validator("name")
-    @classmethod
-    def validate_name(cls, value: str) -> str:
-        return _required_text(value, "Position name")
-
-    @model_validator(mode="after")
-    def validate_salary_range(self):
-        if self.salary_min is not None and self.salary_max is not None and self.salary_min > self.salary_max:
-            raise ValueError("Minimum salary cannot exceed maximum salary")
-        return self
 
 
 class CandidateIn(BaseModel):
@@ -195,13 +163,6 @@ def _scheduled_minutes(profile, default_hours: float) -> int:
     return int(hours * 60)
 
 
-def _validate_position_links(payload: PositionIn, db: DbSession, factory: str) -> None:
-    if payload.org_unit_id is not None:
-        _org_unit(db, factory, payload.org_unit_id)
-    if payload.department_id is not None:
-        _department(db, factory, payload.department_id)
-
-
 def _position_dict(row: HrPosition, occupied: int = 0) -> dict:
     return {
         "id": row.id,
@@ -290,12 +251,7 @@ def list_positions(db: DbSession, current: User = HrUser):
 
 @router.post("/positions", status_code=201)
 def create_position(payload: PositionIn, db: DbSession, current: User = HrUser):
-    factory = _factory(current)
-    _validate_position_links(payload, db, factory)
-    values = payload.model_dump(); values["required_skills_json"] = values.pop("required_skills")
-    row = HrPosition(factory_code=factory, **values)
-    db.add(row); db.flush(); log_action(db, current, "create", "HrPosition", row.id, new_value={"name": row.name}); db.commit(); db.refresh(row)
-    return _position_dict(row)
+    return _position_dict(hr_workspace_service.create_position(payload, db, current, audit=log_action))
 
 
 @router.patch("/positions/{position_id}")

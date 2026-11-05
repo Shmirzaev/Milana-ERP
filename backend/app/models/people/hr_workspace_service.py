@@ -5,10 +5,10 @@ from collections.abc import Callable
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from app.libs.dto.people.hr_workspace import OrgUnitIn
+from app.libs.dto.people.hr_workspace import OrgUnitIn, PositionIn
 from app.models.factory_scope_service import factory_for_department, selected_factory_code
 from app.schemas import Department, Employee, HrOrgUnit, User
-from app.schemas.people.hr_workspace_persistence import insert_org_unit, delete_org_unit_row
+from app.schemas.people.hr_workspace_persistence import insert_org_unit, delete_org_unit_row, insert_position
 
 
 def _factory(current: User) -> str:
@@ -65,3 +65,19 @@ def delete_org_unit(unit_id: int, db: Session, current: User, *, audit: Callable
     delete_org_unit_row(db, row)
     audit(db, current, "delete", "HrOrgUnit", unit_id)
     db.commit()
+
+
+def _validate_position_links(payload: PositionIn, db: Session, factory: str) -> None:
+    if payload.org_unit_id is not None:
+        _org_unit(db, factory, payload.org_unit_id)
+    if payload.department_id is not None:
+        _department(db, factory, payload.department_id)
+
+
+def create_position(payload: PositionIn, db: Session, current: User, *, audit: Callable):
+    factory = _factory(current)
+    _validate_position_links(payload, db, factory)
+    values = payload.model_dump(); values["required_skills_json"] = values.pop("required_skills")
+    row = insert_position(db, factory_code=factory, values=values)
+    db.flush(); audit(db, current, "create", "HrPosition", row.id, new_value={"name": row.name}); db.commit(); db.refresh(row)
+    return row
