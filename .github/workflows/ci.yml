@@ -57,6 +57,14 @@ jobs:
         run: |
           python -m ruff check app
           python -m compileall -q app scripts
+      - name: Stabilization PostgreSQL auth and rate races
+        working-directory: backend
+        env:
+          STABILIZATION_POSTGRES_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/first_grade_qa_ci
+        run: >-
+          python -m pytest -v -rs
+          app/tests/test_password_change_races.py::test_postgres_same_current_password_changes_only_once
+          app/tests/test_rate_limit_scheduling.py::test_postgres_roster_lock_survives_concurrent_rate_store_workers
       - name: Backend regression suite
         working-directory: backend
         run: python -m pytest -q
