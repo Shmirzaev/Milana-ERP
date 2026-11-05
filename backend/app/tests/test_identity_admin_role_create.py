@@ -63,7 +63,7 @@ def test_role_name_storage_boundary_and_duplicate_failure(identity_admin):
     assert response.status_code == 201, response.text
     before = counts(h)
     response = h.client.post('/api/roles', headers=h.actors['super'][1], json=body)
-    assert response.status_code == 500
+    assert (response.status_code, response.json()) == (409, {"detail": "Role name already exists"})
     assert counts(h) == before
 
 
@@ -87,11 +87,11 @@ def test_precommit_failure_rolls_back_role_and_audit_then_retry(identity_admin):
     assert counts(h) == (before[0]+1, before[1]+1)
 
 
-def test_super_admin_can_create_protected_name_and_unknown_grants_are_retained(identity_admin):
+def test_super_admin_can_create_protected_name_and_known_grants_are_retained(identity_admin):
     h = identity_admin
     name = "  sUpEr AdMiN  "
     response = h.client.post('/api/roles', headers=h.actors['super'][1],
-                             json={"name": name, "permissions": ["future.custom.permission"]})
+                             json={"name": name, "permissions": ["finance.view"]})
     assert response.status_code == 201, response.text
     assert response.json()['name'] == name
-    assert response.json()['permissions'] == ["future.custom.permission"]
+    assert response.json()['permissions'] == ["finance.view"]
