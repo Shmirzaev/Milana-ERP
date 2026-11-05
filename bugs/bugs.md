@@ -51,6 +51,38 @@
   message. Reload and profile readback confirmed the record and salary persisted.
   Consider an accessible confirmation in a separate UI change; no production
   occurrence or PEO-01 extraction failure is claimed.
+## CI-FINANCE-INVOICE-CONTRACT-20261105 — stale invoice/customer-payment contract tests
+
+- **P3 · Open · Owner: Ismail. Mirshoir FYI.** Quarantined `check-invoice-status-parity.mjs` and the eight named failures in `test-invoice-status-parity.mjs`. All cases still execute; a new failure name/signature fails CI. No Finance application or test code is fixed by this CI change.
+- Test/guard introduced at `bdfb167d` (26 October 2026). All eight first fail at **`dbe6ec94` (27 October 2026, 21:18:18 +09:00)**, which extracts the inline `PaymentStatus` into canonical `CustomerOrderPaymentStatus`. Historical replay on Node 24.22.2, UTC/en_US.UTF-8: parent `865445c78889bc0b4c55e5d3d15ae281a7cf0cd9` **22 passed / 0 failed**; `dbe6ec94` **14 passed / 8 failed**. History investigation completed within the ten-minute bound.
+- Assessment: **test appears stale**, rather than a demonstrated runtime regression. The distinct customer-payment vocabulary/values remain in their canonical type. The guard still demands the removed inline declaration, so several mutation tests fail before reaching their intended checks; the aggregate-payment mutation still replaces `payment_status: PaymentStatus`, now a no-op. Ismail decides the correction; no business-policy change is inferred. `decision pending Dilmurod` applies to quarantine follow-up scheduling, not permission to alter Ismail's contract.
+
+| Exact failing test | First failing source | Assessment |
+| --- | --- | --- |
+| the current real source satisfies the invoice contract | `dbe6ec94` | Stale guard/mutation after canonical type extraction; owner review pending |
+| a separate Sales-owned enum is allowed by the Finance guard | `dbe6ec94` | Stale guard/mutation after canonical type extraction; owner review pending |
+| Sales status cannot borrow InvoiceStatus | `dbe6ec94` | Stale guard/mutation after canonical type extraction; owner review pending |
+| Sales status cannot borrow InvoiceStatus \| string | `dbe6ec94` | Stale guard/mutation after canonical type extraction; owner review pending |
+| Sales status cannot borrow Readonly<InvoiceStatus> | `dbe6ec94` | Stale guard/mutation after canonical type extraction; owner review pending |
+| a local alias cannot disguise the invoice vocabulary as Sales status | `dbe6ec94` | Stale guard/mutation after canonical type extraction; owner review pending |
+| an import alias cannot disguise the invoice vocabulary as Sales status | `dbe6ec94` | Stale guard/mutation after canonical type extraction; owner review pending |
+| the aggregate payment projection must not use persisted invoice states | `dbe6ec94` | Stale guard/mutation after canonical type extraction; owner review pending |
+
+## CI-SEWING-PARTIAL-SIZE-CONTRACT-20261105 — pre-partial-size Sewing guard fails
+
+- **P3 · Open · Owner: Mirshoir.** `check-sewing-partial-size.mjs` fails on current `clone_main` `c5a0d2e4`: `Missing pre-partial-size sewing contract: t("field.inputQty")`. The guard's legacy source expectation is absent from the current Sewing screen. Whether the guard or screen should change is an owner decision; no production defect or fix is claimed. Recorded failure remains executed and reported in `frontend/scripts/node-test-quarantine.json`.
+
+## CI-HR-PAGINATION-MOCK-20261105 — HR pagination harness rejects dynamic import
+
+- **P3 · Open · Owner: Dilmurod.** `test-hr-employees-pagination.mjs` fails on unchanged `c5a0d2e4`: `Unexpected dependency: next/dynamic`. Its page-module mock has not adopted the current employee page dependency. Quarantined with that exact signature; no employee page or permission change in this PR.
+
+## CI-PAYROLL-ADJUSTMENT-SCHEMA-PATH-20261105 — payroll adjustment harness reads retired schema path
+
+- **P3 · Open · Owner: Dilmurod.** `test-payroll-adjustment-pagination.mjs` fails on unchanged `c5a0d2e4` with ENOENT for `backend/app/schemas/payroll.py`, retired by the schema namespace separation. Quarantined while still executed; owner must update the fixture path and validate the test, without altering payroll behavior in this CI PR.
+
+## CI-PAYROLL-OPTIONS-SCHEMA-PATH-20261105 — payroll employee-options harness reads retired schema path
+
+- **P3 · Open · Owner: Dilmurod.** `test-payroll-employee-options.mjs` fails on unchanged `c5a0d2e4` with ENOENT for `backend/app/schemas/payroll.py`. Quarantined with the exact missing-path signature; no payroll API or business rules changed. Ownership follows `docs/TEAM_OWNERSHIP.md` (People/payroll).
 
 ## UI-FORECAST-MOBILE-20261104 — forecasting page overflows on phones
 
@@ -749,7 +781,7 @@ The Tracking cells below retain the per-task assignments and history; refer to s
 
 | 53 | **OPS06** | Recovery tooling cannot verify paired database/upload backups. | Add paired DB/upload manifest verification for dump identity and missing/changed/extra files. | `scripts/storage_recovery_manifest.py (missing)`; `13f5994` | Open · Dilmurod |
 
-| 54 | **OPS08** | Runtime/dependency hardening from develop remains incomplete. | Review and land the existing steps; establish #507's green release-scan baseline on the exact combined candidate, then release and obtain acceptance. | `B:core/security.py`; `frontend/Dockerfile`; `.github/workflows/ci.yml`; `06705b9`, `1896408`, `f288ada`, `f0a1536` | Open · Dilmurod · Every step has a PR: Next [#316](https://github.com/Shmirzaev/Milana-ERP/pull/316), Pillow [#355](https://github.com/Shmirzaev/Milana-ERP/pull/355), Node 24 [#360](https://github.com/Shmirzaev/Milana-ERP/pull/360) and backend image [#362](https://github.com/Shmirzaev/Milana-ERP/pull/362) merged; HMAC guard [#357](https://github.com/Shmirzaev/Milana-ERP/pull/357) and stacked PyJWT [#364](https://github.com/Shmirzaev/Milana-ERP/pull/364) ready for Ismail review; development npm [#476](https://github.com/Shmirzaev/Milana-ERP/pull/476) open; release scan gate [#507](https://github.com/Shmirzaev/Milana-ERP/pull/507) draft. Shavkat confirmed production HS256 in both backend slots on 5 November; no signing key was recorded. #364 retains old→new and new→old HS256 compatibility evidence. #507's backend/frontend/refactor checks pass, but its release and security-scan jobs are skipped, so the scan baseline is not green yet. Shavkat's later `JWT_SECRET` rotation is separate. Review, exact-combination checks, release and human acceptance remain; no deployment claim. |
+| 54 | **OPS08** | Runtime/dependency hardening from develop remains incomplete. | Review and land the existing steps; establish #507's green release-scan baseline on the exact combined candidate, then release and obtain acceptance. | `B:core/security.py`; `frontend/Dockerfile`; `.github/workflows/ci.yml`; `06705b9`, `1896408`, `f288ada`, `f0a1536` | Open · Dilmurod · Every step has a PR: Next [#316](https://github.com/Shmirzaev/Milana-ERP/pull/316), Pillow [#355](https://github.com/Shmirzaev/Milana-ERP/pull/355), Node 24 [#360](https://github.com/Shmirzaev/Milana-ERP/pull/360) and backend image [#362](https://github.com/Shmirzaev/Milana-ERP/pull/362) merged; HMAC guard [#357](https://github.com/Shmirzaev/Milana-ERP/pull/357) and stacked PyJWT [#364](https://github.com/Shmirzaev/Milana-ERP/pull/364) ready for Ismail review; development npm [#476](https://github.com/Shmirzaev/Milana-ERP/pull/476) merged as [`aa715870`](https://github.com/Shmirzaev/Milana-ERP/commit/aa715870ddfbfdcc9e575821ed5248204a546747); release scan gate [#507](https://github.com/Shmirzaev/Milana-ERP/pull/507) draft. Shavkat confirmed production HS256 in both backend slots on 5 November; no signing key was recorded. #364 retains old→new and new→old HS256 compatibility evidence. #507's backend/frontend/refactor checks pass, but its release and security-scan jobs are skipped, so the scan baseline is not green yet. Shavkat's later `JWT_SECRET` rotation is separate. Review, exact-combination checks, release and human acceptance remain; no deployment claim. |
 
 | 55 | **OPS09-WEB** | Production scripts lack nonce CSP and reliable HTTPS headers. | Restore nonce CSP/layout and trusted HTTPS/HSTS handling; keep 1C retired. | `frontend/next.config.js:32`; `aa8fac1`, `f35a62e6`, `0ad74a69`, `4fee48be` | merged, awaiting acceptance · Dilmurod · [#277](https://github.com/Shmirzaev/Milana-ERP/pull/277) · [`fef59445`](https://github.com/Shmirzaev/Milana-ERP/commit/fef59445127fb61866e0fdb6d3c96b548f85f46f) · [checklist](#acceptance-checklist-reference) · Separate historical login formatter/hydration follow-up [#359](https://github.com/Shmirzaev/Milana-ERP/pull/359) merged as [`b80fe8d5`](https://github.com/Shmirzaev/Milana-ERP/commit/b80fe8d5ce66fa0bd8ee7b5d3d2928a83c8e7d40); human/operator acceptance remains pending. |
 
