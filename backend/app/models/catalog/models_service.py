@@ -84,6 +84,7 @@ from app.models.paid_operations_service import (
     replace_factory_paid_operations,
     sewing_master_factory_scope,
 )
+from app.schemas.catalog.model_image_upload_persistence import add_uploaded_model_image
 from app.schemas import (
     Bundle,
     CollectionModel,
@@ -2457,25 +2458,15 @@ def _create_uploaded_model_image(
 ) -> int:
     _require_catalog_upload_model(db, model_id, catalog_scope)
     actor = _upload_actor(db, actor_id)
-    is_primary = image_type == "model"
-    if is_primary:
-        db.query(ModelImage).filter(
-            ModelImage.model_id == model_id,
-            ModelImage.is_primary.is_(True),
-        ).update({"is_primary": False}, synchronize_session=False)
-    image = ModelImage(
+    image = add_uploaded_model_image(
+        db,
         model_id=model_id,
         file_url=file_url,
         file_name=original_name,
         content_type=stored_content_type,
-        # The file is already persisted in MODEL_FILES_DIR. Keeping another
-        # multi-megabyte copy in PostgreSQL makes remote uploads needlessly slow.
-        file_data=None,
         image_type=image_type,
-        is_primary=is_primary,
+        is_primary=image_type == "model",
     )
-    db.add(image)
-    db.flush()
     log_action(
         db,
         actor,
