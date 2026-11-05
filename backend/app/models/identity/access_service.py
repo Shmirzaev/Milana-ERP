@@ -5,10 +5,11 @@ from fastapi import HTTPException
 
 from app.core.deps import (
     SUPER_ADMIN_PERMISSION, SUPER_ADMIN_ROLE_NAME, DbSession, is_super_admin,
-    normalize_permissions, user_permissions,
+    normalize_permissions, user_permissions, require_permissions,
 )
 from app.models.factory_scope_service import FACTORY_CODES, normalize_factory_code, selected_factory_code
 from app.schemas import Department, Role, User
+from app.core.permission_catalog import PERMISSION_CATALOG
 
 
 def _access_subject(db, values):
@@ -149,3 +150,11 @@ def _effective_permissions_for(db: DbSession, role_id: int | None, extra_permiss
         permissions.extend(role.permissions or [])
     permissions.extend(extra_permissions or [])
     return normalize_permissions(permissions)
+
+
+def get_access_catalog(current: User) -> list[dict]:
+    """Read permission labels and actor grantability without database writes."""
+    require_permissions("admin.users", "*")(current)
+    own = set(user_permissions(current))
+    return [{**row, "grantable": is_super_admin(current) if row["key"] in {"*", SUPER_ADMIN_PERMISSION}
+             else "*" in own or row["key"] in own} for row in PERMISSION_CATALOG]

@@ -28,11 +28,11 @@ from app.models.credentials_service import apply_password_credential_change, loc
 from app.models.audit_service import export_audit_hash_chain, log_action, verify_audit_hash_chain
 from app.models.password_reset_service import send_password_email_safely
 from app.db.reset_demo import reset_to_seed
-from app.core.permission_catalog import PERMISSION_CATALOG, PERMISSION_KEYS
+from app.core.permission_catalog import PERMISSION_KEYS
 from app.models.factory_scope_service import FACTORY_CODES, available_factory_codes
 from app.models.identity.users_service import create_user as create_user_account, require_strong_password as _require_strong_password
 from app.models.identity.access_service import (
-    _access_subject, _user_access_values, _assert_policy_change,
+    get_access_catalog, _access_subject, _user_access_values, _assert_policy_change,
     _assert_can_grant_role, _assert_can_grant_permissions,
 )
 
@@ -255,9 +255,7 @@ def _parse_date(value: str | None, end_of_day: bool = False) -> datetime | None:
 # ===== Users =====
 @router.get("/access-catalog")
 def access_catalog(current: User = Depends(require_permissions("admin.users", "*"))):
-    own = set(user_permissions(current))
-    return [{**row, "grantable": is_super_admin(current) if row["key"] in {"*", SUPER_ADMIN_PERMISSION}
-             else "*" in own or row["key"] in own} for row in PERMISSION_CATALOG]
+    return get_access_catalog(current)
 
 
 @router.post("/users/access-preview")
