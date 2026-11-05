@@ -13,15 +13,12 @@ from app.core.shared_store import get_shared_counter_store
 from app.core.security import (
     create_access_token,
     normalize_email,
-    validate_password_strength,
-    verify_password,
 )
 from app.schemas import User
-from app.libs.dto.identity.auth import ForgotPasswordIn, LoginIn, LoginOk, ResetPasswordIn, TokenOut, UserMe
+from app.libs.dto.identity.auth import ChangePasswordIn, ForgotPasswordIn, LoginIn, LoginOk, ResetPasswordIn, TokenOut, UserMe
 from app.models.audit_service import log_action
-from app.models.credentials_service import apply_password_credential_change, lock_user_for_credential_change
 from app.models.factory_scope_service import assigned_factory_code, available_factory_codes, selected_factory_code
-from app.models.identity.authentication_service import complete_password_reset, login_user, request_password_reset, select_session_factory
+from app.models.identity.authentication_service import change_own_password, complete_password_reset, login_user, request_password_reset, select_session_factory
 from app.models.password_reset_service import (
     send_password_email_safely,
 )
@@ -36,12 +33,6 @@ class ProfileUpdateIn(BaseModel):
 
 class FactorySwitchIn(BaseModel):
     factory_code: str
-
-
-class ChangePasswordIn(BaseModel):
-    current_password: str
-    new_password: str
-    confirm_new_password: str
 
 
 def _client_ip(request: Request) -> str:
@@ -201,27 +192,7 @@ def update_me(payload: ProfileUpdateIn, db: DbSession, user: CurrentUser):
 @session_router.post("/change-password")
 @router.post("/change-password")
 def change_password(payload: ChangePasswordIn, db: DbSession, user: CurrentUser):
-    if payload.new_password != payload.confirm_new_password:
-        raise HTTPException(400, "New passwords do not match")
-    locked_user = lock_user_for_credential_change(db, user.id, require_active=True)
-    if not locked_user:
-        raise HTTPException(401, "Invalid credentials")
-    if not verify_password(payload.current_password, locked_user.password_hash):
-        raise HTTPException(400, "Current password is incorrect")
-    try:
-        validate_password_strength(payload.new_password)
-    except ValueError as e:
-        raise HTTPException(400, str(e)) from e
-    apply_password_credential_change(db, locked_user, payload.new_password)
-    log_action(
-        db,
-        locked_user,
-        "change_password",
-        "User",
-        locked_user.id,
-        new_value={"credential_changed": True, "reset_links_invalidated": True},
-    )
-    db.commit()
+    change_own_password(db, user, payload)
     return {"message": "password_updated"}
 
 
