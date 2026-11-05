@@ -1,5 +1,38 @@
 # Team bug tracker — clone_main
 
+## CI-FINANCE-INVOICE-CONTRACT-20261105 — stale invoice/customer-payment contract tests
+
+- **P3 · Open · Owner: Ismail. Mirshoir FYI.** Quarantined `check-invoice-status-parity.mjs` and the eight named failures in `test-invoice-status-parity.mjs`. All cases still execute; a new failure name/signature fails CI. No Finance application or test code is fixed by this CI change.
+- Test/guard introduced at `bdfb167d` (26 October 2026). All eight first fail at **`dbe6ec94` (27 October 2026, 21:18:18 +09:00)**, which extracts the inline `PaymentStatus` into canonical `CustomerOrderPaymentStatus`. Historical replay on Node 24.22.2, UTC/en_US.UTF-8: parent `865445c78889bc0b4c55e5d3d15ae281a7cf0cd9` **22 passed / 0 failed**; `dbe6ec94` **14 passed / 8 failed**. History investigation completed within the ten-minute bound.
+- Assessment: **test appears stale**, rather than a demonstrated runtime regression. The distinct customer-payment vocabulary/values remain in their canonical type. The guard still demands the removed inline declaration, so several mutation tests fail before reaching their intended checks; the aggregate-payment mutation still replaces `payment_status: PaymentStatus`, now a no-op. Ismail decides the correction; no business-policy change is inferred. `decision pending Dilmurod` applies to quarantine follow-up scheduling, not permission to alter Ismail's contract.
+
+| Exact failing test | First failing source | Assessment |
+| --- | --- | --- |
+| the current real source satisfies the invoice contract | `dbe6ec94` | Stale guard/mutation after canonical type extraction; owner review pending |
+| a separate Sales-owned enum is allowed by the Finance guard | `dbe6ec94` | Stale guard/mutation after canonical type extraction; owner review pending |
+| Sales status cannot borrow InvoiceStatus | `dbe6ec94` | Stale guard/mutation after canonical type extraction; owner review pending |
+| Sales status cannot borrow InvoiceStatus \| string | `dbe6ec94` | Stale guard/mutation after canonical type extraction; owner review pending |
+| Sales status cannot borrow Readonly<InvoiceStatus> | `dbe6ec94` | Stale guard/mutation after canonical type extraction; owner review pending |
+| a local alias cannot disguise the invoice vocabulary as Sales status | `dbe6ec94` | Stale guard/mutation after canonical type extraction; owner review pending |
+| an import alias cannot disguise the invoice vocabulary as Sales status | `dbe6ec94` | Stale guard/mutation after canonical type extraction; owner review pending |
+| the aggregate payment projection must not use persisted invoice states | `dbe6ec94` | Stale guard/mutation after canonical type extraction; owner review pending |
+
+## CI-SEWING-PARTIAL-SIZE-CONTRACT-20261105 — pre-partial-size Sewing guard fails
+
+- **P3 · Open · Owner: Mirshoir.** `check-sewing-partial-size.mjs` fails on current `clone_main` `c5a0d2e4`: `Missing pre-partial-size sewing contract: t("field.inputQty")`. The guard's legacy source expectation is absent from the current Sewing screen. Whether the guard or screen should change is an owner decision; no production defect or fix is claimed. Recorded failure remains executed and reported in `frontend/scripts/node-test-quarantine.json`.
+
+## CI-HR-PAGINATION-MOCK-20261105 — HR pagination harness rejects dynamic import
+
+- **P3 · Open · Owner: Dilmurod.** `test-hr-employees-pagination.mjs` fails on unchanged `c5a0d2e4`: `Unexpected dependency: next/dynamic`. Its page-module mock has not adopted the current employee page dependency. Quarantined with that exact signature; no employee page or permission change in this PR.
+
+## CI-PAYROLL-ADJUSTMENT-SCHEMA-PATH-20261105 — payroll adjustment harness reads retired schema path
+
+- **P3 · Open · Owner: Dilmurod.** `test-payroll-adjustment-pagination.mjs` fails on unchanged `c5a0d2e4` with ENOENT for `backend/app/schemas/payroll.py`, retired by the schema namespace separation. Quarantined while still executed; owner must update the fixture path and validate the test, without altering payroll behavior in this CI PR.
+
+## CI-PAYROLL-OPTIONS-SCHEMA-PATH-20261105 — payroll employee-options harness reads retired schema path
+
+- **P3 · Open · Owner: Dilmurod.** `test-payroll-employee-options.mjs` fails on unchanged `c5a0d2e4` with ENOENT for `backend/app/schemas/payroll.py`. Quarantined with the exact missing-path signature; no payroll API or business rules changed. Ownership follows `docs/TEAM_OWNERSHIP.md` (People/payroll).
+
 ## UI-FORECAST-MOBILE-20261104 — forecasting page overflows on phones
 
 - **Open · Forecasting UI · Ismail; reviewer Mirshoir. Human verification pending; not deployed.** On an isolated 390px phone viewport, the forecasting page expanded to 730px in EN, 835px in RU and 758px in UZ. Independent inspection identified the chart's visually hidden data table as the overflowing element; the visible chart already had a local horizontal scroll region.
