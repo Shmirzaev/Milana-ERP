@@ -7,8 +7,8 @@ from sqlalchemy.orm import Session
 
 from app.libs.dto.people.hr_workspace import OrgUnitIn, PositionIn
 from app.models.factory_scope_service import factory_for_department, selected_factory_code
-from app.schemas import Department, Employee, HrOrgUnit, User
-from app.schemas.people.hr_workspace_persistence import insert_org_unit, delete_org_unit_row, insert_position
+from app.schemas import Department, Employee, HrOrgUnit, HrPosition, User
+from app.schemas.people.hr_workspace_persistence import insert_org_unit, delete_org_unit_row, insert_position, update_position_row
 
 
 def _factory(current: User) -> str:
@@ -80,4 +80,15 @@ def create_position(payload: PositionIn, db: Session, current: User, *, audit: C
     values = payload.model_dump(); values["required_skills_json"] = values.pop("required_skills")
     row = insert_position(db, factory_code=factory, values=values)
     db.flush(); audit(db, current, "create", "HrPosition", row.id, new_value={"name": row.name}); db.commit(); db.refresh(row)
+    return row
+
+
+def update_position(position_id: int, payload: PositionIn, db: Session, current: User, *, audit: Callable):
+    factory = _factory(current)
+    row = db.query(HrPosition).filter(HrPosition.id == position_id, HrPosition.factory_code == factory).first()
+    if not row: raise HTTPException(404, "Position not found")
+    _validate_position_links(payload, db, factory)
+    values = payload.model_dump(); values["required_skills_json"] = values.pop("required_skills")
+    update_position_row(db, row=row, values=values)
+    audit(db, current, "update", "HrPosition", row.id, new_value=values); db.commit(); db.refresh(row)
     return row
