@@ -267,3 +267,18 @@ def update_employee(db: Session, current: User, eid: int, changes: dict, *, audi
         raise HTTPException(409, "Employee number already exists in this factory") from exc
     db.refresh(e)
     return e
+
+
+def archive_employee(db: Session, current: User, eid: int, *, audit: Callable) -> None:
+    e = db.query(Employee).filter(
+        Employee.id == eid,
+        Employee.factory_code == selected_factory_code(current),
+    ).with_for_update().first()
+    if not e: raise HTTPException(404, "Employee not found")
+    if e.status == "archived":
+        return
+    old_status = e.status
+    update_employee_fields(db, employee=e, changes={"status": "archived"})
+    audit(db, current, "archive", "Employee", eid,
+               old_value={"status": old_status}, new_value={"status": "archived"})
+    db.commit()
