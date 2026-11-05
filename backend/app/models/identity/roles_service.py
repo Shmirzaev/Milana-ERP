@@ -1,9 +1,12 @@
 """Role operations; callers supply the authenticated HTTP context and Session."""
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 
 from app.core.deps import SUPER_ADMIN_ROLE_NAME, is_super_admin, normalize_permissions, require_permissions
 from app.libs.dto.catalog.catalog import RoleIn
+from app.core.permission_catalog import PERMISSION_KEYS
+from app.models.factory_scope_service import FACTORY_CODES
 from app.models.audit_service import log_action
 from app.models.identity.access_service import _assert_can_grant_permissions
 from app.schemas.identity.role_persistence import add_role
@@ -25,7 +28,24 @@ def create_role(db: Session, payload: RoleIn, current: User) -> Role:
     _assert_can_grant_permissions(current, permissions)
     if len(payload.name) > 64:
         raise HTTPException(422, "Role name must be at most 64 characters")
-    r = add_role(db, name=payload.name, permissions=permissions)
+    unknown = []
+    for token in permissions:
+        permission = token
+        if token.startswith("factory:"):
+            parts = token.split(":", 2)
+            if len(parts) == 3 and parts[1].strip().upper() in FACTORY_CODES:
+                permission = parts[2].strip()
+        if permission not in PERMISSION_KEYS:
+            unknown.append(token)
+    if unknown:
+        raise HTTPException(422, f"Unknown permissions: {sorted(unknown)}")
+    try:
+        r = add_role(db, name=payload.name, permissions=permissions)
+    except IntegrityError as exc:
+        db.rollback()
+        if db.query(Role.id).filter(Role.name == payload.name).first() is None:
+            raise
+        raise HTTPException(409, "Role name already exists") from exc
     log_action(db, current, "create", "Role", r.id, new_value={"name": r.name})
     db.commit()
     db.refresh(r)
