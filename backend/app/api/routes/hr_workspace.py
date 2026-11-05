@@ -574,7 +574,7 @@ def download_document(document_id: int, db: DbSession, current: User = HrUser):
     if not row: raise HTTPException(404, "Document not found")
     path = Path(settings.HR_DOCUMENTS_DIR) / row.stored_name
     if not path.is_file(): raise HTTPException(404, "Document file not found")
-    return FileResponse(path, filename=row.original_name, media_type=row.content_type or "application/octet-stream", headers={"Cache-Control": "private, no-store"})
+    return FileResponse(path, filename=row.original_name, media_type=row.content_type or "application/octet-stream", headers={"Cache-Control": "no-store"})
 
 
 @router.delete("/documents/{document_id}", status_code=204)

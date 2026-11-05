@@ -32,7 +32,7 @@ def test_photo_read_private_body_cache_and_auth_contract(ah, tmp_path, monkeypat
     response = ah[2].get(url, headers=headers(ah))
     assert response.status_code == 200 and response.content == content
     assert response.headers['content-type'] == 'image/webp'
-    assert response.headers['cache-control'] == 'private, max-age=300'
+    assert response.headers['cache-control'] == 'no-store'
     assert int(response.headers['content-length']) == len(content)
     assert ah[2].get(url).status_code == 401
     assert ah[2].get(url, headers=headers(ah, 'denied')).status_code == 403
@@ -43,7 +43,7 @@ def test_photo_read_private_body_cache_and_auth_contract(ah, tmp_path, monkeypat
             raise AssertionError('Read operation must not commit')
         monkeypatch.setattr(db, 'commit', no_commit)
         direct = attendance.attendance_person_photo(person_id, db, actor)
-        assert direct.headers['cache-control'] == 'private, max-age=300'
+        assert direct.headers['cache-control'] == 'no-store'
         assert not db.new and not db.dirty and not db.deleted
 
 

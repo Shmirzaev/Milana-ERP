@@ -170,4 +170,4 @@ def attendance_person_photo(
     current: User = Depends(require_permissions("attendance.view", "attendance.manage", "*")),
 ):
     path = attendance_service.attendance_person_photo_path(person_id, db, current)
-    return FileResponse(path, media_type="image/webp", headers={"Cache-Control": "private, max-age=300"})
+    return FileResponse(path, media_type="image/webp", headers={"Cache-Control": "no-store"})
