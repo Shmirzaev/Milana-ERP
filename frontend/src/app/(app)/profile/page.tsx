@@ -61,9 +61,9 @@ export default function ProfilePage() {
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <form onSubmit={saveProfile} className="card p-4 space-y-3">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-[#56503f]">{t("page.profile.userProfile")}</h2>
-          <div><label className="label">{t("common.name")}</label><input className="input" value={profile.name} onChange={(e) => setProfile({ ...profile, name: e.target.value })} /></div>
+          <div><label className="label">{t("page.profile.personName")}</label><input className="input" value={profile.name} onChange={(e) => setProfile({ ...profile, name: e.target.value })} /></div>
           {errors.name && <div className="text-xs text-red-600">{errors.name}</div>}
-          <div><label className="label">{t("field.email")}</label><input className="input" type="email" value={profile.email} readOnly aria-readonly="true" /></div>
+          <div><label className="label">{t("field.email")}</label><input className="input" type="email" value={profile.email} readOnly aria-readonly="true" aria-describedby="profile-email-hint" /><p id="profile-email-hint" className="mt-1 text-xs text-[#56503f]">{t("page.profile.emailAdminHint")}</p></div>
           {errors.email && <div className="text-xs text-red-600">{errors.email}</div>}
           <div className="grid grid-cols-2 gap-3">
             <div><label className="label">{t("field.role")}</label><input className="input" value={me?.role || "-"} readOnly /></div>

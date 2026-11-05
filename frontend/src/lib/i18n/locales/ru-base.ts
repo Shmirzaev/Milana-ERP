@@ -1814,6 +1814,8 @@ export default {
     "page.profile.title": "Профиль",
     "page.profile.subtitle": "Данные аккаунта и пароль",
     "page.profile.userProfile": "Профиль пользователя",
+    "page.profile.personName": "Имя",
+    "page.profile.emailAdminHint": "Изменить ваш адрес электронной почты может только администратор.",
     "page.profile.changePassword": "Сменить пароль",
     "page.profile.savePassword": "Сохранить пароль",
     "page.profile.nameRequired": "Имя обязательно.",
