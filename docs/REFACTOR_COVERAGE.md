@@ -1,5 +1,59 @@
 # Whole-ERP refactor coverage
 
+## Verified operation checkpoint - 4 November 2026
+
+The [Finance invoice reversal participant](REF350_INVOICE_REVERSAL_20261104.md)
+at 60bcf909 is AI_VERIFIED_AWAITING_HUMAN after 204 distinct PostgreSQL cases,
+actual visual/refresh/EN-RU-UZ phone evidence, 20-table persisted checks and
+independent review. It owns only eligible invoice VOID/zero writes inside shipment
+reopen using the existing locked Session and outer transaction. Full coordinator
+audit remains FAIL on unchanged legacy scan persistence. Stock/package/order/
+audit/idempotency extraction, other Finance operations, amount typing and uncovered
+domains remain in scope. QA master reviews before deployment; human acceptance
+is unrecorded. The dated checkpoint below retains its original snapshot rather
+than serving as a current branch or open-PR census.
+
+## Historical integration and active work — 30 October 2026
+
+`clone_main` is verified at `d235cf9e9a44b1de81428beb261f8fab837cbe87`, tree
+`33b45e218c57e285e14df48bd166fe04309c95b9`. PR343 merged Supplier DELETE,
+Inventory Item CREATE and Sales DELETE after exact-source CI, Computer visual
+checks, persisted/audit readback, independent review, and 40 explicit PostgreSQL
+cases with zero failures/errors/skips. Owned disposable targets and runtimes
+were cleaned up. This is integration evidence, not deployment or personal human
+production acceptance. PR341 also merged Customer DELETE; older pending wording
+in the source-checkpoint queue must not be read as current status.
+
+The owner explicitly resumed the full remaining scope on 30 October, requesting
+cheap parallel subagents. This includes all 13 domains and shared writers; named
+human accountability below is unchanged. Three isolated workers are preparing
+Collection UPDATE, Finance payment-output typing and Purchasing costing-update
+on the current base. The integrator owns shared notification persistence and
+serializes combined-source verification. None of these new candidates is yet
+runtime-verified or merged. Previously frozen candidates remain preserved.
+
+| Remaining scope | Current next work / evidence required |
+| --- | --- |
+| Catalog | Collection UPDATE (including same-value attribute events and legacy status compatibility); paid-process, model/counter, BOM and image operations |
+| Purchasing | Costing update and shared notification transaction; approval/rejection, conversion, orders and receiving |
+| Inventory | Receiving/receipt edits, transfers, reservations, stocktake, accessory returns and waste handoffs |
+| Sales | Create/update, cancellation/release and Fulfillment public operation/lock boundary |
+| Planning | Broader order creation, alternate Production writer, requirements and costing contracts |
+| Finance | Typed payment result/replay; invoice issuance/void/reopen, advances and ledger/shipment writers |
+| Production | Shared Sewing and stage transitions, correction paths and route/private-helper reach-through |
+| Packaging | Contents, allocation/identity, corrections, labels and lifecycle writers |
+| Fulfillment | Receipts/finished stock, reservation/release, shipment/delivery/reversal and returns |
+| Identity | Factory/auth context, user access and account operations |
+| People | Employee/attendance/payroll contracts, writes and locking |
+| Support | Settings, shared audit/idempotency and other root writers |
+| Work management | Task CRUD/transitions and notification operations |
+
+Every row retains operation-sized enum/type classification, caller/alternate
+writer tracing, same-Session persistence, tests, actual visual/readback, bounded
+integrity/stress and independent acceptance gates. This is an execution backlog,
+not exhaustive source discovery or a completion percentage. The initial table/
+field JSON inventory below remains historical and must not be relabelled current.
+
 Initial candidate-source ledger, 26 October 2026. **The architectural/type target is incomplete.**
 Six Ismail pilots are rollout steps; the other owners remain in scope. Use the
 [engineering workflow](ENGINEERING_WORKFLOW.md) and [ownership](TEAM_OWNERSHIP.md).
@@ -141,7 +195,7 @@ Dilmurod/Mirshoir retain shared infrastructure ownership. No competing helper co
 ## Concrete isolation work packages
 
 - **Catalog, Ismail / Mirshoir:** resolve the model_images_service ↔ model_family_images_service cycle through one agreed public owner for shared preview/image-identity rules; do not copy private helpers. This is separate from PaidProcess creation.
-- **Identity, Dilmurod / Mirshoir:** resolve factory_scope_service ↔ user_access_service through an agreed context/policy boundary while preserving permissions. FactoryCode is MIL/BST/ECO; ALL/UNASSIGNED report filters remain separate.
+- **Identity, Dilmurod / Mirshoir:** the [approved policy-only prerequisite](archive/ACCESS_POLICY_HELPER_SPLIT_2026-11-03.md) moves the three unchanged evaluators to `identity/access_policy_service.py`, removes the factory-scope/user-access back-edge and preserves legacy exports; Ismail reviews this PR. Context/IDN-01 and RF-009 extraction remain pending. FactoryCode is MIL/BST/ECO; ALL/UNASSIGNED report filters remain separate.
 - **Production/Packaging, Mirshoir / Ismail:** trace normal/band/correction and packaging route↔service calls; remove HTTP-handler/private-route reach-through at the approved operation seam. Deferred imports do not establish isolation.
 - **Sales/Fulfillment, Mirshoir with Ismail:** owning public reservation/metadata operations must cover stock, reservation and brand/collection mutations with the same supplied Session and one outer transaction.
 - **Shared support, Dilmurod / Mirshoir:** root helper imports require ownership review; a green check on grouped folders does not certify root/shared coupling.
@@ -188,7 +242,7 @@ No table/field override or human approval is added by this documentation update.
 | catalog / 12 | Ismail / Mirshoir | Paid-process corrected contracts and exact combined visual/readback gates; Model creation/counters; product/BOM/variant/partner consumers; image-preview ownership cycle. |
 | finance / 2 | Ismail / Mirshoir | Payment frontend enum consumers and checker correction; exact combined visual/readback gates; Invoice issuance at both entry points; customer advances/ledger auto-invoicing; delivery/reversal writers. |
 | fulfillment / 10 | Mirshoir / Ismail | Public reservation/metadata-repair seam used by Sales, owning schema writers, Session and locks; Receipts, finished-stock edits, release, shipment, returns and delivery callers. |
-| identity / 3 | Dilmurod / Mirshoir | Selected versus assigned factory contract and factory-scope/user-access dependency cycle; Authentication, account/RBAC contracts and supported factory discriminator consumers. |
+| identity / 3 | Dilmurod / Mirshoir | Selected versus assigned factory contract; policy-only cycle split has separate prerequisite evidence and pending human review. Authentication, account/RBAC contracts and supported factory discriminator consumers remain pending. |
 | inventory / 14 | Ismail / Mirshoir | Receipt QC internal/frontend contracts and exact combined visual/readback gates; Receipt edits/CRUD, accessory returns, transfers, reservations, stocktake and waste handoffs. |
 | packaging / 9 | Mirshoir / Ismail | Package identity/public parser ownership and route/service cycle; Create/correct package, contents/allocations, receiving-group versus warehouse identity, labels and downstream callers. |
 | people / 14 | Dilmurod / Mirshoir | Employee creation operation, selected-factory authorization and private HR fields; Attendance/device data, HR lifecycle and payroll contracts/writers; reconcile attendance user_type separately from users. |

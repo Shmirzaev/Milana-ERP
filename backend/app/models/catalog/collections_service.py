@@ -4,7 +4,7 @@ Contract for the brand and collection operations:
 * input: a brand or collection id, a validated contract and the acting user
 * output: the serialized brand or collection
 * refusals: 404 "Brand not found", 404 "Collection not found", 409 when a
-  collection already holds the model
+  brand already exists; link creation permits duplicates
 * records: `brands`, `collections` and `collection_models` rows plus the audit
   rows
 * transaction owner: every operation below
@@ -17,12 +17,16 @@ from app.libs.dto.catalog.brand_input import BrandIn
 from app.libs.dto.catalog.collection_input import CollectionCreateIn, CollectionIn
 from app.libs.dto.catalog.collection_output import CollectionCreateOut, CollectionOut
 from app.libs.enums.catalog import CollectionStatus
-from app.libs.types.catalog import BrandUpdateCommand
+from app.libs.types.catalog import (
+    BrandUpdateCommand,
+    CollectionUpdateCommand,
+    CollectionUpdateFields,
+)
 from app.models.audit_service import log_action
 from app.models.catalog.models_service import _pagination_payload, _standard_model
-from app.schemas import Brand, Collection, CollectionModel, User
+from app.schemas import Brand, Collection, User
 from app.schemas.catalog.brand_persistence import apply_brand_update, insert_brand
-from app.schemas.catalog.collection_persistence import insert_collection
+from app.schemas.catalog.collection_persistence import apply_collection_update, insert_collection, insert_collection_model
 
 COLLECTION_STATUSES = frozenset(status.value for status in CollectionStatus)
 
@@ -165,13 +169,26 @@ def update_collection(
 ):
     c = db.get(Collection, cid)
     if not c: raise HTTPException(404, "Collection not found")
-    data = payload.model_dump(exclude_unset=True)
-    if "year" in data and not data["year"]:
+    fields: CollectionUpdateFields = payload.model_dump(exclude_unset=True)
+    if "year" in fields and not fields["year"]:
         raise HTTPException(400, "Year is required")
-    if "status" in data and data["status"] != c.status and data["status"] not in COLLECTION_STATUSES:
+    if "status" in fields and fields["status"] != c.status and fields["status"] not in COLLECTION_STATUSES:
         raise HTTPException(400, "Invalid collection status")
-    for k, v in data.items():
-        setattr(c, k, v)
+    command: CollectionUpdateCommand = {
+        key: value for key, value in fields.items() if key != "status"
+    }
+    if "status" in fields:
+        submitted_status = fields["status"]
+        if submitted_status in COLLECTION_STATUSES:
+            # Preserve the mapped attribute assignment/event even for an
+            # explicit same-value PATCH; persistence receives a real enum.
+            command["status"] = CollectionStatus(submitted_status)
+        else:
+            # Only the exact stored legacy value passed the equality check
+            # above. Keep that compatibility path distinct from canonical
+            # lifecycle input rather than weakening the enum field to str.
+            command["unchanged_legacy_status"] = submitted_status
+    apply_collection_update(db, c, command)
     log_action(db, current, "update", "Collection", c.id)
     db.commit(); db.refresh(c)
     return c
@@ -187,6 +204,6 @@ def add_model_to_collection(
         raise HTTPException(404, "Collection not found")
     if not _standard_model(db, model_id):
         raise HTTPException(404, "Model not found")
-    db.add(CollectionModel(collection_id=cid, model_id=model_id))
+    insert_collection_model(db, collection_id=cid, model_id=model_id)
     db.commit()
     return {"message": "added"}

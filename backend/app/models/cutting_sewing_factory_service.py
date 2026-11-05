@@ -11,8 +11,11 @@ from app.models.cutting_batch_guard_service import require_cutting_batch_mutable
 from app.models.factory_scope_service import PACKAGING_DEPARTMENTS
 
 
-def change_sewing_factory(db, work, factory, current):
+def change_sewing_factory(db, work, factory, current, batch_ids=None):
     try:
+        if batch_ids is not None:
+            from app.models.production.nastil_factory_service import change_nastil_factories
+            return change_nastil_factories(db, work, factory, batch_ids, current)
         return _change(db, work, factory, current)
     except OperationalError as error:
         if getattr(error.orig, "sqlstate", None) == "55P03" or getattr(error.orig, "pgcode", None) == "55P03":

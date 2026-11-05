@@ -38,6 +38,7 @@ from app.libs.dto.inventory.stock_quantity_adjustment_input import StockQuantity
 from app.libs.dto.inventory.stock_quantity_adjustment_output import StockQuantityAdjustmentOut
 from app.libs.dto.inventory.warehouse_input import WarehouseIn
 from app.libs.enums.inventory import StockBatchQcStatus, StockMovementType
+from app.libs.types.inventory import ItemInsertCommand
 from app.models import inventory_access_service as inventory_access
 from app.models.audit_service import log_action
 from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response
@@ -73,6 +74,7 @@ from app.schemas import (
     Warehouse,
     WasteRecord,
 )
+from app.schemas.inventory import item_persistence
 from app.schemas.inventory import stock_movement_persistence
 from app.schemas.inventory import stock_receipt_persistence
 from app.schemas.inventory import warehouse_persistence
@@ -284,8 +286,13 @@ def create_item(db, payload: ItemIn, current: User) -> Item:
         raise HTTPException(400, "SKU already exists")
     data = _item_payload(payload)
     _ensure_unique_active_item_name(db, data)
-    it = Item(**data)
-    db.add(it); db.flush()
+    command = ItemInsertCommand(
+        sku=data["sku"], name=data["name"], category=data["category"], unit=data["unit"],
+        default_cost=data["default_cost"], reorder_level=data["reorder_level"],
+        track_batch=data["track_batch"], is_active=data["is_active"],
+        image_url=data["image_url"], composition_json=data["composition_json"],
+    )
+    it = item_persistence.insert_item(db, command)
     log_action(db, current, "create", "Item", it.id, new_value={"sku": it.sku})
     db.commit(); db.refresh(it)
     return it

@@ -3,6 +3,7 @@ import { api } from "@/lib/api";
 import type { Lang } from "@/lib/i18n";
 
 const en = {
+  searchRuns: "Model, pack or PRN number", dateFrom: "From date", dateTo: "To date", allReceipts: "All receipts", search: "Search", resetFilters: "Clear filters", previous: "Previous", next: "Next", page: "Page", noMatches: "No print runs match these filters", invalidDates: "Start date must not be after end date",
   cancelPacks: "Cancel unreceived packs", cancelPacksConfirm: "Cancel every pack in this print run and retire all its labels? Only unused packs still awaiting warehouse receipt can be cancelled. Discard the old labels.", packsCancelled: "Packs cancelled; old labels are retired.",
   manualPackaging: "Create manual packs", packagingSave: "Create packs and print labels", packagingCreated: "Packs created — awaiting warehouse receipt", createMore: "Create more packs",
   packagingReview: "Record physically packed goods and print their labels. Warehouse staff must receive these packs before they can be reserved or shipped.",
@@ -22,6 +23,7 @@ const en = {
 };
 type Copy = Record<keyof typeof en, string>;
 const ru: Copy = {
+  searchRuns: "Модель, номер упаковки или PRN", dateFrom: "Дата с", dateTo: "Дата по", allReceipts: "Все приёмки", search: "Поиск", resetFilters: "Сбросить фильтры", previous: "Назад", next: "Далее", page: "Страница", noMatches: "Группы печати по этим фильтрам не найдены", invalidDates: "Начальная дата не может быть позже конечной",
   cancelPacks: "Отменить непринятые упаковки", cancelPacksConfirm: "Отменить все упаковки этой группы печати и все её этикетки? Отмена доступна только для неиспользованных упаковок, ожидающих приёмки склада. Уничтожьте старые этикетки.", packsCancelled: "Упаковки отменены; старые этикетки недействительны.",
   manualPackaging: "Создать упаковки вручную", packagingSave: "Создать упаковки и напечатать этикетки", packagingCreated: "Упаковки созданы — ожидают приёмки склада", createMore: "Создать ещё упаковки",
   packagingReview: "Укажите фактически упакованный товар и напечатайте этикетки. Перед резервированием или отгрузкой склад должен принять эти упаковки.",
@@ -40,6 +42,7 @@ const ru: Copy = {
   cancelPending: "Отменить или восстановить ожидающий приход", pendingCancelled: "Ожидающий запрос безопасно отменён. Исправьте данные и отправьте снова.", resultUnavailable: "Запрос выполнен, но результат удалён или недоступен с текущими правами. Сохранённые данные повтора безопасно очищены.", labelUnavailable: "Приход сохранён, но этикетка недоступна. Обновите страницу или попросите менеджера восстановить доступ перед повторной печатью.",
 };
 const uz: Copy = {
+  searchRuns: "Model, qadoq yoki PRN raqami", dateFrom: "Boshlanish sanasi", dateTo: "Tugash sanasi", allReceipts: "Barcha qabullar", search: "Qidirish", resetFilters: "Filtrlarni tozalash", previous: "Oldingi", next: "Keyingi", page: "Sahifa", noMatches: "Bu filtrlar bo‘yicha chop etish guruhlari topilmadi", invalidDates: "Boshlanish sanasi tugash sanasidan keyin bo‘lishi mumkin emas",
   cancelPacks: "Qabul qilinmagan qadoqlarni bekor qilish", cancelPacksConfirm: "Ushbu chop etish guruhidagi barcha qadoqlar va barcha yorliqlar bekor qilinsinmi? Faqat ishlatilmagan, ombor qabulini kutayotgan qadoqlar bekor qilinadi. Eski yorliqlarni yo‘q qiling.", packsCancelled: "Qadoqlar bekor qilindi; eski yorliqlar yaroqsiz.",
   manualPackaging: "Qadoqlarni qo‘lda yaratish", packagingSave: "Qadoqlarni yaratish va yorliqlarni chop etish", packagingCreated: "Qadoqlar yaratildi — ombor qabulini kutmoqda", createMore: "Yana qadoqlar yaratish",
   packagingReview: "Haqiqatan qadoqlangan mahsulotni kiriting va yorliqlarini chop eting. Band qilish yoki jo‘natishdan oldin ombor bu qadoqlarni qabul qilishi kerak.",

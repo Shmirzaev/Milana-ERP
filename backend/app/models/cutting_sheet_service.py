@@ -26,7 +26,7 @@ from app.schemas import (
     User,
     WorkOrder,
 )
-from app.models.label_images_service import fabric_label_image_src, model_preview_label_image_src
+from app.models.label_images_service import fabric_label_image_src, model_preview_label_image_src, print_label_image_src
 from app.models.barcode_service import qr_png_data_uri
 
 
@@ -357,6 +357,8 @@ def render_cutting_sheet_html(db: Session, record: CuttingRecord, bundle_ids: li
         else "<div class='empty-photo'></div>"
     )
     fabric_image_src = fabric_label_image_src(model)
+    print_image_src = print_label_image_src(model)
+    print_image_html = f"<img src='{_h(print_image_src)}' alt='Print artwork'>" if print_image_src else ""
     fabric_image_html = (
         f"<img src='{_h(fabric_image_src)}' alt='Fabric picture'>"
         if fabric_image_src
@@ -479,6 +481,8 @@ th{{background:#e8ecea;text-align:left;font-weight:700}} td{{text-align:center}}
 .fabric-sample{{display:grid;grid-template-rows:minmax(0,1fr) minmax(0,1fr)}}
 .fabric-photo{{display:flex;min-height:0;align-items:center;justify-content:center;overflow:hidden;padding:3mm;border-bottom:1px solid #aeb5b8}}
 .fabric-photo img{{display:block;width:100%;height:100%;object-fit:contain}}
+.print-photo{{display:flex;align-items:center;justify-content:center;padding:1mm}}
+.print-photo img{{max-width:100%;max-height:100%;object-fit:contain}}
 .sample-column.right .sample-title.print{{border-top:1px solid #aeb5b8}}
 .footer{{height:8mm;display:flex;align-items:end;justify-content:space-between;border-top:1px solid #aeb5b8;margin-top:2mm;padding-top:1.5mm;font-size:6pt;color:#61686d}}
 @media print{{html,body{{background:#fff}} .toolbar{{display:none}} .sheet{{margin:0;border:0;padding:0;width:283mm;height:196mm}}}}
@@ -508,7 +512,7 @@ th{{background:#e8ecea;text-align:left;font-weight:700}} td{{text-align:center}}
     <table class="accessories"><caption>Accessories / Material</caption><tbody>{accessory_rows}</tbody></table>
     <div class="samples">
       <div class="sample-column"><div class="sample-title">Mato namuna</div><div class="sample-box fabric-sample"><div class="fabric-photo">{fabric_image_html}</div><div></div></div></div>
-      <div class="sample-column right"><div class="sample-title">Beyka namuna</div><div class="sample-box"></div><div class="sample-title print">Pechat</div><div class="sample-box"></div></div>
+      <div class="sample-column right"><div class="sample-title">Beyka namuna</div><div class="sample-box"></div><div class="sample-title print">Pechat</div><div class="sample-box print-photo">{print_image_html}</div></div>
     </div>
   </section>
   <footer class="footer"><span>{_h(operator_note)}</span><span>{('Passport: ' + _h(passport.passport_no)) if passport else ''}</span><span>Missing ERP values intentionally print blank.</span></footer>

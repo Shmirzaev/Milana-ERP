@@ -3,6 +3,22 @@ name: milana-feature
 description: Add or extend Milana ERP features while preserving the agreed monolith boundaries, DTO and schema discipline, named ownership, regression coverage, and human acceptance. Use for approved new endpoints, workflows, fields, integrations, and related UI changes; use milana-refactor for behavior-preserving extraction.
 ---
 
+## Owner review-gate update — 4 November 2026
+
+The owner explicitly instructed: continue refactoring, visually test PRs requesting
+his review, and merge passing PRs. QA master will check everything before deployment.
+For this owner-authorized continuation, complete meaningful automated checks, actual
+visual and persisted-data verification, and independent AI review on the identified
+candidate before an authorized source merge. Record AI_VERIFIED_AWAITING_HUMAN and
+retain the human checklist; do not pause development or merge solely for pending
+human review. QA master must complete and record the pre-deployment review;
+named domain ownership and the human checklist remain recorded. A merge is not human acceptance, deployment
+authorization or permission to retire old paths; retain each path until its separately
+recorded retirement condition is met. This update supersedes conflicting instructions
+to wait for human review before source integration or the next development slice.
+Preserve historical evidence and do not relabel earlier unrecorded human acceptance.
+
+
 # Milana feature discipline
 
 Apply the [engineering workflow](../../../docs/ENGINEERING_WORKFLOW.md) for layer
@@ -112,9 +128,10 @@ no cleanup/readiness claim before required gates pass. Human production acceptan
 remains separate. Documentation-only work records runtime gates as NOT APPLICABLE.
 After independent AI verification on the exact source, use
 **AI_VERIFIED_AWAITING_HUMAN** and supply the human's local visual checklist.
-The human repeats the affected workflow, checks saved results and records approval
-or rejection of that build. AI verification is not human approval or merge/release
-authority. Preserve the task/coverage ledger and use [the shared evidence states](../../../docs/VERIFICATION.md#5-record-evidence-and-completion).
+Before deployment, QA master repeats the affected workflow, checks saved results
+and records approval or rejection of that build. Continue source integration and
+refactoring under the owner's recorded merge instruction after all AI gates pass.
+AI verification alone is not human approval or merge/release authority. Preserve the task/coverage ledger and use [the shared evidence states](../../../docs/VERIFICATION.md#5-record-evidence-and-completion).
 
 ## Prove and hand off
 

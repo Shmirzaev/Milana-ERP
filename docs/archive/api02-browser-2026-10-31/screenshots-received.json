@@ -1,0 +1,23 @@
+{
+  "received": "2026-10-31",
+  "inspected": true,
+  "connected_phone": "NOT COVERED",
+  "screenshots": [
+    {
+      "file": "pr314_manager_tasks_RU.jpg",
+      "sha256": "141241c7904851f2d4c5d6fbadd4b01a7d6fb129c6763332db687a043c246b64"
+    },
+    {
+      "file": "pr314_manager_tasks_UZ.jpg",
+      "sha256": "6bfe14557a442df9caf36e185beae09d199d9f649c83d6041a0bc19d7037d7e7"
+    },
+    {
+      "file": "pr314_blank_title_refused_RU.png",
+      "sha256": "4bd900a08cb054078e46c91978bd25383be6208aa8ba409f857c00cf5a7e0042"
+    },
+    {
+      "file": "pr314_restricted_tasks_EN.jpg",
+      "sha256": "8c4db23750df82676ff6fb5334d38d518f3cc9a3c17ad82f8317c8238c528ce2"
+    }
+  ]
+}

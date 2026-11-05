@@ -20,8 +20,8 @@ def sync_sewing_input(db: Session, wo: WorkOrder) -> None:
         Bundle.production_order_id == wo.production_order_id,
         Bundle.status == "received_sewing",
     )
-    if wo.production_batch_id is not None:
-        received_query = received_query.filter(Bundle.production_batch_id == wo.production_batch_id)
+    from app.models.production.batch_scope_service import filter_work_order_batches
+    received_query = filter_work_order_batches(received_query, Bundle.production_batch_id, wo)
     received = dict(received_query.group_by(Bundle.production_batch_id).all())
     # A shared work order can contain several Nastils. Receipt for Nastil 1
     # must not hide separately recorded input for Nastil 2.

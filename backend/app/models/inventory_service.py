@@ -32,8 +32,14 @@ from app.libs.enums.inventory import (
     MaterialReservationSource,
     MaterialReservationStatus,
     MaterialReservationType,
+    ReservationPlanRowStatus,
+    ReservationPlanStatus,
 )
 from app.libs.dto.inventory.reservation_type_selection import DeferredReservationType, reservation_type_selection
+from app.libs.types.inventory import (
+    ItemCompositionValue, ReservationBatchSuggestionValue, ReservationPlan,
+    ReservationPlanRow, ReservationPlanStockContext, ReservationRequirement,
+)
 from app.models.numbering_service import next_material_reservation_nos
 from app.schemas.inventory import material_reservation_persistence
 from app.models.workflow_service import consume_item_from_batches, consume_stock_batch, notify_department
@@ -63,13 +69,13 @@ def _accessory_match_key(value: object) -> str:
     return " ".join(str(value or "").strip().lower().split())
 
 
-def _item_composition(item: Item | None) -> list[dict]:
+def _item_composition(item: Item | None) -> list[ItemCompositionValue]:
     if not item:
         return []
     rows = item.composition_json or []
     if not isinstance(rows, list):
         return []
-    out: list[dict] = []
+    out: list[ItemCompositionValue] = []
     for row in rows:
         if not isinstance(row, dict):
             continue
@@ -308,7 +314,7 @@ def _bom_requirement_rows(
     db: Session,
     po: ProductionOrder,
     categories: tuple[str, ...] | None = None,
-) -> list[dict]:
+) -> list[ReservationRequirement]:
     po_items = (
         db.query(ProductionOrderItem)
         .filter(ProductionOrderItem.production_order_id == po.id)
@@ -329,7 +335,7 @@ def _bom_requirement_rows(
     for bom, item in bom_rows:
         by_model.setdefault(int(bom.model_id), []).append((bom, item))
 
-    required: dict[tuple[int, str, int | None], dict] = {}
+    required: dict[tuple[int, str, int | None], ReservationRequirement] = {}
     explicit_materials = (
         db.query(ProductionOrderMaterial)
         .filter(ProductionOrderMaterial.production_order_id == po.id)
@@ -431,7 +437,7 @@ def _suggest_batches_for_requirement(
     unit: str,
     quantity: float,
     stock_batch_id: int | None = None,
-) -> list[dict]:
+) -> list[ReservationBatchSuggestionValue]:
     """Fill a need from already-loaded candidates, oldest receipt first.
 
     `candidates` is every batch of `item_id` that still holds quantity, already
@@ -451,7 +457,7 @@ def _suggest_batches_for_requirement(
         batches = [pinned] if pinned is not None and int(pinned.item_id) == int(item_id) else []
     else:
         batches = candidates
-    out: list[dict] = []
+    out: list[ReservationBatchSuggestionValue] = []
     for batch in batches:
         if left <= EPSILON:
             break
@@ -513,7 +519,9 @@ def _reservation_coverage_maps(
     return by_item, by_batch
 
 
-def _reservation_plan_stock_context(db: Session, requirement_rows: list[dict]) -> dict:
+def _reservation_plan_stock_context(
+    db: Session, requirement_rows: list[ReservationRequirement]
+) -> ReservationPlanStockContext:
     """Load every stock, claim and candidate read a reservation plan needs once.
 
     The plan loop used to ask for the same numbers row by row: a candidate
@@ -643,7 +651,7 @@ def _reservation_plan_stock_context(db: Session, requirement_rows: list[dict]) -
     }
 
 
-def reservation_plan_for_production_order(db: Session, production_order_id: int, categories: tuple[str, ...] | None = None) -> dict:
+def reservation_plan_for_production_order(db: Session, production_order_id: int, categories: tuple[str, ...] | None = None) -> ReservationPlan:
     po = db.get(ProductionOrder, production_order_id)
     if not po:
         raise HTTPException(404, "Production order not found")
@@ -658,7 +666,7 @@ def reservation_plan_for_production_order(db: Session, production_order_id: int,
     candidates_by_item = context["candidates_by_item"]
     candidate_ids = context["candidate_ids"]
     batches_by_id = context["batches_by_id"]
-    rows = []
+    rows: list[ReservationPlanRow] = []
     for row in requirement_rows:
         item_id = int(row["item_id"])
         stock_batch_id = int(row["stock_batch_id"]) if row.get("stock_batch_id") else None
@@ -692,11 +700,11 @@ def reservation_plan_for_production_order(db: Session, production_order_id: int,
             stock_batch_id=stock_batch_id,
         )
         if remaining <= EPSILON:
-            status = "ready"
+            status = ReservationPlanRowStatus.READY
         elif shortage > EPSILON:
-            status = "shortage"
+            status = ReservationPlanRowStatus.SHORTAGE
         else:
-            status = "partial"
+            status = ReservationPlanRowStatus.PARTIAL
         rows.append({
             **row,
             "required_quantity": required,
@@ -715,13 +723,13 @@ def reservation_plan_for_production_order(db: Session, production_order_id: int,
     total_remaining = sum(float(row["remaining_to_reserve"] or 0) for row in rows)
     total_shortage = sum(float(row["shortage"] or 0) for row in rows)
     if not rows:
-        readiness_status = "no_bom"
+        readiness_status = ReservationPlanStatus.NO_BOM
     elif total_remaining <= EPSILON:
-        readiness_status = "ready"
+        readiness_status = ReservationPlanStatus.READY
     elif total_shortage > EPSILON:
-        readiness_status = "shortage"
+        readiness_status = ReservationPlanStatus.SHORTAGE
     else:
-        readiness_status = "partial"
+        readiness_status = ReservationPlanStatus.PARTIAL
 
     return {
         "production_order_id": int(po.id),
@@ -741,8 +749,8 @@ def reservation_plan_for_production_order(db: Session, production_order_id: int,
             "remaining_to_reserve": total_remaining,
             "shortage": total_shortage,
             "line_count": len(rows),
-            "ready_line_count": sum(1 for row in rows if row["status"] == "ready"),
-            "shortage_line_count": sum(1 for row in rows if row["status"] == "shortage"),
+            "ready_line_count": sum(1 for row in rows if row["status"] == ReservationPlanRowStatus.READY),
+            "shortage_line_count": sum(1 for row in rows if row["status"] == ReservationPlanRowStatus.SHORTAGE),
         },
         "rows": rows,
     }

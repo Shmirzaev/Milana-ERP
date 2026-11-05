@@ -37,11 +37,11 @@ def unfinished_sewing_batches(db, wo):
     sewn = db.query(record_batch, func.sum(
         SewingRecord.passed_qty + SewingRecord.failed_qty + SewingRecord.rejected_qty)).filter(
         SewingRecord.work_order_id == wo.id)
-    if wo.production_batch_id is not None:
-        batches = batches.filter(ProductionBatch.id == wo.production_batch_id)
-        cutting = cutting.filter(CuttingRecord.production_batch_id == wo.production_batch_id)
-        received = received.filter(Bundle.production_batch_id == wo.production_batch_id)
-        printing = printing.filter(print_batch == wo.production_batch_id)
+    from app.models.production.batch_scope_service import filter_work_order_batches
+    batches = filter_work_order_batches(batches, ProductionBatch.id, wo)
+    cutting = filter_work_order_batches(cutting, CuttingRecord.production_batch_id, wo)
+    received = filter_work_order_batches(received, Bundle.production_batch_id, wo)
+    printing = filter_work_order_batches(printing, print_batch, wo)
     plans = dict(batches.all())
     cut = dict(cutting.group_by(CuttingRecord.production_batch_id).all())
     receipts = dict(received.group_by(Bundle.production_batch_id).all())

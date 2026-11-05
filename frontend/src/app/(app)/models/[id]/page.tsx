@@ -1782,7 +1782,7 @@ export default function ModelDetail() {
                 </div>
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div><span className="text-slate-500">{t("page.modelDetail.sizeRange")}</span> {sizeRows.map((s: any) => s.size).join(", ") || "-"}</div>
-                  <div><span className="text-slate-500">{t("page.modelDetail.colorsLabel")}</span> {colorRows.map((c: any) => c.color_name).join(", ") || "-"}</div>
+                  <div className="min-w-0 break-words"><span className="text-slate-500">{t("page.modelDetail.colorsLabel")}</span> {colorRows.map((c: any) => c.color_name).join(", ") || "-"}</div>
                 </div>
                 {modelCompositionText && (
                   <div className="text-sm">

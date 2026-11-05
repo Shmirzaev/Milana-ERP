@@ -12,7 +12,7 @@ from sqlalchemy.orm import selectinload
 
 from app.schemas import BrandedPlanningOrder, Department, Model, ProductionOrder, ProductionOrderMaterial, StockBatch
 from app.models.model_identity_service import model_number_fields
-from app.models.label_images_service import model_label_image_src, material_label_image_src
+from app.models.label_images_service import model_label_image_src, material_label_image_src, print_label_image_src
 
 HEADERS = ['No', 'Model №', 'Rasm', 'Model qolip №', 'Variant №', 'Material', 'Material eni', 'Rangi', 'Partiya №', 'Pechat', 'Vishevka', 'Model razmeri', 'Gramaj material', 'Umumiy ish soni', 'Potok', 'Mini postal', 'Aksesuar', 'Izoh', 'Foto izoh']
 
@@ -104,7 +104,7 @@ def build_branded_order_workbook(db, order: BrandedPlanningOrder):
         append(form, [index, identity['model_no'], None,
                       first(general, 'qolip_no', 'qolipNo', 'mold_no', 'moldNo', 'pattern_no', 'patternNo'),
                       identity['variant_no'], fabric, joined('width'), joined('color'), joined('batch_no'),
-                      'Ha' if any(i.printing_required for i in p.items) else 'Yo‘q',
+                      'Ha' if any(w.operation == 'printing' and w.status != 'cancelled' for w in p.work_orders) else 'Yo‘q',
                       ('Ha' if first(general, 'embroidery', 'legacy_master_embroidery') is True else
                        'Yo‘q' if first(general, 'embroidery', 'legacy_master_embroidery') is False else
                        first(general, 'embroidery', 'legacy_master_embroidery')),
@@ -114,6 +114,7 @@ def build_branded_order_workbook(db, order: BrandedPlanningOrder):
         form.row_dimensions[row].height = 120
         picture(form, f'C{row}', model_label_image_src(model))
         picture(form, f'H{row}', material_label_image_src(model))
+        picture(form, f'J{row}', print_label_image_src(model))
         form[f'H{row}'].alignment = Alignment(vertical='bottom', wrap_text=True)
         for item in p.items:
             append(sizes, [p.order_no, identity['model_no'], identity['variant_no'], item.color, item.size, item.planned_quantity, item.printing_required])

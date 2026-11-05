@@ -24,7 +24,11 @@ def shipment_invoice_workbook(document: dict, language: str, *, show_prices: boo
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "Invoice"
-    widths = invoice_column_widths()
+    packages = document.get("package_details")
+    if packages is None:
+        packages = list({line["package_no"]: {"package_no": line["package_no"], "weight_kg": None} for line in document.get("lines", [])}.values())
+    rows = document.get("invoice_rows") or build_invoice_rows(document.get("lines", []), packages)
+    widths = invoice_column_widths(rows)
     last_column = len(widths)
     for column, width in enumerate(widths, 1):
         sheet.column_dimensions[get_column_letter(column)].width = width
@@ -99,13 +103,13 @@ def shipment_invoice_workbook(document: dict, language: str, *, show_prices: boo
                        align="right" if column >= 6 else "left" if column in (4, 5) else "center",
                        bold=column in (1, 2, 11), size=9)
             cell.border = border
-            cell.alignment = Alignment(horizontal=cell.alignment.horizontal, vertical="center", wrap_text=True, shrink_to_fit=False)
+            cell.alignment = Alignment(horizontal=cell.alignment.horizontal, vertical="center", wrap_text=column != 5, shrink_to_fit=False)
             if column >= 6:
                 cell.number_format = '#,##0.00' if column >= 8 else '#,##0'
         for column in (6, 8, 9):
             if span > 1:
                 sheet.merge_cells(start_row=row, end_row=row + span - 1, start_column=column, end_column=column)
-        sheet.row_dimensions[row].height = max(23.1, *(text_height(value, width, 9) for value, width in zip(values, widths)))
+        sheet.row_dimensions[row].height = max(23.1, *(text_height(value, width, 9) for column, (value, width) in enumerate(zip(values, widths), 1) if column != 5))
     total_row = 10 + len(rows)
     merged(total_row, 1, 5, text["total"], bold=True, fill="C6D9F1", color="1F3864")
     for column, value in enumerate([document["packages_count"], document["quantity"], float(recorded_weight(document)), float(recorded_weight(document))], 6):

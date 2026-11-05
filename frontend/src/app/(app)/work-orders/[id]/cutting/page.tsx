@@ -1812,6 +1812,7 @@ export default function CuttingPage() {
 
       {!isUsluga && can(me, "cutting.records", "*") && wo && po && (
         <CuttingSewingFactory workOrderId={Number(id)} factory={po.sewing_factory_code || "MIL"}
+          batches={batchItems}
           locked={batchItems.some((row: any) => row.sewing_output_recorded) || (po.work_orders || []).some((row: any) => row.operation === "sewing" && (row.actual_output_qty > 0 || row.passed_qty > 0 || row.failed_qty > 0))}
           onSaved={() => Promise.all([mutatePo(), mutateWo(), mutateBatchProgress(), mutateBundles()])} />
       )}

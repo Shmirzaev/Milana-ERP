@@ -23,13 +23,14 @@ def store(monkeypatch):
 
 
 def test_readiness_reports_healthy_dependencies(client, monkeypatch, store):
+    monkeypatch.setattr(main.settings, "RELEASE_ID", "20261027_120000", raising=False)
     monkeypatch.setattr(main, "_probe_postgresql", lambda: None)
 
     response = client.get("/ready")
 
     assert response.status_code == 200
     assert response.json() == {
-        "status": "ready", "checks": {"postgresql": "ok", "shared_store": "ok"},
+        "status": "ready", "checks": {"postgresql": "ok", "shared_store": "ok"}, "release": "20261027_120000",
     }
     store.ttl.assert_called_once_with("readiness")
     store.set.assert_not_called()
@@ -38,6 +39,7 @@ def test_readiness_reports_healthy_dependencies(client, monkeypatch, store):
 
 @pytest.mark.parametrize("failure", ["postgresql", "shared_store", "store_initialization"])
 def test_readiness_dependency_failure_without_secrets(client, monkeypatch, store, failure):
+    monkeypatch.setattr(main.settings, "RELEASE_ID", "20261027_120000", raising=False)
     def fail_probe(*args):
         raise RuntimeError("connection failed: scheme://user:do-not-leak@private-host/internal")
 
@@ -56,6 +58,7 @@ def test_readiness_dependency_failure_without_secrets(client, monkeypatch, store
             "postgresql": "unavailable" if failure == "postgresql" else "ok",
             "shared_store": "ok" if failure == "postgresql" else "unavailable",
         },
+        "release": "20261027_120000",
     }
     assert "do-not-leak" not in response.text
     assert "private-host" not in response.text
@@ -145,14 +148,15 @@ def test_concurrent_callers_share_inflight_result_and_next_probe_recovers(monkey
     if fails:
         assert all(response.status_code == 503 for response in responses)
     else:
-        assert responses == [{"status": "ready", "checks": {"postgresql": "ok", "shared_store": "ok"}}] * 4
+        assert responses == [{"status": "ready", "checks": {"postgresql": "ok", "shared_store": "ok"}, "release": main.settings.RELEASE_ID}] * 4
 
     monkeypatch.setattr(main, "_probe_postgresql", lambda: None)
-    assert main.readiness() == {"status": "ready", "checks": {"postgresql": "ok", "shared_store": "ok"}}
+    assert main.readiness() == {"status": "ready", "checks": {"postgresql": "ok", "shared_store": "ok"}, "release": main.settings.RELEASE_ID}
     assert store.ttl.call_count == 2
 
 
 def test_health_remains_dependency_free(client, monkeypatch):
+    monkeypatch.setattr(main.settings, "RELEASE_ID", "20261027_120000", raising=False)
     def forbidden():
         pytest.fail("liveness must not probe dependencies")
 
@@ -162,4 +166,4 @@ def test_health_remains_dependency_free(client, monkeypatch):
     health = client.get("/health")
 
     assert health.status_code == 200
-    assert health.json() == {"status": "ok", "app": main.settings.APP_NAME}
+    assert health.json() == {"status": "ok", "app": main.settings.APP_NAME, "release": "20261027_120000"}

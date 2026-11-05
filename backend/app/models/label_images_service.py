@@ -8,7 +8,7 @@ from sqlalchemy import inspect as sa_inspect
 
 from app.core.config import settings
 from app.schemas import Model, ModelBOM, ModelImage
-from app.models.model_images_service import model_variant_picture_url
+from app.models.model_images_service import model_print_image_url, model_variant_picture_url
 from app.models.model_family_images_service import model_family_image
 
 
@@ -159,6 +159,13 @@ def variant_label_image_src(model: Model | None) -> str | None:
     if not url or not model:
         return None
     image = next((img for img in model.images or [] if img.file_url == url), None)
+    return _model_image_src(image)
+
+
+def print_label_image_src(model: Model | None) -> str | None:
+    """Embed the exact variant's print artwork, using the catalog's selection rule."""
+    url = model_print_image_url(model)
+    image = next((img for img in model.images or [] if img.file_url == url), None) if model else None
     return _model_image_src(image)
 
 

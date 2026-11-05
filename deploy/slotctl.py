@@ -25,6 +25,8 @@ BASE = Path("/opt/milana-erp")
 RUNTIME = BASE / "runtime"
 STATE_PATH = RUNTIME / "slots.json"
 PROXY_PATH = RUNTIME / "haproxy.cfg"
+FRONTEND_ERROR_PATH = RUNTIME / "frontend-503.http"
+API_ERROR_PATH = RUNTIME / "api-503.http"
 SERVICE_PATH = Path("/etc/systemd/system/milana-router.service")
 ROLES = {
     "backend": {"stable": 8000, "blue": 18001, "green": 18002, "health": "/ready"},
@@ -34,6 +36,25 @@ BACKEND_WORKERS = 2
 DB_POOL_SIZE = 8
 DB_MAX_OVERFLOW = 4
 POSTGRES_MAX_CONNECTIONS = 100
+
+FRONTEND_ERROR = """HTTP/1.1 503 Service Unavailable
+Content-Type: text/html; charset=utf-8
+Cache-Control: no-store
+Refresh: 10
+
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="10"><title>Back in a moment</title><style>body{font:1.1rem system-ui,sans-serif;max-width:36rem;margin:12vh auto;padding:1.5rem;color:#243047}h1{font-size:1.7rem}p{line-height:1.5}</style><h1>Back in a moment</h1><p>We are restoring the service. This page retries every 10 seconds.</p><p lang="ru">Сервис восстанавливается. Страница обновится через 10 секунд.</p><p lang="uz">Xizmat tiklanmoqda. Sahifa 10 soniyadan keyin yangilanadi.</p></html>
+"""
+API_ERROR = """HTTP/1.1 503 Service Unavailable
+Content-Type: application/json; charset=utf-8
+Cache-Control: no-store
+
+{"detail":"Service unavailable"}
+"""
+
+
+def write_errorfiles() -> None:
+    atomic_write(FRONTEND_ERROR_PATH, FRONTEND_ERROR, mode=0o644)
+    atomic_write(API_ERROR_PATH, API_ERROR, mode=0o644)
 
 
 def backend_connection_budget(
@@ -159,6 +180,7 @@ def stage(role: str, slot: str, release: str, image: str) -> None:
     if role == "backend":
         command.extend([
             "--env-file", str(BASE / "shared/backend.env"),
+            "-e", f"RELEASE_ID={release}",
             "-e", f"DB_POOL_SIZE={DB_POOL_SIZE}",
             "-e", f"DB_MAX_OVERFLOW={DB_MAX_OVERFLOW}",
             "-e", f"WEB_CONCURRENCY={BACKEND_WORKERS}",
@@ -179,6 +201,19 @@ def proxy_config(role: str, slot: str) -> str:
     stable = int(ROLES[role]["stable"])
     port = slot_port(role, slot)
     health = str(ROLES[role]["health"])
+    api_route = ""
+    api_backend = ""
+    errorfile = f"    errorfile 503 {API_ERROR_PATH}\n"
+    if role == "frontend":
+        api_route = "    acl api_route path -i /api\n    acl api_route path_beg /api/\n    use_backend milana_api_active if api_route\n"
+        errorfile = f"    errorfile 503 {FRONTEND_ERROR_PATH}\n"
+        api_backend = f"""
+backend milana_api_active
+    option httpchk GET {health}
+    http-check expect status 200
+    errorfile 503 {API_ERROR_PATH}
+    server active 127.0.0.1:{port} check inter 2s fall 3 rise 2
+"""
     return f"""global
     master-worker
     log stdout format raw local0
@@ -196,13 +231,13 @@ defaults
 
 frontend milana_public
     bind 0.0.0.0:{stable}
-    default_backend milana_active
+{api_route}    default_backend milana_active
 
 backend milana_active
     option httpchk GET {health}
     http-check expect status 200
-    server active 127.0.0.1:{port} check inter 2s fall 3 rise 2
-"""
+{errorfile}    server active 127.0.0.1:{port} check inter 2s fall 3 rise 2
+{api_backend}"""
 
 
 def validate_proxy(content: str) -> None:
@@ -238,6 +273,7 @@ def install_router(role: str, slot: str, release: str, stop_legacy: bool) -> Non
     if shutil.which("haproxy") is None:
         raise RuntimeError("Install the distribution haproxy package before bootstrapping")
     wait_for_health(role, slot)
+    write_errorfiles()
     content = proxy_config(role, slot)
     validate_proxy(content)
     atomic_write(PROXY_PATH, content)
@@ -283,6 +319,7 @@ def activate(role: str, slot: str, release: str) -> None:
     if state.get("role") not in (None, role):
         raise RuntimeError("Runtime state belongs to another role")
     wait_for_health(role, slot)
+    write_errorfiles()
     content = proxy_config(role, slot)
     validate_proxy(content)
     atomic_write(PROXY_PATH, content)
