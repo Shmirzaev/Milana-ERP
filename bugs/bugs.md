@@ -1,5 +1,14 @@
 # Team bug tracker — clone_main
 
+## SUP-SETTINGS-NONADMIN-SILENT-403-20261105 — non-admin Settings controls and silent refusal
+
+- **P3 · Watch · Support/Settings UI · Owner: Dilmurod. Decision pending Dilmurod.**
+  Non-admins see Settings Save buttons and the logo picker; a refused save shows
+  no error (API correctly returns 403). Observed in the 5 November W6 connected-
+  browser report, `W6_BROWSER_RESULTS_2026-11-05.md`, on the isolated #472/#477 copy.
+  Reload confirmed the attempted change did not persist. Record as a follow-up;
+  no application fix, production occurrence or extraction regression is claimed.
+
 ## PEO-ORG-MANAGER-ARCHIVED-20261105 — org-unit Manager dropdown lists archived employees
 
 - **P3 · Watch · People/Organization UI · Owner: Dilmurod.** The 5 November
