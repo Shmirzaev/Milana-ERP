@@ -16,7 +16,7 @@ assert.match(page, /projected: Number\(row\.projected_demand/);
 assert.match(page, /available: Number\(row\.available_quantity/);
 assert.match(page, /suggested: Number\(row\.suggested_quantity/);
 assert.match(chart, /role="img"/);
-assert.match(chart, /<table className="sr-only">/);
+assert.match(chart, /<div className="sr-only">\s*<table>/);
 assert.doesNotMatch(chart, /gradient|shadow-xl|shadow-2xl|rounded-2xl|rounded-3xl/);
 
 for (const key of [

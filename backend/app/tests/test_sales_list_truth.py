@@ -11,6 +11,7 @@ from sqlalchemy.orm import sessionmaker
 from app.db.base import Base
 from app.schemas import Customer, Model, SalesOrder, SalesOrderItem, AuditLog
 from app.models.sales import orders_service
+from app.libs.enums.sales import SalesOrderStatus
 
 
 @pytest.fixture(scope="module")
@@ -73,7 +74,7 @@ def test_legacy_envelope_pagination_filters_and_route(case):
         legacy=orders_service.list_sales_orders(db,page=2,page_size=1)
         assert isinstance(legacy,list) and legacy[0]['id']==ids[1] and legacy[0]['total_quantity']==6
         from app.api.routes.sales import list_sales_orders
-        page=list_sales_orders(db,None,status="confirmed",order_type="client_order",customer_id=customer,
+        page=list_sales_orders(db,None,status=SalesOrderStatus.CONFIRMED,order_type="client_order",customer_id=customer,
             q="QTY-001",created_from=date(2026,10,26),created_to=date(2026,10,26),include_total=True,page_size=1)
         assert page['total']==1 and page['rows'][0]['id']==ids[1] and page['rows'][0]['total_quantity']==6
         assert orders_service.list_sales_orders(db,q="nonexistent",include_total=True)['rows']==[]
