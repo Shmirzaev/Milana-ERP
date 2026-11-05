@@ -765,3 +765,18 @@ def daily_attendance_report(
         lang=lang,
     )
     return content
+
+
+def attendance_person_photo_path(person_id: int, db: Session, current: User) -> Path:
+    person = db.query(AttendancePerson).filter(
+        AttendancePerson.id == person_id,
+        AttendancePerson.factory_code == selected_factory_code(current),
+        AttendancePerson.present_on_device.is_(True),
+    ).one_or_none()
+    if not person or not person.photo_file_name:
+        raise HTTPException(404, "Attendance photo not found")
+    root = Path(settings.ATTENDANCE_PHOTOS_DIR).resolve()
+    path = (root / person.photo_file_name).resolve()
+    if path.parent != root or not path.is_file():
+        raise HTTPException(404, "Attendance photo not found")
+    return path

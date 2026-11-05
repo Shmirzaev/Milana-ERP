@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hmac
 from datetime import date, datetime
-from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
@@ -11,8 +10,7 @@ from fastapi.responses import FileResponse, Response
 from app.core.config import settings
 from app.core.deps import DbSession, require_permissions
 from app.core.dt import utcnow
-from app.schemas import AttendanceDevice, AttendancePerson, User
-from app.models.factory_scope_service import selected_factory_code
+from app.schemas import AttendanceDevice, User
 from app.models.attendance_reports_service import ReportLanguage
 from app.models.audit_service import log_action
 from app.models.people import attendance_service
@@ -171,15 +169,5 @@ def attendance_person_photo(
     db: DbSession,
     current: User = Depends(require_permissions("attendance.view", "attendance.manage", "*")),
 ):
-    person = db.query(AttendancePerson).filter(
-        AttendancePerson.id == person_id,
-        AttendancePerson.factory_code == selected_factory_code(current),
-        AttendancePerson.present_on_device.is_(True),
-    ).one_or_none()
-    if not person or not person.photo_file_name:
-        raise HTTPException(404, "Attendance photo not found")
-    root = Path(settings.ATTENDANCE_PHOTOS_DIR).resolve()
-    path = (root / person.photo_file_name).resolve()
-    if path.parent != root or not path.is_file():
-        raise HTTPException(404, "Attendance photo not found")
+    path = attendance_service.attendance_person_photo_path(person_id, db, current)
     return FileResponse(path, media_type="image/webp", headers={"Cache-Control": "private, max-age=300"})
