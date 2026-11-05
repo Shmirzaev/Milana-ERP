@@ -12,14 +12,14 @@ from app.core.deps import user_permissions
 from app.core.dt import as_utc, utcnow
 from app.core.security import hash_password, is_legacy_default_admin_login, normalize_email, validate_password_strength, verify_password
 from app.core.shared_store import SharedCounterStore
-from app.libs.dto.identity.auth import ChangePasswordIn, ResetPasswordIn, UserMe
+from app.libs.dto.identity.auth import ChangePasswordIn, ProfileUpdateIn, ResetPasswordIn, UserMe
 from app.models.audit_service import log_action
 from app.models.credentials_service import apply_password_credential_change, lock_user_for_credential_change
 from app.models.factory_scope_service import assigned_factory_code, authorize_login_factory, available_factory_codes, selected_factory_code
 from app.models.password_reset_service import create_password_reset_token, password_reset_hash, password_reset_url
 from app.schemas import PasswordResetToken, User
 from app.schemas.core_persistence import add_notification_row
-from app.schemas.identity.user_persistence import record_user_login_activity, record_user_seen
+from app.schemas.identity.user_persistence import record_user_login_activity, record_user_seen, set_user_profile
 
 _DUMMY_PASSWORD_HASH = hash_password("dummy-login-password-0")
 
@@ -184,6 +184,25 @@ def change_own_password(db: Session, user: User, payload: ChangePasswordIn) -> N
 def read_current_user(db: Session, user: User) -> UserMe:
     record_user_seen(db, user, utcnow())
     db.commit()
+    return _user_me(user)
+
+
+def update_current_profile(db: Session, user: User, payload: ProfileUpdateIn) -> UserMe:
+    if len(payload.name) > 128:
+        raise HTTPException(422, "Name must be at most 128 characters")
+    email = normalize_email(str(payload.email))
+    if db.query(User).filter(User.email == email, User.id != user.id).first():
+        raise HTTPException(400, "Email already exists")
+    old_value = {"name": user.name, "email": user.email}
+    set_user_profile(db, user, name=payload.name.strip(), email=email)
+    log_action(db, user, "update_profile", "User", user.id, old_value=old_value,
+               new_value={"name": user.name, "email": user.email})
+    db.commit()
+    db.refresh(user)
+    return _user_me(user)
+
+
+def _user_me(user: User) -> UserMe:
     return UserMe(
         sewing_band_id=user.sewing_band_id,
         id=user.id,
