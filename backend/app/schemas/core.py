@@ -112,6 +112,7 @@ class PasswordResetToken(Base, PkMixin):
 class SystemSetting(Base, PkMixin, TimestampMixin):
     __tablename__ = "system_settings"
     MODEL_NUMBERING_KEY: ClassVar[str] = "model_numbering"
+    MODEL_VARIANT_NUMBERING_KEY: ClassVar[str] = "model_variant_numbering"
     key: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
     value_json: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
 
@@ -135,6 +136,16 @@ class SystemSetting(Base, PkMixin, TimestampMixin):
             db.add(setting)
             db.flush()
         return setting
+
+    @classmethod
+    def write_model_variant_numbering(
+        cls, db: Session, *, setting: SystemSetting | None, value_json: dict[str, int],
+    ) -> None:
+        if setting is not None:
+            setting.value_json = value_json
+        else:
+            db.add(cls(key=cls.MODEL_VARIANT_NUMBERING_KEY, value_json=value_json))
+        db.flush()
 
     @classmethod
     def write_model_numbering(
