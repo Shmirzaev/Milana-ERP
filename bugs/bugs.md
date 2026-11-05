@@ -1,5 +1,15 @@
 # Team bug tracker — clone_main
 
+## IDN-ROLES-NO-SCREEN-20261105 — role creation has no screen
+
+- **P3 · Open · Identity/Roles · Owner: Dilmurod. Decision pending Dilmurod.** No Roles screen; roles can only be created via the API by a Super Admin.
+- Source: `W5_BROWSER_RESULTS_2026-11-05.md`, isolated #505 stack at localhost:19850, 5 November 2026. `/admin/roles` returned 404; roles appeared in the Admin → Users role dropdown. Existing behavior recorded for triage; no production occurrence or policy change claimed.
+
+## IDN-ROLE-LIST-ALL-SIGNED-IN-20261105 — full role permissions visible to signed-in users
+
+- **P3 · Open · Identity/Roles · Owner: Dilmurod. Decision pending Dilmurod.** Any signed-in user can read the full role list with permissions (GET /api/roles).
+- Source: `W5_BROWSER_RESULTS_2026-11-05.md`, isolated #505 stack at localhost:19850, 5 November 2026. Restricted account received 200 and the full list. Existing behavior retained; no production occurrence or authorization-policy change claimed.
+
 ## IDN-PASSWORD-CHANGE-STALE-PROFILE-20261105 — Profile stays visible after password change
 
 - **P3 · Open · Identity/Profile UI · Owner: Dilmurod.** After a successful
