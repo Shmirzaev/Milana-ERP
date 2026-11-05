@@ -17,7 +17,8 @@ def requires_scan(event, ref, paths):
     if event == 'push':
         return ref in {'refs/heads/main', 'refs/heads/clone_main'}
     if event == 'pull_request':
-        return any(Path(path).name.startswith(('Dockerfile', 'requirements'))
+        return any(Path(path).name.startswith('Dockerfile')
+                   or (Path(path).name.startswith('requirements') and Path(path).suffix in {'.txt', '.in'})
                    or Path(path).name.endswith(('.Dockerfile', '.lock', '-lock.json', '.lockb'))
                    or Path(path).name in {'npm-shrinkwrap.json', 'pnpm-lock.yaml'} for path in paths)
     return False

@@ -108,6 +108,11 @@ Ismail reviews. The #345 baseline passes unchanged before and after on SQLite an
 isolated PostgreSQL (196 cases, zero skips). This is a candidate, not a deployed
 release or human acceptance; active/rollback records below are unchanged.
 
+CI security-gate candidate [#507](https://github.com/Shmirzaev/Milana-ERP/pull/507)
+adds dated accepted findings and exact scanned-image handoff before manual release.
+It stacks on runtime npm removal [#509](https://github.com/Shmirzaev/Milana-ERP/pull/509); technical evidence remains in the PR. The nightly schedule starts once it reaches main. Both candidates are unmerged. JWT guard/migration
+[#357](https://github.com/Shmirzaev/Milana-ERP/pull/357)/[#364](https://github.com/Shmirzaev/Milana-ERP/pull/364) remain Shavkat-dependent. No release changed.
+
 ## Active green release: older physical-pack history (2 November)
 
 PR369 merged into `clone_main` at `1ed3c5c7`; the owner authorized deployment.

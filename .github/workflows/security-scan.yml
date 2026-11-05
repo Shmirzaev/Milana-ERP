@@ -51,7 +51,8 @@ jobs:
           grep "  $asset$" checksums.txt | sha256sum --check --strict
           tar -xzf "$asset" trivy
           echo "$RUNNER_TEMP/trivy-bin" >> "$GITHUB_PATH"
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
+        id: database-cache
         timeout-minutes: 5
         with:
           path: ${{ env.TRIVY_CACHE_DIR }}/db
@@ -63,6 +64,13 @@ jobs:
           trivy image --download-db-only
           cp "$TRIVY_CACHE_DIR/db/metadata.json" "$REPORT_DIR/database.json"
           trivy --version > "$REPORT_DIR/scanner.txt"
+      - name: Cache verified database even when a later finding blocks the gate
+        uses: actions/cache/save@v4
+        if: steps.database-cache.outputs.cache-hit != 'true'
+        timeout-minutes: 5
+        with:
+          path: ${{ env.TRIVY_CACHE_DIR }}/db
+          key: ${{ steps.database-cache.outputs.cache-primary-key }}
       - name: Set up isolated job builder
         uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
         timeout-minutes: 3

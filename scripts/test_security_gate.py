@@ -165,7 +165,7 @@ class SecurityGateTests(unittest.TestCase):
         for path in ('backend/Dockerfile', 'scripts/rf013_frontend.Dockerfile', 'backend/requirements-dev.txt',
                      'frontend/package-lock.json', 'frontend/pnpm-lock.yaml', 'poetry.lock'):
             self.assertTrue(requires_scan('pull_request', '', [path]), path)
-        for path in ('backend/app/api/routes/admin.py', 'docs/README.md', '.github/workflows/ci.yml'):
+        for path in ('backend/app/api/routes/admin.py', 'docs/README.md', 'docs/requirements-guide.md', '.github/workflows/ci.yml'):
             self.assertFalse(requires_scan('pull_request', '', [path]), path)
 
     def test_release_needs_scan_and_publishes_identical_images_without_rebuilding(self):
@@ -191,7 +191,8 @@ class SecurityGateTests(unittest.TestCase):
         self.assertNotIn('codex/**', branches)
         self.assertIn('codex/ismail-finance-pilot-20261025', branches)
         text = (ROOT/'.github/workflows/security-scan.yml').read_text()
-        self.assertIn('actions/cache@v4', text)
+        self.assertIn('actions/cache/restore@v4', text)
+        self.assertIn('actions/cache/save@v4', text)
         self.assertIn('--include-dev-deps', text)
         self.assertIn('--skip-db-update', text)
         self.assertNotIn('--ignore-unfixed', text)
