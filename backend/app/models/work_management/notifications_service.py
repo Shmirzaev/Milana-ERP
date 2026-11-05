@@ -4,7 +4,8 @@ from fastapi import HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from app.core.deps import require_permissions
-from app.schemas import Department, Role, User
+from app.schemas import Department, Notification, Role, User
+from app.schemas.work_management.notification_persistence import mark_notification_read
 from app.libs.dto.work_management.notification_send import NotificationSendIn
 from app.models.audit_service import log_action
 from app.models.notifications_service import notify_many, _max_bulk_recipients
@@ -145,3 +146,12 @@ def send_notification(
         "requested_by": {"user_id": int(current.id), "name": current.name},
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
+
+
+def mark_read(nid: int, db: Session, current: User):
+    n = db.get(Notification, nid)
+    if not n or n.user_id != current.id:
+        raise HTTPException(404, "Notification not found")
+    mark_notification_read(db, n)
+    db.commit(); db.refresh(n)
+    return n
