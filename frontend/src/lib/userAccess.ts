@@ -13,9 +13,9 @@ export function changeAccess(policy: AccessPolicy | null, factory: FactoryCode, 
 }
 
 const groups = {
-  en: ["Sales", "Planning", "Models", "Cutting", "Printing", "Sewing", "Packaging", "Production", "Inventory", "Reservations", "Warehouse", "Purchasing", "Pricing", "Finance", "Payroll", "People", "Management", "Waste", "Usluga", "Administration", "Attendance"],
-  ru: ["Продажи", "Планирование", "Модели", "Раскрой", "Печать", "Шитьё", "Упаковка", "Производство", "Запасы", "Резервы", "Склад", "Закупки", "Расчёт цены", "Финансы", "Зарплата", "Сотрудники", "Руководство", "Отходы", "Услуги", "Администрирование", "Посещаемость"],
-  uz: ["Sotuv", "Rejalashtirish", "Modellar", "Bichish", "Bosma", "Tikuv", "Qadoqlash", "Ishlab chiqarish", "Zaxiralar", "Band qilish", "Ombor", "Xaridlar", "Narx hisoblash", "Moliya", "Ish haqi", "Xodimlar", "Rahbariyat", "Chiqindilar", "Usluga", "Boshqaruv", "Davomat"],
+  en: ["Sales", "Planning", "Models", "Cutting", "Printing", "Sewing", "Packaging", "Production", "Inventory", "Reservations", "Warehouse", "Purchasing", "Pricing", "Finance", "Payroll", "People", "Management", "Waste", "Usluga", "Administration"],
+  ru: ["Продажи", "Планирование", "Модели", "Раскрой", "Печать", "Шитьё", "Упаковка", "Производство", "Запасы", "Резервы", "Склад", "Закупки", "Расчёт цены", "Финансы", "Зарплата", "Сотрудники", "Руководство", "Отходы", "Услуги", "Администрирование"],
+  uz: ["Sotuv", "Rejalashtirish", "Modellar", "Bichish", "Bosma", "Tikuv", "Qadoqlash", "Ishlab chiqarish", "Zaxiralar", "Band qilish", "Ombor", "Xaridlar", "Narx hisoblash", "Moliya", "Ish haqi", "Xodimlar", "Rahbariyat", "Chiqindilar", "Usluga", "Boshqaruv"],
 };
 const texts = {
   en: { title: "Access settings", help: "Tick to give access; untick to remove it, including access from the role.", factory: "Access in factory", primary: "primary", search: "Find a permission", inherit: "Use default", allow: "Allow", deny: "Deny", allowed: "Allowed", blocked: "Not granted", factoryAvailable: "Factory login available", factoryUnavailable: "Allow a permission to enable this factory", overrides: "overrides", loading: "Checking access…", superOnly: "Only Super Admin can change access in another factory.", loadError: "Access could not be checked. Retry before saving.", noResults: "No matching permissions.", scopeHelp: "Permissions cover the actions named above. Shared lookup data may also be needed by other enabled workflows. Administrator-only operations and factory boundaries remain protected." },

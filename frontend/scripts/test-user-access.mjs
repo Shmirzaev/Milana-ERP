@@ -33,8 +33,7 @@ assert.equal(isSewingRole({ role: "Sewing", access_configured: true, permissions
 for (const language of ["en", "ru", "uz"]) {
   const text = accessText(language);
   assert.ok(text.title && text.allow && text.deny && text.inherit && text.scopeHelp);
-  assert.equal(Object.keys(text.groups).length, 21);
-  assert.equal(text.groups.Attendance, { en: "Attendance", ru: "Посещаемость", uz: "Davomat" }[language]);
+  assert.equal(Object.keys(text.groups).length, 20);
 }
 console.log("User access: allow/deny/default, factory isolation, legacy and configured Sewing, and EN/RU/UZ labels passed.");
 
