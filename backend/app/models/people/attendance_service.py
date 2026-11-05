@@ -11,13 +11,13 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.dt import as_utc, utcnow
 
-from app.libs.dto.people.attendance import DeviceIn, ManagedDeviceIn, ManagedDeviceUpdateIn, PeopleSnapshotIn
+from app.libs.dto.people.attendance import DeviceIn, ManagedDeviceIn, ManagedDeviceUpdateIn, PeopleSnapshotIn, EventBatchIn
 from app.models.factory_scope_service import normalize_factory_code, selected_factory_code
-from app.schemas import AttendanceDevice, AttendancePerson, SystemSetting, User
+from app.schemas import AttendanceDevice, AttendanceEvent, AttendancePerson, SystemSetting, User
 from app.schemas.people.attendance_persistence import (
     insert_managed_device, update_managed_device, insert_attendance_person,
     update_attendance_person, mark_other_people_absent, insert_source_checkpoint,
-    update_source_checkpoint,
+    update_source_checkpoint, insert_attendance_event,
 )
 
 
@@ -419,3 +419,65 @@ def import_people_snapshot(
         "reported_person_count": payload.device.reported_person_count,
         "ignored": False,
     }
+
+
+def import_events(
+    payload: EventBatchIn, db: Session, identity: AttendanceDevice | None, *,
+    clock: Callable = utcnow, upsert_device: Callable = _upsert_device,
+):
+    sync_started_at = clock()
+    device, _ignored_reason, metadata_ignored_reason = upsert_device(
+        db,
+        payload.device,
+        identity,
+        sync_started_at=sync_started_at,
+        source_snapshot_at=payload.source_snapshot_at,
+        event_sync=True,
+    )
+    incoming_uids = [event.event_uid for event in payload.events]
+    if len(incoming_uids) != len(set(incoming_uids)):
+        raise HTTPException(400, "Duplicate event UID in batch")
+    existing = set()
+    if incoming_uids:
+        existing = {
+            value for (value,) in db.query(AttendanceEvent.event_uid).filter(
+                AttendanceEvent.device_id == device.id,
+                AttendanceEvent.event_uid.in_(incoming_uids),
+            ).all()
+        }
+    person_ids = {event.external_person_id for event in payload.events if event.external_person_id}
+    people = {}
+    if person_ids:
+        people = {
+            person.external_person_id: person.id
+            for person in db.query(AttendancePerson).filter(
+                AttendancePerson.device_id == device.id,
+                AttendancePerson.external_person_id.in_(person_ids),
+            ).all()
+        }
+    inserted = 0
+    received_at = clock()
+    for incoming in payload.events:
+        if incoming.event_uid in existing:
+            continue
+        external_id = (incoming.external_person_id or "").strip() or None
+        insert_attendance_event(db, values={
+            "factory_code": device.factory_code, "device_id": device.id,
+            "person_id": people.get(external_id), "event_uid": incoming.event_uid,
+            "external_person_id": external_id, "occurred_at": as_utc(incoming.occurred_at),
+            "received_at": received_at, "direction": incoming.direction,
+            "verification_mode": incoming.verification_mode, "result": incoming.result,
+            "door_no": incoming.door_no, "reader_no": incoming.reader_no,
+            "serial_no": incoming.serial_no,
+        })
+        inserted += 1
+    db.commit()
+    response = {
+        "received": len(payload.events),
+        "inserted": inserted,
+        "duplicates": len(payload.events) - inserted,
+        "metadata_ignored": metadata_ignored_reason is not None,
+    }
+    if metadata_ignored_reason is not None:
+        response["metadata_ignored_reason"] = metadata_ignored_reason
+    return response

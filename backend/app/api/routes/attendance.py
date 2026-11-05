@@ -11,7 +11,6 @@ from zoneinfo import ZoneInfo
 from anyio import CancelScope, to_thread
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse, Response
-from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import case, func, or_
 from sqlalchemy.orm import Session
 
@@ -37,7 +36,7 @@ from app.models.people.attendance_service import (
     ATTENDANCE_IMPORT_LOCK_NAMESPACE as ATTENDANCE_IMPORT_LOCK_NAMESPACE,
     ATTENDANCE_SOURCE_SETTING_PREFIX as ATTENDANCE_SOURCE_SETTING_PREFIX,
 )
-from app.libs.dto.people.attendance import PersonIn as PersonIn, PeopleSnapshotIn
+from app.libs.dto.people.attendance import PersonIn as PersonIn, PeopleSnapshotIn, EventIn as EventIn, EventBatchIn
 from app.libs.dto.people.attendance import DeviceIn as DeviceIn, ManagedDeviceIn as ManagedDeviceIn, ManagedDeviceUpdateIn as ManagedDeviceUpdateIn
 from app.models.attendance_event_policy_service import accepted_attendance_result
 
@@ -45,40 +44,6 @@ from app.models.attendance_event_policy_service import accepted_attendance_resul
 router = APIRouter(prefix="/attendance", tags=["attendance"])
 TASHKENT = ZoneInfo("Asia/Tashkent")
 secrets = attendance_service.secrets
-
-
-class EventIn(BaseModel):
-    event_uid: str = Field(min_length=1, max_length=160)
-    external_person_id: str | None = Field(default=None, max_length=64)
-    occurred_at: datetime
-    direction: str = Field(default="unknown", max_length=16)
-    verification_mode: str | None = Field(default=None, max_length=64)
-    result: str | None = Field(default=None, max_length=32)
-    door_no: int | None = Field(default=None, ge=0, le=10_000)
-    reader_no: int | None = Field(default=None, ge=0, le=10_000)
-    serial_no: int | None = Field(default=None, ge=0)
-
-    @field_validator("event_uid")
-    @classmethod
-    def strip_event_uid(cls, value: str) -> str:
-        return value.strip()
-
-    @field_validator("direction")
-    @classmethod
-    def normalize_direction(cls, value: str) -> str:
-        normalized = value.strip().lower()
-        return normalized if normalized in {"entry", "exit"} else "unknown"
-
-
-class EventBatchIn(BaseModel):
-    device: DeviceIn
-    events: list[EventIn] = Field(max_length=2_000)
-    source_snapshot_at: datetime | None = None
-
-    @field_validator("source_snapshot_at")
-    @classmethod
-    def validate_source_snapshot_at(cls, value: datetime | None) -> datetime | None:
-        return PeopleSnapshotIn.validate_source_snapshot_at(value)
 
 
 _connector_token_hash = attendance_service._connector_token_hash
@@ -122,68 +87,9 @@ def import_events(
     db: DbSession,
     identity: AttendanceDevice | None = Depends(_require_integration_token),
 ):
-    sync_started_at = utcnow()
-    device, _ignored_reason, metadata_ignored_reason = _upsert_device(
-        db,
-        payload.device,
-        identity,
-        sync_started_at=sync_started_at,
-        source_snapshot_at=payload.source_snapshot_at,
-        event_sync=True,
+    return attendance_service.import_events(
+        payload, db, identity, clock=utcnow, upsert_device=_upsert_device,
     )
-    incoming_uids = [event.event_uid for event in payload.events]
-    if len(incoming_uids) != len(set(incoming_uids)):
-        raise HTTPException(400, "Duplicate event UID in batch")
-    existing = set()
-    if incoming_uids:
-        existing = {
-            value for (value,) in db.query(AttendanceEvent.event_uid).filter(
-                AttendanceEvent.device_id == device.id,
-                AttendanceEvent.event_uid.in_(incoming_uids),
-            ).all()
-        }
-    person_ids = {event.external_person_id for event in payload.events if event.external_person_id}
-    people = {}
-    if person_ids:
-        people = {
-            person.external_person_id: person.id
-            for person in db.query(AttendancePerson).filter(
-                AttendancePerson.device_id == device.id,
-                AttendancePerson.external_person_id.in_(person_ids),
-            ).all()
-        }
-    inserted = 0
-    received_at = utcnow()
-    for incoming in payload.events:
-        if incoming.event_uid in existing:
-            continue
-        external_id = (incoming.external_person_id or "").strip() or None
-        db.add(AttendanceEvent(
-            factory_code=device.factory_code,
-            device_id=device.id,
-            person_id=people.get(external_id),
-            event_uid=incoming.event_uid,
-            external_person_id=external_id,
-            occurred_at=as_utc(incoming.occurred_at),
-            received_at=received_at,
-            direction=incoming.direction,
-            verification_mode=incoming.verification_mode,
-            result=incoming.result,
-            door_no=incoming.door_no,
-            reader_no=incoming.reader_no,
-            serial_no=incoming.serial_no,
-        ))
-        inserted += 1
-    db.commit()
-    response = {
-        "received": len(payload.events),
-        "inserted": inserted,
-        "duplicates": len(payload.events) - inserted,
-        "metadata_ignored": metadata_ignored_reason is not None,
-    }
-    if metadata_ignored_reason is not None:
-        response["metadata_ignored_reason"] = metadata_ignored_reason
-    return response
 
 
 def _write_new_attendance_photo(destination: Path, content: bytes) -> bool:
