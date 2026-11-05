@@ -108,6 +108,7 @@ from app.schemas.catalog.variant_persistence import delete_variant_rows
 from app.schemas.catalog.bom_persistence import delete_model_bom, insert_model_bom, update_model_bom
 from app.schemas.catalog.model_update_persistence import apply_model_update
 from app.schemas.catalog.model_approval_persistence import apply_model_approval
+from app.schemas.catalog.model_paid_operations_persistence import set_model_paid_operations_details
 from app.schemas.catalog.model_size_persistence import insert_model_size
 from app.schemas.catalog.model_color_persistence import insert_model_color
 from app.schemas.catalog.model_image_persistence import insert_url_image
@@ -2354,7 +2355,7 @@ def update_model_paid_operations(
         pending_details.append((member, next_details))
     for member, next_details in pending_details:
         old_count = len(paid_operations_from_details(filter_paid_operations_for_factory(member.details_json, save_factory)))
-        member.details_json = next_details
+        set_model_paid_operations_details(db, member, next_details)
         log_action(
             db, current, "update_paid_operations", "Model", member.id,
             old_value={"factory": save_factory, "operation_count": old_count},
