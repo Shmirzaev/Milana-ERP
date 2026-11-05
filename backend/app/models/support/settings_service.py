@@ -1,11 +1,12 @@
 from collections.abc import Callable
 
-from fastapi import HTTPException
+from fastapi import HTTPException, UploadFile
 from fastapi.exceptions import RequestValidationError
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
-from app.libs.dto.support.settings import _SCHEMAS
+from app.core.config import settings as app_settings
+from app.libs.dto.support.settings import CompanyInfo, _SCHEMAS
 from app.schemas import SystemSetting, User
 
 
@@ -49,3 +50,33 @@ def _get_or_default(db: Session, key: str) -> dict:
 
 def get_settings(db: Session) -> dict:
     return {key: _get_or_default(db, key) for key in _SCHEMAS}
+
+
+async def upload_company_logo(db: Session, file: UploadFile, current: User, *, audit: Callable):
+    from app.models.image_storage_service import discard_replaced_managed_image, store_uploaded_image
+
+    stored = await store_uploaded_image(
+        file,
+        target_dir=app_settings.MODEL_FILES_DIR,
+        file_url_base="/storage/model-files",
+        name_prefix="company_logo",
+        max_bytes=5 * 1024 * 1024,
+        prebuild_thumbnails=True,
+    )
+    logo_url = stored.file_url
+
+    row = SystemSetting.for_section_update(db, "company_info")
+    company = CompanyInfo(**(row.value_json if row and isinstance(row.value_json, dict) else {})).model_dump()
+    previous_logo_url = str(company.get("logo_url") or "").strip() or None
+    company["logo_url"] = logo_url
+    row = SystemSetting.write_section(
+        db, section="company_info", setting=row, value_json=CompanyInfo(**company).model_dump(),
+    )
+    audit(db, current, "upload_logo", "SystemSetting", row.id, new_value={"logo_url": logo_url})
+    db.commit()
+    # Only after the commit, and only once the new URL is the referenced one, is
+    # the old managed file unreachable. Re-uploading the identical file, or a
+    # failed commit, must leave the previous logo in place.
+    if previous_logo_url and previous_logo_url != logo_url:
+        discard_replaced_managed_image(previous_logo_url, storage_root=app_settings.MODEL_FILES_DIR)
+    return {"logo_url": logo_url}
