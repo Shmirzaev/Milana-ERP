@@ -1,8 +1,9 @@
 # People, attendance and payroll
 
 Business-service group guide, relocated into models/ on 24 October 2026. This
-directory remains README-only; existing implementations are the *_service.py files
-linked below. The proposed files describe later approved operation extractions.
+directory now contains the turnstile enrollment, edit details, private photo and simulator
+services. Other existing implementations remain linked below; proposed files describe
+later approved operation extractions.
 
 **Purpose:** Own employee/department records, HR workflows, attendance ingestion and payroll. Keep those responsibilities in separate files.
 
@@ -62,3 +63,47 @@ old/new separately -> test the real UI on isolated data -> reviewed switch -> hu
 production verification -> remove old code. Keep one write path per request.
 Record the test result, visual evidence, approver and cleanup condition in the task.
 Visual success alone does not prove permissions, concurrency or data correctness.
+
+## Simulator turnstile Add access, Edit details, Replace photo and Revoke access
+Public operations are in [turnstile_access_service.py](turnstile_access_service.py),
+[turnstile_photo_service.py](turnstile_photo_service.py), and
+[turnstile_simulator_service.py](turnstile_simulator_service.py).
+ENROLL, EDIT, PHOTO and REVOKE each own one outer request transaction and call explicit schema-owned
+mutations with the same supplied Session. Photo upload owns its asset/file lifecycle;
+the simulator coordinates separate claim, durable acceptance and readback transactions.
+None of these operations writes HR employee details or attendance mirror/event rows. Existing
+mirrored identities are refused until a separate adoption operation; reviewed employee
+numbers prevent stale identity use and existing bindings cannot be remapped by HR changes.
+
+Private simulator EDIT changes only the reviewed name on selected verified bindings.
+The service checks each reviewed revision and profile hash against trusted complete
+simulator evidence under locks, freezes the baseline and uses a conditional name update
+at acceptance. It preserves each device's photo and external identity. Uncertain outcomes
+are reconciled through readback; a public actor/factory/employee/action-scoped receipt
+lookup resolves a saved request key without submitting a new operation. HR Save remains
+independent. Adoption and live-device writes remain pending.
+
+Private simulator PHOTO replaces only the photo on selected verified bindings. It uses
+the shared reviewed baseline references and a validated immutable asset with manual
+attestation. Each target retains its own frozen name and external identity; its previous
+photo remains until that target durably accepts the replacement. Existing and new asset
+rows and files are retained. The operation's full_name is an informational HR snapshot,
+not the desired name on each target. Unknown simulator acceptance uses read-only
+reconciliation; the scoped receipt lookup matches the saved action, asset and target
+baseline references. PHOTO is AI_VERIFIED_AWAITING_HUMAN; prior human gates remain unrecorded.
+
+Private simulator REVOKE requires selected trusted ACTIVE bindings and freezes each
+reviewed complete baseline. A conditional update tombstones each accepted profile once;
+a tombstone has `present=false` and retains historical name, identity and photo metadata.
+An uncertain outcome is read-only: bare absence does not prove success. Revoked identity
+is not recycled or automatically re-enrolled. HR archive and revocation are separate;
+an already archived employee can still have verified gate access revoked. This slice is
+**AI_VERIFIED_AWAITING_HUMAN** after automated, PostgreSQL, actual visual/data and independent review. The owner's latest
+instruction places the QA master human check before deployment; it does not pause source
+integration or the next slice.
+
+See the [REVOKE packet](../../../../docs/TURNSTILE_REVOKE_20261104.md),
+the historical [ENROLL evidence](../../../../docs/TURNSTILE_ACCESS_BACKEND_20261103.md),
+the [EDIT task and evidence packet](../../../../docs/TURNSTILE_EDIT_DETAILS_20261103.md),
+and the [PHOTO task packet](../../../../docs/TURNSTILE_PHOTO_REPLACEMENT_20261104.md).
+Prior ENROLL, EDIT and PHOTO evidence remains historical; their human gates are unrecorded.

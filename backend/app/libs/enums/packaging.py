@@ -8,6 +8,11 @@ class PackageStockKind(str, Enum):
     SECOND_GRADE = "second_grade"
 
 
+class PrintRunReceiptStatus(str, Enum):
+    PENDING = "pending"
+    RECEIVED = "received"
+
+
 class PackagingDepartment(str, Enum):
     MILANA = "PKG"
     BESTTEX = "BPK"

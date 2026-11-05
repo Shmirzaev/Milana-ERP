@@ -61,3 +61,11 @@ the required visual and release acceptance checks.
 See [DTO rules](../README.md), [business services](../../../models/README.md),
 [database definitions](../../../schemas/README.md) and
 [ownership](../../../../../docs/TEAM_OWNERSHIP.md).
+
+The sales-order list status query uses `SalesOrderStatus`: omission and `?status=`
+retain the no-filter behavior, while an unknown nonempty, padded or differently
+cased value now returns HTTP 422 instead of an empty result. OpenAPI advertises
+the canonical enum. The separate cross-domain history filter and order type remain
+strings pending their own vocabulary and consumer audit.
+The generated OpenAPI enum schema does not express the accepted empty-string
+sentinel; clients relying strictly on that schema may omit the parameter instead.

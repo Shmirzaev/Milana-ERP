@@ -19,7 +19,8 @@ from app.libs.types.stock_reservation import (
     ReservationSummary, StockShortage,
 )
 from app.models.finished_goods_service import repair_missing_brand_metadata
-from app.schemas import FinishedGoodsStock, Model, Package, PackageItem, Shipment, ShipmentPackage, StockReservation
+from app.schemas import FinishedGoodsStock, Model, Package, PackageCustomerRelease, PackageItem, SalesOrder, Shipment, ShipmentPackage, StockReservation
+from app.models.fulfillment.package_customer_service import package_customer_policies, customer_policy_error
 from app.schemas.fulfillment.stock_persistence import reserve_stock_row
 
 _SHIPMENT_READY_PACKAGE_STATUSES = ("received_in_storage", "reserved")
@@ -344,7 +345,8 @@ def ready_pack_candidates(
         Package.status.in_(("received_in_storage", "reserved")),
         Package.total_quantity > 0,
         Package.stock_kind == stock_kind.value,
-        Package.sales_order_id.is_(None),
+        or_(Package.sales_order_id.is_(None), db.query(PackageCustomerRelease.package_id).filter(
+            PackageCustomerRelease.package_id == Package.id).exists()),
         Model.catalog_scope == "standard",
         ~db.query(ShipmentPackage.id).join(Shipment, Shipment.id == ShipmentPackage.shipment_id).filter(
             ShipmentPackage.package_id == Package.id, Shipment.status != "cancelled",
@@ -370,6 +372,7 @@ def ready_pack_candidates(
         _expire_clean_columns(db, [row for row in list(db.identity_map.values())
             if isinstance(row, FinishedGoodsStock) and ("package_id" not in inspect(row).dict or inspect(row).dict["package_id"] in package_ids)])
     stocks = stock_query.order_by(FinishedGoodsStock.id).all()
+    policies = package_customer_policies(db, packages, stock_rows=stocks)
     stock_groups = defaultdict(list)
     for stock in stocks:
         stock_groups[stock.package_id].append(stock)
@@ -391,8 +394,11 @@ def ready_pack_candidates(
     }
     result = []
     for package in packages:
+        policy = policies[package.id]
+        if policy.customers and not policy.released:
+            continue
         if (package.status not in ("received_in_storage", "reserved")
-                or package.stock_kind != stock_kind.value or package.sales_order_id is not None
+                or package.stock_kind != stock_kind.value or (package.sales_order_id is not None and not policy.released)
                 or (model_ids is not None and package.model_id not in model_ids)):
             continue
         rows = stock_groups[package.id]
@@ -403,7 +409,7 @@ def ready_pack_candidates(
         if any(
             row.status != FinishedGoodsStatus.AVAILABLE.value or row.quantity <= 0 or row.available_qty != row.quantity
             or row.reserved_qty or row.sold_qty or row.model_id != package.model_id
-            or row.sales_order_id is not None
+            or (row.sales_order_id is not None and not policy.released)
             for row in rows
         ):
             continue
@@ -504,6 +510,15 @@ def reserve_pieces(
         [key for key, requested_qty in outstanding_by_variant.items() if requested_qty > 0],
         stock_kind=stock_kind,
     )
+    # Source-customer packs cannot be allocated to another customer's sale.
+    candidate_ids = {row.package_id for rows in stock_rows_by_variant.values() for row in rows if row.package_id}
+    candidate_packages = db.query(Package).filter(Package.id.in_(candidate_ids)).all() if candidate_ids else []
+    policies = package_customer_policies(db, candidate_packages)
+    recipient = db.query(SalesOrder.customer_id).filter_by(id=sales_order_id).scalar()
+    forbidden = {package.id for package in candidate_packages
+                 if customer_policy_error(package, policies[package.id], recipient)}
+    stock_rows_by_variant = {key: [row for row in rows if row.package_id not in forbidden]
+                             for key, rows in stock_rows_by_variant.items()}
     for key, requested_qty in outstanding_by_variant.items():
         if requested_qty <= 0:
             continue

@@ -19,7 +19,9 @@ const mocks = {
   "next/link": `import React from 'react';export default function Link({children,...props}){return React.createElement('a',props,children)}`,
   "@/lib/api": `export const fetchResponse=fetch;export const fetcher=async url=>{const r=await fetch(url);if(!r.ok)throw Error('Fixture request failed');return r.json()};const write=async(method,url,body)=>{const r=await fetch(url,{method,headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});if(!r.ok)throw Error('Fixture write failed');return r.json()};export const api={get:fetcher,post:(u,b)=>write('POST',u,b),patch:(u,b)=>write('PATCH',u,b)};`,
 };
-const built = await build({ stdin: { contents: `import React from 'react';import{createRoot}from'react-dom/client';import Passport from './src/app/(app)/cutting-passports/page';import Employees from './src/app/(app)/hr/employees/page';const Page=location.pathname==='/employees'?Employees:Passport;createRoot(document.getElementById('root')).render(<Page/>);`, resolveDir: root, loader: "tsx" }, bundle: true, write: false, format: "iife", jsx: "automatic", plugins: [{ name: "fixtures", setup(b) {
+const built = await build({ stdin: { contents: `import React from 'react';import{createRoot}from'react-dom/client';import Passport from './src/app/(app)/cutting-passports/page';import Employees from './src/app/(app)/hr/employees/page';const Page=location.pathname==='/employees'?Employees:Passport;createRoot(document.getElementById('root')).render(<Page/>);`, resolveDir: root, loader: "tsx" }, bundle: true, write: false, format: "iife", jsx: "automatic",
+  define: { "process.env.NEXT_PUBLIC_TURNSTILE_UI_PREVIEW": '"0"', "process.env.NEXT_PUBLIC_TURNSTILE_BACKEND": '"0"' }, loader: { ".module.css": "empty" },
+  plugins: [{ name: "fixtures", setup(b) {
   b.onResolve({ filter: /^(?:@\/lib\/(?:api|auth|i18n)|@\/components\/DialogProvider|next\/(?:link|navigation))$/ }, args => ({ path: args.path, namespace: "fixture" }));
   b.onLoad({ filter: /.*/, namespace: "fixture" }, args => ({ contents: mocks[args.path], loader: "js", resolveDir: root }));
 } }] });

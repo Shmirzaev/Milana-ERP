@@ -124,6 +124,23 @@ def replay_idempotent_response(
     return row.response_json
 
 
+def lookup_idempotent_response(db: Session, *, scope: str, key: str | None) -> dict | None:
+    """Read a committed v2 receipt for the authenticated identity, without locking or replay."""
+    normalized_key = normalize_idempotency_key(key)
+    if not normalized_key:
+        raise HTTPException(400, "Idempotency-Key is required")
+    identity = _identity(db)
+    row = (db.query(IdempotencyRecord)
+           .filter(IdempotencyRecord.scope == _scoped_operation(scope, identity),
+                   IdempotencyRecord.key == normalized_key)
+           .populate_existing().first())
+    if row is None:
+        return None
+    if row.user_id != identity[0] or not isinstance(row.response_json, dict):
+        raise HTTPException(409, "Saved request receipt ownership is inconsistent")
+    return row.response_json
+
+
 def store_idempotent_response(
     db: Session,
     *,

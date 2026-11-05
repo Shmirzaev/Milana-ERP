@@ -48,6 +48,21 @@ assert.match(localizeError("Package not found", 404, "uz"), /Qadoq/);
 assert.equal(localizeError("Package not found", 404, "en"), "Package not found");
 assert.match(localizeError("Package PKG-009 belongs to another sales order.", 400, "ru"), /PKG-009.*другому/);
 assert.match(localizeError("Package PKG-009 is already attached to shipment SH-002.", 409, "uz"), /PKG-009.*SH-002/);
+for (const lang of ["en", "ru", "uz"]) {
+  const refusal = localizeError("Package PKG-009 is assigned to customer Customer A. An admin must release it before shipping to another customer.", 409, lang);
+  assert.match(refusal, /PKG-009/);
+  assert.match(refusal, /Customer A/);
+  assert.notEqual(refusal, localizeError("Unknown backend detail", 409, lang));
+  const reserved = localizeError("Package PKG-009 is reserved for another order.", 409, lang);
+  assert.match(reserved, /PKG-009/);
+  assert.notEqual(reserved, localizeError("Unknown backend detail", 409, lang));
+  for (const detail of ["Admin access required", "Shipment customer must match the sales order customer",
+    "Remove active reservations and open shipment allocations before releasing packs",
+    "Dispatch reserved packs through their scanned sales shipment"]) {
+    assert.notEqual(localizeError(detail, 409, lang), localizeError("Unknown backend detail", 409, lang));
+    if (lang !== "en") assert.notEqual(localizeError(detail, 409, lang), detail);
+  }
+}
 for (const lang of ["ru", "uz"]) {
   globalThis.document = { documentElement: { lang } };
   const err = new ApiError(409, "Unknown backend detail");
@@ -91,3 +106,14 @@ try {
   await assert.rejects(apiExports.fetchResponse("/report.xlsx"), error => error === abort);
 } finally { globalThis.fetch = originalFetch; }
 console.log("Structured validation, client validation, preserved codes and download network error checks passed.");
+
+const authUnavailable = "Authentication is temporarily unavailable. Try again later.";
+const expectedAuth = { en: authUnavailable, ru: "Вход и восстановление пароля временно недоступны. Повторите попытку позже.", uz: "Tizimga kirish va parolni tiklash vaqtincha mavjud emas. Keyinroq qayta urinib ko‘ring." };
+for (const lang of ["en", "ru", "uz"]) {
+  globalThis.document.documentElement.lang = lang;
+  const error = new ApiError(503, { detail: authUnavailable });
+  assert.equal(error.rawDetail, authUnavailable);
+  assert.equal(error.message, `503: ${expectedAuth[lang]}`);
+  if (lang !== "en") assert.notEqual(error.message, new ApiError(503, "Unknown backend detail").message);
+}
+console.log("Authentication outage messages preserve the specific reason in EN/RU/UZ.");

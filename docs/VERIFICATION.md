@@ -1,5 +1,21 @@
 # Verification after every runtime change
 
+## Owner review-gate update — 4 November 2026
+
+The owner explicitly instructed: continue refactoring, visually test PRs requesting
+his review, and merge passing PRs. QA master will check everything before deployment.
+For this owner-authorized continuation, complete meaningful automated checks, actual
+visual and persisted-data verification, and independent AI review on the identified
+candidate before an authorized source merge. Record AI_VERIFIED_AWAITING_HUMAN and
+retain the human checklist; do not pause development or merge solely for pending
+human review. QA master must complete and record the pre-deployment review;
+named domain ownership and the human checklist remain recorded. A merge is not human acceptance, deployment
+authorization or permission to retire old paths; retain each path until its separately
+recorded retirement condition is met. This update supersedes conflicting instructions
+to wait for human review before source integration or the next development slice.
+Preserve historical evidence and do not relabel earlier unrecorded human acceptance.
+
+
 26 October 2026. Applies to each completed folder/operation migration, bug fix,
 feature and database migration before it is marked ready or its old path removed.
 Do not defer checks until the whole refactor ends. After the final edit, verify the
@@ -24,7 +40,8 @@ phantom row or persisted write appears; then verify a successful retry and reloa
 
 Ismail's direct instruction is study -> move one business operation -> code tests
 -> substantial visual checks on his computer -> persisted readback and bounded
-stress -> AI verification -> human visual approval. Treat those as ordered gates.
+stress -> AI verification -> human visual approval before deployment. Treat those as
+ordered release gates; owner-authorized source integration continues after AI gates.
 Before editing, study all source and dependencies relevant to the operation:
 route/service entry points, direct and alternate callers, DTOs/validators, ORM and
 actual database shape/values, reads/writes, permissions, transaction boundaries,
@@ -163,6 +180,32 @@ the affected tests and their configuration; run required PostgreSQL checks in th
 correct isolated process/environment. SQLite cannot prove PostgreSQL row locking.
 Do not invent credentials or print secrets. Report collected, passed, failed and
 skipped tests; a required skipped test leaves its gate BLOCKED, not PASS.
+
+For local PostgreSQL coverage, run `python3 scripts/run_local_postgres_tests.py`
+from the repository root with a local Unix-socket Docker daemon. It builds the
+backend test image and starts disposable PostgreSQL 17, with no published database
+port. Tests share its network namespace so both ends of the connection are
+loopback. The runner supplies the three legacy URLs (`STABILIZATION_POSTGRES_URL`,
+`S06_POSTGRES_URL`, `FN04_TEST_PG_ADMIN_URL`) plus the approved-instance identity
+read independently through Docker and `MILANA_REQUIRE_TEST_PG=1`. It reuses the
+existing environment sanitizer and required-case report validators. JUnit reports
+and final passed/failed/skipped counts remain under `.codex-work/`; S06 runs
+separately only if the default collection omits it. Any skip fails
+the runner. The containers and test image are removed afterward. Consolidating the
+legacy variable names remains a separate change. The runner also enables the
+Payment, Sales-list and Forecast-create opt-in URLs on its owned databases.
+
+PDF/label tests require DejaVu Sans regular and bold at
+`/usr/share/fonts/truetype/dejavu/DejaVuSans{,-Bold}.ttf` (Windows also supports
+the existing Arial paths). The four historical native-macOS font failures pass
+in Ubuntu CI and in this runner's Docker environment: `backend/Dockerfile`
+already installs `fonts-dejavu-core`, so **the runner needs no host font setup**.
+For native Debian/Ubuntu pytest, install with
+`sudo apt-get update && sudo apt-get install -y fonts-dejavu-core`.
+Native macOS font installation alone does not satisfy these hardcoded paths;
+there is no font-path environment override. Use the Docker runner on macOS.
+Missing fonts are an environment prerequisite failure, not a passing/skippable
+PDF check. [CI verification](archive/LOCAL_POSTGRES_RUNNER_2026-10-29.md#font-prerequisites-and-ci).
 
 The isolated refactor PostgreSQL workflow runs the required operation groups and
 the separate Purchasing/Fabric supplement from
@@ -315,9 +358,10 @@ After AI verification, hold that operation for the human to visually repeat the
 checklist on the identified build, confirm saved results, and approve or reject it.
 Record disagreement and return the operation to NEEDS_REWORK; rerun invalidated
 gates after a fix. An AI pass, silence, elapsed time, a merge or an old approval
-cannot substitute for this human check. Unrelated approved operations may continue
-in isolation while this one waits. Human approval itself does not imply merge or
-release authorization; production acceptance remains a distinct later record.
+cannot substitute for QA master's pre-deployment human check. Owner-authorized
+source integration and further refactor slices continue after their required AI
+gates, without waiting for this human check. Human approval itself does not imply
+merge or release authorization; production acceptance remains a distinct later record.
 Documentation-only changes use document/link/skill checks; visual/load gates are
 NOT APPLICABLE with that explicit reason, never falsely reported as passed.
 
