@@ -38,6 +38,8 @@ def sewing_output_batch_ids(db, production_order_id):
 
 
 def require_cutting_batch_mutable(db, work_order, batch_id):
+    from app.models.factory_scope_service import require_cutting_work_order_not_rejected
+    require_cutting_work_order_not_rejected(work_order)
     # Sewing submissions hold this same row lock through output persistence.
     # Re-read evidence after acquiring it, never trust a cached UI flag.
     try:

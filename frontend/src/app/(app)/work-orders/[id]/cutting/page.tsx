@@ -3,6 +3,7 @@ import { localizeError } from "@/lib/errorMessages";
 import { useParams } from "next/navigation";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import useSWR from "swr";
+import CuttingRejectOrder from "@/components/CuttingRejectOrder";
 import CuttingSewingFactory from "@/components/CuttingSewingFactory";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { api, fetcher } from "@/lib/api";
@@ -1466,8 +1467,12 @@ export default function CuttingPage() {
     <div>
       <PageHeader
         title={t("page.cutting.title", { id, orderNo })}
+        actions={wo && <CuttingRejectOrder workOrderId={Number(id)} status={wo.status}
+          hasOutput={Number(wo.actual_output_qty || 0) > 0 || recordedPassedQty > 0 || recordedFailedQty > 0}
+          orderLabel={orderNo} onRejected={async () => { await Promise.all([mutateWo(), mutatePo(), mutateBatchProgress()]); }} />}
         subtitle={wo ? t("page.cutting.subtitle", { op: operationLabel(wo.operation, t), status: statusLabel(wo.status, t) }) : ""}
       />
+      {wo?.status === "rejected" && wo.block_reason && <p role="status" className="mb-4 border-l-2 border-red-600 pl-3 text-sm text-red-700">{wo.block_reason}</p>}
       <WorkOrderProductInfo
         t={t}
         so={so}
@@ -1481,6 +1486,7 @@ export default function CuttingPage() {
       />
 
 
+      {wo?.status !== "rejected" && <>
       {!isAlreadyBatched && canCompleteWithShortage && (
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-y border-amber-200 bg-amber-50 px-4 py-3">
           <div className="min-w-0 text-sm text-amber-950">
@@ -2733,6 +2739,7 @@ export default function CuttingPage() {
           </div>
         </div>
       )}
+      </>}
     </div>
   );
 }

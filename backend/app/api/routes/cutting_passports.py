@@ -639,6 +639,9 @@ def _passport_order(db, order_id, current, *, lock=False):
     if work_order is None:
         raise HTTPException(400, "The order has no cutting work order")
     require_work_order_factory_access(current, db, work_order)
+    if lock:
+        from app.models.factory_scope_service import require_cutting_work_order_not_rejected
+        require_cutting_work_order_not_rejected(work_order)
     return order, work_order
 
 

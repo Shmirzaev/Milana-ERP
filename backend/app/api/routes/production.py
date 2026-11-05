@@ -107,6 +107,9 @@ from app.models.cutting_batch_guard_service import require_cutting_batch_mutable
 from app.models.factory_scope_service import require_factory_access, selected_factory_code, factory_for_department
 from app.models.factory_scope_service import require_work_order_factory_access
 from app.models.factory_scope_service import refresh_cutting_work_order_for_write
+from app.models.factory_scope_service import require_cutting_work_order_not_rejected
+from app.libs.dto.production.work_order_rejection_input import CuttingWorkOrderRejectIn
+from app.models.production.cutting_rejection_service import reject_cutting_order
 
 router = APIRouter(tags=["production"])
 _MAX_SEWING_SIZE_QUANTITY_ROWS = 1000
@@ -172,6 +175,7 @@ def _authorize_work_order_command(db: DbSession, current: User, work_order: Work
     if source_type == "usluga":
         require_factory_access(current, "ECO")
     require_work_order_factory_access(current, db, work_order)
+    require_cutting_work_order_not_rejected(work_order)
 
 
 def _notify_accessory_issue_block(db: DbSession, wo: WorkOrder, plan: dict, stage: str) -> None:
@@ -470,6 +474,7 @@ def _upstream_work_order_for_start(db: DbSession, wo: WorkOrder) -> WorkOrder | 
 
 def _gate_record_submission(wo: WorkOrder) -> None:
     """Reject record submission when the work order is explicitly blocked."""
+    require_cutting_work_order_not_rejected(wo)
     if wo.is_blocked:
         raise HTTPException(409, f"Work order is blocked: {wo.block_reason or 'no reason given'}")
 
@@ -1936,6 +1941,16 @@ def update_wo(wid: int, payload: WorkOrderUpdate, db: DbSession, current: User =
     log_action(db, current, "update", "WorkOrder", wo.id, new_value=changes)
     db.commit(); db.refresh(wo)
     return wo
+
+
+@router.post("/work-orders/{wid}/reject-cutting", response_model=WorkOrderOut)
+def reject_cutting_wo(
+    wid: int,
+    payload: CuttingWorkOrderRejectIn,
+    db: DbSession,
+    current: User = Depends(require_permissions("cutting.records", "planning.production", "*")),
+):
+    return reject_cutting_order(db, wid, payload, current)
 
 
 @router.post("/work-orders/{wid}/start", response_model=WorkOrderOut)
@@ -6215,6 +6230,7 @@ def post_quality(payload: QualityCheckIn, db: DbSession, current: User = Depends
         db.query(ProductionOrder.id).filter_by(id=work_order.production_order_id).with_for_update().one()
         db.refresh(work_order, with_for_update={"of": WorkOrder})
     require_work_order_factory_access(current, db, work_order)
+    require_cutting_work_order_not_rejected(work_order)
     q = QualityCheck(**payload.model_dump(), checked_by=current.id, checked_at=datetime.now(timezone.utc))
     db.add(q); db.flush()
     log_action(db, current, "create", "QualityCheck", q.id)

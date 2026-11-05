@@ -11,9 +11,28 @@ this checkout, a new combined candidate or deployed production. Inspect current
 code and the operation ledger before advancing a gate. Schema-owned writers,
 system-wide enum/type adoption and human acceptance remain incomplete.
 
-Last updated 2026-11-04. Keep this file short: current decisions, release pointers and
+Last updated 2026-11-05. Keep this file short: current decisions, release pointers and
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
+
+## Production-based Cutting/order UI candidate (5 November)
+
+Both production hosts were verified on `20261105_065721` / `488f3d654`, manifest
+`e6c603d4c1954c64a75962cf189427eb5e316c039ea23de4699b9bd4f3112095`;
+rollback is `20261105_043000` / `94e4cfc54`. Older runtime pointers below are
+historical. The owner explicitly chose this exact production source for an isolated
+candidate and deferred integration into clone_main. No deployment is authorized.
+
+The [task packet](SEARCH_CUTTING_ORDER_FIXES_20261105.md) records shared search-icon
+padding, blank Planning quantities, package model/variant identities and Cutting
+rejection with a required reason. Rejection blocks only the unrecorded Cutting WO,
+preserves PO/downstream plans, audits and notifies its creator; execution/history
+and stale-writer guards prevent bypass. No migration or production data changed.
+Scoped automated/PostgreSQL and connected Edge visual/readback checks passed;
+independent AI review found no remaining blocker. Human acceptance, source
+integration and release authorization remain separate. The inherited missing
+`common.noData` i18n check and extension-injected browser hydration warnings are
+disclosed in the packet; neither is claimed fixed by this task.
 
 ## Current ECO runtime and narrow feature candidate (4 November)
 

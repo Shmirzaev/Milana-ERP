@@ -1,5 +1,23 @@
 # Production execution
 
+## Reject an unrecorded Cutting order
+
+`POST /api/work-orders/{wid}/reject-cutting` delegates to
+`cutting_rejection_service.reject_cutting_order`. It accepts `CuttingWorkOrderRejectIn`
+(a required trimmed reason, maximum 2000 characters), requires Cutting or Planning
+permission and the selected source factory, and locks ProductionOrder then all its
+WorkOrders. Usluga additionally requires ECO. Recorded execution/passport/material
+consumption or downstream handoff refuses rejection. The existing schema-owned
+write marks only the chosen Cutting work order rejected and blocked, preserves the
+reason and end time, and keeps plans, reservations and downstream rows unchanged.
+Audit and the creator's Planning notification participate in that same transaction;
+an exact same-reason retry adds neither again. Rejected Cutting cannot be restarted,
+unblocked, given new Cutting/Quality output, passports, bundles or batch edits.
+No reopen action or database migration is introduced. Run
+`test_cutting_order_rejection.py` and its `_postgres.py` companion plus work-order
+command and Planning routing regressions. Human/browser acceptance is tracked in
+the task packet; automated results alone do not authorize release.
+
 ## Selected Nastil factory routing
 
 The existing Cutting `PATCH /work-orders/{wid}/sewing-factory` accepts optional
