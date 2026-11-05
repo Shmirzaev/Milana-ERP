@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.libs.enums.fulfillment import ShipmentStatus
 from app.schemas import Package, PackageItem, Shipment, ShipmentPackage
 from app.schemas.fulfillment.shipment_allocation import save_package_claim, replace_package_claim
+from app.models.fulfillment.package_customer_service import assert_package_customer
 
 OPEN_STATUSES = (ShipmentStatus.DRAFT, ShipmentStatus.CREATED)
 
@@ -77,7 +78,8 @@ def attach_package_claim(db: Session, shipment: Shipment, package: Package) -> S
     package = db.query(Package).filter_by(id=package.id).with_for_update().populate_existing().one()
     if package.status not in {'received_in_storage', 'reserved'}:
         raise HTTPException(409, 'Package is no longer ready for shipment')
-    if package.sales_order_id and package.sales_order_id != shipment.sales_order_id:
+    policy = assert_package_customer(db, shipment, package)
+    if package.sales_order_id and package.sales_order_id != shipment.sales_order_id and not policy.released:
         raise HTTPException(409, 'Package belongs to another sales order')
     link = db.query(ShipmentPackage).filter_by(shipment_id=shipment.id, package_id=package.id).first()
     if link is not None:
@@ -94,6 +96,7 @@ def claimed_quantity(db: Session, shipment: Shipment, package: Package) -> int:
 
 
 def replace_claim(db: Session, shipment: Shipment, link: ShipmentPackage, package: Package) -> None:
+    assert_package_customer(db, shipment, package)
     quantities = available_claims(db, [package], shipment.id)[package.id]
     if not sum(quantities.values()):
         raise HTTPException(409, "No unallocated pieces remain in this package")

@@ -3,6 +3,22 @@ name: milana-refactor
 description: Plan and carry out approved Milana ERP monolith refactors using reversible service extraction, explicit contracts, and human acceptance.
 ---
 
+## Owner review-gate update — 4 November 2026
+
+The owner explicitly instructed: continue refactoring, visually test PRs requesting
+his review, and merge passing PRs. QA master will check everything before deployment.
+For this owner-authorized continuation, complete meaningful automated checks, actual
+visual and persisted-data verification, and independent AI review on the identified
+candidate before an authorized source merge. Record AI_VERIFIED_AWAITING_HUMAN and
+retain the human checklist; do not pause development or merge solely for pending
+human review. QA master must complete and record the pre-deployment review;
+named domain ownership and the human checklist remain recorded. A merge is not human acceptance, deployment
+authorization or permission to retire old paths; retain each path until its separately
+recorded retirement condition is met. This update supersedes conflicting instructions
+to wait for human review before source integration or the next development slice.
+Preserve historical evidence and do not relabel earlier unrecorded human acceptance.
+
+
 # Milana refactor discipline
 
 Apply the [engineering workflow](../../../docs/ENGINEERING_WORKFLOW.md) for layer
@@ -57,7 +73,7 @@ compaction, reread that record and the current rules; do not inherit a "done" cl
 
 Ismail requires one business operation at a time: study -> approved move -> code
 checks -> real visual/browser checks -> database readback and bounded stress ->
-independent AI verification -> human visual approval. Freeze an operation-sized
+independent AI verification -> human visual approval before deployment. Freeze an operation-sized
 patch/candidate and pass its gates before marking it AI-verified or moving that
 worker to the next implementation step. Preserve already-mixed later changes in
 separate slices. Parallel work is permitted only on isolated disjoint operations;
@@ -141,10 +157,11 @@ no cleanup/readiness claim before required gates pass. Human production acceptan
 remains separate. Documentation-only work records runtime gates as NOT APPLICABLE.
 Use **AI_VERIFIED_AWAITING_HUMAN** only after the independent verification role
 has checked all required evidence on the exact candidate. Give the human a local
-visual checklist with roles, records, steps and expected saved results. Wait for
-their recorded technical and visual/business approval of that candidate; do not
-translate an AI pass into human approval, merge/deployment authority or permission
-to retire the old path. Follow [the state/evidence rules](../../../docs/VERIFICATION.md#5-record-evidence-and-completion).
+visual checklist with roles, records, steps and expected saved results. Continue
+owner-authorized source merges and refactor slices after the required AI gates.
+QA master records technical and visual/business review before deployment. Do not
+translate an AI pass into human approval, deployment authority or permission to
+retire the old path. Follow [the state/evidence rules](../../../docs/VERIFICATION.md#5-record-evidence-and-completion).
 
 ## Study -> extract -> prove -> switch -> retire
 

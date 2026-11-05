@@ -1,5 +1,6 @@
 from __future__ import annotations
 from datetime import datetime
+from decimal import Decimal
 from sqlalchemy import CheckConstraint, String, Integer, Boolean, ForeignKey, DateTime, Text, Numeric, JSON, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import TypeDecorator
@@ -179,7 +180,7 @@ class Invoice(Base, PkMixin, TimestampMixin):
     invoice_no: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     external_source: Mapped[str | None] = mapped_column(String(32))
     external_id: Mapped[str | None] = mapped_column(String(128))
-    amount: Mapped[float] = mapped_column(Numeric(14, 2), default=0, nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0, nullable=False)
     status: Mapped[InvoiceStatus] = mapped_column(InvoiceStatusType(), default=InvoiceStatus.UNPAID, nullable=False)
     issued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     due_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -194,7 +195,7 @@ class Payment(Base, PkMixin, TimestampMixin):
     customer_id: Mapped[int | None] = mapped_column(ForeignKey("customers.id"), nullable=True)
     external_source: Mapped[str | None] = mapped_column(String(32))
     external_id: Mapped[str | None] = mapped_column(String(128))
-    amount: Mapped[float] = mapped_column(Numeric(14, 2), default=0, nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0, nullable=False)
     payment_method: Mapped[str | None] = mapped_column(String(32))
     paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     notes: Mapped[str | None] = mapped_column(Text)

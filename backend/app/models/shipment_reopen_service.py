@@ -13,6 +13,7 @@ from app.schemas import (FinishedGoodsStock, IdempotencyRecord, Invoice, Package
 from app.libs.dto.fulfillment.shipment_review import ShipmentReopen
 from app.libs.enums.finance import InvoiceStatus
 from app.models.audit_service import log_action
+from app.models.finance.invoices_service import void_invoices_for_shipment_reopen
 from app.models.packages_service import _sync_package_production
 from app.models.shipment_review_service import locked_shipment
 
@@ -122,9 +123,7 @@ def reopen_shipment(db: Session, sid: int, payload: ShipmentReopen, user: User) 
         db.add(PackageScanLog(package_id=package.id, scanned_by=user.id, scan_type="returned"))
         # The package stays attached, so its original verification remains valid.
         # Actual package removal still invalidates scans in detach_shipment_package.
-    for invoice in invoices:
-        invoice.status = InvoiceStatus.VOID
-        invoice.amount = 0
+    void_invoices_for_shipment_reopen(db, invoices)
     if order:
         if manual:
             order.status = "cancelled"

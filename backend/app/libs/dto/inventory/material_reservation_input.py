@@ -6,7 +6,7 @@ from contextvars import ContextVar
 from pydantic import BaseModel, Field, PrivateAttr, model_validator
 from pydantic_core import core_schema, to_jsonable_python
 
-from app.libs.enums.inventory import MaterialReservationType
+from app.libs.enums.inventory import MaterialReservationAutoMode, MaterialReservationType
 from app.libs.dto.inventory.reservation_type_selection import DeferredReservationType, reservation_type_selection
 
 _capture_type: ContextVar[list[str] | None] = ContextVar("reservation_type_capture", default=None)
@@ -110,7 +110,7 @@ class MaterialReservationIn(BaseModel):
 
 class MaterialReservationAutoIn(BaseModel):
     production_order_id: int
-    mode: Literal["shortage_only", "full_remaining"] = "full_remaining"
+    mode: MaterialReservationAutoMode = MaterialReservationAutoMode.FULL_REMAINING
     reserve_accessories: bool = True
     reserve_materials: bool = True
     reserve_packaging: bool = True

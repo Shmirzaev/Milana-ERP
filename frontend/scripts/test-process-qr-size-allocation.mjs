@@ -45,14 +45,54 @@ assert.equal(issuedSizeAllocationConflicts(proposed, [{ label_uid: "PY:319:192:K
 // Execute the actual page's preview and issuance handler, not a mirrored implementation.
 const source = fs.readFileSync("src/app/(app)/process-qr/page.tsx", "utf8");
 const ast = ts.createSourceFile("page.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-let candidate, issue;
+let candidate, issue, erpAllocation;
 const declarations = ast.statements.filter(node => ts.isFunctionDeclaration(node) && node.name?.text !== "ProcessQrPage").map(node => node.getText(ast)).join("\n");
 function visit(node) {
   if (ts.isVariableDeclaration(node) && node.name.getText(ast) === "candidateLabels") candidate = node.initializer.arguments[0].getText(ast);
+  if (ts.isVariableDeclaration(node) && node.name.getText(ast) === "erpSizeAllocations") erpAllocation = node.initializer.arguments[0].getText(ast);
   if (ts.isFunctionDeclaration(node) && node.name?.text === "issueLabels") issue = node.getText(ast);
   ts.forEachChild(node, visit);
 }
-visit(ast); assert.ok(candidate); assert.ok(issue);
+visit(ast); assert.ok(candidate); assert.ok(issue); assert.ok(erpAllocation);
+// PO-0495: five order sizes must remain authoritative after its six-size model loads.
+const selectionContext = vm.createContext({
+  Map, Set, Math, Number, String, JSON, allocateLabelSizes,
+  selectedProcess: { sizes: sizes.map(size => ({ size })) },
+  selectedModel: undefined, selectedModelId: 8679, resolvedFamilySizes: undefined,
+  batchOptions: [{ key: "batch-656", sewingCompletedQuantity: 250, sewingSizes: [] }],
+  batchSizeDrafts: {}, allocationScope: "MIL:535:8679",
+});
+vm.runInContext(transpile(declarations + `\nfunction selectAllocation(){ return (${erpAllocation})(); }`), selectionContext);
+const selectedAllocation = () => vm.runInContext("selectAllocation()", selectionContext).get("batch-656");
+const expectedOrderRows = sizes.map(size => [size, 50]);
+assert.deepEqual(Array.from(selectedAllocation().rows, row => [row.size, row.quantity]), expectedOrderRows);
+selectionContext.selectedModel = { id: 8679, sizes: [...sizes, "56"].map(size => ({ size })) };
+assert.deepEqual(Array.from(selectedAllocation().rows, row => [row.size, row.quantity]), expectedOrderRows,
+  "loading a broader model must not add size 56 or redistribute the order's 250 pieces");
+selectionContext.selectedProcess = { sizes: [] };
+assert.deepEqual(Array.from(selectedAllocation().rows, row => row.size), [...sizes, "56"],
+  "legacy orders without sizes retain the model fallback");
+selectionContext.selectedModel = { id: 8679, sizes: [] };
+selectionContext.resolvedFamilySizes = { sizes: ["48", "50"] };
+assert.deepEqual(Array.from(selectedAllocation().rows, row => [row.size, row.quantity]), [["48", 125], ["50", 125]],
+  "the family fallback remains available when neither order nor model has sizes");
+selectionContext.selectedProcess = { sizes: sizes.map(size => ({ size })) };
+selectionContext.batchOptions[0].sewingSizes = [{ size: "46", sewing_completed_quantity: 150 }, { size: "48", sewing_completed_quantity: 100 }];
+assert.deepEqual(Array.from(selectedAllocation().rows, row => [row.size, row.quantity]), [["46", 150], ["48", 100]],
+  "recorded batch-size output remains authoritative");
+selectionContext.selectedModel = { id: 8679, sizes: [...sizes, "56"].map(size => ({ size })) };
+selectionContext.batchOptions[0].sewingSizes = [];
+for (let total = 0; total <= 1000; total++) {
+  selectionContext.batchOptions[0].sewingCompletedQuantity = total;
+  const allocation = selectedAllocation();
+  assert.equal(allocation.valid, true);
+  assert.equal(allocation.rows.reduce((sum, row) => sum + row.quantity, 0), total);
+  assert.equal(allocation.rows.some(row => row.size === "56"), false);
+  if (total > 0) assert.equal(allocation.rows.length, 5);
+}
+selectionContext.selectedProcess = { is_manual: true };
+assert.equal(vm.runInContext("selectAllocation()", selectionContext).size, 0,
+  "ERP allocation must not change manual-order sizing");
 const process = { production_order_id: 319, production_no: "PO-0294", model_id: 8456, model_code: "KJ13051-V-6472", stages: [] };
 const batches = [189, 192].map((id, index) => ({ key: `batch-${id}`, batchId: id, batchIndex: index + 1, batchNo: `0319-0${index + 1}`, serial: `0319-0${index + 1}`, sewingSizes: [], sewingCompletedQuantity: 300 }));
 const operation = { id: "op", code: "OP-6162", name: "Sleeve", section: "sewing", sewingFactory: "milana", selected: true, copies: 1, splitMode: "none", rate: 550 };

@@ -13,7 +13,7 @@ const stubs = {
   "@/components/CuttingSewingFactory": `export default function Factory(){return null}`,
   "@/components/WorkOrderProductInfo": `export default function Product(){return null}`,
   "@/components/PageHeader": `export default function Header(){return null}`,
-  "@/lib/api": `export const fetcher=async url=>{const r=await fetch(url);if(!r.ok)throw Error('Fixture rejection');return r.json()};async function write(method,url,body){const r=await fetch(url,{method,headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});if(!r.ok)throw Error('Fixture rejection');return r.json()}export const api={get:fetcher,post:(u,b)=>write('POST',u,b),patch:(u,b)=>write('PATCH',u,b),put:(u,b)=>write('PUT',u,b),del:u=>write('DELETE',u)};`,
+  "@/lib/api": `export const API_TIMEOUT_EVENT='milana:api-timeout';export const fetcher=async url=>{const r=await fetch(url);if(!r.ok)throw Error('Fixture rejection');return r.json()};async function write(method,url,body){const r=await fetch(url,{method,headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});if(!r.ok)throw Error('Fixture rejection');return r.json()}export const api={get:fetcher,post:(u,b)=>write('POST',u,b),patch:(u,b)=>write('PATCH',u,b),put:(u,b)=>write('PUT',u,b),del:u=>write('DELETE',u)};`,
 };
 const bundle = await build({ stdin: { resolveDir: root, loader: "tsx", contents: `
 import React from 'react';import{createRoot}from'react-dom/client';

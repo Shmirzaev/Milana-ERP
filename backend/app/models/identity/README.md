@@ -1,8 +1,10 @@
 # Identity and access
 
 Business-service group guide, relocated into models/ on 24 October 2026. This
-directory remains README-only; existing implementations are the *_service.py files
-linked below. The proposed files describe later approved operation extractions.
+directory contains pure policy evaluation in [access_policy_service.py](access_policy_service.py),
+shared grant checks in [access_service.py](access_service.py), and create-user
+coordination in [users_service.py](users_service.py). Other account operations
+remain in the existing *_service.py files and admin route.
 
 **Purpose:** Own authentication, user accounts, roles and permission evaluation. Keep object/factory access checks reusable by every operation.
 
@@ -25,9 +27,14 @@ particular operation and every caller/write before choosing what belongs here.
 
 | Proposed file | Responsibility |
 | --- | --- |
-| `authentication_service.py` | Login and password-reset operations. |
-| `users_service.py` | Account creation and allowed profile changes. |
-| `access_service.py` | Role/grant/deny and object-scope decisions. |
+| `access_policy_service.py` (implemented) | Pure policy allow/deny evaluation; imports only the permission catalog. Factory scope imports it directly, and user access re-exports its existing names. |
+| authentication_service.py | Authentication and session-factory selection; authorized real factory-switch requests append an audit row before token issuance. |
+| users_service.py (create implemented) | Account creation; profile updates remain in the admin route. One creation commit and refresh precede route scheduling of a setup email. |
+| access_service.py (shared checks implemented) | Unchanged role/grant and policy-change checks shared with creation, profile updates and role creation. |
+
+Shared grant checks sit above the factory-context and policy helpers;
+neither lower helper may import `access_service.py` back. The policy-only split
+remains a separate prerequisite and changes no access decisions.
 
 Use snake_case_service.py filenames and operation names such as `create_*`, `record_*`,
 `receive_*` or `approve_*`. A typed function is sufficient; a class is optional

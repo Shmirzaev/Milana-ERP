@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Depends, Header
 from fastapi.responses import HTMLResponse, Response
 from app.models.print_response_service import warehouse_print_response
 from pydantic import ValidationError
-from sqlalchemy import and_, func, exists
+from sqlalchemy import and_, func, exists, or_
 from sqlalchemy.orm import selectinload, aliased
 
 from app.core.deps import DbSession, CurrentUser, require_permissions
@@ -52,6 +52,9 @@ from app.models.packages_service import (
     package_shipment_context,
 )
 from app.models.workflow_service import notify_department
+from app.models.fulfillment.package_customer_service import (
+    assert_shipment_customers, customer_policy_error, package_customer_policies, package_reservation_error, shipment_customer_id,
+)
 
 router = APIRouter(prefix="/shipments", tags=["shipments"])
 _READY_FOR_SHIPMENT_STATUSES = ("received_in_storage", "reserved")
@@ -489,7 +492,7 @@ def _lock_package(db: DbSession, package: Package) -> Package:
 
 
 def _orderless_package_error(db: DbSession, package: Package) -> str | None:
-    if package.sales_order_id:
+    if package.sales_order_id and not package_customer_policies(db, [package])[package.id].released:
         return f"Package {package.package_no} belongs to a sales order and must use its sales shipment."
     if package.status != "received_in_storage":
         return f"Package {package.package_no} is not unreserved warehouse stock."
@@ -522,6 +525,13 @@ def _orderless_package_error(db: DbSession, package: Package) -> str | None:
 
 
 def _package_attachment_error(db: DbSession, shipment: Shipment, package: Package) -> str | None:
+    policy = package_customer_policies(db, [package])[package.id]
+    error = customer_policy_error(package, policy, shipment_customer_id(db, shipment))
+    if error:
+        return error
+    reservation_error = package_reservation_error(db, shipment.sales_order_id, package)
+    if reservation_error:
+        return reservation_error
     if db.query(WarehousePackReservation.id).filter_by(package_id=package.id).first():
         return f"Package {package.package_no} is reserved for a customer. Prepare it from Warehouse reservations."
     other = _other_open_shipment_for_package(db, int(package.id), shipment_id=int(shipment.id))
@@ -529,7 +539,7 @@ def _package_attachment_error(db: DbSession, shipment: Shipment, package: Packag
         return f"Package {package.package_no} is already attached to shipment {other.shipment_no}."
     if not shipment.sales_order_id:
         return _orderless_package_error(db, package)
-    if package.sales_order_id and package.sales_order_id != shipment.sales_order_id:
+    if package.sales_order_id and package.sales_order_id != shipment.sales_order_id and not policy.released:
         return f"Package {package.package_no} belongs to another sales order."
     return None
 
@@ -678,7 +688,7 @@ def _finished_goods_rows_for_packages(db: DbSession, package_ids: set[int]) -> d
     if db.bind and db.bind.dialect.name == "postgresql":
         qry = qry.with_for_update(of=FinishedGoodsStock)
     rows_by_package: dict[int, list[FinishedGoodsStock]] = {}
-    for row in qry.order_by(FinishedGoodsStock.package_id.asc(), FinishedGoodsStock.id.asc()).all():
+    for row in qry.order_by(FinishedGoodsStock.package_id.asc(), FinishedGoodsStock.id.asc()).populate_existing().all():
         rows_by_package.setdefault(int(row.package_id), []).append(row)
     return rows_by_package
 
@@ -874,15 +884,19 @@ def _ship_verified_packages(db: DbSession, shipment: Shipment, current: User) ->
     ).first():
         raise HTTPException(409, "Prepare customer reservations from Warehouse reservations before shipping")
     stocks_by_package = _finished_goods_rows_for_packages(db, package_ids)
+    assert_shipment_customers(db, shipment, locked_packages,
+                              stock_rows=[row for rows in stocks_by_package.values() for row in rows])
     foreign_reservation_package_ids = {
         int(package_id)
-        for package_id, in db.query(StockReservation.package_id).filter(
-            StockReservation.package_id.in_(sorted(package_ids)),
+        for reservation_package_id, stock_package_id in db.query(StockReservation.package_id, FinishedGoodsStock.package_id).outerjoin(
+            FinishedGoodsStock, FinishedGoodsStock.id == StockReservation.finished_goods_stock_id).filter(
+            or_(StockReservation.package_id.in_(sorted(package_ids)), FinishedGoodsStock.package_id.in_(sorted(package_ids))),
+            StockReservation.quantity > 0,
             (StockReservation.sales_order_id != shipment.sales_order_id)
             if shipment.sales_order_id
             else (StockReservation.quantity > 0),
         ).distinct().all()
-        if package_id is not None
+        for package_id in (reservation_package_id, stock_package_id) if package_id in package_ids
     }
     for shipment_package in sorted(shipment.packages, key=lambda row: row.package_id):
         package = locked_packages_by_id.get(int(shipment_package.package_id))
@@ -1137,6 +1151,8 @@ def create_shipment(
     if not payload.manual and not payload.sales_order_id and not str(payload.notes or "").strip():
         raise HTTPException(400, "Recipient or warehouse exit reference is required")
     if so:
+        if so.customer_id and payload.customer_id and payload.customer_id != so.customer_id:
+            raise HTTPException(409, "Shipment customer must match the sales order customer")
         if _shipment_exists_for_sales_order(db, int(so.id)):
             raise HTTPException(409, f"Shipment already exists for {so.order_no}")
         status_ok = str(so.status or "") in _SHIPMENT_ORDER_STATUSES

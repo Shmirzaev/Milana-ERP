@@ -80,6 +80,14 @@ three DTOs for every table or expose privileged fields through generic updates.
 
 ## Boundaries and verification
 
+`package_customer_service.py` owns source-customer compatibility and explicit
+admin release for selected remaining pieces. It resolves retained production,
+package and finished-goods source orders, preserves those links, and refuses
+release over active reservations/open claims. Its outer release operation calls
+schema-owned release/audit/idempotency persistence. Shipment operations reuse
+complete locked stock rows for final customer validation; release does not grant
+permission to consume a later order's reservation.
+
 Packaging validates package identity/content; Finance owns invoice/payment mutations. Shipment invoice documents may display frozen logistics data without owning financial posting.
 
 Reject stock without validated receipt, duplicate receipts and dispatch of reserved/invalid packages. Verify partial deliveries and returns. Visually scan a package through receiving, placement, reservation and shipment using isolated fixtures.
