@@ -122,7 +122,7 @@ def test_concurrent_deletes_preserve_one_active_wildcard_administrator(
     count_lock = Lock()
     second_count_finished = Event()
     count_calls = 0
-    original_count = admin._count_active_admins
+    original_count = users_service._count_active_admins
 
     def align_pre_delete_counts(db, exclude_user_id=None):
         nonlocal count_calls
@@ -137,7 +137,7 @@ def test_concurrent_deletes_preserve_one_active_wildcard_administrator(
         second_count_finished.wait(0.5)
         return result
 
-    monkeypatch.setattr(admin, "_count_active_admins", align_pre_delete_counts)
+    monkeypatch.setattr(users_service, "_count_active_admins", align_pre_delete_counts)
 
     def remove(target_id):
         start.wait()

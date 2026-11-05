@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 
 from app.core.deps import is_super_admin, normalize_permissions, require_permissions, user_permissions
 from app.core.security import hash_password, normalize_email, validate_password_strength
@@ -15,9 +16,10 @@ from app.models.identity.access_service import (
     _assert_can_grant_permissions, _assert_can_grant_role, _assert_policy_change, _user_access_values,
 )
 from app.models.password_reset_service import create_password_reset_token, password_reset_url
-from app.schemas import User
+from app.schemas import AuditLog, User
 from app.schemas.identity.user_persistence import (
     add_user, apply_admin_user_changes, set_user_credential_cutoff,
+    detach_user_references, remove_user,
 )
 from app.models.credentials_service import apply_password_credential_change, lock_user_for_credential_change
 
@@ -193,3 +195,38 @@ def update_user(db: Session, user_id: int, payload: UserUpdate, current: User) -
     db.commit()
     db.refresh(u)
     return u
+
+
+def _assert_user_has_no_audit_history(db: Session, user_id: int) -> None:
+    if db.query(AuditLog.id).filter(AuditLog.user_id == user_id).first() is not None:
+        raise HTTPException(409, "User has audit history. Deactivate the account instead.")
+
+
+
+def delete_user(db: Session, user_id: int, current: User) -> None:
+    """Authorize removal and commit reference cleanup, account delete and audit once."""
+    require_permissions("admin.users", "*")(current)
+    _lock_active_user_memberships(db)
+    u = db.get(User, user_id)
+    if not u:
+        raise HTTPException(404, "User not found")
+    if u.id == current.id:
+        raise HTTPException(400, "You cannot delete your own account")
+    if ("*" in user_permissions(u) or is_super_admin(u)) and not is_super_admin(current):
+        raise HTTPException(403, "Only a super admin can delete administrator accounts")
+    if is_super_admin(u) and _count_active_super_admins(db, exclude_user_id=u.id) == 0:
+        raise HTTPException(400, "Cannot delete the last active super administrator")
+    if "*" in user_permissions(u) and _count_active_admins(db, exclude_user_id=u.id) == 0:
+        raise HTTPException(400, "Cannot delete the last active administrator")
+    _assert_user_has_no_audit_history(db, user_id)
+    try:
+        detach_user_references(db, user_id)
+        remove_user(db, u)
+        log_action(db, current, "delete", "User", user_id)
+        db.commit()
+    except IntegrityError:
+        # A concurrent audit can appear after the guard. Its FK blocks deletion;
+        # roll back all reference cleanup before checking the committed history.
+        db.rollback()
+        _assert_user_has_no_audit_history(db, user_id)
+        raise

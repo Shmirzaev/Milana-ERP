@@ -2,9 +2,9 @@
 
 Business-service group guide, relocated into models/ on 24 October 2026. This
 directory contains pure policy evaluation in [access_policy_service.py](access_policy_service.py),
-access catalog, read-only access preview and shared grant checks in [access_service.py](access_service.py), and account reads/creation/admin-update
+access catalog, read-only access preview and shared grant checks in [access_service.py](access_service.py), and account reads/creation/admin-update/deletion
 coordination in [users_service.py](users_service.py). Authenticated role listing and role creation live in [roles_service.py](roles_service.py);
-other account operations remain in the existing *_service.py files and admin route.
+Shared credential/reset helpers remain in the existing *_service.py files.
 
 **Purpose:** Own authentication, user accounts, roles and permission evaluation. Keep object/factory access checks reusable by every operation.
 
@@ -29,7 +29,7 @@ particular operation and every caller/write before choosing what belongs here.
 | --- | --- |
 | `access_policy_service.py` (implemented) | Pure policy allow/deny evaluation; imports only the permission catalog. Factory scope imports it directly, and user access re-exports its existing names. |
 | authentication_service.py | Authentication and session-factory selection; authorized real factory-switch requests append an audit row before token issuance. |
-| users_service.py (create, reads and admin update implemented) | Account creation/reads and atomic administrator edits. Schema writers own field and credential changes; the service owns grants, membership locks, audit and one commit. |
+| users_service.py (create, reads, admin update and deletion implemented) | Account creation/reads, atomic administrator edits and audit-preserving deletion. Schema writers own field and credential changes; the service owns grants, membership locks, audit and one commit. |
 | access_service.py (shared checks implemented) | Unchanged role/grant and policy-change checks shared with creation, profile updates and role creation. |
 
 Shared grant checks sit above the factory-context and policy helpers;
