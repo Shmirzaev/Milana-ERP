@@ -1,5 +1,37 @@
 # Milana ERP: current working context
 
+## PO-0736 cutting reset (5 November)
+
+Last updated: 2026-11-05.
+
+The owner explicitly authorized a data-only reset against live release
+`20261105_043000` despite stale Git production-baseline records, then reconfirmed
+resetting all entries after a new 886-piece entry appeared during preparation.
+Both application symlinks name that release and both source-manifest hashes are
+`dd662d889407378ce78d22ebb40e5ce3f53a3043377027b84315f8733234b257`.
+No application code, deployment, runtime configuration or schema was changed.
+
+One guarded transaction reset production order `778` / `PO-0736` from 2,972
+actual pieces to zero, removed Cutting records `1027`–`1029`, the 19 remaining
+unused bundles `22184`–`22202`, their 19 creation-only scans and 16 exact unread
+incoming-bundle notifications. Cutting work order `3102` is `in_progress` with
+zero actual/pass/fail counters and no end time. Sewing, Packaging and Storage
+work orders `3103`–`3105` are waiting with zero actual counters and plans of 600;
+the production order is back in Cutting. Passport `792`, size rows, planned
+materials, fabric batch `1945` and its stock movements are fingerprint-verified
+unchanged. There were no downstream receipts, production records, packages,
+payroll, reservations or material-consumption dependencies.
+
+Backup `/opt/milana-erp/shared/backups/milana_erp_pre_po0736_zero_final_20261105_065001.dump`
+is 112,314,635 bytes with 1,329 restore objects and SHA-256
+`ae6fb7574b2434c4230a97ede513bcd01ce10a75e71ce7e466e993193190349e`.
+Audit `207791` preserves before/after evidence and its entry hash verifies.
+Rollback rehearsal, locked dependency checks, committed readback, preserved-data
+fingerprints and all four internal/public health/login checks passed. Browser
+verification remains unavailable because the connected-browser helper failed
+while binding tabs. This documentation branch is not a reconciled runtime base;
+the stale baseline still blocks future code/deployment work until reconciled.
+
 ## Guidance publication and runtime scope
 
 The 26 October guidance publication on `clone_main` at `b92ee8f` was
