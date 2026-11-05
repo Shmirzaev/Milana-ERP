@@ -77,6 +77,20 @@ exact unused-image removal and fresh capacity guards allowed preparation; see th
 checkpoint. Only narrow runtime 94e was deployed; combined source PR496 remains
 draft and unmerged, with separate migration-graph approval held.
 
+## Production-order cutting factory placement (5 November)
+
+The owner requested the existing Change cutting factory action on the Production
+Order detail page. Exact runtime `488f3d654b0669a9878b8efd3d34298994e9dc45` is
+pushed, unmerged and **not deployed**. CI, real isolated Edge/PostgreSQL save and
+readback, refusal/permission checks and bounded integrity/recovery checks passed.
+Independent review recorded AI_VERIFIED_AWAITING_HUMAN. New-build human acceptance
+is pending; earlier exact94e acceptance is not reused.
+Backend staging fails the unchanged disk-capacity guard; a read-only investigation
+is preparing an explicit archived-unused-image proposal. No production lease,
+image removal, backup, staging, cutover or business write occurred in this follow-up.
+Active green043000, rollback blue080711 and schema0154 above remain unchanged.
+See the [follow-up task packet](archive/ORDER_DETAIL_CUTTING_FACTORY_2026-11-05.md).
+
 ## Current refactor: Finance shipment invoice reversal (4 November)
 
 The [operation packet](REF350_INVOICE_REVERSAL_20261104.md) records

@@ -4,6 +4,8 @@ These reports preserve what was observed at their recorded date. They are not
 current implementation instructions or proof of today's production state.
 Start with [current context](../PROJECT_CONTEXT.md) for active work.
 
+- [Production-order cutting factory action, 5 November 2026](ORDER_DETAIL_CUTTING_FACTORY_2026-11-05.md): exact488f3d654, actual isolated verification, pending human review and capacity hold; not deployed.
+
 - [FG model-number prefix, 3 November 2026](FG_MODEL_PREFIX_2026-11-03.md): FG202001 start, focused and local-browser verification; PostgreSQL gate pending, not deployed.
 
 - [Older-pack exact release, 2 November 2026](OLDER_PACK_FILTERS_RELEASE_2026-11-02.md): green20261102_063110, immutable provenance, retained aborted attempt, reviewed retry, backup and waived monitoring.
