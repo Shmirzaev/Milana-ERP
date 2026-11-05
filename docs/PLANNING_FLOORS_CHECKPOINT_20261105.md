@@ -1,7 +1,7 @@
 # Planning, floor pictures and BST checkpoint — 5 November 2026
 
-Status: owner-approved feature visual QA and production BST handoff complete;
-exact candidate staged; traffic cutover and closing verification pending.
+Status: exact narrow runtime deployed; production BST handoff, normal browser QA,
+performance and immediate closing verification passed.
 Last updated 2026-11-05. This checkpoint continues the approved scope in
 PLANNING_FLOORS_BST_20261104.md. The owner confirmed existing Yo'ldasheva
 Dilfuzaxon as Oydinoy's replacement and Axunova Xayotxon as Shaxnoza's replacement.
@@ -10,14 +10,14 @@ or permission was created.
 
 ## Verified production and scope
 
-Both application hosts still point to20261104_080711, source984aeffb22aedd3262d7cd61e2d88a905b589e8d,
-manifest0221829adfc216391679b744ae512b6c4d96913bb0316c31dfe12fb9a1641be7.
-Database remains0154_eco_receipt_details with zero pending revisions and no DDL.
-Exact candidate 20261105_043000 is staged in green on both hosts. Active blue
-containers, traffic, current source links, proxies and slot-state files remain
-unchanged; production-base remains blue until actual cutover. Blue remains the
-working rollback for candidate activation; the older 20261104_093330 release
-remains retained as source and immutable images.
+Both application hosts now serve active green 20261105_043000, exact source
+94e4cfc54c6cc4fd5787bcbc7ba8483f4518a507, with both current links updated.
+Source manifest is dd662d889407378ce78d22ebb40e5ce3f53a3043377027b84315f8733234b257.
+Working rollback is blue 20261104_080711 / 984aeffb22aedd3262d7cd61e2d88a905b589e8d
+on both hosts, preserving original container IDs, images, starts and backend
+worker PIDs. Database remains 0154_eco_receipt_details with zero pending revisions
+and no DDL. Production-base now records the actual narrow deployed source.
+The older 20261104_093330 source and immutable images remain retained.
 
 The pushed runtime branch codex/planning-floors-release-20261104 is exact
 94e4cfc54c6cc4fd5787bcbc7ba8483f4518a507 in
@@ -49,20 +49,26 @@ removing the uniquely identified task container.
 - Refactor PostgreSQL gate41835800637 passed on the same exact source.
 - Frontend optimized102-page Next16.3.8 build, strict types, build contracts,
   Planning9 and floor artwork14 component cases passed. Actual isolated Edge QA
-  and the owner's visual acceptance subsequently passed as recorded below. Normal
-  signed-in inactive production-preview QA remains pending.
+  and the owner's visual acceptance passed. Normal signed-in production-preview
+  and post-cutover public read-only browser QA subsequently passed.
 - Immutable workflow41961242842 completed successfully for release20261105_043000.
   Source archive, manifest, CI provenance and both digest-pinned images were
-  verified, prepared and staged on their respective hosts.
+  verified, prepared, staged and activated on their respective hosts. Backend
+  image digest 586f24d858073bbe08ec95eaed525cf298bd40ac3924cfcd935eb3ae8a0b4251
+  and frontend be0e003ce910756c98caa3e3034499b9b8dbb940b049411e78f362022d3a0c98
+  are the exact successful CI images.
 - The fresh 112,183,293-byte custom PostgreSQL backup passed its 1,329-object
   restore-list validation, bounded by the reviewed 1 GiB file cap.
 - Same-schema proof passed at0154_eco_receipt_details with zero pending revisions.
   No migration files, DDL or migration stamping were applied.
 - Official paired active/candidate benchmarks passed unchanged default comparison
-  thresholds. The benchmark against the public endpoint established a passing
-  baseline. Maintenance authentication does not establish normal browser login.
+  thresholds: maximum median +1.57%, p95 +0.96%. Final public comparison against
+  the public baseline passed: maximum median +0.32%, p95 +1.27%, payload +0.02%.
+  Public payload changes ranged from -0.34% to +0.02%, within the unchanged 15-percent
+  allowance; row counts, queries and benchmark identity matched. Maintenance
+  benchmark authentication remains distinct from the actual normal browser QA.
 
-## BST review and remaining gates
+## BST handoff and release closing
 
 The reviewed production handoffs to Yo'ldasheva Dilfuzaxon and Axunova Xayotxon
 committed and passed persisted verification with one audit receipt. Their current
@@ -93,18 +99,28 @@ refusals, restricted visibility, EN/RU/UZ and phone layout, all changed floor
 wrappers and synthetic BST flow/employee-manager readback, with empty application
 console-error logs. See PLANNING_FLOORS_VISUAL_QA_20261105.md. After that concrete
 review request, the owner replied “Visual QA approved” for exact94e on5 November.
-Image publication, preparation, backup, same-schema proof, both inactive stages,
-paired performance and the public baseline now pass. Normal signed-in inactive
-preview QA remains pending, followed by backend-first traffic activation, current
-links, normal public read-only QA, public closing benchmark, all four health checks
-and runtime/database closing checks. Preview login awaits the owner's existing
-requested action; it has not been counted as passing.
+Image publication, preparation, backup, same-schema proof, staging, normal signed-in
+preview QA, backend-first activation, both current links, public read-only browser
+QA, final public performance, all four health checks and runtime/database closing
+passed. Only the authorized BST handoff changed business state; no other
+production business form was submitted. Closing confirmed zero invalid indexes
+and 36/100 database connections. Both owned deployment leases were released after
+closing, with active green and working blue rollback identities verified.
+
+The initial preview 403 and failed proof are retained. A separately reviewed
+delivery-helper correction changed only client-abort handling, passing 53 offline
+cases. The corrected normal proxy served 282 HTTP 200 responses, preserved identical
+before/after runtime identities, and was closed. No deployed application source
+was changed by this delivery correction. Final normal public browser QA recorded
+zero application console errors; 29 unrelated browser-extension M_ID errors are
+explicitly retained. This is not a total-zero-console-error claim.
 
 Deployment authorization remains valid; no new permission request is invented.
-The owner waived only 30-minute monitoring. Required immediate verification and
-compatible rollback remain mandatory; pending normal-auth preview QA must pass
-before cutover. Historical ECO p95 exceptions do not apply here. This checkpoint
-does not mark the feature deployed or approve a pending gate by implication.
+The owner waived only 30-minute monitoring; no monitor was created or run. Required
+immediate checks passed and working rollback remains available. No historical ECO
+p95 exception or relaxed performance/capacity threshold was used. Only the exact
+narrow runtime 94e was deployed. Combined source PR496 remains DRAFT and unmerged;
+its separate migration-graph approval remains held.
 
 ## Verified capacity maintenance
 
