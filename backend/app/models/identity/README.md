@@ -3,8 +3,8 @@
 Business-service group guide, relocated into models/ on 24 October 2026. This
 directory contains pure policy evaluation in [access_policy_service.py](access_policy_service.py),
 shared grant checks in [access_service.py](access_service.py), and create-user
-coordination in [users_service.py](users_service.py). Other account operations
-remain in the existing *_service.py files and admin route.
+coordination in [users_service.py](users_service.py). Authenticated role listing lives in [roles_service.py](roles_service.py);
+other account operations remain in the existing *_service.py files and admin route.
 
 **Purpose:** Own authentication, user accounts, roles and permission evaluation. Keep object/factory access checks reusable by every operation.
 

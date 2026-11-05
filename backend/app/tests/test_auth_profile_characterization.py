@@ -10,7 +10,7 @@ from app.core.security import create_access_token, hash_password
 from app.db.session import get_db
 from app.main import app
 from app.schemas import AuditLog, Role, User
-from app.tests.test_auth_login_characterization import login_database
+from app.tests.test_auth_login_characterization import login_database as login_database
 
 
 @pytest.fixture

@@ -13,7 +13,7 @@ from app.main import app
 from app.models.password_reset_service import password_reset_hash
 from app.schemas import AuditLog, PasswordResetToken, User
 from app.schemas.identity.user_persistence import add_password_reset_token
-from app.tests.test_auth_login_characterization import login_database
+from app.tests.test_auth_login_characterization import login_database as login_database
 
 OLD = "ChangeBefore!2026"
 NEW = "ChangeAfter!2026"

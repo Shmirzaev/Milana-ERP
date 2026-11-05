@@ -37,6 +37,8 @@ from app.models.identity.access_service import (
     _assert_can_grant_role, _assert_can_grant_permissions,
 )
 
+from app.models.identity.roles_service import list_roles as list_identity_roles
+
 router = APIRouter(tags=["admin"])
 
 
@@ -458,7 +460,7 @@ def delete_user(user_id: int, db: DbSession, current: User = Depends(require_per
 # ===== Roles =====
 @router.get("/roles", response_model=list[RoleOut])
 def list_roles(db: DbSession, _: CurrentUser):
-    return db.query(Role).all()
+    return list_identity_roles(db)
 
 
 @router.post("/roles", response_model=RoleOut, status_code=201)
