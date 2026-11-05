@@ -2,19 +2,22 @@
 
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from datetime import datetime, timezone
 
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.deps import user_permissions
-from app.core.dt import utcnow
-from app.core.security import hash_password, is_legacy_default_admin_login, normalize_email, verify_password
+from app.core.dt import as_utc, utcnow
+from app.core.security import hash_password, is_legacy_default_admin_login, normalize_email, validate_password_strength, verify_password
 from app.core.shared_store import SharedCounterStore
+from app.libs.dto.identity.auth import ResetPasswordIn
 from app.models.audit_service import log_action
+from app.models.credentials_service import apply_password_credential_change, lock_user_for_credential_change
 from app.models.factory_scope_service import authorize_login_factory, selected_factory_code
-from app.models.password_reset_service import create_password_reset_token, password_reset_url
-from app.schemas import User
+from app.models.password_reset_service import create_password_reset_token, password_reset_hash, password_reset_url
+from app.schemas import PasswordResetToken, User
 from app.schemas.core_persistence import add_notification_row
 from app.schemas.identity.user_persistence import record_user_login_activity
 
@@ -113,6 +116,49 @@ def request_password_reset(
         )
     db.commit()
     return user, reset_url
+
+
+def complete_password_reset(
+    db: Session, payload: ResetPasswordIn, store_provider: Callable[[], SharedCounterStore],
+) -> None:
+    with auth_counter_store(store_provider) as store:
+        store.ttl("auth:reset-completion")
+    if payload.new_password != payload.confirm_new_password:
+        raise HTTPException(400, "New passwords do not match")
+    try:
+        validate_password_strength(payload.new_password)
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from error
+
+    token_hash = password_reset_hash(payload.token.strip())
+    user_id = db.query(PasswordResetToken.user_id).filter(PasswordResetToken.token_hash == token_hash).scalar()
+    if user_id is None:
+        raise HTTPException(400, "Invalid or expired reset link")
+
+    # Lock the account before re-reading the token so sibling resets serialize.
+    user = lock_user_for_credential_change(db, user_id, require_active=True)
+    reset_token = (
+        db.query(PasswordResetToken)
+        .filter(PasswordResetToken.token_hash == token_hash)
+        .populate_existing()
+        .first()
+    )
+    now = datetime.now(timezone.utc)
+    if (
+        not reset_token
+        or reset_token.used_at is not None
+        or as_utc(reset_token.expires_at) < now
+        or not user
+        or not user.is_active
+    ):
+        raise HTTPException(400, "Invalid or expired reset link")
+
+    apply_password_credential_change(db, user, payload.new_password, changed_at=now)
+    log_action(
+        db, user, "reset_password", "User", user.id,
+        new_value={"credential_changed": True, "reset_links_invalidated": True},
+    )
+    db.commit()
 
 
 def select_session_factory(db: Session, user: User, requested_factory_code: str) -> str:
