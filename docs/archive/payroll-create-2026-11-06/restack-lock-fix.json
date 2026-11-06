@@ -1,0 +1,93 @@
+[
+  {
+    "branch": "codex/dilmurod-payroll-lock-period",
+    "old": "eb33ea3b8de1b163bc27a594f463fe1d17f306ca",
+    "new": "191ebecb10f12e3fcd29efe7dd891933b93398a8",
+    "old_characterization": "2fe0d4bc36d82d2f66a834a5d984329cb89270c9",
+    "new_characterization": "2fe0d4bc36d82d2f66a834a5d984329cb89270c9"
+  },
+  {
+    "branch": "codex/dilmurod-payroll-approve-period",
+    "old": "9e9bcd3a35c8e1340a7df95b6c4c3db7bc8ae36a",
+    "new": "ce3b1834fbc215402e15fcbf0845b77f0b769e6c",
+    "old_characterization": "476c84c5f9b5aba95224970c890d80252ba1bb69",
+    "new_characterization": "442a9b48643ffd13058b74014c90b6da7644459f"
+  },
+  {
+    "branch": "codex/dilmurod-payroll-mark-paid",
+    "old": "10f3d8f33440085637e7d722897d63a11dc12d0b",
+    "new": "6bda86d2ba9223d87524eecd807de666121e85c2",
+    "old_characterization": "d0c58b03aad59f388995f1df382796863b85ed6c",
+    "new_characterization": "98eaf99c4011e423c12fb4daae9ba10756694b61"
+  },
+  {
+    "branch": "codex/dilmurod-payroll-list-records",
+    "old": "b02ab8529b3aa48635b4f4f0e227fb6bb501132f",
+    "new": "6088dbbf7f81c430b4618fbde6eb58e1e567d2b0",
+    "old_characterization": "6d86035acba4bef78e669bda88127bb347e77343",
+    "new_characterization": "77b4144831fd5428d170654f8d70b315a6b4b47a"
+  },
+  {
+    "branch": "codex/dilmurod-payroll-order-qr-status-orders",
+    "old": "a2c396462e077b619d801a36494b822ee00b8848",
+    "new": "90c89cebad6cecb7409adc82c2f22a1c50005ef2",
+    "old_characterization": "d1a177d3259b03ee983ad91e5b797d6f5d3073b7",
+    "new_characterization": "1b1a2f6174a4df1736530f957a90f194b88d6e92"
+  },
+  {
+    "branch": "codex/dilmurod-payroll-order-qr-status-report",
+    "old": "249b2aaee4c678c31477652b8b7b303100171bb5",
+    "new": "bca95c7cfb769a288df9fa931ba025a00a604dd8",
+    "old_characterization": "234f931855397805de95d642536d6c6d1ff91def",
+    "new_characterization": "5faf4a0120221bdb382b8115f8733cf255b14e52"
+  },
+  {
+    "branch": "codex/dilmurod-payroll-sewing-production-report-options",
+    "old": "41208b240433a867269f0a597eae525f00e81400",
+    "new": "c39f800026e94f8c6fd199d7541f0abf92576268",
+    "old_characterization": "ceadf18823bdfa21a17022011986f6ceedf0d613",
+    "new_characterization": "4a64ac179a06cad9027af592028bccec7e56ed14"
+  },
+  {
+    "branch": "codex/dilmurod-payroll-sewing-production-report",
+    "old": "e2ed51f7b014f011caa51136cd8505d1a8556717",
+    "new": "fb3ff65ff304e19d08af49b09d9080ad36316bf0",
+    "old_characterization": "486791652e8b38d2ff77a076825ccb68136990a3",
+    "new_characterization": "5be3ce1dc99418fd64c461bb4b7f7c5fdfcb6a0d"
+  },
+  {
+    "branch": "codex/dilmurod-payroll-sewing-production-report-excel",
+    "old": "80ace688faec522cd079b7839ffd808a854cc601",
+    "new": "736075f2fd8c831ba6d72b98c139d237dc279b66",
+    "old_characterization": "1b77717ae23faa8f60942b702ebcc97736502cb8",
+    "new_characterization": "3dec2d08dbf353afcf1b417699d822fd04456538"
+  },
+  {
+    "branch": "codex/dilmurod-payroll-export-process-qr-operations",
+    "old": "6be75168ce53a86bdb9dd9fc75a73aa700acc90f",
+    "new": "6dbc69033b2eabf8d8905a333bc98752d6d96d69",
+    "old_characterization": "d2a27e0e1135a38f58206bd0deaaf392680a4cec",
+    "new_characterization": "cc442078671cac3b59094e3c05417a58f0d3909c"
+  },
+  {
+    "branch": "codex/dilmurod-payroll-search-payroll-employees",
+    "old": "1bd79423e487bc1532c925aabea8dc2f048663d4",
+    "new": "6714bd593c6e858b34c6413a2539ff0e96475e7a",
+    "old_characterization": "1b45b3909923566d1c1fbf6869d322709bab6b33",
+    "new_characterization": "f75e8b4fea7d6c2ffd9f3433ec3ab4e30cf8fcec"
+  },
+  {
+    "branch": "codex/dilmurod-payroll-resolve-employee-number",
+    "old": "bb1eafa4283a5a3fb9423a4404a61630a839cd1d",
+    "new": "77ea068092542c0a9045dae61097d24a936f5b6c",
+    "old_characterization": "3ede27ed5add041c5c2ad759d3d93f1a4ed4a2b8",
+    "new_characterization": "985d539f57d939c153480a0536a32daea6a3cf37"
+  },
+  {
+    "branch": "codex/dilmurod-payroll-resolve-qr-token",
+    "old": "702242b15ba59c0adb77475157114ebe98798dd8",
+    "new": "60d2072dc88d40f22045f638f0f55ceeb5476ed9",
+    "old_characterization": "b6ab944149ffd003040ff498fa735237db1caf0b",
+    "new_characterization": "ba6a64d03521a9f71633c9f28411e5879425b83e"
+  }
+]

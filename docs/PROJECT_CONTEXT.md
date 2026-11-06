@@ -11,9 +11,19 @@ this checkout, a new combined candidate or deployed production. Inspect current
 code and the operation ledger before advancing a gate. Schema-owned writers,
 system-wide enum/type adoption and human acceptance remain incomplete.
 
-Last updated 2026-11-04. Keep this file short: current decisions, release pointers and
+Last updated 2026-11-06. Keep this file short: current decisions, release pointers and
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
+
+## Payroll source extraction (6 November)
+
+Dilmurod / Mirshoir payroll extraction is finishing as three family PRs after the
+period/read stack: records and scans, adjustments/reversals, QR lifecycle. The user
+authorized a single top PR combined with current `clone_main`, green hosted CI,
+then merge and closure of included lower PRs. User owns one final browser check;
+local ports 20000–20002 remain available. Automated evidence and the complete
+operation/type retention ledger live in [the payroll record](archive/payroll-create-2026-11-06/CONTINUATION.md).
+No production deployment, visual acceptance or system-wide enum completion is claimed.
 
 ## Current refactor: Finance shipment invoice reversal (4 November)
 

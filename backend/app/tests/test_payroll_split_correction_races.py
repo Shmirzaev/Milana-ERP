@@ -115,6 +115,8 @@ def _correct(seed, payload=None):
 
 
 def _pause(monkeypatch, module, action):
+    if module is payroll and action in {"create", "return_qr", "split_scanned_qr"}:
+        module = payroll.payroll_records_service
     ready, release = Event(), Event()
     original = module.log_action
 
