@@ -153,7 +153,7 @@ def test_delete_unused_user_keeps_other_users_audit_history(client, auth_headers
 def test_failed_user_delete_rolls_back_reference_cleanup_and_audit(client, auth_headers, monkeypatch, error_kind):
     user_id, references = _create_target()
     before = _snapshot(references)
-    original_log_action = admin.log_action
+    original_log_action = users_service.log_action
     error = (RuntimeError("synthetic deletion failure after audit flush") if error_kind == "runtime"
              else IntegrityError("synthetic deletion failure", {}, ValueError("unrelated constraint")))
 
@@ -161,7 +161,7 @@ def test_failed_user_delete_rolls_back_reference_cleanup_and_audit(client, auth_
         original_log_action(*args, **kwargs)
         raise error
 
-    monkeypatch.setattr(admin, "log_action", fail_after_audit_flush)
+    monkeypatch.setattr(users_service, "log_action", fail_after_audit_flush)
     with pytest.raises(type(error), match="synthetic deletion failure"):
         client.delete(f"/api/users/{user_id}", headers=auth_headers)
 

@@ -209,3 +209,13 @@ def test_explicit_super_without_wildcard_can_delete_nonfinal_protected_account(i
     with h.db() as db:
         assert db.get(User, target) is None
         assert db.query(AuditLog).filter_by(entity_type='User', entity_id=target, action='delete').count() == 1
+
+
+def test_direct_service_rejects_unprivileged_actor(identity_admin):
+    from fastapi import HTTPException
+    from app.models.identity.users_service import delete_user
+    with identity_admin.db() as db:
+        actor = db.get(User, identity_admin.actors["ordinary"][0])
+        with pytest.raises(HTTPException) as error:
+            delete_user(db, 2147483647, actor)
+        assert error.value.status_code == 403
