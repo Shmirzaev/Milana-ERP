@@ -2,21 +2,20 @@
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 import json
-from types import SimpleNamespace
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
 from fastapi import HTTPException
-from sqlalchemy import String, and_, case, cast, func, or_
+from sqlalchemy import String, and_, cast, func, or_
 from sqlalchemy.orm import load_only
 from app.core.dt import as_utc, utcnow
-from app.core.model_search import normalized_model_code_column, normalized_model_code_pattern
 from app.core.order_reference import (
-    canonical_order_reference, order_reference_variants,
+    order_reference_variants,
 )
 from app.schemas import (
     Department,
     Employee,
     Model,
+    PayrollAdjustment,
     PayrollPeriod,
     PayrollQrLabel,
     PayrollRecord,
@@ -30,14 +29,21 @@ from app.schemas import (
 from app.libs.dto.people.payroll import (
     PayrollPeriodIn,
     PayrollPeriodUpdate,
+    PayrollSummaryEmployeeOut,
+    PayrollSummaryOperationOut,
+    PayrollSummaryOut,
 )
-from app.schemas.order_reference import BusinessOrderAlias
 from app.models.process_qr_export_service import ProcessQrExportIn
 from app.models.audit_service import log_action
 from app.models.factory_scope_service import selected_factory_code
 from app.models.payroll_reports_service import ReportLanguage
 from app.models.employee_aliases_service import merged_employee
 from app.models.payroll_operation_service import is_control_operation as _is_control_operation
+from types import SimpleNamespace
+from sqlalchemy import case
+from app.core.model_search import normalized_model_code_column, normalized_model_code_pattern
+from app.core.order_reference import canonical_order_reference
+from app.schemas.order_reference import BusinessOrderAlias
 from sqlalchemy.orm import object_session
 from app.models.process_qr_export_service import build_process_qr_xlsx
 from app.models.factory_scope_service import require_factory_access
@@ -1867,3 +1873,305 @@ def list_qr_labels(db: Session, current: User=None, search: str | None=None, sta
         "scanned_count": scanned_count,
         "closed_count": closed_count,
     }
+
+
+def _adjustment_signed_amount(adjustment: PayrollAdjustment) -> Decimal:
+    amount = adjustment.amount or Decimal("0")
+    return -amount if adjustment.adjustment_type == "deduction" else amount
+
+
+def _filtered_adjustment_query(
+    db: Session,
+    *,
+    factory_code: str,
+    period_id: int | None = None,
+    employee_id: int | None = None,
+    department_id: int | None = None,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+):
+    qry = db.query(PayrollAdjustment).filter(PayrollAdjustment.factory_code == factory_code)
+    if department_id is not None:
+        qry = qry.join(Employee, Employee.id == PayrollAdjustment.employee_id).filter(Employee.department_id == department_id)
+    if period_id is not None:
+        qry = qry.filter(PayrollAdjustment.payroll_period_id == period_id)
+    if employee_id is not None:
+        qry = qry.filter(PayrollAdjustment.employee_id == employee_id)
+    if date_from is not None:
+        qry = qry.filter(PayrollAdjustment.created_at >= as_utc(date_from))
+    if date_to is not None:
+        qry = qry.filter(PayrollAdjustment.created_at <= as_utc(date_to))
+    return qry
+
+
+def payroll_summary(db: Session, current: User=None, period_id: int | None=None, employee_id: int | None=None, department_id: int | None=None, date_from: datetime | None=None, date_to: datetime | None=None, group_by_operation: bool=True, page: int | None=None, page_size: int | None=None, employee_search: str | None=None):
+    paged = page is not None or page_size is not None or bool((employee_search or "").strip())
+    effective_page = page or 1
+    effective_page_size = page_size or 50
+    normalized_search = " ".join((employee_search or "").split()).casefold()
+    factory_code = selected_factory_code(current)
+    base_qry = _filtered_record_query(
+        db,
+        factory_code=factory_code,
+        period_id=period_id,
+        employee_id=employee_id,
+        department_id=department_id,
+        date_from=date_from,
+        date_to=date_to,
+    ).filter(PayrollRecord.status != "voided").options(load_only(
+        PayrollRecord.employee_id,
+        PayrollRecord.currency,
+        PayrollRecord.quantity,
+        PayrollRecord.total_amount,
+        PayrollRecord.operation_section,
+        PayrollRecord.operation_code,
+        PayrollRecord.operation_name,
+    ))
+
+    adjustment_qry = _filtered_adjustment_query(
+        db,
+        factory_code=factory_code,
+        period_id=period_id,
+        employee_id=employee_id,
+        department_id=department_id,
+        date_from=date_from,
+        date_to=date_to,
+    ).options(load_only(
+        PayrollAdjustment.employee_id,
+        PayrollAdjustment.currency,
+        PayrollAdjustment.adjustment_type,
+        PayrollAdjustment.amount,
+    ))
+
+    employee_groups: dict[tuple[int, str], dict[str, Any]] = {}
+    operation_groups: dict[tuple[int, str, str | None, str | None, str | None], dict[str, Any]] = {}
+    employee_ids: set[int] = set()
+    currencies: set[str] = set()
+    records_count = 0
+    adjustment_count = 0
+    total_quantity = Decimal("0")
+    piecework_amount = Decimal("0")
+    bonus_amount = Decimal("0")
+    deduction_amount = Decimal("0")
+
+    def employee_group(employee_id_value: int, currency_value: str) -> dict[str, Any]:
+        return employee_groups.setdefault(
+            (int(employee_id_value), currency_value),
+            {
+                "employee_id": int(employee_id_value),
+                "currency": currency_value,
+                "records_count": 0,
+                "adjustment_count": 0,
+                "quantity": Decimal("0"),
+                "piecework_amount": Decimal("0"),
+                "adjustment_amount": Decimal("0"),
+                "bonus_amount": Decimal("0"),
+                "deduction_amount": Decimal("0"),
+                "total_amount": Decimal("0"),
+                "operations": [],
+            },
+        )
+
+    # These reports can cover years of scans. Iterate in fixed-size fetch
+    # batches and retain only the response's employee/operation aggregates.
+    for record in base_qry.yield_per(400):
+        record_employee_id = int(record.employee_id)
+        record_currency = str(record.currency or "UZS")
+        employee_ids.add(record_employee_id)
+        currencies.add(record_currency)
+        records_count += 1
+        total_quantity += record.quantity or Decimal("0")
+        piecework_amount += record.total_amount or Decimal("0")
+        current = employee_group(record_employee_id, record_currency)
+        current["records_count"] += 1
+        current["quantity"] += record.quantity or Decimal("0")
+        current["piecework_amount"] += record.total_amount or Decimal("0")
+        current["total_amount"] += record.total_amount or Decimal("0")
+
+        if group_by_operation and not paged:
+            operation_key = (
+                record_employee_id,
+                record_currency,
+                record.operation_section,
+                record.operation_code,
+                record.operation_name,
+            )
+            op = operation_groups.setdefault(
+                operation_key,
+                {
+                    "employee_id": record_employee_id,
+                    "operation_section": record.operation_section,
+                    "operation_code": record.operation_code,
+                    "operation_name": record.operation_name,
+                    "currency": record_currency,
+                    "records_count": 0,
+                    "quantity": Decimal("0"),
+                    "total_amount": Decimal("0"),
+                },
+            )
+            op["records_count"] += 1
+            op["quantity"] += record.quantity or Decimal("0")
+            op["total_amount"] += record.total_amount or Decimal("0")
+
+    for adjustment in adjustment_qry.yield_per(400):
+        adjustment_employee_id = int(adjustment.employee_id)
+        adjustment_currency = str(adjustment.currency or "UZS")
+        employee_ids.add(adjustment_employee_id)
+        currencies.add(adjustment_currency)
+        adjustment_count += 1
+        current = employee_group(adjustment_employee_id, adjustment_currency)
+        signed_amount = _adjustment_signed_amount(adjustment)
+        current["adjustment_count"] += 1
+        current["adjustment_amount"] += signed_amount
+        current["total_amount"] += signed_amount
+        if adjustment.adjustment_type == "deduction":
+            amount = adjustment.amount or Decimal("0")
+            deduction_amount += amount
+            current["deduction_amount"] += amount
+        else:
+            amount = adjustment.amount or Decimal("0")
+            bonus_amount += amount
+            current["bonus_amount"] += amount
+
+    employees, departments = _load_employee_maps(
+        db, employee_ids, include_search_fields=bool(normalized_search)
+    )
+    for (group_employee_id, _currency), group in employee_groups.items():
+        employee = employees.get(group_employee_id)
+        department = (
+            departments.get(int(employee.department_id))
+            if employee and employee.department_id
+            else None
+        )
+        group["employee_name"] = (
+            employee.full_name if employee else f"Employee {group_employee_id}"
+        )
+        group["department_id"] = employee.department_id if employee else None
+        group["department_name"] = department.name if department else None
+
+    if group_by_operation and not paged:
+        for key, op in operation_groups.items():
+            employee_key = (key[0], key[1])
+            employee_groups[employee_key]["operations"].append(PayrollSummaryOperationOut(**op))
+
+    employees_out = [PayrollSummaryEmployeeOut(**row) for row in employee_groups.values()]
+    employees_out.sort(key=lambda row: (str(row.employee_name).lower(), row.employee_id))
+    if normalized_search:
+        search_terms = normalized_search.split()
+
+        def matches_employee(row: PayrollSummaryEmployeeOut) -> bool:
+            employee = employees.get(row.employee_id)
+            department = (
+                departments.get(int(employee.department_id))
+                if employee and employee.department_id
+                else None
+            )
+            searchable = [
+                row.employee_name,
+                getattr(employee, "employee_no", None),
+                getattr(department, "code", None),
+                row.department_name,
+            ]
+            normalized_fields = [str(value).casefold() for value in searchable if value]
+            if normalized_search.isdecimal() and normalized_search == str(row.employee_id):
+                return True
+            return all(
+                any(term in field for field in normalized_fields)
+                for term in search_terms
+            )
+
+        employees_out = [row for row in employees_out if matches_employee(row)]
+
+    employees_total = len(employees_out)
+    if paged:
+        start = (effective_page - 1) * effective_page_size
+        employees_out = employees_out[start : start + effective_page_size]
+
+    if group_by_operation and paged and employees_out:
+        selected_groups = {(row.employee_id, row.currency) for row in employees_out}
+        page_operation_query = _filtered_record_query(
+            db,
+            factory_code=factory_code,
+            period_id=period_id,
+            employee_id=employee_id,
+            department_id=department_id,
+            date_from=date_from,
+            date_to=date_to,
+        ).filter(
+            PayrollRecord.status != "voided",
+            or_(
+                *(
+                    and_(
+                        PayrollRecord.employee_id == selected_employee_id,
+                        func.coalesce(PayrollRecord.currency, "UZS") == selected_currency,
+                    )
+                    for selected_employee_id, selected_currency in selected_groups
+                )
+            ),
+        ).options(load_only(
+            PayrollRecord.employee_id,
+            PayrollRecord.currency,
+            PayrollRecord.quantity,
+            PayrollRecord.total_amount,
+            PayrollRecord.operation_section,
+            PayrollRecord.operation_code,
+            PayrollRecord.operation_name,
+        ))
+        page_operation_groups: dict[
+            tuple[int, str, str | None, str | None, str | None], dict[str, Any]
+        ] = {}
+        for record in page_operation_query.yield_per(400):
+            key = (
+                int(record.employee_id),
+                str(record.currency or "UZS"),
+                record.operation_section,
+                record.operation_code,
+                record.operation_name,
+            )
+            op = page_operation_groups.setdefault(
+                key,
+                {
+                    "employee_id": key[0],
+                    "operation_section": key[2],
+                    "operation_code": key[3],
+                    "operation_name": key[4],
+                    "currency": key[1],
+                    "records_count": 0,
+                    "quantity": Decimal("0"),
+                    "total_amount": Decimal("0"),
+                },
+            )
+            op["records_count"] += 1
+            op["quantity"] += record.quantity or Decimal("0")
+            op["total_amount"] += record.total_amount or Decimal("0")
+        page_employees = {(row.employee_id, row.currency): row for row in employees_out}
+        for key, op in page_operation_groups.items():
+            page_employees[(key[0], key[1])].operations.append(
+                PayrollSummaryOperationOut(**op)
+            )
+    summary_currency = (
+        next(iter(currencies))
+        if len(currencies) == 1
+        else ("MIXED" if currencies else "UZS")
+    )
+    adjustment_amount = bonus_amount - deduction_amount
+    total_amount = piecework_amount + adjustment_amount
+    return PayrollSummaryOut(
+        records_count=records_count,
+        adjustment_count=adjustment_count,
+        quantity=total_quantity,
+        piecework_amount=piecework_amount,
+        adjustment_amount=adjustment_amount,
+        bonus_amount=bonus_amount,
+        deduction_amount=deduction_amount,
+        total_amount=total_amount,
+        currency=summary_currency,
+        employees=employees_out,
+        employees_total=employees_total if paged else None,
+        employee_page=effective_page if paged else None,
+        employee_page_size=effective_page_size if paged else None,
+        employees_has_more=(
+            effective_page * effective_page_size < employees_total if paged else None
+        ),
+        employee_search=normalized_search or None if paged else None,
+    )
