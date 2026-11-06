@@ -144,13 +144,27 @@ def test_pg_disposal_request_race_serializes_on_parent(pg_sessions):
             pids = [ready.get(timeout=10) for _ in futures]
             start.set()
             deadline = monotonic() + 10
+            graph = {}
+            owned = {*pids, holder_pid}
+
+            def reaches_holder(pid, visited=frozenset()):
+                if pid == holder_pid:
+                    return True
+                if pid in visited:
+                    return False
+                return any(reaches_holder(blocker, visited | {pid}) for blocker in graph.get(pid, ()))
+
             while monotonic() < deadline:
-                if all(holder_pid in holder.execute(text('SELECT pg_blocking_pids(:pid)'), {'pid': pid}).scalar_one() for pid in pids):
+                graph = {pid: holder.execute(text('SELECT pg_blocking_pids(:pid)'), {'pid': pid}).scalar_one() for pid in pids}
+                # PostgreSQL may queue a tuple-lock waiter behind the first waiter.
+                # Require both live requests to reach ONLY our external parent holder.
+                if (all(graph[pid] and set(graph[pid]) <= owned and reaches_holder(pid) for pid in pids)
+                        and all(not future.done() for future in futures)):
+                    print('OWNED_PARENT_WAIT_GRAPH', {'holder': holder_pid, 'workers': pids, 'blockers': graph})
                     break
                 sleep(0.01)
             else:
-                graph = {pid: holder.execute(text('SELECT pg_blocking_pids(:pid)'), {'pid': pid}).scalar_one() for pid in pids}
-                pytest.fail(f'Both requests did not wait directly on owned parent holder={holder_pid}; graph={graph}')
+                pytest.fail(f'Both requests did not enter the owned parent wait chain holder={holder_pid}; graph={graph}')
         finally:
             start.set()
             holder.rollback()
