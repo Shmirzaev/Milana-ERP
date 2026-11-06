@@ -71,3 +71,28 @@ def test_direct_service_rejects_inactive_privileged_actor(identity_admin, actor_
     with h.db() as after:
         target = after.get(User, target_id)
         assert (target.name, target.email, target.is_active, after.query(AuditLog).count(), after.query(User).count()) == expected
+
+
+@pytest.mark.parametrize("actor_kind", ["manager", "super"])
+def test_direct_service_rejects_stale_deactivated_actor(identity_admin, actor_kind):
+    from fastapi import HTTPException
+    from app.models.identity.users_service import get_user
+    h = identity_admin
+    target_id = h.actors["ordinary"][0]
+    with h.db() as before:
+        target = before.get(User, target_id)
+        expected = (target.name, target.email, target.is_active, before.query(AuditLog).count(), before.query(User).count())
+    with h.db() as db:
+        actor = db.get(User, h.actors[actor_kind][0])
+        assert actor.is_active
+        with h.db() as other:
+            other.get(User, actor.id).is_active = False
+            other.commit()
+        assert actor.is_active
+        with pytest.raises(HTTPException) as error:
+            get_user(db, target_id, actor)
+        assert (error.value.status_code, error.value.detail) == (401, "Inactive or unknown user")
+        db.rollback()
+    with h.db() as after:
+        target = after.get(User, target_id)
+        assert (target.name, target.email, target.is_active, after.query(AuditLog).count(), after.query(User).count()) == expected

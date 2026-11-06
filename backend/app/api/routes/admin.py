@@ -255,8 +255,8 @@ def _parse_date(value: str | None, end_of_day: bool = False) -> datetime | None:
 
 # ===== Users =====
 @router.get("/access-catalog")
-def access_catalog(current: User = Depends(require_permissions("admin.users", "*"))):
-    return get_access_catalog(current)
+def access_catalog(db: DbSession, current: User = Depends(require_permissions("admin.users", "*"))):
+    return get_access_catalog(db, current)
 
 
 @router.post("/users/access-preview")

@@ -155,21 +155,24 @@ def _effective_permissions_for(db: DbSession, role_id: int | None, extra_permiss
     return normalize_permissions(permissions)
 
 
-def _require_active_admin_actor(actor: User) -> None:
-    if actor is None or not actor.is_active:
+def _require_active_admin_actor(db: DbSession, actor: User) -> None:
+    actor_id = getattr(actor, "id", None)
+    with db.no_autoflush:
+        active = db.query(User.is_active).filter(User.id == actor_id).scalar() if actor_id is not None else None
+    if not active:
         raise HTTPException(status_code=401, detail="Inactive or unknown user")
     require_permissions("admin.users", "*")(actor)
 
 
-def get_access_catalog(actor: User) -> list[dict]:
-    _require_active_admin_actor(actor)
+def get_access_catalog(db: DbSession, actor: User) -> list[dict]:
+    _require_active_admin_actor(db, actor)
     own = set(user_permissions(actor))
     return [{**row, "grantable": is_super_admin(actor) if row["key"] in {"*", SUPER_ADMIN_PERMISSION}
              else "*" in own or row["key"] in own} for row in PERMISSION_CATALOG]
 
 
 def preview_user_access(db: DbSession, payload: UserIn, actor: User) -> dict:
-    _require_active_admin_actor(actor)
+    _require_active_admin_actor(db, actor)
     values = payload.model_dump(exclude={"password"})
     subject = _access_subject(db, values)
     available = available_factory_codes(subject)

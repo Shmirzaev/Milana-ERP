@@ -71,12 +71,12 @@ def create_user(db: Session, payload: UserIn, actor: User) -> tuple[User, str | 
 
 
 def list_users(db: Session, actor: User) -> list[User]:
-    _require_active_admin_actor(actor)
+    _require_active_admin_actor(db, actor)
     return db.query(User).order_by(User.id).all()
 
 
 def get_user(db: Session, user_id: int, actor: User) -> User:
-    _require_active_admin_actor(actor)
+    _require_active_admin_actor(db, actor)
     u = db.get(User, user_id)
     if not u:
         raise HTTPException(404, "User not found")
@@ -116,7 +116,7 @@ def _lock_active_user_memberships(db: Session) -> None:
 
 
 def update_user(db: Session, user_id: int, payload: UserUpdate, current: User) -> User:
-    _require_active_admin_actor(current)
+    _require_active_admin_actor(db, current)
     # Lock memberships in stable order before taking a target credential lock.
     if {"role_id", "extra_permissions", "access_policy", "is_active", "factory_code"} & payload.model_fields_set:
         _lock_active_user_memberships(db)
@@ -199,7 +199,7 @@ def _assert_user_has_no_audit_history(db: Session, user_id: int) -> None:
 
 
 def delete_user(db: Session, user_id: int, current: User) -> None:
-    _require_active_admin_actor(current)
+    _require_active_admin_actor(db, current)
     _lock_active_user_memberships(db)
     u = db.get(User, user_id)
     if not u:
