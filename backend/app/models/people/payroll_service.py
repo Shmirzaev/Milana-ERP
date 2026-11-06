@@ -30,9 +30,11 @@ from app.libs.dto.people.payroll import (
     PayrollPeriodIn,
     PayrollPeriodUpdate,
 )
+from app.models.process_qr_export_service import ProcessQrExportIn, build_process_qr_xlsx
 from app.models.audit_service import log_action
 from app.models.factory_scope_service import require_factory_access, selected_factory_code
-from app.models.payroll_reports_service import ReportLanguage, build_sewing_production_report_xlsx, build_sewing_salary_summary_xlsx
+from app.models.payroll_reports_service import ReportLanguage
+from app.models.payroll_reports_service import build_sewing_production_report_xlsx, build_sewing_salary_summary_xlsx
 from sqlalchemy import Date
 from app.schemas import SewingRecord
 from app.models.payroll_reports_service import salary_report_days
@@ -1444,3 +1446,8 @@ def sewing_production_report_excel(db: Session, current: User=None, lang: Report
     report_name = "sewing-salary-summary" if report_view == "salary" else "sewing-production-report"
     filename = f"{report_name}-{generated_at.strftime('%Y-%m-%d')}.xlsx"
     return workbook, filename
+
+
+def export_process_qr_operations(payload: ProcessQrExportIn, current: User=None):
+    require_factory_access(current, payload.factory)
+    return build_process_qr_xlsx(payload)

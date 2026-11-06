@@ -72,9 +72,9 @@ from app.libs.dto.people.payroll import (
     SewingProductionReportOptions,
 )
 from app.schemas.order_reference import BusinessOrderAlias
-from app.models.process_qr_export_service import ProcessQrExportIn, build_process_qr_xlsx
+from app.models.process_qr_export_service import ProcessQrExportIn
 from app.models.audit_service import log_action
-from app.models.factory_scope_service import require_factory_access, selected_factory_code
+from app.models.factory_scope_service import selected_factory_code
 from app.models.payroll_factory_scope_service import production_order_factory_condition, require_production_order_factory, require_work_order_factory
 from app.models.payroll_reports_service import ReportLanguage
 from app.models.employee_aliases_service import merged_employee
@@ -1273,9 +1273,9 @@ def export_process_qr_operations(
     payload: ProcessQrExportIn,
     current: User = Depends(require_permissions("payroll.scan", "payroll.manage", "*")),
 ):
-    require_factory_access(current, payload.factory)
+    workbook = payroll_service.export_process_qr_operations(payload, current)
     return Response(
-        content=build_process_qr_xlsx(payload),
+        content=workbook,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": 'attachment; filename="paid-processes.xlsx"'},
     )
