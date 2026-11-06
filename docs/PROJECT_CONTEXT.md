@@ -173,6 +173,8 @@ was 78.11%; staging was below 80%, while the 70% alert remains applicable.
 
 ## Active whole-ERP refactor
 
+6 November 2026: Payroll period CREATE is draft PR #511, with local characterization and extraction evidence; browser access is blocked and remaining payroll operations are pending. See [task record](archive/payroll-create-2026-11-06/README.md). No production change.
+
 PR343 merged three verified persistence operations into `clone_main` at
 `d235cf9e9a44b1de81428beb261f8fab837cbe87`; this did not deploy them. The owner
 resumed all remaining domains with cheap isolated subagents on 30 October.

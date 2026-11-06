@@ -1,5 +1,9 @@
 # Team bug tracker — clone_main
 
+## PEO-PAY-CREATE-20261106 — period creation extraction awaiting visual evidence
+
+- **BLOCKED · People · Owner: Dilmurod; lead: Mirshoir (review delegated).** Draft PR #511; automated parity and independent AI review recorded in [task evidence](../docs/archive/payroll-create-2026-11-06/README.md). Browser tool unavailable; human acceptance and hosted CI pending. Other payroll operations remain pending. No production change.
+
 ## IDN-ROLES-NO-SCREEN-20261105 — role creation has no screen
 
 - **P3 · Open · Identity/Roles · Owner: Dilmurod. Decision pending Dilmurod.** No Roles screen; roles can only be created via the API by a Super Admin.

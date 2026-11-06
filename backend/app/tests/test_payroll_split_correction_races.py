@@ -267,7 +267,8 @@ def test_postgres_correction_and_period_schedule_or_lock_serialize(split_postgre
         other = lambda db, actor: payroll.lock_period(seed["period_id"], db, actor)
         action = "lock"
     before = _snapshot(sessions)
-    ready, release = _pause(monkeypatch, correction if correction_first else payroll,
+    audit_owner = payroll.payroll_service if operation == "create" else payroll
+    ready, release = _pause(monkeypatch, correction if correction_first else audit_owner,
                             "correct_split_allocation" if correction_first else action)
     first, second = _race(sessions, seed, _correct(seed) if correction_first else other,
                           other if correction_first else _correct(seed), ready, release)
