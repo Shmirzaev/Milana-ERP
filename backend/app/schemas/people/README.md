@@ -101,3 +101,5 @@ Compatible history can downgrade to the 0152 constraints. See the
 **AI_VERIFIED_AWAITING_HUMAN** after independent source/evidence review.
 
 `payroll_adjustment_persistence.py` stages adjustment insert/delete using the supplied Session; services own commits.
+
+`payroll_qr_lifecycle_persistence.py` stages QR child insertion and batch deletion with no commit; caller preserves lock and flush order.

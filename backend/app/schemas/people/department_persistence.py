@@ -14,3 +14,7 @@ def insert_department(db: Session, *, name: str, code: str) -> Department:
 def update_department_values(db: Session, department: Department, *, name: str, code: str) -> None:
     department.name = name
     department.code = code
+
+
+def delete_department_row(db: Session, department: Department) -> None:
+    db.delete(department)

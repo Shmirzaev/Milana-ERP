@@ -1,19 +1,13 @@
 from __future__ import annotations
 
 from datetime import datetime
-from decimal import Decimal
 from typing import Annotated, Literal
-from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import Response
-from sqlalchemy import or_
 
 from app.core.deps import DbSession, require_permissions
-from app.core.dt import utcnow
 from app.schemas import (
-    PayrollQrLabel,
-    PayrollRecord,
     User,
 )
 from app.libs.dto.people.payroll import (
@@ -50,8 +44,6 @@ from app.libs.dto.people.payroll import (
     SewingProductionReportOptions,
 )
 from app.models.process_qr_export_service import ProcessQrExportIn
-from app.models.audit_service import log_action
-from app.models.factory_scope_service import selected_factory_code
 from app.models.payroll_reports_service import ReportLanguage
 from app.libs.dto.people.payroll_split_correction import SplitAllocationOut, SplitAllocationUpdate
 from app.models.payroll_split_correction_service import correct_split_allocation, read_split_allocation, render_split_allocation_labels
@@ -579,37 +571,10 @@ def list_qr_labels(
     return payroll_service.list_qr_labels(db, current, search, status, order_no, production_order_id, include_superseded, limit, offset)
 
 
-def _assert_qr_label_never_scanned(db: DbSession, label: PayrollQrLabel) -> None:
-    if (
-        label.status != "available"
-        or label.payroll_record_id is not None
-        or label.last_scanned_at is not None
-        or int(label.return_count or 0) > 0
-    ):
-        raise HTTPException(409, "Only never-scanned payroll QR labels can be edited or split")
-    historical_record = (
-        db.query(PayrollRecord.id)
-        .filter(
-            PayrollRecord.factory_code == label.factory_code,
-            or_(
-                PayrollRecord.scan_uid == label.label_uid,
-                PayrollRecord.original_scan_uid == label.label_uid,
-            ),
-        )
-        .first()
-    )
-    if historical_record:
-        raise HTTPException(409, "Payroll QR labels with payroll history cannot be edited or split")
+_assert_qr_label_never_scanned = payroll_qr_service._assert_qr_label_never_scanned
 
 
-def _corrected_label_values(payload: PayrollQrLabelEditIn) -> tuple[str, Decimal]:
-    operation_name = payload.operation_name.strip()
-    if not operation_name:
-        raise HTTPException(400, "Payroll QR operation name is required")
-    rate = _to_decimal(payload.rate_per_piece)
-    if rate < 0:
-        raise HTTPException(400, "Payroll QR rate cannot be negative")
-    return operation_name, rate
+_corrected_label_values = payroll_qr_service._corrected_label_values
 
 
 @router.patch("/qr-labels/{label_id}", response_model=PayrollQrLabelOut)
@@ -619,43 +584,7 @@ def edit_qr_label(
     db: DbSession,
     current: User = Depends(require_permissions("payroll.manage", "*")),
 ):
-    label = (
-        db.query(PayrollQrLabel)
-        .filter(
-            PayrollQrLabel.id == label_id,
-            PayrollQrLabel.factory_code == selected_factory_code(current),
-        )
-        .with_for_update()
-        .one_or_none()
-    )
-    if not label:
-        raise HTTPException(404, "Payroll QR label not found")
-    _assert_qr_label_never_scanned(db, label)
-    operation_name, rate = _corrected_label_values(payload)
-    old_value = {
-        "operation_name": label.operation_name,
-        "rate_per_piece": str(label.rate_per_piece),
-        "qr_token": _work_qr_token(int(label.id)),
-    }
-    label.operation_name = operation_name
-    label.rate_per_piece = rate
-    label.payload = None
-    log_action(
-        db,
-        current,
-        "edit_unscanned_qr",
-        "PayrollQrLabel",
-        int(label.id),
-        old_value=old_value,
-        new_value={
-            "operation_name": operation_name,
-            "rate_per_piece": str(rate),
-            "qr_token": _work_qr_token(int(label.id)),
-        },
-    )
-    db.commit()
-    db.refresh(label)
-    return _serialize_qr_label(label, records={}, employees={}, departments={})
+    return payroll_qr_service.edit_qr_label(label_id, payload, db, current)
 
 
 @router.post("/qr-labels/{label_id}/split", response_model=PayrollQrLabelSplitOut)
@@ -665,102 +594,7 @@ def split_qr_label(
     db: DbSession,
     current: User = Depends(require_permissions("payroll.manage", "*")),
 ):
-    label = (
-        db.query(PayrollQrLabel)
-        .filter(
-            PayrollQrLabel.id == label_id,
-            PayrollQrLabel.factory_code == selected_factory_code(current),
-        )
-        .with_for_update()
-        .one_or_none()
-    )
-    if not label:
-        raise HTTPException(404, "Payroll QR label not found")
-    _assert_qr_label_never_scanned(db, label)
-    operation_name, rate = _corrected_label_values(payload)
-    quantities = [int(quantity) for quantity in payload.quantities]
-    if any(quantity <= 0 for quantity in quantities):
-        raise HTTPException(400, "Every split quantity must be a positive whole number")
-    original_quantity = _to_decimal(label.quantity)
-    if sum(quantities) != original_quantity:
-        raise HTTPException(409, "Split quantities must equal the original payroll QR quantity")
-
-    copied_fields = {
-        "production_order_id": label.production_order_id,
-        "sales_order_id": label.sales_order_id,
-        "work_order_id": label.work_order_id,
-        "production_batch_id": label.production_batch_id,
-        "model_id": label.model_id,
-        "production_no": label.production_no,
-        "sales_order_no": label.sales_order_no,
-        "batch_no": label.batch_no,
-        "model_code": label.model_code,
-        "operation_section": label.operation_section,
-        "operation_code": label.operation_code,
-        "operation_name": operation_name,
-        "sewing_flow_id": label.sewing_flow_id,
-        "sewing_line_code": label.sewing_line_code,
-        "sewing_line_name": label.sewing_line_name,
-        "cutting_passport_id": label.cutting_passport_id,
-        "cutting_passport_no": label.cutting_passport_no,
-        "size": label.size,
-        "rate_per_piece": rate,
-        "currency": label.currency,
-        "status": "available",
-        "issued_by": current.id,
-        "issued_at": utcnow(),
-        "split_from_label_id": int(label.id),
-    }
-    children: list[PayrollQrLabel] = []
-    for index, quantity in enumerate(quantities):
-        child = PayrollQrLabel(
-            factory_code=label.factory_code,
-            label_uid=f"OERP-SPLIT-{uuid4().hex.upper()}",
-            copy_index=max(1, int(label.copy_index or 1)) + index,
-            quantity=Decimal(quantity),
-            **copied_fields,
-        )
-        db.add(child)
-        children.append(child)
-
-    old_value = {
-        "label_uid": label.label_uid,
-        "qr_token": _work_qr_token(int(label.id)),
-        "operation_name": label.operation_name,
-        "quantity": str(label.quantity),
-        "rate_per_piece": str(label.rate_per_piece),
-    }
-    label.status = "superseded"
-    label.superseded_at = utcnow()
-    label.superseded_by = current.id
-    label.payroll_record_id = None
-    db.flush()
-    new_value = {
-        "operation_name": operation_name,
-        "rate_per_piece": str(rate),
-        "quantities": quantities,
-        "child_label_ids": [int(child.id) for child in children],
-        "child_qr_tokens": [_work_qr_token(int(child.id)) for child in children],
-    }
-    log_action(
-        db,
-        current,
-        "split_unscanned_qr",
-        "PayrollQrLabel",
-        int(label.id),
-        old_value=old_value,
-        new_value=new_value,
-    )
-    db.commit()
-    for child in children:
-        db.refresh(child)
-    return {
-        "superseded_label_id": int(label.id),
-        "labels": [
-            _serialize_qr_label(child, records={}, employees={}, departments={})
-            for child in children
-        ],
-    }
+    return payroll_qr_service.split_qr_label(label_id, payload, db, current)
 
 
 @router.post("/qr-labels/delete-batch", response_model=PayrollQrLabelBatchDeleteOut)
@@ -769,83 +603,7 @@ def delete_qr_label_batch(
     db: DbSession,
     current: User = Depends(require_permissions("payroll.manage", "*")),
 ):
-    label_ids = sorted({int(label_id) for label_id in payload.label_ids if int(label_id) > 0})
-    if not label_ids:
-        raise HTTPException(400, "At least one payroll QR label is required")
-
-    labels = (
-        db.query(PayrollQrLabel)
-        .filter(
-            PayrollQrLabel.id.in_(label_ids),
-            PayrollQrLabel.factory_code == selected_factory_code(current),
-        )
-        .with_for_update()
-        .all()
-    )
-    if len(labels) != len(label_ids):
-        raise HTTPException(404, "One or more payroll QR labels were not found")
-
-    requested_size = payload.size.strip()
-    actual_sizes = {str(label.size or "-").strip() or "-" for label in labels}
-    if actual_sizes != {requested_size}:
-        raise HTTPException(409, "Payroll QR labels must belong to the same requested size")
-
-    order_keys = {
-        (
-            label.production_order_id,
-            str(label.production_no or "").strip(),
-            str(label.sales_order_no or "").strip(),
-        )
-        for label in labels
-    }
-    if len(order_keys) != 1:
-        raise HTTPException(409, "Payroll QR labels must belong to the same order")
-
-    if any(
-        label.status != "available"
-        or label.payroll_record_id is not None
-        or label.last_scanned_at is not None
-        or int(label.return_count or 0) > 0
-        for label in labels
-    ):
-        raise HTTPException(409, "Only never-scanned payroll QR labels can be deleted")
-
-    label_uids = [label.label_uid for label in labels]
-    historical_record = (
-        db.query(PayrollRecord.id)
-        .filter(
-            PayrollRecord.factory_code == selected_factory_code(current),
-            or_(
-                PayrollRecord.scan_uid.in_(label_uids),
-                PayrollRecord.original_scan_uid.in_(label_uids),
-            ),
-        )
-        .first()
-    )
-    if historical_record:
-        raise HTTPException(409, "Payroll QR labels with payroll history cannot be deleted")
-
-    audit_label = min(labels, key=lambda label: int(label.id))
-    audit_value = {
-        "size": requested_size,
-        "count": len(labels),
-        "label_ids": label_ids[:100],
-        "production_order_id": audit_label.production_order_id,
-        "production_no": audit_label.production_no,
-        "sales_order_no": audit_label.sales_order_no,
-    }
-    log_action(
-        db,
-        current,
-        "delete_unscanned_batch",
-        "PayrollQrLabel",
-        int(audit_label.id),
-        old_value=audit_value,
-    )
-    for label in labels:
-        db.delete(label)
-    db.commit()
-    return {"deleted_count": len(labels), "size": requested_size}
+    return payroll_qr_service.delete_qr_label_batch(payload, db, current)
 
 
 @router.post("/qr-labels/{label_id}/return", response_model=PayrollQrLabelOut)

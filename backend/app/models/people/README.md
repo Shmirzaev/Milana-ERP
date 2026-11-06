@@ -109,3 +109,5 @@ and the [PHOTO task packet](../../../../docs/TURNSTILE_PHOTO_REPLACEMENT_2026110
 Prior ENROLL, EDIT and PHOTO evidence remains historical; their human gates are unrecorded.
 
 Payroll adjustments and reversals use `payroll_adjustments_service.py`; period totals and audit semantics are preserved.
+
+`payroll_qr_service.py` also owns unscanned edit/split/batch deletion, preserving identity and history guards.
