@@ -163,3 +163,15 @@ class PayrollAdjustment(Base, PkMixin):
     def signed_amount(self) -> Decimal:
         amount = self.amount or Decimal("0")
         return -amount if self.adjustment_type == "deduction" else amount
+
+
+def add_payroll_period(db, **values) -> PayrollPeriod:
+    period = PayrollPeriod(**values)
+    db.add(period)
+    db.flush()
+    return period
+
+
+def apply_payroll_period_changes(period: PayrollPeriod, changes: dict) -> None:
+    for key, value in changes.items():
+        setattr(period, key, value)

@@ -8,6 +8,8 @@ import BrandLogo from "@/components/BrandLogo";
 
 const LANGS: Lang[] = ["en", "ru", "uz"];
 const SHORT: Record<Lang, string> = { en: "EN", ru: "RU", uz: "UZ" };
+const UZ_MONTHS = ["yanvar", "fevral", "mart", "aprel", "may", "iyun", "iyul", "avgust", "sentabr", "oktabr", "noyabr", "dekabr"];
+const UZ_WEEKDAYS = ["yakshanba", "dushanba", "seshanba", "chorshanba", "payshanba", "juma", "shanba"];
 
 type LoginPanel = {
   active_orders: number;
@@ -144,7 +146,7 @@ export default function LoginPage() {
   }
 
   const dateStr = now
-    ? new Intl.DateTimeFormat(
+    ? lang === "uz" ? `${now.getFullYear()}-yil ${now.getDate()}-${UZ_MONTHS[now.getMonth()]}, ${UZ_WEEKDAYS[now.getDay()]}` : new Intl.DateTimeFormat(
         locale,
         { day: "numeric", month: "long", year: "numeric", weekday: "long" }
       ).format(now)
@@ -247,7 +249,7 @@ export default function LoginPage() {
               {openTasks.length ? openTasks.map((row, idx) => (
                 <div key={`${row.title}-${idx}`} className="flex items-center gap-2 text-[11.5px] text-[#2c2920]">
                   <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ background: priorityColor(row.priority) }} />
-                  {row.title}
+                  {row.title === "Secure sign-in required" ? t("login.secureSignIn") : row.title}
                 </div>
               )) : (
                 <div className="text-[11.5px] text-[#8a8472]">{t("tasks.empty")}</div>
@@ -303,7 +305,7 @@ export default function LoginPage() {
 
           <form onSubmit={onSubmit} className="flex flex-col gap-4" noValidate>
             <div>
-              <label className="label" htmlFor="login-factory">Factory</label>
+              <label className="label" htmlFor="login-factory">{t("common.factory")}</label>
               <select
                 id="login-factory"
                 className="input mt-1"
