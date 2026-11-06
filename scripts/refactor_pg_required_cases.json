@@ -605,6 +605,15 @@
         "test_signed_finance_rollback_and_retry",
         "test_concurrent_finance_updates_wait_and_last_writer_wins"
       ]
+    },
+    "test_waste_receive_commit_postgres": {
+      "revision": "e1c181fcf1a0275e533e59d9d43f2a6b3469156e",
+      "git_blob_sha256": "e37e3facedb07b9198da2c07680df1835b155fcba8dc2e549a1ad428041a3f42",
+      "selected_functions": [
+        "test_signed_receive_refusals_and_retained_readback",
+        "test_signed_receipt_finalization_commit_rollback_retry",
+        "test_signed_receipt_observed_wait_one_transition"
+      ]
     }
   },
   "cases": {
@@ -1357,6 +1366,12 @@
       "test_signed_finance_rollback_and_retry[audit]",
       "test_signed_finance_rollback_and_retry[commit]",
       "test_concurrent_finance_updates_wait_and_last_writer_wins"
+    ],
+    "test_waste_receive_commit_postgres": [
+      "test_signed_receive_refusals_and_retained_readback",
+      "test_signed_receipt_finalization_commit_rollback_retry[audit]",
+      "test_signed_receipt_finalization_commit_rollback_retry[commit]",
+      "test_signed_receipt_observed_wait_one_transition"
     ]
   },
   "isolated_supplemental_cases": [

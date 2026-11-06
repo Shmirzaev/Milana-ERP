@@ -32,7 +32,7 @@ class RequiredPGGateTests(unittest.TestCase):
 
     def test_complete_evidence_passes(self):
         counts = gate.check_report(self.write_report(self.report()))
-        self.assertEqual(sum(counts.values()), 634)
+        self.assertEqual(sum(counts.values()), 638)
 
     def test_stocktake_undo_cases_are_required_and_passing(self):
         module = "test_stocktake_undo_postgres"
@@ -269,6 +269,27 @@ class RequiredPGGateTests(unittest.TestCase):
         module = 'test_price_calculation_cutting_postgres'
         self.assertEqual(len(gate.REQUIRED_CASES[module]), 3)
         self.assertEqual(gate.GROUPS[module][0], 3)
+        for name in gate.REQUIRED_CASES[module]:
+            for mutation in ("missing", "replacement", "duplicate", "skipped", "failure", "error"):
+                with self.subTest(name=name, mutation=mutation):
+                    tree = self.report()
+                    suite = next(tree.iter("testsuite"))
+                    case = next(row for row in suite if row.get("classname") == f"app.tests.{module}" and row.get("name") == name)
+                    if mutation == "missing":
+                        suite.remove(case)
+                    elif mutation == "replacement":
+                        case.set("name", "unrelated_replacement_case")
+                    elif mutation == "duplicate":
+                        ET.SubElement(suite, "testcase", classname=case.get("classname"), name=name)
+                    else:
+                        ET.SubElement(case, mutation)
+                    with self.assertRaises(ValueError):
+                        gate.check_report(self.write_report(tree))
+
+    def test_waste_receive_commit_postgres_cases_are_required_and_passing(self):
+        module = 'test_waste_receive_commit_postgres'
+        self.assertEqual(len(gate.REQUIRED_CASES[module]), 4)
+        self.assertEqual(gate.GROUPS[module][0], 4)
         for name in gate.REQUIRED_CASES[module]:
             for mutation in ("missing", "replacement", "duplicate", "skipped", "failure", "error"):
                 with self.subTest(name=name, mutation=mutation):
