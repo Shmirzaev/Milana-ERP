@@ -393,8 +393,8 @@
       ]
     },
     "test_stocktake_create_postgres": {
-      "revision": "77297fb2de894df3d24a40a095de5d7a5b8862fa",
-      "git_blob_sha256": "0c708b860cf7d054b9edbdd2c895292bd2e69dac6bcdf30beed3b2697953f6c8",
+      "revision": "658568d10f33e2eeacf686455c25d1fe1a1f5e0c",
+      "git_blob_sha256": "cb49e70d98ba4e3d83796a9b497d68f103475a4248087058dc6fcbb00944858a",
       "selected_functions": [
         "test_pg_http_create_auth_and_request_key_replay",
         "test_pg_same_key_concurrent_create_replays_unique_winner",
