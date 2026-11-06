@@ -175,3 +175,11 @@ def add_payroll_period(db, **values) -> PayrollPeriod:
 def apply_payroll_period_changes(period: PayrollPeriod, changes: dict) -> None:
     for key, value in changes.items():
         setattr(period, key, value)
+
+
+def update_period_record_status(db, factory_code: str, period_id: int, statuses: list[str], next_status: str) -> None:
+    db.query(PayrollRecord).filter(
+        PayrollRecord.factory_code == factory_code,
+        PayrollRecord.payroll_period_id == period_id,
+        PayrollRecord.status.in_(statuses),
+    ).update({'status': next_status}, synchronize_session=False)

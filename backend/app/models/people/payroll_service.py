@@ -1,13 +1,13 @@
 """Payroll period operations own validation, schedule locks, audit and commit."""
 from app.libs.dto.people.payroll import PayrollPeriodUpdate
-from app.schemas.people.payroll import apply_payroll_period_changes
+from app.schemas.people.payroll import apply_payroll_period_changes, update_period_record_status
 
 from datetime import datetime
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from app.core.dt import as_utc
+from app.core.dt import as_utc, utcnow
 from app.libs.dto.people.payroll import PayrollPeriodIn
 from app.models.audit_service import log_action
 from app.models.factory_scope_service import selected_factory_code
@@ -156,6 +156,22 @@ def lock_period(period_id: int, db: Session, current: User=None):
     old_status = period.status
     apply_payroll_period_changes(period, {'status': 'locked'})
     log_action(db, current, 'lock', 'PayrollPeriod', period.id, old_value={'status': old_status}, new_value={'status': period.status})
+    db.commit()
+    db.refresh(period)
+    return period
+
+
+def approve_period(period_id: int, db: Session, current: User=None):
+    factory_code = selected_factory_code(current)
+    period = db.query(PayrollPeriod).filter(PayrollPeriod.id == period_id, PayrollPeriod.factory_code == factory_code).populate_existing().with_for_update().first()
+    if not period:
+        raise HTTPException(404, 'Payroll period not found')
+    if period.status != 'locked':
+        raise HTTPException(409, 'Only locked payroll periods can be approved')
+    old_status = period.status
+    apply_payroll_period_changes(period, {'status': 'approved', 'approved_by': current.id, 'approved_at': utcnow()})
+    update_period_record_status(db, factory_code, period.id, ['recorded'], 'approved')
+    log_action(db, current, 'approve', 'PayrollPeriod', period.id, old_value={'status': old_status}, new_value={'status': period.status})
     db.commit()
     db.refresh(period)
     return period
