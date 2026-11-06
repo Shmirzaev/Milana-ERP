@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -52,4 +54,68 @@ class ManagedDeviceUpdateIn(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=128)
     sync_enabled: bool | None = None
 
+
+class PersonIn(BaseModel):
+    external_person_id: str = Field(min_length=1, max_length=64)
+    full_name: str = Field(min_length=1, max_length=255)
+    user_type: str | None = Field(default=None, max_length=32)
+    valid_from: datetime | None = None
+    valid_to: datetime | None = None
+    is_valid: bool = True
+    has_face: bool = False
+    card_count: int = Field(default=0, ge=0, le=100)
+    fingerprint_count: int = Field(default=0, ge=0, le=100)
+
+    @field_validator("external_person_id", "full_name")
+    @classmethod
+    def strip_required_text(cls, value: str) -> str:
+        return value.strip()
+
+
+class PeopleSnapshotIn(BaseModel):
+    device: DeviceIn
+    people: list[PersonIn] = Field(max_length=5_000)
+    full_snapshot: bool = True
+    source_snapshot_at: datetime | None = None
+
+    @field_validator("source_snapshot_at")
+    @classmethod
+    def validate_source_snapshot_at(cls, value: datetime | None) -> datetime | None:
+        if value is not None and (value.tzinfo is None or value.utcoffset() is None):
+            raise ValueError("source_snapshot_at must include a timezone offset")
+        return value.astimezone(timezone.utc) if value is not None else None
+
+
+class EventIn(BaseModel):
+    event_uid: str = Field(min_length=1, max_length=160)
+    external_person_id: str | None = Field(default=None, max_length=64)
+    occurred_at: datetime
+    direction: str = Field(default="unknown", max_length=16)
+    verification_mode: str | None = Field(default=None, max_length=64)
+    result: str | None = Field(default=None, max_length=32)
+    door_no: int | None = Field(default=None, ge=0, le=10_000)
+    reader_no: int | None = Field(default=None, ge=0, le=10_000)
+    serial_no: int | None = Field(default=None, ge=0)
+
+    @field_validator("event_uid")
+    @classmethod
+    def strip_event_uid(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("direction")
+    @classmethod
+    def normalize_direction(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        return normalized if normalized in {"entry", "exit"} else "unknown"
+
+
+class EventBatchIn(BaseModel):
+    device: DeviceIn
+    events: list[EventIn] = Field(max_length=2_000)
+    source_snapshot_at: datetime | None = None
+
+    @field_validator("source_snapshot_at")
+    @classmethod
+    def validate_source_snapshot_at(cls, value: datetime | None) -> datetime | None:
+        return PeopleSnapshotIn.validate_source_snapshot_at(value)
 
