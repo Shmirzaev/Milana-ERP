@@ -71,3 +71,13 @@ def test_super_admin_subject_is_available_in_every_factory(identity_admin):
     assert response.json() == {factory: {'permissions': ['*', 'admin.super'],
                                         'effective': sorted(PERMISSION_KEYS), 'available': True}
                                for factory in ('MIL', 'BST', 'ECO')}
+
+
+def test_direct_service_rejects_unprivileged_actor(identity_admin):
+    from fastapi import HTTPException
+    from app.models.identity.access_service import preview_user_access
+    with identity_admin.db() as db:
+        actor = db.get(User, identity_admin.actors["ordinary"][0])
+        with pytest.raises(HTTPException) as error:
+            preview_user_access(db, None, actor)
+        assert error.value.status_code == 403
