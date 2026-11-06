@@ -107,3 +107,5 @@ the historical [ENROLL evidence](../../../../docs/TURNSTILE_ACCESS_BACKEND_20261
 the [EDIT task and evidence packet](../../../../docs/TURNSTILE_EDIT_DETAILS_20261103.md),
 and the [PHOTO task packet](../../../../docs/TURNSTILE_PHOTO_REPLACEMENT_20261104.md).
 Prior ENROLL, EDIT and PHOTO evidence remains historical; their human gates are unrecorded.
+
+Payroll adjustments and reversals use `payroll_adjustments_service.py`; period totals and audit semantics are preserved.

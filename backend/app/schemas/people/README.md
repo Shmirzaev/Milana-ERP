@@ -99,3 +99,5 @@ revocation evidence; evidence detection checks the exact JSON action, not profil
 Compatible history can downgrade to the 0152 constraints. See the
 [REVOKE packet](../../../../docs/TURNSTILE_REVOKE_20261104.md); this slice remains
 **AI_VERIFIED_AWAITING_HUMAN** after independent source/evidence review.
+
+`payroll_adjustment_persistence.py` stages adjustment insert/delete using the supplied Session; services own commits.
