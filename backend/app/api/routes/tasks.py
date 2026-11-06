@@ -1,14 +1,15 @@
-from fastapi import APIRouter, HTTPException
-from sqlalchemy import func
+from fastapi import APIRouter
 
 from app.core.deps import DbSession, CurrentUser
-from app.schemas import Task
 from app.libs.dto.work_management.tasks import TaskAssigneeOption, TaskIn, TaskUpdate, TaskOut
 from app.models.audit_service import log_action
 from app.models.work_management.tasks_service import (
     delete_task as delete_task_operation,
     complete_task as complete_task_operation,
-    _can_manage, create_task as create_task_operation,
+    create_task as create_task_operation,
+    get_task as get_task_operation,
+    list_tasks as list_tasks_operation,
+    open_task_count as open_task_count_operation,
     list_task_assignees as list_task_assignees_operation,
     update_task as update_task_operation,
 )
@@ -28,31 +29,12 @@ def list_tasks(
     scope: str = "mine",  # mine | created | all (manager/admin only)
     status: TaskStatus | None = None,
 ):
-    qry = db.query(Task)
-    if scope == "all":
-        if not _can_manage(current):
-            raise HTTPException(403, "Only managers can list all tasks")
-    elif scope == "created":
-        qry = qry.filter(Task.created_by == current.id)
-    else:  # mine
-        qry = qry.filter(Task.assigned_to == current.id)
-    if status:
-        qry = qry.filter(Task.status == status.value)
-    return qry.order_by(Task.id.desc()).all()
+    return list_tasks_operation(db, current, scope, status)
 
 
 @router.get("/open-count")
 def open_task_count(db: DbSession, current: CurrentUser):
-    count = (
-        db.query(func.count(Task.id))
-        .filter(
-            Task.assigned_to == current.id,
-            Task.status.in_(("pending", "in_progress")),
-        )
-        .scalar()
-        or 0
-    )
-    return {"count": int(count)}
+    return open_task_count_operation(db, current)
 
 
 @router.post("", response_model=TaskOut, status_code=201)
@@ -62,11 +44,7 @@ def create_task(payload: TaskIn, db: DbSession, current: CurrentUser):
 
 @router.get("/{tid}", response_model=TaskOut)
 def get_task(tid: int, db: DbSession, current: CurrentUser):
-    t = db.get(Task, tid)
-    if not t: raise HTTPException(404, "Task not found")
-    if t.assigned_to != current.id and t.created_by != current.id and not _can_manage(current):
-        raise HTTPException(403, "Not allowed")
-    return t
+    return get_task_operation(db, current, tid)
 
 
 @router.patch("/{tid}", response_model=TaskOut)

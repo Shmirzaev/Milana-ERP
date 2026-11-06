@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 
 from fastapi import HTTPException
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.exc import StaleDataError
 
@@ -33,6 +34,39 @@ def _can_manage(user: User) -> bool:
         return True
     perms = user_permissions(user)
     return "tasks.manage" in perms or "management.approve" in perms
+
+
+def list_tasks(db: Session, current: User, scope: str = "mine", status: TaskStatus | None = None) -> list[Task]:
+    qry = db.query(Task)
+    if scope == "all":
+        if not _can_manage(current):
+            raise HTTPException(403, "Only managers can list all tasks")
+    elif scope == "created":
+        qry = qry.filter(Task.created_by == current.id)
+    else:
+        qry = qry.filter(Task.assigned_to == current.id)
+    if status:
+        qry = qry.filter(Task.status == status.value)
+    return qry.order_by(Task.id.desc()).all()
+
+
+def open_task_count(db: Session, current: User) -> dict[str, int]:
+    count = (
+        db.query(func.count(Task.id))
+        .filter(Task.assigned_to == current.id, Task.status.in_(("pending", "in_progress")))
+        .scalar()
+        or 0
+    )
+    return {"count": int(count)}
+
+
+def get_task(db: Session, current: User, tid: int) -> Task:
+    task = db.get(Task, tid)
+    if not task:
+        raise HTTPException(404, "Task not found")
+    if task.assigned_to != current.id and task.created_by != current.id and not _can_manage(current):
+        raise HTTPException(403, "Not allowed")
+    return task
 
 
 def list_task_assignees(db: Session, current: User) -> list[dict[str, int | str]]:
