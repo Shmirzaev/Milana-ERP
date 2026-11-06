@@ -166,7 +166,7 @@ export default function AuditLogsPage() {
             <div className="flex items-center gap-2 rounded-md border border-[#ded9ca] bg-[#fdfcf8] px-3 shadow-sm">
               <Search className="h-4 w-4 shrink-0 text-[#8a8472]" />
               <input
-                className="h-10 min-w-0 flex-1 bg-transparent text-sm outline-none"
+                className="h-10 min-w-0 flex-1 bg-transparent text-sm outline-hidden"
                 placeholder={t("page.admin.audit.searchPlaceholder")}
                 value={query}
                 onChange={(e) => updateFilter(setQuery, e.target.value)}

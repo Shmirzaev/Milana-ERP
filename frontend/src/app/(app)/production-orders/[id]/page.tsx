@@ -200,7 +200,7 @@ function SummaryImage({ label, imageUrl }: { label: string; imageUrl?: string | 
       href={imagePreviewHref(imageUrl, label)}
       target="_blank"
       rel="noreferrer"
-      className="block min-w-0 rounded-md focus:outline-none focus:ring-2 focus:ring-[#2a211c] focus:ring-offset-2"
+      className="block min-w-0 rounded-md focus:outline-hidden focus:ring-2 focus:ring-[#2a211c] focus:ring-offset-2"
     >
       <span className="mb-1 block text-xs text-slate-500">{label}</span>
       <span className="flex aspect-[4/3] max-h-64 min-h-40 items-center justify-center overflow-hidden rounded-md border border-[#ecebe3] bg-[#fbfaf7] p-2">
