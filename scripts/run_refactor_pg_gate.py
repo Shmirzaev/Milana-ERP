@@ -23,6 +23,7 @@ from refactor_pg_evidence import (
 # Minimum collected counts pin the current parameterized business cases. Adding
 # cases is allowed; removing a required case needs an explicit ledger change.
 GROUPS = {
+    'test_modelsize_delete_postgres': (8, ('test_delete_readback_and_audit', 'test_deferred_commit_failure_rolls_back_and_retry', 'test_signed_scope_permissions_missing_and_retained_state', 'test_signed_audit_finalization_failure_rolls_back_and_retry', 'test_last_size_with_issued_bundle_preserves_bundle', 'test_delete_and_same_label_insert_interleave_without_unique_guard')),
     'test_price_calculation_cutting_postgres': (3, ('test_signed_failure_rollback_and_retry', 'test_signed_passport_manual_refusals_and_readback', 'test_concurrent_passport_update_uses_visible_committed_snapshot')),
     'test_price_calculation_accessory_postgres': (3, ('test_signed_accessory_transitions_and_retained_readback', 'test_signed_failure_rollback_and_retry', 'test_concurrent_unlocked_updates_characterize_stale_completion')),
     'test_model_delete_postgres': (14, ('test_pg_signed_delete_scope_and_retained_readback', 'test_pg_signed_delete_unguarded_forecast_fk_rollback', 'test_pg_signed_delete_finalization_and_deferred_commit_rollback_retry', 'test_pg_signed_delete_real_reference_guards_in_order', 'test_pg_delete_blocks_concurrent_sales_reference_then_fk_refuses')),

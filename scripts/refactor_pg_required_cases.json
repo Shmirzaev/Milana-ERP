@@ -584,6 +584,18 @@
         "test_signed_passport_manual_refusals_and_readback",
         "test_concurrent_passport_update_uses_visible_committed_snapshot"
       ]
+    },
+    "test_modelsize_delete_postgres": {
+      "revision": "166043cdcbfe1b29b729da665d7ced810a14fe50",
+      "git_blob_sha256": "fced308443c1f12ef2bbb3b458cadb9ab4bf7d503da3aff04a1a16a30b38a5b4",
+      "selected_functions": [
+        "test_delete_readback_and_audit",
+        "test_deferred_commit_failure_rolls_back_and_retry",
+        "test_signed_scope_permissions_missing_and_retained_state",
+        "test_signed_audit_finalization_failure_rolls_back_and_retry",
+        "test_last_size_with_issued_bundle_preserves_bundle",
+        "test_delete_and_same_label_insert_interleave_without_unique_guard"
+      ]
     }
   },
   "cases": {
@@ -1320,6 +1332,16 @@
       "test_signed_failure_rollback_and_retry",
       "test_signed_passport_manual_refusals_and_readback",
       "test_concurrent_passport_update_uses_visible_committed_snapshot"
+    ],
+    "test_modelsize_delete_postgres": [
+      "test_delete_readback_and_audit[0-standard]",
+      "test_delete_readback_and_audit[1-usluga]",
+      "test_deferred_commit_failure_rolls_back_and_retry",
+      "test_signed_scope_permissions_missing_and_retained_state[standard-/api/models-standard]",
+      "test_signed_scope_permissions_missing_and_retained_state[usluga-/api/usluga/models-eco]",
+      "test_signed_audit_finalization_failure_rolls_back_and_retry",
+      "test_last_size_with_issued_bundle_preserves_bundle",
+      "test_delete_and_same_label_insert_interleave_without_unique_guard"
     ]
   },
   "isolated_supplemental_cases": [
