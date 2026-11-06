@@ -30,6 +30,7 @@ from app.models import price_calculation_service as pricing
 from app.models.audit_service import log_action
 from app.schemas import User
 from app.schemas.planning.price_calculation import PriceCalculationRequest
+from app.schemas.planning.price_calculation_persistence import apply_finance_contribution
 
 
 def load_price_request(db: Session, request_id: int) -> PriceCalculationRequest:
@@ -109,9 +110,7 @@ def update_finance_details(
     ):
         raise HTTPException(409, "Cost details must be completed before entering the selling price")
     old_value = {key: getattr(request, key) for key in changes}
-    for key, value in changes.items():
-        setattr(request, key, value)
-    request.finance_updated_by_id = current.id
+    apply_finance_contribution(db, request, changes, updated_by_id=current.id)
     log_action(db, current, "update_finance_price", "PriceCalculationRequest", request.id, old_value=old_value, new_value=changes)
     db.flush()
     pricing.attach_completed_selling_price(db, request, current)

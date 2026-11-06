@@ -72,3 +72,12 @@ def apply_cutting_contribution(
     request.gramage = gramage
     request.binding_kg_per_piece = binding_kg_per_piece
     db.flush()
+
+
+def apply_finance_contribution(
+    db: Session, request: PriceCalculationRequest, changes: dict[str, float | None], *, updated_by_id: int
+) -> None:
+    """Apply supplied fields without changing the caller's flush order."""
+    for field, value in changes.items():
+        setattr(request, field, value)
+    request.finance_updated_by_id = updated_by_id

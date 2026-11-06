@@ -596,6 +596,15 @@
         "test_last_size_with_issued_bundle_preserves_bundle",
         "test_delete_and_same_label_insert_interleave_without_unique_guard"
       ]
+    },
+    "test_price_calculation_finance_postgres": {
+      "revision": "6085e50d147eed3821971e522a1ca601c40c125e",
+      "git_blob_sha256": "b2503fd9ac983d5b32fba5170608ccffe65d90f26c5f9cf9c14a2486b6737729",
+      "selected_functions": [
+        "test_signed_finance_refusal_omission_null_and_attachment",
+        "test_signed_finance_rollback_and_retry",
+        "test_concurrent_finance_updates_wait_and_last_writer_wins"
+      ]
     }
   },
   "cases": {
@@ -1342,6 +1351,12 @@
       "test_signed_audit_finalization_failure_rolls_back_and_retry",
       "test_last_size_with_issued_bundle_preserves_bundle",
       "test_delete_and_same_label_insert_interleave_without_unique_guard"
+    ],
+    "test_price_calculation_finance_postgres": [
+      "test_signed_finance_refusal_omission_null_and_attachment",
+      "test_signed_finance_rollback_and_retry[audit]",
+      "test_signed_finance_rollback_and_retry[commit]",
+      "test_concurrent_finance_updates_wait_and_last_writer_wins"
     ]
   },
   "isolated_supplemental_cases": [
