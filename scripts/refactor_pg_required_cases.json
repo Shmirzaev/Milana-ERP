@@ -411,6 +411,17 @@
         "test_pg_deferred_commit_failure_restores_bulk",
         "test_pg_delete_blocks_scan_or_completion"
       ]
+    },
+    "test_stocktake_undo_postgres": {
+      "revision": "02b09812523f433720c707ad5d5eeb6bae450641",
+      "git_blob_sha256": "b1cbdd3a7816e9ea322d422660130600d82dcda8b3851da7b532420d7afd5655",
+      "selected_functions": [
+        "test_pg_undo_auth_and_selection_refusal_before_mutation",
+        "test_pg_undo_request_audit_finalization_failure_then_retry",
+        "test_pg_undo_duplicate_and_foreign_selection_and_single_success",
+        "test_pg_undo_completed_count_refuses_without_mutation",
+        "test_pg_undo_waits_for_completion_with_preloaded_count"
+      ]
     }
   },
   "cases": {
@@ -996,6 +1007,14 @@
       "test_pg_deferred_commit_failure_restores_bulk",
       "test_pg_delete_blocks_scan_or_completion[scan]",
       "test_pg_delete_blocks_scan_or_completion[complete]"
+    ],
+    "test_stocktake_undo_postgres": [
+      "test_pg_undo_auth_and_selection_refusal_before_mutation",
+      "test_pg_undo_request_audit_finalization_failure_then_retry",
+      "test_pg_undo_duplicate_and_foreign_selection_and_single_success",
+      "test_pg_undo_completed_count_refuses_without_mutation",
+      "test_pg_undo_waits_for_completion_with_preloaded_count[False]",
+      "test_pg_undo_waits_for_completion_with_preloaded_count[True]"
     ]
   },
   "isolated_supplemental_cases": [
