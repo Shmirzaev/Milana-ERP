@@ -69,13 +69,14 @@ PERIOD_CREATE_STATUSES = {"draft", "open"}
 
 
 def _period_no_for(db: Session, start_date: datetime, factory_code: str) -> str:
-    base = f"PAY-{start_date.year}-{start_date.month:02d}"
+    factory_start = as_utc(start_date).astimezone(ZoneInfo("Asia/Tashkent"))
+    base = f"PAY-{factory_start.year}-{factory_start.month:02d}"
     if not db.query(PayrollPeriod.id).filter(
         PayrollPeriod.factory_code == factory_code,
         PayrollPeriod.period_no == base,
     ).first():
         return base
-    year_prefix = f"PAY-{start_date.year}-"
+    year_prefix = f"PAY-{factory_start.year}-"
     count = db.query(PayrollPeriod.id).filter(
         PayrollPeriod.factory_code == factory_code,
         PayrollPeriod.period_no.like(f"{year_prefix}%"),

@@ -1955,7 +1955,7 @@ export default {
     "page.profile.validEmail": "Enter a valid email.",
     "page.profile.saved": "Profile saved.",
     "page.profile.passwordsNoMatch": "New passwords do not match.",
-    "page.profile.passwordUpdated": "Password updated.",
+    "page.profile.passwordUpdated": "Password updated, please sign in again.",
     "batch.managedInsideWorkOrder": "Batches Managed Inside This Work Order",
     "batch.recordAction": "Record each {operation} action against a batch below. This order stays as one work order.",
     "batch.defineInsideWorkOrder": "Define Internal Batches For This Work Order",
