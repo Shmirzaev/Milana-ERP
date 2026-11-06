@@ -19,7 +19,7 @@ from app.libs.enums.inventory import WasteStatus
 from app.models.audit_service import log_action
 from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response
 from app.schemas import Item, StockBatch, User, WasteDisposalRequest, WasteRecord, WasteSale
-from app.schemas.inventory.waste import add_disposal_request, mark_waste_disposed
+from app.schemas.inventory.waste import add_disposal_request, apply_disposal_approval, mark_waste_disposed
 from app.schemas.inventory.waste_create_persistence import insert_manual_waste
 
 
@@ -251,10 +251,7 @@ def approve_disposal(db, rid: int, current: User) -> WasteDisposalRequest:
     if r.status != "pending":
         raise HTTPException(400, "Disposal request is not pending")
     _require_disposal_waste(w, "pending_disposal_approval")
-    r.status = "approved"
-    r.approved_by = current.id
-    r.approved_at = datetime.now(timezone.utc)
-    w.status = "disposal_approved"
+    apply_disposal_approval(db, r, w, approved_by=current.id, approved_at=datetime.now(timezone.utc))
     log_action(db, current, "approve_disposal", "WasteDisposalRequest", r.id)
     db.commit(); db.refresh(r)
     return r
