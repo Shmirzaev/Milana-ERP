@@ -2,7 +2,7 @@
   "kind": "dilmurod_source_field_classification",
   "as_of": "2026-11-07",
   "source_revision": "d25641e8308d833ed21be0868e02df57605a1d78",
-  "status": "SOURCE_ONLY_PENDING_ACTUAL_VALUES_AND_FULL_CONSUMER_REVIEW",
+  "status": "SOURCE_ONLY_AWAITING_PRODUCTION_COUNTS_AND_FULL_CONSUMER_REVIEW",
   "table_count": 23,
   "field_count": 324,
   "limitations": [
@@ -1918,6 +1918,34 @@
     "identity": "#546",
     "people": "#545",
     "support": "#547",
-    "work_management": "#544"
+    "work_management": "#544",
+    "final_identity_work_boundary": "#549"
+  },
+  "excluded_non_runtime_writers": [
+    {
+      "item": "Identity seed writers",
+      "decision": "excluded: not part of the running application (decision Dilmurod, 7 Nov)",
+      "evidence": [
+        "backend/app/main.py:99",
+        "docs/archive/PACK_CUSTOMER_FG_RELEASE_2026-11-03.md:73"
+      ],
+      "qualification": "Explicit RUN_SEED_ON_STARTUP=true can enable the path; exclusion is for the current running configuration."
+    },
+    {
+      "item": "People one-off employee consolidation",
+      "decision": "excluded: not part of the running application (decision Dilmurod, 7 Nov)",
+      "evidence": [
+        "backend/app/models/employee_reconciliation_service.py:10",
+        "backend/app/tests/test_support_final_writer_characterization.py:8"
+      ],
+      "qualification": "The current source has test callers only."
+    }
+  ],
+  "production_count_check": {
+    "local_file": "prod_contract_check.sql",
+    "location": "alongside DILMUROD_TASKS.md; git-excluded",
+    "query_count": 47,
+    "scope": "One read-only aggregate count per needs_decision field; no row values or identifiers",
+    "limitation": "Counts alone cannot settle dynamic JSON/text or HTTP validation decisions."
   }
 }
