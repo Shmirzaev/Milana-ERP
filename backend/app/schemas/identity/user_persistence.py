@@ -2,9 +2,11 @@
 
 from datetime import datetime
 
+from sqlalchemy import delete, update
 from sqlalchemy.orm import Session
+from app.db.base import Base
 
-from app.schemas import PasswordResetToken, User
+from app.schemas import AuditLog, PasswordResetToken, User
 
 
 def record_user_login_activity(db: Session, user: User, now: datetime) -> None:
@@ -60,3 +62,24 @@ def set_user_credential_cutoff(user: User, now: datetime) -> None:
 def apply_admin_user_changes(user: User, changes: dict) -> None:
     for key, value in changes.items():
         setattr(user, key, value)
+
+
+def detach_user_references(db: Session, user_id: int) -> None:
+    """Remove references that would otherwise block deleting a user account."""
+    users_table = User.__table__
+    for table in Base.metadata.sorted_tables:
+        # Audit actors are part of the hash payload and must never be rewritten.
+        if table is users_table or table is AuditLog.__table__:
+            continue
+        for column in table.c:
+            if not any(fk.column.table is users_table and fk.column.name == "id" for fk in column.foreign_keys):
+                continue
+            if column.nullable:
+                db.execute(update(table).where(column == user_id).values({column.name: None}))
+            else:
+                db.execute(delete(table).where(column == user_id))
+
+
+
+def remove_user(db: Session, user: User) -> None:
+    db.delete(user)

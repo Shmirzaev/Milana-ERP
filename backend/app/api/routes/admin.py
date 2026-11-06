@@ -31,7 +31,7 @@ from app.models.password_reset_service import send_password_email_safely
 from app.db.reset_demo import reset_to_seed
 from app.core.permission_catalog import PERMISSION_CATALOG, PERMISSION_KEYS
 from app.models.factory_scope_service import FACTORY_CODES, available_factory_codes
-from app.models.identity.users_service import create_user as create_user_account, require_strong_password as _require_strong_password, list_users as list_identity_users, get_user as get_identity_user, update_user as update_identity_user, _count_active_admins, _count_active_super_admins, _lock_active_user_memberships
+from app.models.identity.users_service import create_user as create_user_account, require_strong_password as _require_strong_password, list_users as list_identity_users, get_user as get_identity_user, update_user as update_identity_user, delete_user as delete_identity_user, _count_active_admins, _count_active_super_admins, _lock_active_user_memberships
 from app.models.identity.access_service import (
     get_access_catalog, preview_user_access as preview_identity_access, _access_subject, _user_access_values, _assert_policy_change,
     _assert_can_grant_role, _assert_can_grant_permissions,
@@ -264,27 +264,6 @@ def preview_user_access(payload: UserIn, db: DbSession, current: User = Depends(
     return preview_identity_access(db, payload, current)
 
 
-def _assert_user_has_no_audit_history(db: DbSession, user_id: int) -> None:
-    if db.query(AuditLog.id).filter(AuditLog.user_id == user_id).first() is not None:
-        raise HTTPException(409, "User has audit history. Deactivate the account instead.")
-
-
-def _detach_user_references(db: DbSession, user_id: int) -> None:
-    """Remove references that would otherwise block deleting a user account."""
-    users_table = User.__table__
-    for table in Base.metadata.sorted_tables:
-        # Audit actors are part of the hash payload and must never be rewritten.
-        if table is users_table or table is AuditLog.__table__:
-            continue
-        for column in table.c:
-            if not any(fk.column.table is users_table and fk.column.name == "id" for fk in column.foreign_keys):
-                continue
-            if column.nullable:
-                db.execute(update(table).where(column == user_id).values({column.name: None}))
-            else:
-                db.execute(delete(table).where(column == user_id))
-
-
 @router.get("/users", response_model=list[UserOut])
 def list_users(db: DbSession, _: User = Depends(require_permissions("admin.users", "*"))):
     return list_identity_users(db, _)
@@ -315,30 +294,7 @@ def update_user(user_id: int, payload: UserUpdate, db: DbSession, current: User 
 
 @router.delete("/users/{user_id}", status_code=204)
 def delete_user(user_id: int, db: DbSession, current: User = Depends(require_permissions("admin.users", "*"))):
-    _lock_active_user_memberships(db)
-    u = db.get(User, user_id)
-    if not u:
-        raise HTTPException(404, "User not found")
-    if u.id == current.id:
-        raise HTTPException(400, "You cannot delete your own account")
-    if ("*" in user_permissions(u) or is_super_admin(u)) and not is_super_admin(current):
-        raise HTTPException(403, "Only a super admin can delete administrator accounts")
-    if is_super_admin(u) and _count_active_super_admins(db, exclude_user_id=u.id) == 0:
-        raise HTTPException(400, "Cannot delete the last active super administrator")
-    if "*" in user_permissions(u) and _count_active_admins(db, exclude_user_id=u.id) == 0:
-        raise HTTPException(400, "Cannot delete the last active administrator")
-    _assert_user_has_no_audit_history(db, user_id)
-    try:
-        _detach_user_references(db, user_id)
-        db.delete(u)
-        log_action(db, current, "delete", "User", user_id)
-        db.commit()
-    except IntegrityError:
-        # A concurrent audit can appear after the guard. Its FK blocks deletion;
-        # roll back all reference cleanup before checking the committed history.
-        db.rollback()
-        _assert_user_has_no_audit_history(db, user_id)
-        raise
+    return delete_identity_user(db, user_id, current)
 
 
 # ===== Roles =====

@@ -1,3 +1,5 @@
+from app.schemas.identity import user_persistence
+from app.models.identity import users_service
 """Account removal must preserve historical audit identities and hash chains."""
 
 from concurrent.futures import ThreadPoolExecutor
@@ -175,7 +177,7 @@ def test_reference_cleanup_never_rewrites_audit_actors():
         entry_id = entry.id
         before = export_audit_hash_chain(db, start_id=entry_id)
 
-        admin._detach_user_references(db, user_id)
+        user_persistence.detach_user_references(db, user_id)
         db.expire_all()
 
         assert export_audit_hash_chain(db, start_id=entry_id) == before
@@ -219,14 +221,14 @@ def test_postgres_audit_committed_after_delete_guard_preserves_history(user_hist
         actor_id = actor.id
     guard_passed = Event()
     audit_committed = Event()
-    original_detach = admin._detach_user_references
+    original_detach = user_persistence.detach_user_references
 
     def detach_after_concurrent_audit(db, target_id):
         guard_passed.set()
         assert audit_committed.wait(10), "Concurrent audit did not commit"
         original_detach(db, target_id)
 
-    monkeypatch.setattr(admin, "_detach_user_references", detach_after_concurrent_audit)
+    monkeypatch.setattr(users_service, "detach_user_references", detach_after_concurrent_audit)
 
     def remove_user():
         with session_factory() as db:
