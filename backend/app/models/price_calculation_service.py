@@ -16,6 +16,7 @@ from app.schemas.core_persistence import add_notification_row
 from app.schemas.catalog.catalog import Model
 from app.schemas.planning.price_calculation import PriceCalculationRequest
 from app.libs.types.planning import PriceCalculationPurchasingCommand
+from app.libs.enums.planning import PriceCalculationStatus
 from app.schemas.planning.price_calculation_persistence import apply_purchasing_contribution
 from app.models.audit_service import log_action
 from app.models.model_images_service import model_preview_image_url, model_variant_picture_url
@@ -148,16 +149,16 @@ def _model_parts(model: Model) -> tuple[str, str]:
     return model_no, variant_no
 
 
-def _stage_status(required_values: list[bool]) -> str:
+def _stage_status(required_values: list[bool]) -> PriceCalculationStatus:
     completed = sum(1 for value in required_values if value)
     if completed == 0:
-        return "new"
+        return PriceCalculationStatus.NEW
     if completed == len(required_values):
-        return "complete"
-    return "in_progress"
+        return PriceCalculationStatus.COMPLETE
+    return PriceCalculationStatus.IN_PROGRESS
 
 
-def cutting_status(request: PriceCalculationRequest) -> str:
+def cutting_status(request: PriceCalculationRequest) -> PriceCalculationStatus:
     return _stage_status([
         bool(str(request.kroy_no or "").strip()),
         _positive(request.fabric_width_m),
@@ -168,33 +169,33 @@ def cutting_status(request: PriceCalculationRequest) -> str:
     ])
 
 
-def purchasing_status(request: PriceCalculationRequest) -> str:
+def purchasing_status(request: PriceCalculationRequest) -> PriceCalculationStatus:
     return _stage_status([
         _positive(request.fabric_price),
         _positive(request.sewing_cost),
     ])
 
 
-def accessories_status(request: PriceCalculationRequest) -> str:
+def accessories_status(request: PriceCalculationRequest) -> PriceCalculationStatus:
     rows = request.accessories_json if isinstance(request.accessories_json, list) else []
     rows = [row for row in rows if isinstance(row, dict) and (str(row.get("name") or "").strip() or row.get("price") is not None)]
     if not rows:
-        return "new"
+        return PriceCalculationStatus.NEW
     if all(str(row.get("name") or "").strip() and _positive(row.get("price")) for row in rows):
-        return "complete"
-    return "in_progress"
+        return PriceCalculationStatus.COMPLETE
+    return PriceCalculationStatus.IN_PROGRESS
 
 
-def overall_status(request: PriceCalculationRequest) -> str:
+def overall_status(request: PriceCalculationRequest) -> PriceCalculationStatus:
     cutting = cutting_status(request)
     purchasing = purchasing_status(request)
     accessories = accessories_status(request)
     selling_complete = _positive(request.selling_price)
-    if cutting == "new" and purchasing == "new" and accessories == "new" and not selling_complete:
-        return "new"
-    if cutting == "complete" and purchasing == "complete" and accessories == "complete" and selling_complete:
-        return "complete"
-    return "in_progress"
+    if cutting == PriceCalculationStatus.NEW and purchasing == PriceCalculationStatus.NEW and accessories == PriceCalculationStatus.NEW and not selling_complete:
+        return PriceCalculationStatus.NEW
+    if cutting == PriceCalculationStatus.COMPLETE and purchasing == PriceCalculationStatus.COMPLETE and accessories == PriceCalculationStatus.COMPLETE and selling_complete:
+        return PriceCalculationStatus.COMPLETE
+    return PriceCalculationStatus.IN_PROGRESS
 
 
 def attach_completed_selling_price(
@@ -207,7 +208,7 @@ def attach_completed_selling_price(
     Incomplete or cleared requests never erase a previously approved variant
     price. A later completed request replaces it and becomes the traceable source.
     """
-    if overall_status(request) != "complete":
+    if overall_status(request) != PriceCalculationStatus.COMPLETE:
         return False
     price = _decimal(request.selling_price)
     if price is None or price <= 0:
@@ -252,7 +253,7 @@ def attach_completed_selling_price(
 
 
 def _calculation(request: PriceCalculationRequest) -> dict:
-    ready = cutting_status(request) == "complete" and purchasing_status(request) == "complete" and accessories_status(request) == "complete"
+    ready = cutting_status(request) == PriceCalculationStatus.COMPLETE and purchasing_status(request) == PriceCalculationStatus.COMPLETE and accessories_status(request) == PriceCalculationStatus.COMPLETE
     if not ready:
         return {
             "fabric_consumption": None,
@@ -435,7 +436,7 @@ def update_cutting_details(db: Session, request: PriceCalculationRequest, data: 
             "binding_kg_per_piece": data.get("binding_kg_per_piece"),
         },
     )
-    if before != "complete" and after == "complete":
+    if before != PriceCalculationStatus.COMPLETE and after == PriceCalculationStatus.COMPLETE:
         _notify_finance(db, request, "Cutting details completed")
 
 
@@ -456,7 +457,7 @@ def update_purchasing_details(
         request.id,
         new_value={"fabric_price": command.fabric_price, "sewing_cost": command.sewing_cost},
     )
-    if before != "complete" and after == "complete":
+    if before != PriceCalculationStatus.COMPLETE and after == PriceCalculationStatus.COMPLETE:
         _notify_finance(db, request, "Purchasing costs completed")
 
 
@@ -471,7 +472,7 @@ def update_accessories(db: Session, request: PriceCalculationRequest, rows: list
     db.flush()
     after = accessories_status(request)
     log_action(db, current, "update_accessory_costs", "PriceCalculationRequest", request.id, new_value={"accessories": request.accessories_json})
-    if before != "complete" and after == "complete":
+    if before != PriceCalculationStatus.COMPLETE and after == PriceCalculationStatus.COMPLETE:
         _notify_finance(db, request, "Accessory costs completed")
 
 

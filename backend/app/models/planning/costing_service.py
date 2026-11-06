@@ -24,6 +24,7 @@ from app.libs.dto.planning.price_calculation_request_update import (
     PriceCalculationFinanceIn,
     PriceCalculationPurchasingIn,
 )
+from app.libs.enums.planning import PriceCalculationStatus
 from app.libs.types.planning import PriceCalculationPurchasingCommand
 from app.models import price_calculation_service as pricing
 from app.models.audit_service import log_action
@@ -104,7 +105,7 @@ def update_finance_details(
     if (
         changes.get("selling_price") is not None
         and changes["selling_price"] > 0
-        and (pricing.cutting_status(request) != "complete" or pricing.purchasing_status(request) != "complete" or pricing.accessories_status(request) != "complete")
+        and (pricing.cutting_status(request) != PriceCalculationStatus.COMPLETE or pricing.purchasing_status(request) != PriceCalculationStatus.COMPLETE or pricing.accessories_status(request) != PriceCalculationStatus.COMPLETE)
     ):
         raise HTTPException(409, "Cost details must be completed before entering the selling price")
     old_value = {key: getattr(request, key) for key in changes}

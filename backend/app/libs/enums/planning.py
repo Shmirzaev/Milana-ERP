@@ -51,3 +51,11 @@ class BrandedCuttingProgress(str, Enum):
     NOT_STARTED = "not_started"
     PARTIAL = "partial"
     COMPLETED = "completed"
+
+
+class PriceCalculationStatus(str, Enum):
+    """Derived price-request stage and overall status; never persisted."""
+
+    NEW = "new"
+    IN_PROGRESS = "in_progress"
+    COMPLETE = "complete"
