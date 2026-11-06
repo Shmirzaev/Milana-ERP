@@ -22,8 +22,8 @@ from sqlalchemy import text
 
 from app.core.config import settings
 from app.db.session import SessionLocal
-from app.models import Model, ModelImage, Package, User
-from app.services.audit import log_action
+from app.schemas import Model, ModelImage, Package, User
+from app.models.audit_service import log_action
 
 
 EXPECTED_ALEMBIC_HEAD = "0113_variant_selling_price"

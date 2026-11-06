@@ -21,7 +21,7 @@ async function run(responses) {
   const calls = [];
   const state = { bundle: { id: 99 }, message: "", tone: "", busy: false, remembered: [], focused: false };
   const env = {
-    code: scanned, includeSewing: false,
+    code: scanned, includeSewing: false, bandOnly: false,
     setMsg: value => { state.message = value; },
     setMessageTone: value => { state.tone = value; },
     setIsLookingUp: value => { state.busy = value; },
@@ -75,7 +75,7 @@ const busyKeys = [];
 const messages = [];
 let refreshed = 0;
 const receiptEnv = {
-  factoryCode: "BST", bundle: null,
+  factoryCode: "BST", bundle: null, bandOnly: false,
   setManualBusyKey: key => busyKeys.push(key), setManualMsg: value => messages.push(value),
   api: { post: async (path, payload) => {
     receiptCalls.push({ path, payload });

@@ -1,5 +1,6 @@
 "use client";
 
+import { formatModelVariantCode } from "@/lib/variantDisplay";
 import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import { Bookmark, Clock3, MoveHorizontal, QrCode } from "lucide-react";
@@ -626,7 +627,7 @@ export default function WarehouseMapPage() {
             : "border-[#e3dfd3] bg-[#fdfcf8] hover:border-[#d1caba] hover:bg-[#fdf3eb]",
         ].join(" ")}
       >
-        <div className="mono text-[11px] font-bold leading-tight text-[#14110b]">{top.model_code || top.model_id}</div>
+        <div className="mono text-[11px] font-bold leading-tight text-[#14110b]">{formatModelVariantCode(top.model_code) || top.model_id}</div>
         <div className="text-[10px] leading-tight text-[#56503f]">{top.model_name || top.package_no}</div>
         <div className="mt-auto flex items-center gap-1 text-[9px] leading-tight text-[#8a8472]">
           <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: colorToHex(top.color) }} />
@@ -862,7 +863,7 @@ export default function WarehouseMapPage() {
             <div className="mt-5 grid grid-cols-2 gap-3">
               <div>
                 <div className="label">{t("field.model")}</div>
-                <div className="mono text-sm font-medium text-[#14110b]">{selectedPlacement?.model_code || selectedPlacement?.model_id || "-"}</div>
+                <div className="mono text-sm font-medium text-[#14110b]">{formatModelVariantCode(selectedPlacement?.model_code) || selectedPlacement?.model_id || "-"}</div>
               </div>
               <div>
                 <div className="label">{t("field.color")}</div>

@@ -1,6 +1,6 @@
 from uuid import uuid4
 
-from app.models import Bundle, Department, ModelBOM, ProductionBatch, ProductionOrder, WorkOrder
+from app.schemas import Bundle, Department, ModelBOM, ProductionBatch, ProductionOrder, WorkOrder
 from app.tests.conftest import TestSessionLocal
 
 

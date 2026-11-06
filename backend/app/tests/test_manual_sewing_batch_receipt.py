@@ -2,7 +2,7 @@ from uuid import uuid4
 
 import pytest
 
-from app.models import Bundle, BundleScanLog, ProductionBatch, WorkOrder
+from app.schemas import Bundle, BundleScanLog, ProductionBatch, WorkOrder
 from app.tests.conftest import TestSessionLocal
 from app.tests.test_bundle_receiving_factory_scope import _headers, _ready_bundle
 

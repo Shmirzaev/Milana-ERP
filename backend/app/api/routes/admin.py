@@ -1,15 +1,13 @@
 from datetime import datetime, time, timezone
-import secrets
-from types import SimpleNamespace
 
 from pydantic import BaseModel
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from sqlalchemy import delete, update
+from sqlalchemy.exc import IntegrityError
 
 from app.core.config import settings
 from app.core.deps import (
     SUPER_ADMIN_PERMISSION,
-    SUPER_ADMIN_ROLE_NAME,
     DbSession,
     CurrentUser,
     is_super_admin,
@@ -19,18 +17,29 @@ from app.core.deps import (
     user_permissions,
 )
 from fastapi import Depends
-from app.core.security import hash_password, normalize_email, validate_password_strength
+from app.core.security import normalize_email
 from app.db.base import Base
-from app.models import User, Role, Department, AuditLog, Employee, WorkOrder
-from app.services.factory_scope import normalize_factory_code, selected_factory_code
-from app.schemas.catalog import (
+from app.schemas import User, Department, AuditLog
+from app.models.factory_scope_service import normalize_factory_code
+from app.libs.dto.catalog.catalog import (
     UserIn, UserUpdate, UserOut, RoleIn, RoleOut, DepartmentIn, DepartmentOut,
 )
-from app.services.audit import export_audit_hash_chain, log_action, verify_audit_hash_chain
-from app.services.password_reset import create_password_reset_token, password_reset_url, send_password_email_safely
+from app.models.people import departments_service
+from app.models.credentials_service import apply_password_credential_change, lock_user_for_credential_change
+from app.models.audit_service import export_audit_hash_chain, log_action, verify_audit_hash_chain
+from app.models.password_reset_service import send_password_email_safely
 from app.db.reset_demo import reset_to_seed
 from app.core.permission_catalog import PERMISSION_CATALOG, PERMISSION_KEYS
-from app.services.factory_scope import FACTORY_CODES, available_factory_codes
+from app.models.factory_scope_service import FACTORY_CODES, available_factory_codes
+from app.models.identity.users_service import create_user as create_user_account, require_strong_password as _require_strong_password
+from app.models.identity.access_service import (
+    _access_subject, _user_access_values, _assert_policy_change,
+    _assert_can_grant_role, _assert_can_grant_permissions,
+)
+
+from app.models.identity.roles_service import (
+    list_roles as list_identity_roles, create_role as create_identity_role,
+)
 
 router = APIRouter(tags=["admin"])
 
@@ -245,60 +254,6 @@ def _parse_date(value: str | None, end_of_day: bool = False) -> datetime | None:
 
 
 # ===== Users =====
-def _access_subject(db, values):
-    role = db.get(Role, values.get("role_id")) if values.get("role_id") else None
-    department = db.get(Department, values.get("department_id")) if values.get("department_id") else None
-    if values.get("role_id") and role is None:
-        raise HTTPException(404, "Role not found")
-    if values.get("department_id") and department is None:
-        raise HTTPException(404, "Department not found")
-    return SimpleNamespace(
-        role=role, department=department, name=values.get("name", ""), email=values.get("email", ""),
-        factory_code=values.get("factory_code") or "MIL",
-        extra_permissions=values.get("extra_permissions") or [], access_policy=values.get("access_policy") or {},
-    )
-
-
-def _user_access_values(user):
-    return {key: getattr(user, key, None) for key in (
-        "role_id", "department_id", "name", "email", "factory_code", "extra_permissions", "access_policy",
-    )}
-
-
-def _assert_policy_change(db, actor, values, old=None):
-    proposed = _access_subject(db, values)
-    for factory, policy in proposed.access_policy.items():
-        if factory != proposed.factory_code and SUPER_ADMIN_PERMISSION in set(policy.get("allow", [])) | set(policy.get("deny", [])):
-            raise HTTPException(400, "Super Admin access is configured in the primary factory only")
-    if is_super_admin(actor):
-        return proposed
-    own = set(user_permissions(actor))
-    previous = _access_subject(db, old) if old else None
-    old_policy = (old or {}).get("access_policy") or {}
-    for factory in FACTORY_CODES:
-        policy = proposed.access_policy.get(factory, {})
-        if policy == old_policy.get(factory, {}) and (factory not in proposed.access_policy) == (factory not in old_policy):
-            continue
-        if factory != selected_factory_code(actor):
-            raise HTTPException(403, "Only Super Admin can configure another factory")
-        proposed.session_factory_code = factory
-        before = set()
-        if previous:
-            previous.session_factory_code = factory
-            before = set(user_permissions(previous))
-        after = set(user_permissions(proposed))
-        if ({"*", SUPER_ADMIN_PERMISSION} & (set(policy.get("allow", [])) | (after - before))):
-            raise HTTPException(403, "Only Super Admin can grant administrator access")
-        # Removing a deny is also a grant; restoring a restrictive scope is not
-        # allowed to become an indirect privilege-escalation route.
-        if "*" not in own and ((after - before) - own):
-            raise HTTPException(403, "You cannot grant permissions you don't hold")
-        if "inventory.materials_only" in own and "inventory.materials_only" not in after:
-            raise HTTPException(403, "You cannot remove your own inventory scope from another account")
-    proposed.session_factory_code = proposed.factory_code
-    return proposed
-
-
 @router.get("/access-catalog")
 def access_catalog(current: User = Depends(require_permissions("admin.users", "*"))):
     own = set(user_permissions(current))
@@ -318,85 +273,6 @@ def preview_user_access(payload: UserIn, db: DbSession, current: User = Depends(
         expanded = sorted((set(effective) - {"*"}) | (PERMISSION_KEYS - {"*", SUPER_ADMIN_PERMISSION} if "*" in effective else set()))
         result[factory] = {"permissions": effective, "effective": sorted(set(expanded) | ({"*"} if "*" in effective else set())), "available": factory in available}
     return result
-
-
-def _require_strong_password(password: str) -> None:
-    try:
-        validate_password_strength(password)
-    except ValueError as e:
-        raise HTTPException(400, str(e)) from e
-
-
-def _role_is_super_admin(role: Role | None) -> bool:
-    if not role:
-        return False
-    role_name = (role.name or "").strip().lower()
-    return role_name == SUPER_ADMIN_ROLE_NAME.lower() or SUPER_ADMIN_PERMISSION in (role.permissions or [])
-
-
-def _permissions_grant_admin_control(permissions: list[str] | set[str]) -> bool:
-    return "*" in permissions or SUPER_ADMIN_PERMISSION in permissions
-
-
-def _role_grants_admin_control(role: Role) -> bool:
-    return _role_is_super_admin(role) or _permissions_grant_admin_control(set(role.permissions or []))
-
-
-def _future_is_super_admin(db: DbSession, role_id: int | None, extra_permissions: list[str] | None) -> bool:
-    if role_id is not None:
-        role = db.get(Role, role_id)
-        if not role:
-            raise HTTPException(404, "Role not found")
-        if _role_is_super_admin(role):
-            return True
-    return SUPER_ADMIN_PERMISSION in normalize_permissions(extra_permissions)
-
-
-def _assert_can_grant_role(db: DbSession, actor: User, role_id: int | None) -> None:
-    """Prevent privilege escalation: a user-manager may only assign a role whose
-    permissions are a subset of their own. Administrator roles require the
-    explicit Super Admin tier, even if the actor already holds '*'."""
-    if role_id is None:
-        return
-    role = db.get(Role, role_id)
-    if not role:
-        raise HTTPException(404, "Role not found")
-    target_perms = set(role.permissions or [])
-    if _role_grants_admin_control(role):
-        if not is_super_admin(actor):
-            raise HTTPException(403, "Only a super admin can assign administrator roles")
-        return
-    actor_perms = set(user_permissions(actor))
-    if "*" in actor_perms:
-        return
-    missing = target_perms - actor_perms
-    if missing:
-        raise HTTPException(403, f"You cannot grant permissions you don't hold: {sorted(missing)}")
-
-
-def _assert_can_grant_permissions(actor: User, permissions: list[str] | None) -> None:
-    target_perms = set(normalize_permissions(permissions))
-    if _permissions_grant_admin_control(target_perms):
-        if not is_super_admin(actor):
-            raise HTTPException(403, "Only a super admin can grant administrator access")
-        return
-    actor_perms = set(user_permissions(actor))
-    if "*" in actor_perms:
-        return
-    missing = target_perms - actor_perms
-    if missing:
-        raise HTTPException(403, f"You cannot grant permissions you don't hold: {sorted(missing)}")
-
-
-def _effective_permissions_for(db: DbSession, role_id: int | None, extra_permissions: list[str] | None) -> list[str]:
-    permissions: list[str] = []
-    if role_id is not None:
-        role = db.get(Role, role_id)
-        if not role:
-            raise HTTPException(404, "Role not found")
-        permissions.extend(role.permissions or [])
-    permissions.extend(extra_permissions or [])
-    return normalize_permissions(permissions)
 
 
 def _count_active_admins(db: DbSession, exclude_user_id: int | None = None) -> int:
@@ -419,11 +295,28 @@ def _count_active_super_admins(db: DbSession, exclude_user_id: int | None = None
     return count
 
 
+def _lock_active_user_memberships(db: DbSession) -> None:
+    """Serialize changes that can remove the final administrator membership."""
+    # NO KEY UPDATE still serializes membership mutations while allowing the
+    # KEY SHARE lock used by a concurrent audit-log foreign-key insertion.
+    # SQLite ignores the lock clause in disposable tests.
+    db.query(User).filter(User.is_active.is_(True)).order_by(User.id).with_for_update(
+        of=User, key_share=True
+    ).populate_existing().all()
+
+
+
+def _assert_user_has_no_audit_history(db: DbSession, user_id: int) -> None:
+    if db.query(AuditLog.id).filter(AuditLog.user_id == user_id).first() is not None:
+        raise HTTPException(409, "User has audit history. Deactivate the account instead.")
+
+
 def _detach_user_references(db: DbSession, user_id: int) -> None:
     """Remove references that would otherwise block deleting a user account."""
     users_table = User.__table__
     for table in Base.metadata.sorted_tables:
-        if table is users_table:
+        # Audit actors are part of the hash payload and must never be rewritten.
+        if table is users_table or table is AuditLog.__table__:
             continue
         for column in table.c:
             if not any(fk.column.table is users_table and fk.column.name == "id" for fk in column.foreign_keys):
@@ -446,48 +339,7 @@ def create_user(
     background_tasks: BackgroundTasks,
     current: User = Depends(require_permissions("admin.users", "*")),
 ):
-    email = normalize_email(payload.email)
-    password_provided = bool(payload.password)
-    if password_provided:
-        _require_strong_password(payload.password)
-    _assert_can_grant_role(db, current, payload.role_id)
-    extra_permissions = normalize_permissions(payload.extra_permissions)
-    _assert_can_grant_permissions(current, extra_permissions)
-    if db.query(User).filter(User.email == email).first():
-        raise HTTPException(400, "Email already exists")
-    factory_code = normalize_factory_code(payload.factory_code, default=selected_factory_code(current))
-    if not is_super_admin(current) and factory_code != selected_factory_code(current):
-        raise HTTPException(403, "Only Super Admin can assign another factory")
-    _assert_policy_change(db, current, {**payload.model_dump(), "factory_code": factory_code})
-    setup_url: str | None = None
-    u = User(
-        name=payload.name,
-        email=email,
-        password_hash=hash_password(payload.password if password_provided else secrets.token_urlsafe(48)),
-        role_id=payload.role_id,
-        department_id=payload.department_id,
-        factory_code=factory_code,
-        extra_permissions=extra_permissions,
-        access_policy=payload.model_dump().get("access_policy"),
-        is_active=payload.is_active,
-    )
-    db.add(u)
-    db.flush()
-    if not password_provided and u.is_active:
-        setup_token = create_password_reset_token(db, u)
-        setup_url = password_reset_url(setup_token)
-    log_action(
-        db,
-        current,
-        "create",
-        "User",
-        u.id,
-        new_value={"email": u.email, "password_setup_email_queued": bool(setup_url),
-                   "role_id": u.role_id, "factory_code": u.factory_code,
-                   "extra_permissions": u.extra_permissions, "access_policy": u.access_policy},
-    )
-    db.commit()
-    db.refresh(u)
+    u, setup_url = create_user_account(db, payload, current)
     if setup_url:
         background_tasks.add_task(send_password_email_safely, u.email, u.name, setup_url, u.id, "setup")
     return u
@@ -503,11 +355,15 @@ def get_user(user_id: int, db: DbSession, _: User = Depends(require_permissions(
 
 @router.patch("/users/{user_id}", response_model=UserOut)
 def update_user(user_id: int, payload: UserUpdate, db: DbSession, current: User = Depends(require_permissions("admin.users", "*"))):
-    # Serialize changes that can remove the final administrator on PostgreSQL.
-    # SQLite ignores FOR UPDATE in disposable tests.
-    if {"role_id", "extra_permissions", "access_policy", "is_active"} & payload.model_fields_set:
-        db.query(User).filter(User.is_active.is_(True)).order_by(User.id).with_for_update(of=User).populate_existing().all()
-    u = db.get(User, user_id)
+    # Lock memberships in stable order before taking a target credential lock.
+    if {"role_id", "extra_permissions", "access_policy", "is_active", "factory_code"} & payload.model_fields_set:
+        _lock_active_user_memberships(db)
+    credential_change = bool(payload.password)
+    u = (
+        lock_user_for_credential_change(db, user_id, require_active=False)
+        if credential_change
+        else db.get(User, user_id)
+    )
     if not u:
         raise HTTPException(404, "User not found")
     data = payload.model_dump(exclude_unset=True)
@@ -535,7 +391,7 @@ def update_user(user_id: int, payload: UserUpdate, db: DbSession, current: User 
     if "role_id" in data and data["role_id"] != u.role_id:
         _assert_can_grant_role(db, current, data["role_id"])
     if "extra_permissions" in data:
-        _assert_can_grant_permissions(current, data["extra_permissions"])
+        _assert_can_grant_permissions(current, data["extra_permissions"], previous=u.extra_permissions)
     # Never let the last active administrator be demoted or deactivated.
     was_admin = "*" in user_permissions(u)
     was_super_admin = is_super_admin(u)
@@ -554,15 +410,22 @@ def update_user(user_id: int, payload: UserUpdate, db: DbSession, current: User 
         raise HTTPException(400, "Cannot remove the last active administrator")
     if "password" in data and data["password"]:
         _require_strong_password(data["password"])
-        u.password_hash = hash_password(data.pop("password"))
-        u.tokens_valid_from = datetime.now(timezone.utc)
-    elif "password" in data:
-        data.pop("password")
     if "email" in data and data["email"]:
         data["email"] = normalize_email(data["email"])
+    if data.get("name") is not None and len(data["name"]) > 128:
+        raise HTTPException(422, "User name must be at most 128 characters")
+    if data.get("email") is not None and len(data["email"]) > 255:
+        raise HTTPException(422, "User email must be at most 255 characters")
+    if "password" in data and data["password"]:
+        apply_password_credential_change(db, u, data.pop("password"))
+    elif "password" in data:
+        data.pop("password")
     for k, v in data.items():
         setattr(u, k, v)
-    log_action(db, current, "update", "User", u.id, old_value=old_access, new_value=data)
+    audit_new_value = dict(data)
+    if credential_change:
+        audit_new_value.update({"credential_changed": True, "reset_links_invalidated": True})
+    log_action(db, current, "update", "User", u.id, old_value=old_access, new_value=audit_new_value)
     db.commit()
     db.refresh(u)
     return u
@@ -570,42 +433,41 @@ def update_user(user_id: int, payload: UserUpdate, db: DbSession, current: User 
 
 @router.delete("/users/{user_id}", status_code=204)
 def delete_user(user_id: int, db: DbSession, current: User = Depends(require_permissions("admin.users", "*"))):
+    _lock_active_user_memberships(db)
     u = db.get(User, user_id)
     if not u:
         raise HTTPException(404, "User not found")
     if u.id == current.id:
         raise HTTPException(400, "You cannot delete your own account")
-    if "*" in user_permissions(u) and not is_super_admin(current):
+    if ("*" in user_permissions(u) or is_super_admin(u)) and not is_super_admin(current):
         raise HTTPException(403, "Only a super admin can delete administrator accounts")
     if is_super_admin(u) and _count_active_super_admins(db, exclude_user_id=u.id) == 0:
         raise HTTPException(400, "Cannot delete the last active super administrator")
     if "*" in user_permissions(u) and _count_active_admins(db, exclude_user_id=u.id) == 0:
         raise HTTPException(400, "Cannot delete the last active administrator")
-    _detach_user_references(db, user_id)
-    db.delete(u)
-    log_action(db, current, "delete", "User", user_id)
-    db.commit()
+    _assert_user_has_no_audit_history(db, user_id)
+    try:
+        _detach_user_references(db, user_id)
+        db.delete(u)
+        log_action(db, current, "delete", "User", user_id)
+        db.commit()
+    except IntegrityError:
+        # A concurrent audit can appear after the guard. Its FK blocks deletion;
+        # roll back all reference cleanup before checking the committed history.
+        db.rollback()
+        _assert_user_has_no_audit_history(db, user_id)
+        raise
 
 
 # ===== Roles =====
 @router.get("/roles", response_model=list[RoleOut])
 def list_roles(db: DbSession, _: CurrentUser):
-    return db.query(Role).all()
+    return list_identity_roles(db)
 
 
 @router.post("/roles", response_model=RoleOut, status_code=201)
 def create_role(payload: RoleIn, db: DbSession, current: User = Depends(require_permissions("*"))):
-    permissions = normalize_permissions(payload.permissions)
-    if payload.name.strip().lower() == SUPER_ADMIN_ROLE_NAME.lower() and not is_super_admin(current):
-        raise HTTPException(403, "Only a super admin can create the super admin role")
-    _assert_can_grant_permissions(current, permissions)
-    r = Role(name=payload.name, permissions=permissions)
-    db.add(r)
-    db.flush()
-    log_action(db, current, "create", "Role", r.id, new_value={"name": r.name})
-    db.commit()
-    db.refresh(r)
-    return r
+    return create_identity_role(db, payload, current)
 
 
 # ===== Departments =====
@@ -616,13 +478,7 @@ def list_departments(db: DbSession, _: CurrentUser):
 
 @router.post("/departments", response_model=DepartmentOut, status_code=201)
 def create_department(payload: DepartmentIn, db: DbSession, current: User = Depends(require_permissions("*"))):
-    d = Department(name=payload.name, code=payload.code)
-    db.add(d)
-    db.flush()
-    log_action(db, current, "create", "Department", d.id, new_value={"name": d.name})
-    db.commit()
-    db.refresh(d)
-    return d
+    return departments_service.create_department(payload, db, current)
 
 
 @router.patch("/departments/{department_id}", response_model=DepartmentOut)
@@ -632,29 +488,7 @@ def update_department(
     db: DbSession,
     current: User = Depends(require_permissions("*")),
 ):
-    d = db.get(Department, department_id)
-    if not d:
-        raise HTTPException(404, "Department not found")
-
-    name = payload.name.strip()
-    code = payload.code.strip().upper()
-    if not name or not code:
-        raise HTTPException(400, "name and code are required")
-
-    name_exists = db.query(Department).filter(Department.name == name, Department.id != department_id).first()
-    if name_exists:
-        raise HTTPException(400, "Department name already exists")
-    code_exists = db.query(Department).filter(Department.code == code, Department.id != department_id).first()
-    if code_exists:
-        raise HTTPException(400, "Department code already exists")
-
-    old = {"name": d.name, "code": d.code}
-    d.name = name
-    d.code = code
-    log_action(db, current, "update", "Department", d.id, old_value=old, new_value={"name": d.name, "code": d.code})
-    db.commit()
-    db.refresh(d)
-    return d
+    return departments_service.update_department(department_id, payload, db, current)
 
 
 @router.delete("/departments/{department_id}", status_code=204)
@@ -663,20 +497,7 @@ def delete_department(
     db: DbSession,
     current: User = Depends(require_permissions("*")),
 ):
-    d = db.get(Department, department_id)
-    if not d:
-        raise HTTPException(404, "Department not found")
-
-    if db.query(User).filter(User.department_id == department_id).first():
-        raise HTTPException(409, "Department is assigned to users. Reassign users before delete.")
-    if db.query(Employee).filter(Employee.department_id == department_id).first():
-        raise HTTPException(409, "Department is assigned to employees. Reassign employees before delete.")
-    if db.query(WorkOrder).filter(WorkOrder.department_id == department_id).first():
-        raise HTTPException(409, "Department is used by work orders. Delete is blocked.")
-
-    db.delete(d)
-    log_action(db, current, "delete", "Department", department_id)
-    db.commit()
+    departments_service.delete_department(department_id, db, current)
 
 
 # ===== Audit log =====

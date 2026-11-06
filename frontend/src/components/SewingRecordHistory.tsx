@@ -1,4 +1,5 @@
 "use client";
+import { ApiError } from "@/lib/errorMessages";
 import { formatBatchLabel } from "@/lib/batchSerial";
 import { useState } from "react";
 import useSWR, { useSWRConfig } from "swr";
@@ -34,9 +35,9 @@ export default function SewingRecordHistory({ workOrderId, batches = [] }: { wor
       await mutate();
       await refresh((key) => typeof key === "string" && key.startsWith(`/api/work-orders/${workOrderId}`));
     } catch (err) {
-      const text = err instanceof Error ? err.message : "";
+      const text = err instanceof ApiError ? err.rawDetail : err instanceof Error ? err.message : "";
       const key = text.match(/sewingEdit\.\w+/)?.[0];
-      setFailure(key ? t(key) : text || t("sewingEdit.failed"));
+      setFailure(key ? t(key) : (err instanceof Error ? err.message : "") || t("sewingEdit.failed"));
     } finally { setBusy(false); }
   }
   if (!permitted) return null;

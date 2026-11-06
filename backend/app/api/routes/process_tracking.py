@@ -7,22 +7,22 @@ planned, deadlines, sewing-flow assignment, overdue and block flags.
 """
 from datetime import date, datetime, timezone
 from fastapi import APIRouter
-from sqlalchemy import and_, func, or_
+from sqlalchemy import and_, exists, func, or_, select
 from sqlalchemy.orm import selectinload
 
 from app.core.deps import DbSession, CurrentUser
 from app.core.pagination import clamp_pagination
 from app.core.model_search import normalized_model_code_column, normalized_model_code_pattern
-from app.models import (
-    SalesOrder, ProductionOrder, WorkOrder, Customer, Model, ModelBOM, SewingFlow, SewingAssignment,
-    CuttingPassport, CuttingRecord, PrintingRecord, SewingRecord, SewingReplacementRequest,
+from app.schemas import (
+    SalesOrder, ProductionOrder, ProductionBatch, WorkOrder, Customer, Item, Model, ModelImage, ModelBOM, SewingFlow, SewingAssignment,
+    CuttingPassport, CuttingRecord, PrintingRecord, SewingRecord,
     PackagingRecord, Package, PackageBatchAllocation, StockBatch, Department, Bundle,
 )
 from app.core.dt import as_utc, date_filter_bounds
-from app.services.bundles import SEWING_FACTORY_CODES, resolve_sewing_factory_code
-from app.services.factory_scope import require_factory_access, selected_factory_code
-from app.services.model_images import material_preview_image_url, model_display_image_url
-from app.services.payroll_factory_scope import production_order_factory_condition
+from app.models.bundles_service import SEWING_FACTORY_CODES, resolve_sewing_factory_code
+from app.models.factory_scope_service import require_factory_access, selected_factory_code
+from app.models.model_images_service import material_preview_image_url, model_display_image_url
+from app.models.payroll_factory_scope_service import production_order_factory_condition
 
 router = APIRouter(prefix="/process-tracking", tags=["process-tracking"])
 _OP_ORDER = ["cutting", "printing", "sewing", "packaging", "storage_transfer"]
@@ -56,11 +56,15 @@ def _positive_int(value) -> int:
 
 
 def _actual_output_quantity(stages: list[dict]) -> int:
-    """Return the highest verified output reached by any production stage."""
-    return max((_positive_int(stage.get("completed")) for stage in stages), default=0)
+    """Return passed output from the furthest department with output evidence."""
+    for stage in sorted(stages, key=lambda row: _OP_RANK.get(row.get("operation"), -1), reverse=True):
+        output = _positive_int(stage.get("completed"))
+        if output or _positive_int(stage.get("failed")) or _positive_int(stage.get("rework")):
+            return output
+    return 0
 
 
-def _stage_dict(wo, flow, now: datetime, replacement_totals: dict[str, int] | None = None) -> dict:
+def _stage_dict(wo, flow, now: datetime) -> dict:
     deadline_dt = as_utc(wo.deadline)
     status = str(wo.status or "")
     if wo.operation == "storage_transfer" and status in _STARTED_STATUSES:
@@ -74,17 +78,9 @@ def _stage_dict(wo, flow, now: datetime, replacement_totals: dict[str, int] | No
     planned = int(wo.planned_output_qty or 0)
     passed = int(wo.passed_qty or 0)
     failed = int(wo.failed_qty or 0)
-    resolved_failed = 0 if wo.operation == "sewing" else failed
+    resolved_failed = failed
     processed = min(planned, passed + resolved_failed) if planned > 0 else passed + resolved_failed
     pct = round(100.0 * processed / planned, 1) if planned > 0 else 0.0
-    replacement_totals = replacement_totals or {}
-    has_open_replacements = (
-        int(replacement_totals.get("waiting_cutting_qty", 0)) > 0
-        if wo.operation == "cutting"
-        else int(replacement_totals.get("open_qty", 0)) > 0
-        if wo.operation in {"sewing", "packaging", "storage_transfer"}
-        else False
-    )
     return {
         "work_order_id": wo.id,
         "operation": wo.operation,
@@ -98,7 +94,6 @@ def _stage_dict(wo, flow, now: datetime, replacement_totals: dict[str, int] | No
         "processed": processed,
         "rework": int(wo.rework_qty or 0),
         "progress_pct": pct,
-        "has_open_replacements": has_open_replacements,
         "assigned_to": wo.assigned_to,
         "sewing_flow_id": wo.sewing_flow_id,
         "sewing_flow_code": flow.code if flow else None,
@@ -153,7 +148,6 @@ def _rollup_operation(operation: str, rows: list[dict]) -> dict:
         "processed": processed,
         "rework": rework,
         "progress_pct": pct,
-        "has_open_replacements": any(bool(r.get("has_open_replacements")) for r in rows),
         "assigned_to": None,
         "sewing_flow_id": None,
         "sewing_flow_code": flow_code,
@@ -199,14 +193,13 @@ def _apply_upstream_loss_progress(stages: list[dict]) -> None:
         planned = max(0, int(stage.get("planned") or 0))
         completed = max(0, int(stage.get("completed") or 0))
         failed = max(0, int(stage.get("failed") or 0))
-        resolved_failed = 0 if operation == "sewing" else failed
+        resolved_failed = failed
         processed = completed + resolved_failed + upstream_failed
         if planned > 0:
             processed = min(planned, processed)
             stage["progress_pct"] = round(100.0 * processed / planned, 1)
             if (
                 processed >= planned
-                and not stage.get("has_open_replacements")
                 and str(stage.get("status") or "") not in ("cancelled", "rejected")
             ):
                 stage["status"] = "completed"
@@ -317,7 +310,7 @@ def _internal_batch_stage_rows(db, po: ProductionOrder, base_stages: list[dict])
                 batch_id,
                 "sewing",
                 completed=int(passed_sum or 0),
-                failed=int(failed_sum or 0),
+                failed=int(failed_sum or 0) + int(rejected_sum or 0),
                 rework=int(rework_sum or 0),
                 activity=(
                     int(input_sum or 0)
@@ -438,7 +431,7 @@ def _internal_batch_stage_rows(db, po: ProductionOrder, base_stages: list[dict])
             row["planned"] = planned
             row["completed"] = completed
             row["failed"] = failed
-            row["processed"] = completed + (0 if op == "sewing" else failed)
+            row["processed"] = completed + failed
             row["rework"] = int(total.get("rework", 0))
             row["progress_pct"] = round(100.0 * int(row["processed"]) / planned, 1) if planned > 0 else 0.0
             row["status"] = _batch_stage_status(str(base.get("status") or "waiting"), planned, int(row["processed"]), activity)
@@ -583,7 +576,7 @@ def _bulk_internal_batch_evidence(
                 batch_id,
                 "sewing",
                 completed=int(passed_sum or 0),
-                failed=int(failed_sum or 0),
+                failed=int(failed_sum or 0) + int(rejected_sum or 0),
                 rework=int(rework_sum or 0),
                 output_qty=int(passed_sum or 0),
                 activity=sum(int(value or 0) for value in (
@@ -713,7 +706,7 @@ def _internal_batch_stage_rows_from_totals(
             row["received_qty"] = int(total.get("received_qty", 0))
             row["output_qty"] = int(total.get("output_qty", completed))
             row["failed"] = failed
-            row["processed"] = completed + (0 if operation == "sewing" else failed)
+            row["processed"] = completed + failed
             row["rework"] = int(total.get("rework", 0))
             row["progress_pct"] = round(100.0 * int(row["processed"]) / planned, 1) if planned > 0 else 0.0
             row["status"] = _batch_stage_status(
@@ -771,6 +764,64 @@ def _process_summary(stages: list[dict], po_status: str) -> dict:
     }
 
 
+def _sewing_closed_order_condition():
+    return and_(
+        ProductionOrder.work_orders.any(WorkOrder.operation == "sewing"),
+        ~ProductionOrder.work_orders.any(and_(
+            WorkOrder.operation == "sewing", WorkOrder.status != "completed",
+        )),
+    )
+
+
+def _qr_ready_batches(db, factory_code: str):
+    """Use final Sewing evidence, never downstream progress or daily reports.
+
+    Internal nastils share a work order, so closing that entire work order is
+    not required. Count defects as processed, just like sewing-batch-progress;
+    label quantities are still taken exclusively from passed output.
+    """
+    batch_id = func.coalesce(SewingRecord.production_batch_id, WorkOrder.production_batch_id)
+    output = (
+        db.query(
+            WorkOrder.production_order_id.label("order_id"), batch_id.label("batch_id"),
+            func.sum(SewingRecord.passed_qty + SewingRecord.failed_qty + SewingRecord.rejected_qty).label("processed"),
+        )
+        .join(WorkOrder, WorkOrder.id == SewingRecord.work_order_id)
+        .filter(WorkOrder.operation == "sewing", WorkOrder.status.not_in(("cancelled", "rejected")))
+        .group_by(WorkOrder.production_order_id, batch_id).subquery()
+    )
+    scoped_sewing = and_(
+        WorkOrder.production_order_id == ProductionBatch.production_order_id,
+        WorkOrder.production_batch_id == ProductionBatch.id,
+        WorkOrder.operation == "sewing",
+    )
+    batch_closed = and_(
+        exists().where(scoped_sewing),
+        ~exists().where(scoped_sewing, WorkOrder.status != "completed"),
+    )
+    routed_bundle = and_(
+        Bundle.production_order_id == ProductionBatch.production_order_id,
+        Bundle.production_batch_id == ProductionBatch.id,
+        Bundle.status != "cancelled",
+        Bundle.sewing_factory_code.isnot(None),
+    )
+    return (
+        db.query(ProductionBatch.id.label("batch_id"), ProductionBatch.production_order_id.label("order_id"))
+        .join(ProductionOrder, ProductionOrder.id == ProductionBatch.production_order_id)
+        .outerjoin(output, and_(output.c.order_id == ProductionBatch.production_order_id,
+                               output.c.batch_id == ProductionBatch.id))
+        .filter(
+            production_order_factory_condition(factory_code),
+            or_(~exists().where(routed_bundle),
+                exists().where(routed_bundle, Bundle.sewing_factory_code == factory_code)),
+            or_(
+                _sewing_closed_order_condition(), batch_closed,
+                and_(ProductionBatch.planned_quantity > 0, output.c.processed >= ProductionBatch.planned_quantity),
+            ),
+        )
+    )
+
+
 @router.get("")
 def list_processes(
     db: DbSession, current: CurrentUser,
@@ -817,17 +868,16 @@ def list_processes(
         qry = qry.filter(ProductionOrder.status == status)
     if only_active:
         qry = qry.filter(ProductionOrder.status.not_in(["closed", "cancelled", "delivered"]))
+    ready_batches = None
     if sewing_completed_only:
-        # Process QR labels are created only after the sewing team explicitly
-        # closes every sewing work order. Do not infer closure from cutting,
-        # plans, or downstream stage progress.
+        ready_batches = _qr_ready_batches(db, selected_factory_code(current)).subquery()
+        # Filter before pagination so totals/pages contain eligible orders only.
         qry = qry.filter(
             production_order_factory_condition(selected_factory_code(current)),
-            ProductionOrder.work_orders.any(WorkOrder.operation == "sewing"),
-            ~ProductionOrder.work_orders.any(and_(
-                WorkOrder.operation == "sewing",
-                WorkOrder.status != "completed",
-            )),
+            or_(
+                ProductionOrder.id.in_(select(ready_batches.c.order_id)),
+                and_(~ProductionOrder.batches.any(), _sewing_closed_order_condition()),
+            ),
         )
     start, end = date_filter_bounds(created_from, created_to)
     if start:
@@ -952,9 +1002,21 @@ def list_processes(
         for m in (
             db.query(Model)
             .options(
-                selectinload(Model.images),
-                selectinload(Model.bom).joinedload(ModelBOM.item),
-                selectinload(Model.bom).joinedload(ModelBOM.stock_batch),
+                selectinload(Model.images).load_only(
+                    ModelImage.id, ModelImage.model_id, ModelImage.file_url,
+                    ModelImage.file_name, ModelImage.content_type, ModelImage.image_type,
+                    ModelImage.is_primary, raiseload=True,
+                ),
+                selectinload(Model.bom).load_only(
+                    ModelBOM.id, ModelBOM.model_id, ModelBOM.item_id,
+                    ModelBOM.stock_batch_id, ModelBOM.photo_url, raiseload=True,
+                ),
+                selectinload(Model.bom).joinedload(ModelBOM.item).load_only(
+                    Item.id, Item.category, Item.image_url, raiseload=True,
+                ),
+                selectinload(Model.bom).joinedload(ModelBOM.stock_batch).load_only(
+                    StockBatch.id, StockBatch.image_url, raiseload=True,
+                ),
             )
             .filter(Model.id.in_(model_ids))
             .all()
@@ -986,32 +1048,18 @@ def list_processes(
     for passport in passport_rows:
         passports_by_order.setdefault(int(passport.production_order_id), []).append(passport)
 
-    replacement_totals_by_order: dict[int, dict[str, int]] = {}
-    replacement_rows = (
-        db.query(
-            SewingReplacementRequest.production_order_id,
-            func.coalesce(func.sum(SewingReplacementRequest.requested_qty - SewingReplacementRequest.cut_qty), 0),
-            func.coalesce(func.sum(SewingReplacementRequest.requested_qty - SewingReplacementRequest.replaced_qty), 0),
-        )
-        .filter(SewingReplacementRequest.production_order_id.in_(production_order_ids))
-        .group_by(SewingReplacementRequest.production_order_id)
-        .all()
-        if production_order_ids
-        else []
-    )
-    for production_order_id, waiting_cutting_qty, open_qty in replacement_rows:
-        replacement_totals_by_order[int(production_order_id)] = {
-            "waiting_cutting_qty": max(0, int(waiting_cutting_qty or 0)),
-            "open_qty": max(0, int(open_qty or 0)),
-        }
-
     sewing_output_by_order: dict[int, dict] = {}
     sewing_output_by_batch: dict[tuple[int, int], dict] = {}
+    ready_batch_ids: set[int] = set()
     if sewing_completed_only and production_order_ids:
+        ready_batch_ids = set(db.scalars(
+            select(ready_batches.c.batch_id).where(ready_batches.c.order_id.in_(production_order_ids))
+        ))
+        batched_order_ids = {int(po.id) for po in pos if po.batches}
         sewing_rows = (
             db.query(
                 WorkOrder.production_order_id,
-                SewingRecord.production_batch_id,
+                func.coalesce(SewingRecord.production_batch_id, WorkOrder.production_batch_id),
                 SewingRecord.passed_qty,
                 SewingRecord.size_quantities,
             )
@@ -1041,6 +1089,8 @@ def list_processes(
 
         for production_order_id, production_batch_id, passed_qty, size_quantities in sewing_rows:
             order_id = int(production_order_id)
+            if order_id in batched_order_ids and production_batch_id not in ready_batch_ids:
+                continue
             add_sewing_output(
                 sewing_output_by_order.setdefault(order_id, {}),
                 passed_qty,
@@ -1089,7 +1139,7 @@ def list_processes(
         all_stage_rows: list[dict] = []
         for wo in po.work_orders:
             flow = flows.get(wo.sewing_flow_id) if wo.sewing_flow_id else None
-            stage = _stage_dict(wo, flow, now, replacement_totals_by_order.get(int(po.id)))
+            stage = _stage_dict(wo, flow, now)
             if wo.operation == "sewing":
                 stage["received_qty"] = (
                     sewing_receipts_by_order.get(int(po.id), 0) if wo.production_batch_id is None
@@ -1135,6 +1185,8 @@ def list_processes(
 
         batches_out: list[dict] = []
         for b in sorted(po.batches, key=lambda x: (int(x.batch_index or 0), int(x.id or 0))):
+            if sewing_completed_only and int(b.id) not in ready_batch_ids:
+                continue
             batch_stages = internal_batch_stages.get(int(b.id), []) if internal_batch_mode else by_batch.get(b.id, [])
             batch_summary = _process_summary(batch_stages, po.status)
             batch_sewing_output = sewing_output_by_batch.get((int(po.id), int(b.id)), {})
@@ -1196,6 +1248,7 @@ def list_processes(
             "production_no": po.production_no,
             "order_no": po.order_no,
             "production_type": po.production_type,
+            **({"source_type": po.source_type} if factory and factory_code == "ECO" else {}),
             "po_status": po.status,
             "po_deadline": po.deadline,
             "po_overdue": po_overdue,

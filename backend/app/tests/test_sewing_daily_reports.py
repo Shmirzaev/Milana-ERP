@@ -9,7 +9,7 @@ import pytest
 from app.api.routes.sewing_daily_reports import _report_model_info
 from app.core.security import create_access_token
 from app.db.session import SessionLocal
-from app.models import AuditLog
+from app.schemas import AuditLog
 
 
 def _create_report_test_flow(client, headers, capacity: int = 500, factory_code: str | None = None) -> dict:
@@ -590,7 +590,7 @@ def test_sewing_daily_report_exports_saved_rows_for_chosen_dates(client, auth_he
 
 
 def test_linked_two_part_reports_follow_actual_cut_quantity(client, auth_headers):
-    from app.models import Bundle
+    from app.schemas import Bundle
     created = client.post("/api/planning/create-branded-production", json={
         "production_type": "branded_stock", "model_id": 1, "planned_quantity": 20,
         "items": [{"model_id": 1, "color": "white", "size": "M", "planned_quantity": 20}],

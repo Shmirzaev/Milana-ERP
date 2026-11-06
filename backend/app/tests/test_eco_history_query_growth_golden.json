@@ -1,0 +1,767 @@
+{
+  "base_commit": "88dcffb5",
+  "dated": {
+    "items": [
+      {
+        "id": 11,
+        "number": "ECO-000011",
+        "operator_name": "Dispatcher 10",
+        "outstanding_kg": 9.8766,
+        "outstanding_rolls": 2,
+        "rows": [
+          {
+            "batch_no": "ECO-HISTORY",
+            "code": "B1-R21",
+            "color": "Blue",
+            "dispatch_id": 11,
+            "fabric_name": "Eco history fabric",
+            "id": 21,
+            "quantity": 0.0001,
+            "return_operator_name": null,
+            "returned_at": null,
+            "roll_number": 21,
+            "unit": "kg"
+          },
+          {
+            "batch_no": "ECO-HISTORY",
+            "code": "B1-R22",
+            "color": "Blue",
+            "dispatch_id": 11,
+            "fabric_name": "Eco history fabric",
+            "id": 22,
+            "quantity": 9.8765,
+            "return_operator_name": null,
+            "returned_at": null,
+            "roll_number": 22,
+            "unit": "kg"
+          }
+        ],
+        "sent_at": "2026-09-01T21:00:00+09:00",
+        "sent_kg": 9.8766,
+        "sent_rolls": 2
+      },
+      {
+        "id": 9,
+        "number": "ECO-000009",
+        "operator_name": "Dispatcher 8",
+        "outstanding_kg": 13.2346,
+        "outstanding_rolls": 2,
+        "rows": [
+          {
+            "batch_no": "ECO-HISTORY",
+            "code": "B1-R17",
+            "color": "Blue",
+            "dispatch_id": 9,
+            "fabric_name": "Eco history fabric",
+            "id": 17,
+            "quantity": 1.2345,
+            "return_operator_name": null,
+            "returned_at": null,
+            "roll_number": 17,
+            "unit": "kg"
+          },
+          {
+            "batch_no": "ECO-HISTORY",
+            "code": "B1-R18",
+            "color": "Blue",
+            "dispatch_id": 9,
+            "fabric_name": "Eco history fabric",
+            "id": 18,
+            "quantity": 12.0001,
+            "return_operator_name": null,
+            "returned_at": null,
+            "roll_number": 18,
+            "unit": "kg"
+          }
+        ],
+        "sent_at": "2026-09-01T21:00:00+09:00",
+        "sent_kg": 13.2346,
+        "sent_rolls": 2
+      },
+      {
+        "id": 7,
+        "number": "ECO-000007",
+        "operator_name": "Dispatcher 6",
+        "outstanding_kg": 0.0001,
+        "outstanding_rolls": 1,
+        "rows": [
+          {
+            "batch_no": "ECO-HISTORY",
+            "code": "B1-R13",
+            "color": "Blue",
+            "dispatch_id": 7,
+            "fabric_name": "Eco history fabric",
+            "id": 13,
+            "quantity": 0.0001,
+            "return_operator_name": null,
+            "returned_at": null,
+            "roll_number": 13,
+            "unit": "kg"
+          },
+          {
+            "batch_no": "ECO-HISTORY",
+            "code": "B1-R14",
+            "color": "Blue",
+            "dispatch_id": 7,
+            "fabric_name": "Eco history fabric",
+            "id": 14,
+            "quantity": 9.8765,
+            "return_operator_name": "Returning operator",
+            "returned_at": "2026-09-03T17:00:00+09:00",
+            "roll_number": 14,
+            "unit": "kg"
+          }
+        ],
+        "sent_at": "2026-09-01T21:00:00+09:00",
+        "sent_kg": 9.8766,
+        "sent_rolls": 2
+      },
+      {
+        "id": 5,
+        "number": "ECO-000005",
+        "operator_name": "Dispatcher 4",
+        "outstanding_kg": 13.2346,
+        "outstanding_rolls": 2,
+        "rows": [
+          {
+            "batch_no": "ECO-HISTORY",
+            "code": "B1-R9",
+            "color": "Blue",
+            "dispatch_id": 5,
+            "fabric_name": "Eco history fabric",
+            "id": 9,
+            "quantity": 1.2345,
+            "return_operator_name": null,
+            "returned_at": null,
+            "roll_number": 9,
+            "unit": "kg"
+          },
+          {
+            "batch_no": "ECO-HISTORY",
+            "code": "B1-R10",
+            "color": "Blue",
+            "dispatch_id": 5,
+            "fabric_name": "Eco history fabric",
+            "id": 10,
+            "quantity": 12.0001,
+            "return_operator_name": null,
+            "returned_at": null,
+            "roll_number": 10,
+            "unit": "kg"
+          }
+        ],
+        "sent_at": "2026-09-01T21:00:00+09:00",
+        "sent_kg": 13.2346,
+        "sent_rolls": 2
+      },
+      {
+        "id": 3,
+        "number": "ECO-000003",
+        "operator_name": "Dispatcher 2",
+        "outstanding_kg": 9.8766,
+        "outstanding_rolls": 2,
+        "rows": [
+          {
+            "batch_no": "ECO-HISTORY",
+            "code": "B1-R5",
+            "color": "Blue",
+            "dispatch_id": 3,
+            "fabric_name": "Eco history fabric",
+            "id": 5,
+            "quantity": 0.0001,
+            "return_operator_name": null,
+            "returned_at": null,
+            "roll_number": 5,
+            "unit": "kg"
+          },
+          {
+            "batch_no": "ECO-HISTORY",
+            "code": "B1-R6",
+            "color": "Blue",
+            "dispatch_id": 3,
+            "fabric_name": "Eco history fabric",
+            "id": 6,
+            "quantity": 9.8765,
+            "return_operator_name": null,
+            "returned_at": null,
+            "roll_number": 6,
+            "unit": "kg"
+          }
+        ],
+        "sent_at": "2026-09-01T21:00:00+09:00",
+        "sent_kg": 9.8766,
+        "sent_rolls": 2
+      },
+      {
+        "id": 1,
+        "number": "ECO-000001",
+        "operator_name": "Dispatcher 0",
+        "outstanding_kg": 1.2345,
+        "outstanding_rolls": 1,
+        "rows": [
+          {
+            "batch_no": "ECO-HISTORY",
+            "code": "B1-R1",
+            "color": "Blue",
+            "dispatch_id": 1,
+            "fabric_name": "Eco history fabric",
+            "id": 1,
+            "quantity": 1.2345,
+            "return_operator_name": null,
+            "returned_at": null,
+            "roll_number": 1,
+            "unit": "kg"
+          },
+          {
+            "batch_no": "ECO-HISTORY",
+            "code": "B1-R2",
+            "color": "Blue",
+            "dispatch_id": 1,
+            "fabric_name": "Eco history fabric",
+            "id": 2,
+            "quantity": 12.0001,
+            "return_operator_name": "Returning operator",
+            "returned_at": "2026-09-03T17:00:00+09:00",
+            "roll_number": 2,
+            "unit": "kg"
+          }
+        ],
+        "sent_at": "2026-09-01T21:00:00+09:00",
+        "sent_kg": 13.2346,
+        "sent_rolls": 2
+      }
+    ],
+    "outstanding_kg": 115.556,
+    "outstanding_rolls": 20,
+    "total": 6
+  },
+  "dated_decimals": {
+    "global_outstanding_kg": "115.5560",
+    "global_outstanding_rolls": 20,
+    "items": [
+      {
+        "id": 11,
+        "outstanding_kg": "9.8766",
+        "row_quantities": [
+          "0.0001",
+          "9.8765"
+        ],
+        "sent_kg": "9.8766"
+      },
+      {
+        "id": 9,
+        "outstanding_kg": "13.2346",
+        "row_quantities": [
+          "1.2345",
+          "12.0001"
+        ],
+        "sent_kg": "13.2346"
+      },
+      {
+        "id": 7,
+        "outstanding_kg": "0.0001",
+        "row_quantities": [
+          "0.0001",
+          "9.8765"
+        ],
+        "sent_kg": "9.8766"
+      },
+      {
+        "id": 5,
+        "outstanding_kg": "13.2346",
+        "row_quantities": [
+          "1.2345",
+          "12.0001"
+        ],
+        "sent_kg": "13.2346"
+      },
+      {
+        "id": 3,
+        "outstanding_kg": "9.8766",
+        "row_quantities": [
+          "0.0001",
+          "9.8765"
+        ],
+        "sent_kg": "9.8766"
+      },
+      {
+        "id": 1,
+        "outstanding_kg": "1.2345",
+        "row_quantities": [
+          "1.2345",
+          "12.0001"
+        ],
+        "sent_kg": "13.2346"
+      }
+    ],
+    "total": 6
+  },
+  "page_one": {
+    "items": [
+      {
+        "id": 13,
+        "number": "ECO-000013",
+        "operator_name": "No rolls",
+        "outstanding_kg": 0,
+        "outstanding_rolls": 0,
+        "rows": [],
+        "sent_at": "2026-09-03T21:00:00+09:00",
+        "sent_kg": 0,
+        "sent_rolls": 0
+      },
+      {
+        "id": 12,
+        "number": "ECO-000012",
+        "operator_name": "Dispatcher 11",
+        "outstanding_kg": 11.111,
+        "outstanding_rolls": 2,
+        "rows": [
+          {
+            "batch_no": "ECO-HISTORY",
+            "code": "B1-R23",
+            "color": "Blue",
+            "dispatch_id": 12,
+            "fabric_name": "Eco history fabric",
+            "id": 23,
+            "quantity": 9.8765,
+            "return_operator_name": null,
+            "returned_at": null,
+            "roll_number": 23,
+            "unit": "kg"
+          },
+          {
+            "batch_no": "ECO-HISTORY",
+            "code": "B1-R24",
+            "color": "Blue",
+            "dispatch_id": 12,
+            "fabric_name": "Eco history fabric",
+            "id": 24,
+            "quantity": 1.2345,
+            "return_operator_name": null,
+            "returned_at": null,
+            "roll_number": 24,
+            "unit": "kg"
+          }
+        ],
+        "sent_at": "2026-09-02T21:00:00+09:00",
+        "sent_kg": 11.111,
+        "sent_rolls": 2
+      },
+      {
+        "id": 10,
+        "number": "ECO-000010",
+        "operator_name": "Dispatcher 9",
+        "outstanding_kg": 12.0001,
+        "outstanding_rolls": 1,
+        "rows": [
+          {
+            "batch_no": "ECO-HISTORY",
+            "code": "B1-R19",
+            "color": "Blue",
+            "dispatch_id": 10,
+            "fabric_name": "Eco history fabric",
+            "id": 19,
+            "quantity": 12.0001,
+            "return_operator_name": null,
+            "returned_at": null,
+            "roll_number": 19,
+            "unit": "kg"
+          },
+          {
+            "batch_no": "ECO-HISTORY",
+            "code": "B1-R20",
+            "color": "Blue",
+            "dispatch_id": 10,
+            "fabric_name": "Eco history fabric",
+            "id": 20,
+            "quantity": 0.0001,
+            "return_operator_name": "Returning operator",
+            "returned_at": "2026-09-03T17:00:00+09:00",
+            "roll_number": 20,
+            "unit": "kg"
+          }
+        ],
+        "sent_at": "2026-09-02T21:00:00+09:00",
+        "sent_kg": 12.0002,
+        "sent_rolls": 2
+      },
+      {
+        "id": 8,
+        "number": "ECO-000008",
+        "operator_name": "Dispatcher 7",
+        "outstanding_kg": 11.111,
+        "outstanding_rolls": 2,
+        "rows": [
+          {
+            "batch_no": "ECO-HISTORY",
+            "code": "B1-R15",
+            "color": "Blue",
+            "dispatch_id": 8,
+            "fabric_name": "Eco history fabric",
+            "id": 15,
+            "quantity": 9.8765,
+            "return_operator_name": null,
+            "returned_at": null,
+            "roll_number": 15,
+            "unit": "kg"
+          },
+          {
+            "batch_no": "ECO-HISTORY",
+            "code": "B1-R16",
+            "color": "Blue",
+            "dispatch_id": 8,
+            "fabric_name": "Eco history fabric",
+            "id": 16,
+            "quantity": 1.2345,
+            "return_operator_name": null,
+            "returned_at": null,
+            "roll_number": 16,
+            "unit": "kg"
+          }
+        ],
+        "sent_at": "2026-09-02T21:00:00+09:00",
+        "sent_kg": 11.111,
+        "sent_rolls": 2
+      },
+      {
+        "id": 6,
+        "number": "ECO-000006",
+        "operator_name": "Dispatcher 5",
+        "outstanding_kg": 12.0002,
+        "outstanding_rolls": 2,
+        "rows": [
+          {
+            "batch_no": "ECO-HISTORY",
+            "code": "B1-R11",
+            "color": "Blue",
+            "dispatch_id": 6,
+            "fabric_name": "Eco history fabric",
+            "id": 11,
+            "quantity": 12.0001,
+            "return_operator_name": null,
+            "returned_at": null,
+            "roll_number": 11,
+            "unit": "kg"
+          },
+          {
+            "batch_no": "ECO-HISTORY",
+            "code": "B1-R12",
+            "color": "Blue",
+            "dispatch_id": 6,
+            "fabric_name": "Eco history fabric",
+            "id": 12,
+            "quantity": 0.0001,
+            "return_operator_name": null,
+            "returned_at": null,
+            "roll_number": 12,
+            "unit": "kg"
+          }
+        ],
+        "sent_at": "2026-09-02T21:00:00+09:00",
+        "sent_kg": 12.0002,
+        "sent_rolls": 2
+      }
+    ],
+    "outstanding_kg": 115.556,
+    "outstanding_rolls": 20,
+    "total": 13
+  },
+  "page_one_decimals": {
+    "global_outstanding_kg": "115.5560",
+    "global_outstanding_rolls": 20,
+    "items": [
+      {
+        "id": 13,
+        "outstanding_kg": "0",
+        "row_quantities": [],
+        "sent_kg": "0"
+      },
+      {
+        "id": 12,
+        "outstanding_kg": "11.1110",
+        "row_quantities": [
+          "9.8765",
+          "1.2345"
+        ],
+        "sent_kg": "11.1110"
+      },
+      {
+        "id": 10,
+        "outstanding_kg": "12.0001",
+        "row_quantities": [
+          "12.0001",
+          "0.0001"
+        ],
+        "sent_kg": "12.0002"
+      },
+      {
+        "id": 8,
+        "outstanding_kg": "11.1110",
+        "row_quantities": [
+          "9.8765",
+          "1.2345"
+        ],
+        "sent_kg": "11.1110"
+      },
+      {
+        "id": 6,
+        "outstanding_kg": "12.0002",
+        "row_quantities": [
+          "12.0001",
+          "0.0001"
+        ],
+        "sent_kg": "12.0002"
+      }
+    ],
+    "total": 13
+  },
+  "page_two": {
+    "items": [
+      {
+        "id": 4,
+        "number": "ECO-000004",
+        "operator_name": "Dispatcher 3",
+        "outstanding_kg": 9.8765,
+        "outstanding_rolls": 1,
+        "rows": [
+          {
+            "batch_no": "ECO-HISTORY",
+            "code": "B1-R7",
+            "color": "Blue",
+            "dispatch_id": 4,
+            "fabric_name": "Eco history fabric",
+            "id": 7,
+            "quantity": 9.8765,
+            "return_operator_name": null,
+            "returned_at": null,
+            "roll_number": 7,
+            "unit": "kg"
+          },
+          {
+            "batch_no": "ECO-HISTORY",
+            "code": "B1-R8",
+            "color": "Blue",
+            "dispatch_id": 4,
+            "fabric_name": "Eco history fabric",
+            "id": 8,
+            "quantity": 1.2345,
+            "return_operator_name": "Returning operator",
+            "returned_at": "2026-09-03T17:00:00+09:00",
+            "roll_number": 8,
+            "unit": "kg"
+          }
+        ],
+        "sent_at": "2026-09-02T21:00:00+09:00",
+        "sent_kg": 11.111,
+        "sent_rolls": 2
+      },
+      {
+        "id": 2,
+        "number": "ECO-000002",
+        "operator_name": "Dispatcher 1",
+        "outstanding_kg": 12.0002,
+        "outstanding_rolls": 2,
+        "rows": [
+          {
+            "batch_no": "ECO-HISTORY",
+            "code": "B1-R3",
+            "color": "Blue",
+            "dispatch_id": 2,
+            "fabric_name": "Eco history fabric",
+            "id": 3,
+            "quantity": 12.0001,
+            "return_operator_name": null,
+            "returned_at": null,
+            "roll_number": 3,
+            "unit": "kg"
+          },
+          {
+            "batch_no": "ECO-HISTORY",
+            "code": "B1-R4",
+            "color": "Blue",
+            "dispatch_id": 2,
+            "fabric_name": "Eco history fabric",
+            "id": 4,
+            "quantity": 0.0001,
+            "return_operator_name": null,
+            "returned_at": null,
+            "roll_number": 4,
+            "unit": "kg"
+          }
+        ],
+        "sent_at": "2026-09-02T21:00:00+09:00",
+        "sent_kg": 12.0002,
+        "sent_rolls": 2
+      },
+      {
+        "id": 11,
+        "number": "ECO-000011",
+        "operator_name": "Dispatcher 10",
+        "outstanding_kg": 9.8766,
+        "outstanding_rolls": 2,
+        "rows": [
+          {
+            "batch_no": "ECO-HISTORY",
+            "code": "B1-R21",
+            "color": "Blue",
+            "dispatch_id": 11,
+            "fabric_name": "Eco history fabric",
+            "id": 21,
+            "quantity": 0.0001,
+            "return_operator_name": null,
+            "returned_at": null,
+            "roll_number": 21,
+            "unit": "kg"
+          },
+          {
+            "batch_no": "ECO-HISTORY",
+            "code": "B1-R22",
+            "color": "Blue",
+            "dispatch_id": 11,
+            "fabric_name": "Eco history fabric",
+            "id": 22,
+            "quantity": 9.8765,
+            "return_operator_name": null,
+            "returned_at": null,
+            "roll_number": 22,
+            "unit": "kg"
+          }
+        ],
+        "sent_at": "2026-09-01T21:00:00+09:00",
+        "sent_kg": 9.8766,
+        "sent_rolls": 2
+      },
+      {
+        "id": 9,
+        "number": "ECO-000009",
+        "operator_name": "Dispatcher 8",
+        "outstanding_kg": 13.2346,
+        "outstanding_rolls": 2,
+        "rows": [
+          {
+            "batch_no": "ECO-HISTORY",
+            "code": "B1-R17",
+            "color": "Blue",
+            "dispatch_id": 9,
+            "fabric_name": "Eco history fabric",
+            "id": 17,
+            "quantity": 1.2345,
+            "return_operator_name": null,
+            "returned_at": null,
+            "roll_number": 17,
+            "unit": "kg"
+          },
+          {
+            "batch_no": "ECO-HISTORY",
+            "code": "B1-R18",
+            "color": "Blue",
+            "dispatch_id": 9,
+            "fabric_name": "Eco history fabric",
+            "id": 18,
+            "quantity": 12.0001,
+            "return_operator_name": null,
+            "returned_at": null,
+            "roll_number": 18,
+            "unit": "kg"
+          }
+        ],
+        "sent_at": "2026-09-01T21:00:00+09:00",
+        "sent_kg": 13.2346,
+        "sent_rolls": 2
+      },
+      {
+        "id": 7,
+        "number": "ECO-000007",
+        "operator_name": "Dispatcher 6",
+        "outstanding_kg": 0.0001,
+        "outstanding_rolls": 1,
+        "rows": [
+          {
+            "batch_no": "ECO-HISTORY",
+            "code": "B1-R13",
+            "color": "Blue",
+            "dispatch_id": 7,
+            "fabric_name": "Eco history fabric",
+            "id": 13,
+            "quantity": 0.0001,
+            "return_operator_name": null,
+            "returned_at": null,
+            "roll_number": 13,
+            "unit": "kg"
+          },
+          {
+            "batch_no": "ECO-HISTORY",
+            "code": "B1-R14",
+            "color": "Blue",
+            "dispatch_id": 7,
+            "fabric_name": "Eco history fabric",
+            "id": 14,
+            "quantity": 9.8765,
+            "return_operator_name": "Returning operator",
+            "returned_at": "2026-09-03T17:00:00+09:00",
+            "roll_number": 14,
+            "unit": "kg"
+          }
+        ],
+        "sent_at": "2026-09-01T21:00:00+09:00",
+        "sent_kg": 9.8766,
+        "sent_rolls": 2
+      }
+    ],
+    "outstanding_kg": 115.556,
+    "outstanding_rolls": 20,
+    "total": 13
+  },
+  "page_two_decimals": {
+    "global_outstanding_kg": "115.5560",
+    "global_outstanding_rolls": 20,
+    "items": [
+      {
+        "id": 4,
+        "outstanding_kg": "9.8765",
+        "row_quantities": [
+          "9.8765",
+          "1.2345"
+        ],
+        "sent_kg": "11.1110"
+      },
+      {
+        "id": 2,
+        "outstanding_kg": "12.0002",
+        "row_quantities": [
+          "12.0001",
+          "0.0001"
+        ],
+        "sent_kg": "12.0002"
+      },
+      {
+        "id": 11,
+        "outstanding_kg": "9.8766",
+        "row_quantities": [
+          "0.0001",
+          "9.8765"
+        ],
+        "sent_kg": "9.8766"
+      },
+      {
+        "id": 9,
+        "outstanding_kg": "13.2346",
+        "row_quantities": [
+          "1.2345",
+          "12.0001"
+        ],
+        "sent_kg": "13.2346"
+      },
+      {
+        "id": 7,
+        "outstanding_kg": "0.0001",
+        "row_quantities": [
+          "0.0001",
+          "9.8765"
+        ],
+        "sent_kg": "9.8766"
+      }
+    ],
+    "total": 13
+  }
+}

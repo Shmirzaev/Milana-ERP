@@ -11,7 +11,7 @@ const requiredPatterns = [
   ['supplier is sent in the batch update payload', 'supplier_id: form.supplier_id ? Number(form.supplier_id) : null'],
   ['supplier options are loaded from the supplier API', '"/api/suppliers"'],
   ['supplier selector is bound to the batch form', 'value={batchForm.supplier_id}'],
-  ['saving a batch uses the batch update endpoint', 'api.patch(`/api/inventory/batches/${editingBatch.id}`, batchPayload(batchForm))'],
+  ['saving a batch uses the batch update endpoint', 'api.patch(`/api/inventory/batches/${editingBatch.id}?force=true`, batchPayload(batchForm))'],
 ];
 
 const missing = requiredPatterns.filter(([, pattern]) => !source.includes(pattern));

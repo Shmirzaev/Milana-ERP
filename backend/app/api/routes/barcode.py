@@ -2,9 +2,9 @@ from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import RedirectResponse, Response
 
 from app.core.deps import DbSession, CurrentUser, PRODUCTION_READ_PERMISSIONS, require_permissions
-from app.models import Bundle, Package, User
-from app.services.barcode import bundle_qr_image_url, qr_png_bytes
-from app.services.bundles import bundle_qr_payload, find_bundle_by_scanned_code
+from app.schemas import Bundle, Package, User
+from app.models.barcode_service import bundle_qr_image_url, qr_png_bytes
+from app.models.bundles_service import bundle_qr_payload, find_bundle_by_scanned_code
 
 router = APIRouter(prefix="/barcode", tags=["barcode"])
 
@@ -19,6 +19,8 @@ def bundle_qr(bundle_no: str, db: DbSession, _: CurrentUser):
 @router.get("/bundle-image/{bundle_id}")
 def bundle_qr_image(bundle_id: int, db: DbSession, _: CurrentUser):
     """Cookie-authenticated image for the same-origin bundle detail page."""
+    if bundle_id > 2_147_483_647:
+        raise HTTPException(404, "Bundle not found")
     bundle = db.get(Bundle, bundle_id)
     if bundle is None:
         raise HTTPException(404, "Bundle not found")

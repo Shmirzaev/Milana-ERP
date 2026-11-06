@@ -7,9 +7,9 @@ from sqlalchemy.orm import lazyload
 
 from app.core.deps import user_permissions
 from app.db.session import SessionLocal
-from app.models import User
-from app.services.audit import log_action
-from app.services.inventory_access import MATERIALS_ONLY
+from app.schemas import User
+from app.models.audit_service import log_action
+from app.models.inventory_access_service import MATERIALS_ONLY
 
 
 def restrict(db, *, apply=False):

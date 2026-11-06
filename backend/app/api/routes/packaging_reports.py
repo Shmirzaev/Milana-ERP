@@ -5,10 +5,10 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import Response
 
 from app.core.deps import DbSession, require_permissions
-from app.services.factory_scope import require_operational_department_access
-from app.services.packaging_scope import packaging_department_scope
-from app.services.packaging_reports import build_packaging_report
-from app.services.packaging_report_exports import export_packaging_report
+from app.models.factory_scope_service import require_operational_department_access
+from app.models.packaging_scope_service import packaging_department_scope
+from app.models.packaging_reports_service import build_packaging_report
+from app.models.packaging_report_exports_service import export_packaging_report
 
 
 router = APIRouter(prefix="/packaging/reports", tags=["packaging"])

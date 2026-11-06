@@ -1,4 +1,4 @@
-from app.models import PayrollQrLabel
+from app.schemas import PayrollQrLabel
 from app.tests.conftest import TestSessionLocal
 
 

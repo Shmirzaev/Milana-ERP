@@ -25,7 +25,7 @@ def _login_json(client, factory_code: str):
 
 def test_secondary_factory_uses_only_its_scoped_permissions(client):
     from app.db.session import SessionLocal
-    from app.models import Department, Role, User
+    from app.schemas import Department, Role, User
 
     db = SessionLocal()
     try:
@@ -85,7 +85,7 @@ def test_secondary_factory_uses_only_its_scoped_permissions(client):
 
 def test_cutting_operator_options_are_limited_to_selected_factory(client):
     from app.db.session import SessionLocal
-    from app.models import Department, Role, User
+    from app.schemas import Department, Role, User
 
     db = SessionLocal()
     try:
@@ -136,7 +136,7 @@ def test_cutting_operator_options_are_limited_to_selected_factory(client):
 
 def test_unscoped_secondary_factory_login_is_rejected(client):
     from app.db.session import SessionLocal
-    from app.models import User
+    from app.schemas import User
 
     db = SessionLocal()
     try:

@@ -3,7 +3,7 @@ from uuid import uuid4
 
 import pytest
 
-from app.models import (
+from app.schemas import (
     Bundle, BundleScanLog, Department, ModelBOM, ProductionBatch, ProductionOrder,
     SewingAssignment, SewingFlow, User, WorkOrder,
 )

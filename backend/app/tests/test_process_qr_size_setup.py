@@ -1,7 +1,7 @@
 import pytest
 
 from app.db.session import SessionLocal
-from app.models import AuditLog, ModelSize
+from app.schemas import AuditLog, ModelSize
 from app.tests.test_payroll import _create_user_with_permissions
 from app.tests.test_process_qr_model_sizes import _model
 
@@ -67,7 +67,7 @@ def test_setup_requires_auth_and_does_not_expose_usluga(client, auth_headers):
     mid = _model("QR-AUTH-SETUP-1")
     assert client.post(f"/api/models/{mid}/process-qr-sizes", json={"sizes": ["48"]}).status_code == 401
     service = _model("QR-USL-SETUP-1", scope="usluga")
-    for target in (service, 2147483647):
+    for target in (service, 2147483647, 2147483648):
         response = client.post(f"/api/models/{target}/process-qr-sizes?catalog_scope=usluga", json={"sizes": ["48"]}, headers=auth_headers)
         assert response.status_code == 404, response.text
     with SessionLocal() as db:

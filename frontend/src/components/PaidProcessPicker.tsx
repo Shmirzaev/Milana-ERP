@@ -8,6 +8,7 @@ import { can, useMe } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
 import { VALID_SECTIONS, samePaidProcess, type SectionCode } from "@/lib/modelPaidOperations";
 import { paidSectionLabel } from "@/lib/paidProcessSections";
+import { DEFAULT_CATALOG_SCOPE, type CatalogScope } from "@/lib/catalogScope";
 import SearchableSelect from "@/components/SearchableSelect";
 
 export type PaidProcessTemplate = { id: number; code: string; name: string; section: SectionCode };
@@ -17,7 +18,7 @@ const COPY = {
   uz: { search: "Haq to‘lanadigan jarayonni nomi yoki kodi bilan qidiring", empty: "Mos jarayon topilmadi", add: "Haq to‘lanadigan jarayon qo‘shish", name: "Jarayon nomi", create: "Saqlash va tanlash", cancel: "Bekor qilish", section: "Bo‘lim", failed: "Jarayonni yuklash yoki saqlash amalga oshmadi. Qayta urinib ko‘ring.", more: "Natijalarni aniqlashtirish uchun yozishni davom ettiring", duplicate: "Bu jarayon ro‘yxatda mavjud" },
 };
 
-export default function PaidProcessPicker({ onSelect, existing = [] }: { onSelect: (row: PaidProcessTemplate) => void; existing?: { name: string; section: string }[] }) {
+export default function PaidProcessPicker({ onSelect, existing = [], catalogScope = DEFAULT_CATALOG_SCOPE }: { catalogScope?: CatalogScope; onSelect: (row: PaidProcessTemplate) => void; existing?: { name: string; section: string }[] }) {
   const { lang, t } = useT();
   const { me } = useMe();
   const canManage = can(me, "payroll.manage", "modeling.models");
@@ -36,7 +37,7 @@ export default function PaidProcessPicker({ onSelect, existing = [] }: { onSelec
   }, []);
   const [message, setMessage] = useState<"failed" | "duplicate" | null>(null);
   useEffect(() => { const timer = setTimeout(() => setSearch(query), 180); return () => clearTimeout(timer); }, [query]);
-  const { data, error, isLoading, mutate } = useSWR<{ items: PaidProcessTemplate[]; has_more: boolean }>(canManage ? `/api/paid-processes?search=${encodeURIComponent(search)}` : null, fetcher);
+  const { data, error, isLoading, mutate } = useSWR<{ items: PaidProcessTemplate[]; has_more: boolean }>(canManage ? `/api/paid-processes?catalog_scope=${catalogScope}&search=${encodeURIComponent(search)}` : null, fetcher);
   function choose(row: PaidProcessTemplate) {
     if (existing.some(item => samePaidProcess(item, row))) {
       setMessage("duplicate"); return;
@@ -47,7 +48,7 @@ export default function PaidProcessPicker({ onSelect, existing = [] }: { onSelec
     if (busyRef.current || !name.trim()) return;
     busyRef.current = true; setBusy(true); setMessage(null);
     try {
-      const row = await api.post<PaidProcessTemplate>("/api/paid-processes", { name: name.trim(), section });
+      const row = await api.post<PaidProcessTemplate>(`/api/paid-processes?catalog_scope=${catalogScope}`, { name: name.trim(), section });
       if (!mountedRef.current) return;
       choose(row); setCreating(false); setName(""); await mutate();
     } catch { if (mountedRef.current) setMessage("failed"); }

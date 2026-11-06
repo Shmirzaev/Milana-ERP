@@ -1,14 +1,20 @@
 "use client";
+import { formatVariantNumber } from "@/lib/variantDisplay";
 import { formatOrderReference } from "@/lib/orderRef";
 
 import Link from "next/link";
-import { Check, PackageCheck, ScanLine } from "lucide-react";
+import { useDialogs } from "@/components/DialogProvider";
+import { firstGradeText } from "@/lib/firstGradeText";
+import { Check, PackageCheck, ScanLine, X } from "lucide-react";
+import { api } from "@/lib/api";
+import { shipmentReturnText } from "@/lib/shipmentReturnText";
 import { useId, useState } from "react";
 
 import ImageThumbnail from "@/components/ImageThumbnail";
 import { statusLabel } from "@/components/StagePipeline";
 import { useT } from "@/lib/i18n";
 import { shipmentReviewText } from "@/lib/shipmentReviewText";
+import ShipmentInvoiceActions from "@/components/ShipmentInvoiceActions";
 import ShipmentReviewPanel from "@/components/ShipmentReviewPanel";
 import ShipmentTransportDetails, { ShipmentTransportFields, normalizeTransportDetails, type TransportDetails } from "@/components/ShipmentTransportDetails";
 import { shipmentTransportText } from "@/lib/shipmentTransportText";
@@ -67,7 +73,7 @@ type PreparationPackage = {
   location?: string | null;
   scanned: boolean;
   items: Array<{ color?: string | null; size?: string | null; quantity: number }>;
-  quantity_items?: Array<{ item_id: number; color: string; size: string; quantity: number }>;
+  quantity_items?: Array<{ item_id: number; color: string; size: string; quantity: number; available_quantity?: number }>;
 };
 
 export type ShipmentPreparation = {
@@ -79,7 +85,7 @@ export type ShipmentPreparation = {
   remaining_count: number;
   is_complete: boolean;
   is_preview?: boolean;
-  review?: { quantity: number; packages_count: number; amount: string | null; calculated_amount: string | null; basis: string; review_stale: boolean } | null;
+  review?: { quantity: number; packages_count: number; amount: string | null; calculated_amount: string | null; basis: string; review_stale: boolean; finance_posting_status?: string } | null;
 };
 
 function formatQuantity(value: number | null | undefined) {
@@ -123,10 +129,29 @@ export default function ShipmentPreparationWorkspace({
 }) {
   const { t, lang } = useT();
   const { me } = useMe();
+  const dialogs = useDialogs();
+  const deleteText = firstGradeText[lang];
+  const [deleting, setDeleting] = useState(false);
+  const [deleted, setDeleted] = useState<number | null>(null);
   const canEditTransport = can(me, "storage.shipment");
   const [transportDraft, setTransportDraft] = useState<TransportDetails>({});
   const reviewText = shipmentReviewText[lang];
   const scanInputId = useId();
+  const [returning, setReturning] = useState<number | null>(null);
+  const [returnError, setReturnError] = useState("");
+  const returnText = shipmentReturnText[lang];
+  async function returnPackage(id: number) {
+    if (!preparation || returning !== null) return;
+    setReturning(id); setReturnError("");
+    try {
+      await api.post(`/api/shipments/${preparation.shipment.id}/packages/${id}/remove`, { reason: returnText.reason });
+      await onReviewChanged();
+    } catch (error) { setReturnError(error instanceof Error ? error.message : String(error)); }
+    finally { setReturning(null); }
+  }
+
+
+  if (deleted && deleted === preparation?.shipment.id) return <section className="card p-4" role="status">{deleteText.deleted}</section>;
 
   if (isLoading) {
     return <section className="card px-4 py-10 text-center text-sm text-[#6f6a5b]">{t("page.shipments.loadingPreparation")}</section>;
@@ -140,7 +165,7 @@ export default function ShipmentPreparationWorkspace({
   const isPreview = Boolean(preparation.is_preview);
   const isOpen = !isPreview && ["draft", "created"].includes(String(shipment.status || ""));
   const canScan = isOpen;
-  const shipDisabled = !isOpen || preparation.required_count <= 0 || preparation.remaining_count > 0 || !!preparation.review?.review_stale || (shipment.shipment_type === "manual" && preparation.review?.amount == null);
+  const shipDisabled = !isOpen || preparation.required_count <= 0 || preparation.remaining_count > 0 || !!preparation.review?.review_stale;
   const items = preparation.items || [];
   const packages = (preparation.packages || []).slice().sort((a, b) => Number(a.scanned) - Number(b.scanned));
 
@@ -205,6 +230,15 @@ export default function ShipmentPreparationWorkspace({
           </div>
 
           {!isPreview ? <div className="flex flex-wrap gap-2 lg:justify-end">
+            {isOpen && canEditTransport && shipment.shipment_type === "manual" && <button type="button" className="btn" disabled={deleting} onClick={async () => {
+              if (!(await dialogs.ask({ message: deleteText.deleteConfirm, confirmText: deleteText.deleteShipment, tone: "danger" }))) return;
+              setDeleting(true); setReturnError("");
+              try {
+                await api.post(`/api/shipments/${shipment.id}/delete`, { reason: deleteText.deleteReason });
+                setDeleted(shipment.id); await onReviewChanged();
+              } catch (error) { setReturnError(error instanceof Error ? error.message : String(error)); }
+              finally { setDeleting(false); }
+            }}>{deleteText.deleteShipment}</button>}
             {shipment.sales_order_id && isOpen ? (
               <button type="button" className="btn" onClick={onAddReadyPackages}>{t("page.shipments.addReadyPackages")}</button>
             ) : null}
@@ -219,7 +253,7 @@ export default function ShipmentPreparationWorkspace({
                 {t("page.shipments.traceability")}
               </Link>
             ) : null}
-            {["shipped", "delivered"].includes(shipment.status) && <a className="btn" href={`/api/shipments/${shipment.id}/invoice/print?lang=${lang}`} target="_blank" rel="noreferrer" title={reviewText.reference}>{reviewText.print}</a>}
+            {(["shipped", "delivered"].includes(shipment.status) || (isOpen && shipment.shipment_type === "manual" && (preparation.review?.packages_count || 0) > 0)) && <ShipmentInvoiceActions shipmentId={shipment.id} />}
           </div> : onCreate ? (
             <div className="flex lg:justify-end">
               <button type="button" className="btn btn-primary" onClick={() => onCreate(normalizeTransportDetails(transportDraft))} disabled={isCreating}>
@@ -259,14 +293,14 @@ export default function ShipmentPreparationWorkspace({
                         />
                         <ImageThumbnail
                           imageUrl={item.variant_image_url}
-                          label={item.variant_no || modelLabel(item)}
+                          label={formatVariantNumber(item.variant_no) || modelLabel(item)}
                           title={t("page.shipments.variantPicture")}
                           emptyLabel={t("page.workOrder.noImage")}
                         />
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="font-semibold text-[#14110b]">{modelLabel(item)}</div>
-                        <div className="text-xs text-[#56503f]">{t("field.variantNo")}: {item.variant_no || "-"}</div>
+                        <div className="text-xs text-[#56503f]">{t("field.variantNo")}: {formatVariantNumber(item.variant_no) || "-"}</div>
                         {item.model_name && item.model_name !== modelLabel(item) ? <div className="mt-0.5 text-xs text-[#6f6a5b]">{item.model_name}</div> : null}
                       </div>
                     </div>
@@ -329,14 +363,14 @@ export default function ShipmentPreparationWorkspace({
                       <td>
                         <ImageThumbnail
                           imageUrl={item.variant_image_url}
-                          label={item.variant_no || modelLabel(item)}
+                          label={formatVariantNumber(item.variant_no) || modelLabel(item)}
                           title={t("page.shipments.variantPicture")}
                           emptyLabel={t("page.workOrder.noImage")}
                         />
                       </td>
                       <td>
                         <div className="font-semibold text-[#14110b]">{modelLabel(item)}</div>
-                        <div className="text-xs text-[#56503f]">{t("field.variantNo")}: {item.variant_no || "-"}</div>
+                        <div className="text-xs text-[#56503f]">{t("field.variantNo")}: {formatVariantNumber(item.variant_no) || "-"}</div>
                         {item.model_name && item.model_name !== modelLabel(item) ? <div className="mt-0.5 max-w-64 text-xs text-[#6f6a5b]">{item.model_name}</div> : null}
                       </td>
                       <td>
@@ -378,7 +412,8 @@ export default function ShipmentPreparationWorkspace({
         )}
       </details>
 
-      <details>
+      {returnError && <p role="alert" className="px-4 py-2 text-sm text-red-700">{returnError}</p>}
+      <details open={preparation.scanned_count > 0}>
         <summary className="cursor-pointer px-4 py-3 text-sm font-semibold">{t("page.shipments.packageChecklist")} · {preparation.scanned_count} / {preparation.required_count} {t("page.shipments.verifiedShort")}</summary>
         {packages.length ? (
           <>
@@ -388,13 +423,14 @@ export default function ShipmentPreparationWorkspace({
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <div className="mono font-semibold text-[#14110b]">{pkg.package_no}</div>
-                      <div className="mt-1 text-xs text-[#56503f]">{modelLabel(pkg)} · {t("field.variantNo")}: {pkg.variant_no || "-"}</div>
+                      <div className="mt-1 text-xs text-[#56503f]">{modelLabel(pkg)} · {t("field.variantNo")}: {formatVariantNumber(pkg.variant_no) || "-"}</div>
                     </div>
                     <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${pkg.scanned ? "text-emerald-700" : "text-[#56503f]"}`}>
                       {pkg.scanned ? <Check className="h-4 w-4" aria-hidden="true" /> : <PackageCheck className="h-4 w-4" aria-hidden="true" />}
                       {pkg.scanned ? t("page.shipments.scanned") : t("page.shipments.notScanned")}
                     </span>
                   </div>
+                  {isOpen && canEditTransport && pkg.scanned && <button type="button" className="btn ml-2" disabled={returning !== null} aria-label={`${returnText.remove}: ${pkg.package_no}`} onClick={() => void returnPackage(pkg.id)}><X className="h-4 w-4" aria-hidden="true" />{returnText.remove}</button>}
                   <div className="mt-3 grid grid-cols-2 gap-3 border-t border-[#ded9ca] pt-3 text-xs">
                     <div>
                       <div className="label mb-1">{t("page.shipments.contents")}</div>
@@ -431,7 +467,7 @@ export default function ShipmentPreparationWorkspace({
                     <td className="mono whitespace-nowrap font-semibold text-[#14110b]">{pkg.package_no}</td>
                     <td>
                       <div className="font-medium text-[#14110b]">{modelLabel(pkg)}</div>
-                      <div className="text-xs text-[#56503f]">{t("field.variantNo")}: {pkg.variant_no || "-"}</div>
+                      <div className="text-xs text-[#56503f]">{t("field.variantNo")}: {formatVariantNumber(pkg.variant_no) || "-"}</div>
                     </td>
                     <td>
                       <div className="space-y-1 text-xs">
@@ -449,6 +485,7 @@ export default function ShipmentPreparationWorkspace({
                         {pkg.scanned ? <Check className="h-4 w-4" aria-hidden="true" /> : <PackageCheck className="h-4 w-4" aria-hidden="true" />}
                         {pkg.scanned ? t("page.shipments.scanned") : t("page.shipments.notScanned")}
                       </span>
+                      {isOpen && canEditTransport && pkg.scanned && <button type="button" className="btn ml-2" disabled={returning !== null} aria-label={`${returnText.remove}: ${pkg.package_no}`} onClick={() => void returnPackage(pkg.id)}><X className="h-4 w-4" aria-hidden="true" />{returnText.remove}</button>}
                     </td>
                   </tr>
                 ))}

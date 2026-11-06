@@ -1,4 +1,5 @@
 "use client";
+import { ApiError } from "@/lib/errorMessages";
 
 import { useState } from "react";
 import { useSearchParams } from "next/navigation";
@@ -7,8 +8,9 @@ import useSWR from "swr";
 
 import PageHeader from "@/components/PageHeader";
 import PackagingReportTable from "@/components/PackagingReportTable";
-import { fetcher } from "@/lib/api";
+import { fetcher, fetchResponse } from "@/lib/api";
 import { can, useMe } from "@/lib/auth";
+import { packagingDepartmentForSession } from "@/lib/access";
 import { useT } from "@/lib/i18n";
 import { packagingReportColumns, type PackagingReport } from "@/lib/packagingReport";
 
@@ -23,7 +25,7 @@ export default function PackagingReportsPage() {
   const { t, lang } = useT();
   const { me } = useMe();
   const searchParams = useSearchParams();
-  const department = searchParams.get("packaging_department") || "PKG";
+  const department = packagingDepartmentForSession(me, searchParams.get("packaging_department"));
   const factory = department === "ECP" ? "Eco Cotton" : department === "BPK" ? "Besttex" : "Milana";
   const [fromDate, setFromDate] = useState(() => `${today().slice(0, 7)}-01`);
   const [toDate, setToDate] = useState(today);
@@ -42,10 +44,10 @@ export default function PackagingReportsPage() {
     setDownloadError("");
     setDownloading(true);
     try {
-      const response = await fetch(`/api/packaging/reports/export.xlsx?${params}&lang=${lang}`, { credentials: "same-origin" });
+      const response = await fetchResponse(`/api/packaging/reports/export.xlsx?${params}&lang=${lang}`, { credentials: "same-origin" });
       if (!response.ok) {
         const payload = await response.json().catch(() => null);
-        throw new Error(typeof payload?.detail === "string" ? payload.detail : t("packagingReport.downloadFailed"));
+        throw new ApiError(response.status, typeof payload?.detail === "string" ? payload.detail : "Request failed");
       }
       const url = URL.createObjectURL(await response.blob());
       const link = document.createElement("a");

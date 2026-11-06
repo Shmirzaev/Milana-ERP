@@ -1,0 +1,199 @@
+<?xml version='1.0' encoding='utf-8'?>
+<testsuite name="RF009 create_user baseline" tests="196" failures="0" errors="0" skipped="0">
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_create_persists_full_contract_audit_and_effective_permissions[sqlite]" time="0.783" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_authorized_creators_may_set_active_flag_with_no_role[sqlite-True-manager]" time="0.585" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_authorized_creators_may_set_active_flag_with_no_role[sqlite-True-wildcard]" time="0.585" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_authorized_creators_may_set_active_flag_with_no_role[sqlite-True-super]" time="0.581" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_authorized_creators_may_set_active_flag_with_no_role[sqlite-False-manager]" time="0.582" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_authorized_creators_may_set_active_flag_with_no_role[sqlite-False-wildcard]" time="0.611" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_authorized_creators_may_set_active_flag_with_no_role[sqlite-False-super]" time="0.582" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_ordinary_user_cannot_set_any_privileged_field[sqlite-role_id]" time="0.013" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_ordinary_user_cannot_set_any_privileged_field[sqlite-extra_permissions]" time="0.012" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_ordinary_user_cannot_set_any_privileged_field[sqlite-access_policy]" time="0.012" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_ordinary_user_cannot_set_any_privileged_field[sqlite-is_active]" time="0.012" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_ordinary_user_cannot_set_any_privileged_field[sqlite-factory_code]" time="0.011" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_role_grant_boundary[sqlite-manager-reader-201-None]" time="0.399" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_role_grant_boundary[sqlite-wildcard-reader-201-None]" time="0.403" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_role_grant_boundary[sqlite-super-wildcard-201-None]" time="0.397" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_role_grant_boundary[sqlite-super-super-201-None]" time="0.399" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_role_grant_boundary[sqlite-manager-sales-403-You cannot grant permissions you don't hold: ['sales.orders']]" time="0.012" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_role_grant_boundary[sqlite-manager-wildcard-403-Only a super admin can assign administrator roles]" time="0.012" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_role_grant_boundary[sqlite-wildcard-wildcard-403-Only a super admin can assign administrator roles]" time="0.011" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_role_grant_boundary[sqlite-manager-super-403-Only a super admin can assign administrator roles]" time="0.011" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_role_grant_boundary[sqlite-wildcard-super-403-Only a super admin can assign administrator roles]" time="0.012" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_extra_permission_grant_boundary[sqlite-manager-grants0-201-None]" time="0.399" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_extra_permission_grant_boundary[sqlite-super-grants1-201-None]" time="0.425" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_extra_permission_grant_boundary[sqlite-super-grants2-201-None]" time="0.403" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_extra_permission_grant_boundary[sqlite-manager-grants3-403-You cannot grant permissions you don't hold: ['sales.orders']]" time="0.013" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_extra_permission_grant_boundary[sqlite-manager-grants4-403-Only a super admin can grant administrator access]" time="0.012" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_extra_permission_grant_boundary[sqlite-wildcard-grants5-403-Only a super admin can grant administrator access]" time="0.012" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_extra_permission_grant_boundary[sqlite-wildcard-grants6-403-Only a super admin can grant administrator access]" time="0.011" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_extra_permission_grant_boundary[sqlite-manager-grants7-403-Only Super Admin can configure another factory]" time="0.011" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_extra_permission_grant_boundary[sqlite-wildcard-grants8-403-Only Super Admin can configure another factory]" time="0.012" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_extra_permission_grant_boundary[sqlite-manager-grants9-400-Factory must be MIL, BST, or ECO]" time="0.011" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_extra_permission_grant_boundary[sqlite-manager-grants10-400-Invalid factory permission]" time="0.011" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_super_scoped_grant_allows_secondary_factory_without_leaking_primary_role[sqlite]" time="0.597" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_own_factory_scoped_grant_is_stored_but_primary_role_remains_authoritative[sqlite]" time="0.400" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_access_policy_grant_boundary[sqlite-manager-MIL-allow0-deny0-201-None]" time="0.405" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_access_policy_grant_boundary[sqlite-super-ECO-allow1-deny1-201-None]" time="0.423" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_access_policy_grant_boundary[sqlite-super-MIL-allow2-deny2-201-None]" time="0.401" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_access_policy_grant_boundary[sqlite-wildcard-MIL-allow3-deny3-201-None]" time="0.398" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_access_policy_grant_boundary[sqlite-manager-MIL-allow4-deny4-403-You cannot grant permissions you don't hold]" time="0.013" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_access_policy_grant_boundary[sqlite-manager-MIL-allow5-deny5-403-Only Super Admin can grant administrator access]" time="0.012" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_access_policy_grant_boundary[sqlite-wildcard-MIL-allow6-deny6-403-Only Super Admin can grant administrator access]" time="0.012" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_access_policy_grant_boundary[sqlite-manager-ECO-allow7-deny7-403-Only Super Admin can configure another factory]" time="0.013" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_access_policy_grant_boundary[sqlite-wildcard-ECO-allow8-deny8-403-Only Super Admin can configure another factory]" time="0.012" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_access_policy_grant_boundary[sqlite-super-ECO-allow9-deny9-400-Super Admin access is configured in the primary factory only]" time="0.012" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_access_policy_grant_boundary[sqlite-scoped-MIL-allow10-deny10-403-You cannot remove your own inventory scope from another account]" time="0.012" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_access_policy_grant_boundary[sqlite-scoped-MIL-allow11-deny11-201-None]" time="0.397" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_factory_assignment_boundary[sqlite-manager- mil -201]" time="0.427" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_factory_assignment_boundary[sqlite-manager-ECO-403]" time="0.012" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_factory_assignment_boundary[sqlite-wildcard-BST-403]" time="0.013" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_factory_assignment_boundary[sqlite-super-BST-201]" time="0.397" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_factory_assignment_boundary[sqlite-super- eco -201]" time="0.393" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_factory_assignment_boundary[sqlite-eco_manager--201]" time="0.397" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_omitted_factory_defaults_to_mil_even_for_eco_manager[sqlite]" time="0.012" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_refusal_detail_and_atomicity[sqlite-changes0-400-Password must be at least 12 characters.]" time="0.011" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_refusal_detail_and_atomicity[sqlite-changes1-400-Password must include a number.]" time="0.012" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_refusal_detail_and_atomicity[sqlite-changes2-400-Password must include a letter.]" time="0.011" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_refusal_detail_and_atomicity[sqlite-changes3-400-Password must not start or end with spaces.]" time="0.012" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_refusal_detail_and_atomicity[sqlite-changes4-400-Password must be at least 12 characters, not use a shared default password.]" time="0.012" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_refusal_detail_and_atomicity[sqlite-changes5-404-Role not found]" time="0.012" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_refusal_detail_and_atomicity[sqlite-changes6-404-Department not found]" time="0.011" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_refusal_detail_and_atomicity[sqlite-changes7-400-Factory must be MIL, BST, or ECO]" time="0.012" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_refusal_detail_and_atomicity[sqlite-changes8-422-User name must be at most 128 characters]" time="0.012" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_refusal_detail_and_atomicity[sqlite-changes9-422-User email must be at most 255 characters]" time="0.012" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_refusal_detail_and_atomicity[sqlite-changes10-400-Password must be at least 12 characters.]" time="0.011" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_refusal_detail_and_atomicity[sqlite-changes11-404-Department not found]" time="0.012" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_name_boundary_and_legacy_empty_name[sqlite-NNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN]" time="0.235" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_name_boundary_and_legacy_empty_name[sqlite-\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f]" time="0.237" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_name_boundary_and_legacy_empty_name[sqlite-]" time="0.213" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_name_boundary_and_legacy_empty_name[sqlite- padded ]" time="0.222" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_email_boundary_counts_normalized_value[sqlite]" time="0.206" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_duplicate_normalized_email_precedes_factory_validation_without_writes[sqlite]" time="0.208" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_credentials_preserve_minimum_length_and_beyond_bcrypt_limit[sqlite-Abcdef123456]" time="1.052" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_credentials_preserve_minimum_length_and_beyond_bcrypt_limit[sqlite-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAALongSuffix!2026]" time="0.772" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_passwordless_setup_token_contract[sqlite-omitted-True]" time="0.579" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_passwordless_setup_token_contract[sqlite-omitted-False]" time="0.576" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_passwordless_setup_token_contract[sqlite-None-True]" time="0.578" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_passwordless_setup_token_contract[sqlite-None-False]" time="0.576" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_passwordless_setup_token_contract[sqlite--True]" time="0.582" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_passwordless_setup_token_contract[sqlite--False]" time="0.577" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_setup_is_scheduled_and_delivered_only_after_single_commit[sqlite]" time="0.205" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_commit_failure_rolls_back_user_token_audit_and_never_schedules_email[sqlite]" time="0.201" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_missing_or_inactive_actor_cannot_create[sqlite-False]" time="0.012" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_missing_or_inactive_actor_cannot_create[sqlite-True]" time="0.013" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_super_admin_role_name_is_privileged_even_without_permission_tokens[sqlite-manager]" time="0.013" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_super_admin_role_name_is_privileged_even_without_permission_tokens[sqlite-wildcard]" time="0.014" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_super_admin_role_name_is_privileged_even_without_permission_tokens[sqlite-super]" time="0.398" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_invalid_policy_detail_preserves_all_rows[sqlite-policy0-detail0]" time="0.012" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_invalid_policy_detail_preserves_all_rows[sqlite-policy1-detail1]" time="0.011" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_invalid_policy_detail_preserves_all_rows[sqlite-policy2-detail2]" time="0.011" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_invalid_policy_detail_preserves_all_rows[sqlite-policy3-detail3]" time="0.012" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_privileged_field_explicit_null_contract[sqlite-role_id-None-None]" time="0.203" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_privileged_field_explicit_null_contract[sqlite-access_policy-None-None]" time="0.204" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_privileged_field_explicit_null_contract[sqlite-extra_permissions-list_type-Input should be a valid list]" time="0.015" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_privileged_field_explicit_null_contract[sqlite-is_active-bool_type-Input should be a valid boolean]" time="0.023" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_privileged_field_explicit_null_contract[sqlite-factory_code-string_type-Input should be a valid string]" time="0.011" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_policy_deny_overrides_explicit_extra_grant[sqlite]" time="0.391" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_client_supplied_credential_and_server_owned_fields_are_ignored[sqlite]" time="0.579" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_current_admin_ui_payload_preserves_empty_policy_and_setup_login[sqlite]" time="0.769" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_create_persists_full_contract_audit_and_effective_permissions[postgres]" time="0.915" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_authorized_creators_may_set_active_flag_with_no_role[postgres-True-manager]" time="0.660" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_authorized_creators_may_set_active_flag_with_no_role[postgres-True-wildcard]" time="0.594" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_authorized_creators_may_set_active_flag_with_no_role[postgres-True-super]" time="0.594" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_authorized_creators_may_set_active_flag_with_no_role[postgres-False-manager]" time="0.591" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_authorized_creators_may_set_active_flag_with_no_role[postgres-False-wildcard]" time="0.592" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_authorized_creators_may_set_active_flag_with_no_role[postgres-False-super]" time="0.589" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_ordinary_user_cannot_set_any_privileged_field[postgres-role_id]" time="0.014" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_ordinary_user_cannot_set_any_privileged_field[postgres-extra_permissions]" time="0.014" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_ordinary_user_cannot_set_any_privileged_field[postgres-access_policy]" time="0.013" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_ordinary_user_cannot_set_any_privileged_field[postgres-is_active]" time="0.013" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_ordinary_user_cannot_set_any_privileged_field[postgres-factory_code]" time="0.013" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_role_grant_boundary[postgres-manager-reader-201-None]" time="0.402" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_role_grant_boundary[postgres-wildcard-reader-201-None]" time="0.399" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_role_grant_boundary[postgres-super-wildcard-201-None]" time="0.401" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_role_grant_boundary[postgres-super-super-201-None]" time="0.400" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_role_grant_boundary[postgres-manager-sales-403-You cannot grant permissions you don't hold: ['sales.orders']]" time="0.014" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_role_grant_boundary[postgres-manager-wildcard-403-Only a super admin can assign administrator roles]" time="0.014" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_role_grant_boundary[postgres-wildcard-wildcard-403-Only a super admin can assign administrator roles]" time="0.013" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_role_grant_boundary[postgres-manager-super-403-Only a super admin can assign administrator roles]" time="0.013" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_role_grant_boundary[postgres-wildcard-super-403-Only a super admin can assign administrator roles]" time="0.013" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_extra_permission_grant_boundary[postgres-manager-grants0-201-None]" time="0.398" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_extra_permission_grant_boundary[postgres-super-grants1-201-None]" time="0.396" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_extra_permission_grant_boundary[postgres-super-grants2-201-None]" time="0.398" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_extra_permission_grant_boundary[postgres-manager-grants3-403-You cannot grant permissions you don't hold: ['sales.orders']]" time="0.013" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_extra_permission_grant_boundary[postgres-manager-grants4-403-Only a super admin can grant administrator access]" time="0.014" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_extra_permission_grant_boundary[postgres-wildcard-grants5-403-Only a super admin can grant administrator access]" time="0.014" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_extra_permission_grant_boundary[postgres-wildcard-grants6-403-Only a super admin can grant administrator access]" time="0.017" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_extra_permission_grant_boundary[postgres-manager-grants7-403-Only Super Admin can configure another factory]" time="0.015" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_extra_permission_grant_boundary[postgres-wildcard-grants8-403-Only Super Admin can configure another factory]" time="0.015" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_extra_permission_grant_boundary[postgres-manager-grants9-400-Factory must be MIL, BST, or ECO]" time="0.014" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_extra_permission_grant_boundary[postgres-manager-grants10-400-Invalid factory permission]" time="0.014" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_super_scoped_grant_allows_secondary_factory_without_leaking_primary_role[postgres]" time="0.595" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_own_factory_scoped_grant_is_stored_but_primary_role_remains_authoritative[postgres]" time="0.400" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_access_policy_grant_boundary[postgres-manager-MIL-allow0-deny0-201-None]" time="0.400" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_access_policy_grant_boundary[postgres-super-ECO-allow1-deny1-201-None]" time="0.402" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_access_policy_grant_boundary[postgres-super-MIL-allow2-deny2-201-None]" time="0.398" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_access_policy_grant_boundary[postgres-wildcard-MIL-allow3-deny3-201-None]" time="0.409" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_access_policy_grant_boundary[postgres-manager-MIL-allow4-deny4-403-You cannot grant permissions you don't hold]" time="0.014" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_access_policy_grant_boundary[postgres-manager-MIL-allow5-deny5-403-Only Super Admin can grant administrator access]" time="0.014" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_access_policy_grant_boundary[postgres-wildcard-MIL-allow6-deny6-403-Only Super Admin can grant administrator access]" time="0.014" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_access_policy_grant_boundary[postgres-manager-ECO-allow7-deny7-403-Only Super Admin can configure another factory]" time="0.014" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_access_policy_grant_boundary[postgres-wildcard-ECO-allow8-deny8-403-Only Super Admin can configure another factory]" time="0.014" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_access_policy_grant_boundary[postgres-super-ECO-allow9-deny9-400-Super Admin access is configured in the primary factory only]" time="0.014" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_access_policy_grant_boundary[postgres-scoped-MIL-allow10-deny10-403-You cannot remove your own inventory scope from another account]" time="0.014" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_access_policy_grant_boundary[postgres-scoped-MIL-allow11-deny11-201-None]" time="0.400" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_factory_assignment_boundary[postgres-manager- mil -201]" time="0.405" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_factory_assignment_boundary[postgres-manager-ECO-403]" time="0.015" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_factory_assignment_boundary[postgres-wildcard-BST-403]" time="0.014" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_factory_assignment_boundary[postgres-super-BST-201]" time="0.400" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_factory_assignment_boundary[postgres-super- eco -201]" time="0.395" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_factory_assignment_boundary[postgres-eco_manager--201]" time="0.402" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_omitted_factory_defaults_to_mil_even_for_eco_manager[postgres]" time="0.015" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_refusal_detail_and_atomicity[postgres-changes0-400-Password must be at least 12 characters.]" time="0.014" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_refusal_detail_and_atomicity[postgres-changes1-400-Password must include a number.]" time="0.013" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_refusal_detail_and_atomicity[postgres-changes2-400-Password must include a letter.]" time="0.013" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_refusal_detail_and_atomicity[postgres-changes3-400-Password must not start or end with spaces.]" time="0.013" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_refusal_detail_and_atomicity[postgres-changes4-400-Password must be at least 12 characters, not use a shared default password.]" time="0.013" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_refusal_detail_and_atomicity[postgres-changes5-404-Role not found]" time="0.013" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_refusal_detail_and_atomicity[postgres-changes6-404-Department not found]" time="0.014" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_refusal_detail_and_atomicity[postgres-changes7-400-Factory must be MIL, BST, or ECO]" time="0.013" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_refusal_detail_and_atomicity[postgres-changes8-422-User name must be at most 128 characters]" time="0.014" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_refusal_detail_and_atomicity[postgres-changes9-422-User email must be at most 255 characters]" time="0.014" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_refusal_detail_and_atomicity[postgres-changes10-400-Password must be at least 12 characters.]" time="0.013" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_refusal_detail_and_atomicity[postgres-changes11-404-Department not found]" time="0.014" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_name_boundary_and_legacy_empty_name[postgres-NNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN]" time="0.208" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_name_boundary_and_legacy_empty_name[postgres-\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f\u042f]" time="0.203" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_name_boundary_and_legacy_empty_name[postgres-]" time="0.203" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_name_boundary_and_legacy_empty_name[postgres- padded ]" time="0.204" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_email_boundary_counts_normalized_value[postgres]" time="0.203" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_duplicate_normalized_email_precedes_factory_validation_without_writes[postgres]" time="0.242" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_credentials_preserve_minimum_length_and_beyond_bcrypt_limit[postgres-Abcdef123456]" time="0.789" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_credentials_preserve_minimum_length_and_beyond_bcrypt_limit[postgres-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAALongSuffix!2026]" time="0.779" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_passwordless_setup_token_contract[postgres-omitted-True]" time="0.594" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_passwordless_setup_token_contract[postgres-omitted-False]" time="0.583" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_passwordless_setup_token_contract[postgres-None-True]" time="0.582" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_passwordless_setup_token_contract[postgres-None-False]" time="0.601" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_passwordless_setup_token_contract[postgres--True]" time="0.591" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_passwordless_setup_token_contract[postgres--False]" time="0.580" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_setup_is_scheduled_and_delivered_only_after_single_commit[postgres]" time="0.214" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_commit_failure_rolls_back_user_token_audit_and_never_schedules_email[postgres]" time="0.202" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_missing_or_inactive_actor_cannot_create[postgres-False]" time="0.014" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_missing_or_inactive_actor_cannot_create[postgres-True]" time="0.016" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_super_admin_role_name_is_privileged_even_without_permission_tokens[postgres-manager]" time="0.014" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_super_admin_role_name_is_privileged_even_without_permission_tokens[postgres-wildcard]" time="0.015" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_super_admin_role_name_is_privileged_even_without_permission_tokens[postgres-super]" time="0.402" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_invalid_policy_detail_preserves_all_rows[postgres-policy0-detail0]" time="0.015" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_invalid_policy_detail_preserves_all_rows[postgres-policy1-detail1]" time="0.015" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_invalid_policy_detail_preserves_all_rows[postgres-policy2-detail2]" time="0.014" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_invalid_policy_detail_preserves_all_rows[postgres-policy3-detail3]" time="0.014" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_privileged_field_explicit_null_contract[postgres-role_id-None-None]" time="0.215" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_privileged_field_explicit_null_contract[postgres-access_policy-None-None]" time="0.220" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_privileged_field_explicit_null_contract[postgres-extra_permissions-list_type-Input should be a valid list]" time="0.016" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_privileged_field_explicit_null_contract[postgres-is_active-bool_type-Input should be a valid boolean]" time="0.015" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_privileged_field_explicit_null_contract[postgres-factory_code-string_type-Input should be a valid string]" time="0.014" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_policy_deny_overrides_explicit_extra_grant[postgres]" time="0.444" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_client_supplied_credential_and_server_owned_fields_are_ignored[postgres]" time="0.620" />
+  <testcase classname="backend.app.tests.test_create_user_characterization" name="test_current_admin_ui_payload_preserves_empty_policy_and_setup_login[postgres]" time="0.871" />
+</testsuite>

@@ -6,7 +6,7 @@ root = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(root / "backend"))
 from app.tests import conftest
 from app.tests.test_sewing_corrections import setup_record
-from app.models import Item, StockBatch, Warehouse, PayrollQrLabel, User, Role
+from app.schemas import Item, StockBatch, Warehouse, PayrollQrLabel, User, Role
 from app.tests.conftest import TestSessionLocal
 from app.main import app
 import json

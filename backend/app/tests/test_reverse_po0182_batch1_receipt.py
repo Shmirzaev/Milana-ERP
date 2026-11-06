@@ -1,7 +1,7 @@
 import pytest
 
 from app.db.session import SessionLocal
-from app.models import Bundle, BundleScanLog, ProductionBatch, ProductionOrder, WorkOrder
+from app.schemas import Bundle, BundleScanLog, ProductionBatch, ProductionOrder, WorkOrder
 from scripts.reverse_po0182_batch1_receipt import EXTRA_IDS, FIRST_IDS, correct, snapshot
 
 

@@ -2,7 +2,7 @@ from sqlalchemy import event
 
 from app.db import session as session_module
 from app.db.session import SessionLocal
-from app.models import Brand, FinishedGoodsStock, Model
+from app.schemas import Brand, FinishedGoodsStock, Model
 
 
 def _captured_statements(call):

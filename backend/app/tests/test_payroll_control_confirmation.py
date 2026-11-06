@@ -2,7 +2,7 @@ from uuid import uuid4
 
 import pytest
 
-from app.models import PayrollQrLabel, PayrollRecord
+from app.schemas import PayrollQrLabel, PayrollRecord
 from app.tests.conftest import TestSessionLocal
 from app.tests.test_payroll import _create_employee, _create_user_with_permissions
 
@@ -98,12 +98,12 @@ def test_control_cannot_bypass_confirmation_through_legacy_single_or_bulk(client
 def test_control_preview_and_confirm_enforce_factory_permission_and_snapshot(client, auth_headers):
     employee = _create_employee(client, auth_headers)
     other_employee = _create_employee(client, auth_headers)
-    control = _issue(client, auth_headers, operation_section="control")
+    control = _issue(client, auth_headers, operation_section="control", operation_name="Kontrol")
     preview = _preview(client, auth_headers, control, employee)
     payload = _confirmation(control, employee, preview)
     changed_employee = client.post("/api/payroll/scan/control-confirm", json={**payload, "employee_id": other_employee["id"]}, headers=auth_headers)
     assert changed_employee.status_code == 409
-    unauthorized = _create_user_with_permissions(client, auth_headers, email=f"no-payroll-{uuid4().hex}@example.com", permissions=["dashboard.view"])
+    unauthorized = _create_user_with_permissions(client, auth_headers, email=f"no-payroll-{uuid4().hex}@example.com", permissions=[])
     foreign = _create_user_with_permissions(client, auth_headers, email=f"foreign-payroll-{uuid4().hex}@example.com", permissions=["payroll.scan"], factory_code="BST")
     for route in ("control-preview", "control-confirm"):
         denied = client.post(f"/api/payroll/scan/{route}", json=payload, headers=unauthorized)
@@ -122,7 +122,7 @@ def test_control_preview_and_confirm_enforce_factory_permission_and_snapshot(cli
 def test_bulk_control_rejection_rolls_back_preceding_ordinary_row(client, auth_headers):
     employee = _create_employee(client, auth_headers)
     ordinary = _issue(client, auth_headers)
-    control = _issue(client, auth_headers, operation_section="control")
+    control = _issue(client, auth_headers, operation_section="control", operation_name="Kontrol")
     result = client.post("/api/payroll/records/bulk", json={"records": [
         {"employee_id": employee["id"], "scan_uid": label["label_uid"], "quantity": 12, "rate_per_piece": 250}
         for label in (ordinary, control)
@@ -135,7 +135,7 @@ def test_bulk_control_rejection_rolls_back_preceding_ordinary_row(client, auth_h
 
 def test_voided_control_cannot_be_confirmed_as_success_or_recredited_without_return(client, auth_headers):
     employee = _create_employee(client, auth_headers)
-    control = _issue(client, auth_headers, operation_section="control")
+    control = _issue(client, auth_headers, operation_section="control", operation_name="Kontrol")
     preview = _preview(client, auth_headers, control, employee)
     payload = _confirmation(control, employee, preview)
     confirmed = client.post("/api/payroll/scan/control-confirm", json=payload, headers=auth_headers)

@@ -1,10 +1,11 @@
 "use client";
+import { ApiError } from "@/lib/errorMessages";
 import { useEffect, useRef, useState } from "react";
 import { Camera, Download, Trash2 } from "lucide-react";
 import useSWR from "swr";
 import PageHeader from "@/components/PageHeader";
 import FabricRollCamera from "@/components/FabricRollCamera";
-import { api, fetcher } from "@/lib/api";
+import { api, fetcher, fetchResponse } from "@/lib/api";
 import { can, useMe } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
 import { isFabricRollCode } from "@/lib/fabricScans";
@@ -32,13 +33,13 @@ export default function EcoFabricTransfers() {
   useEffect(() => () => clearTimeout(timer.current), []);
   const { data, error, isLoading, mutate } = useSWR<Report>(permitted ? `/api/eco-fabric-transfers?page=${page}${day ? `&report_date=${day}` : ""}` : null, fetcher);
   function fail(err: unknown) {
-    const raw = err instanceof Error ? err.message : "";
+    const raw = err instanceof ApiError ? err.rawDetail : err instanceof Error ? err.message : "";
     const key = raw.match(/(?:ecoTransfers|fabricScans)\.\w+/)?.[0];
-    setFailure(key ? t(key) : raw || t("ecoTransfers.failed"));
+    setFailure(key ? t(key) : (err instanceof Error ? err.message : "") || t("ecoTransfers.failed"));
   }
   async function download(dispatch: Dispatch) {
     try {
-      const response = await fetch(`/api/eco-fabric-transfers/${dispatch.id}/pdf?lang=${lang}`, { credentials: "include" });
+      const response = await fetchResponse(`/api/eco-fabric-transfers/${dispatch.id}/pdf?lang=${lang}`, { credentials: "include" });
       if (!response.ok) throw new Error(t("ecoTransfers.pdfFailed"));
       const url = URL.createObjectURL(await response.blob()); const link = document.createElement("a");
       link.href = url; link.download = `${dispatch.number}.pdf`; link.click(); setTimeout(() => URL.revokeObjectURL(url), 60000);
