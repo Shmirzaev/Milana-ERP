@@ -129,6 +129,13 @@ export default {
     "login.production": "Production - last 14 days",
     "login.units": "UNITS",
     "login.openTasks": "Open tasks",
+    "common.factory": "Factory",
+    "login.secureSignIn": "Secure sign-in required",
+    "page.admin.audit.user": "user",
+    "page.admin.audit.factorySwitch": "{actor} switched factory for user #{id}.",
+    "page.admin.audit.factorySwitchHint": "Factory changed.",
+    "page.settings.chooseLogo": "Choose logo",
+    "page.settings.noLogoSelected": "No file selected",
     "login.presentation": "Presentation",
     "login.presentationAria": "Open presentation page",
 
