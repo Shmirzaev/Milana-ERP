@@ -168,3 +168,50 @@ def test_postgres_http_failure_teardown_rolls_back(pg_sessions, pg_case, pg_app,
         assert "audit_flushed" in observed
     with pg_sessions() as db:
         assert _read(db, mid) == ([], [])
+
+
+def test_postgres_deferred_commit_failure_rolls_back_request(pg_sessions, pg_case, pg_app):
+    """A fixture-only deferred constraint fails inside PostgreSQL COMMIT."""
+    from fastapi.testclient import TestClient
+    from sqlalchemy import event
+    from app.api.routes import process_qr_setup
+
+    mid = pg_case["models"]["standard"]
+    engine = pg_sessions.kw["bind"]
+    observed = []
+    pg_app.include_router(process_qr_setup.router, prefix="/api")
+    with engine.begin() as connection:
+        connection.exec_driver_sql("""
+            CREATE FUNCTION pr421_reject_deferred_commit() RETURNS trigger
+            LANGUAGE plpgsql AS $$ BEGIN
+                RAISE EXCEPTION 'fixture deferred commit failure'
+                    USING ERRCODE = '23514', CONSTRAINT = 'pr421_deferred_commit_guard';
+            END; $$
+        """)
+        connection.exec_driver_sql(f"""
+            CREATE CONSTRAINT TRIGGER pr421_deferred_commit_guard
+            AFTER INSERT ON model_sizes DEFERRABLE INITIALLY DEFERRED
+            FOR EACH ROW WHEN (NEW.model_id = {int(mid)})
+            EXECUTE FUNCTION pr421_reject_deferred_commit()
+        """)
+
+    def capture_commit_error(context):
+        original = context.original_exception
+        if getattr(original, "pgcode", None) == "23514":
+            observed.append((context.statement, original.diag.constraint_name))
+
+    event.listen(engine, "handle_error", capture_commit_error)
+    try:
+        with TestClient(pg_app, raise_server_exceptions=False) as client:
+            response = client.post(
+                f"/api/models/{mid}/process-qr-sizes", json={"sizes": ["48", "50"]},
+            )
+        assert response.status_code == 500
+        assert observed == [(None, "pr421_deferred_commit_guard")]
+        with pg_sessions() as db:
+            assert _read(db, mid) == ([], [])
+    finally:
+        event.remove(engine, "handle_error", capture_commit_error)
+        with engine.begin() as connection:
+            connection.exec_driver_sql("DROP TRIGGER pr421_deferred_commit_guard ON model_sizes")
+            connection.exec_driver_sql("DROP FUNCTION pr421_reject_deferred_commit()")
