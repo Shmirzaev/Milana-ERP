@@ -76,7 +76,7 @@ from app.models.process_qr_export_service import ProcessQrExportIn, build_proces
 from app.models.audit_service import log_action
 from app.models.factory_scope_service import require_factory_access, selected_factory_code
 from app.models.payroll_factory_scope_service import production_order_factory_condition, require_production_order_factory, require_work_order_factory
-from app.models.payroll_reports_service import ReportLanguage, build_sewing_production_report_xlsx, build_sewing_salary_summary_xlsx
+from app.models.payroll_reports_service import ReportLanguage
 from app.models.employee_aliases_service import merged_employee
 from app.libs.dto.people.payroll_split_correction import SplitAllocationOut, SplitAllocationUpdate
 from app.models.payroll_split_correction_service import correct_split_allocation, read_split_allocation, render_split_allocation_labels
@@ -1260,45 +1260,7 @@ def sewing_production_report_excel(
     status: str = "active",
     report_view: Literal["details", "salary"] = "details",
 ):
-    scoped_factory = selected_factory_code(current)
-    if factory_code:
-        require_factory_access(current, factory_code)
-    qry, _ = _filtered_sewing_production_report_query(
-        db,
-        date_from=date_from,
-        date_to=date_to,
-        employee_id=employee_id,
-        order_no=order_no,
-        cutting_reference=cutting_reference,
-        model_code=model_code,
-        sewing_flow_id=sewing_flow_id,
-        sewing_line=sewing_line,
-        operation=operation,
-        barcode=barcode,
-        size=size,
-        factory_code=scoped_factory,
-        status=status,
-        report_view=report_view,
-    )
-    if report_view == "salary":
-        items = _sewing_salary_summary(qry)
-    else:
-        rows = qry.order_by(PayrollRecord.scanned_at.desc(), PayrollRecord.id.desc()).all()
-        items = _sewing_production_report_items(rows)
-    currencies = {str(item["currency"]) for item in items if item.get("currency")}
-    report_currency = next(iter(currencies)) if len(currencies) == 1 else ("MIXED" if currencies else "UZS")
-    generated_at = datetime.now(ZoneInfo("Asia/Tashkent"))
-    builder = build_sewing_salary_summary_xlsx if report_view == "salary" else build_sewing_production_report_xlsx
-    workbook = builder(
-        items,
-        date_from=date_from,
-        date_to=date_to,
-        generated_label=generated_at.strftime("%Y-%m-%d %H:%M:%S"),
-        lang=lang,
-        currency=report_currency,
-    )
-    report_name = "sewing-salary-summary" if report_view == "salary" else "sewing-production-report"
-    filename = f"{report_name}-{generated_at.strftime('%Y-%m-%d')}.xlsx"
+    workbook, filename = payroll_service.sewing_production_report_excel(db, current, lang, date_from, date_to, employee_id, order_no, cutting_reference, model_code, sewing_flow_id, sewing_line, operation, barcode, size, factory_code, status, report_view)
     return Response(
         content=workbook,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

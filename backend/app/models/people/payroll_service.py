@@ -3,8 +3,9 @@ from datetime import datetime
 from decimal import Decimal, InvalidOperation
 import json
 from typing import Any, Literal
+from zoneinfo import ZoneInfo
 from fastapi import HTTPException
-from sqlalchemy import Date, String, and_, cast, func, or_
+from sqlalchemy import String, and_, cast, func, or_
 from sqlalchemy.orm import load_only, object_session
 from app.core.dt import as_utc, utcnow
 from app.core.model_search import normalized_model_code_column, normalized_model_code_pattern
@@ -24,7 +25,6 @@ from app.schemas import (
     SewingFlow,
     User,
     WorkOrder,
-    SewingRecord,
 )
 from app.libs.dto.people.payroll import (
     PayrollPeriodIn,
@@ -32,6 +32,9 @@ from app.libs.dto.people.payroll import (
 )
 from app.models.audit_service import log_action
 from app.models.factory_scope_service import require_factory_access, selected_factory_code
+from app.models.payroll_reports_service import ReportLanguage, build_sewing_production_report_xlsx, build_sewing_salary_summary_xlsx
+from sqlalchemy import Date
+from app.schemas import SewingRecord
 from app.models.payroll_reports_service import salary_report_days
 from app.schemas import Bundle
 from app.models.paid_operations_service import filter_operation_rows, paid_operations_from_details
@@ -1398,3 +1401,46 @@ def sewing_production_report(db: Session, current: User=None, date_from: datetim
         "currency": report_currency,
         "options": _sewing_report_options(db, factory_code),
     }
+
+
+def sewing_production_report_excel(db: Session, current: User=None, lang: ReportLanguage='uz', date_from: datetime | None=None, date_to: datetime | None=None, employee_id: int | None=None, order_no: str | None=None, cutting_reference: str | None=None, model_code: str | None=None, sewing_flow_id: int | None=None, sewing_line: str | None=None, operation: str | None=None, barcode: str | None=None, size: str | None=None, factory_code: str | None=None, status: str='active', report_view: Literal['details', 'salary']='details'):
+    scoped_factory = selected_factory_code(current)
+    if factory_code:
+        require_factory_access(current, factory_code)
+    qry, _ = _filtered_sewing_production_report_query(
+        db,
+        date_from=date_from,
+        date_to=date_to,
+        employee_id=employee_id,
+        order_no=order_no,
+        cutting_reference=cutting_reference,
+        model_code=model_code,
+        sewing_flow_id=sewing_flow_id,
+        sewing_line=sewing_line,
+        operation=operation,
+        barcode=barcode,
+        size=size,
+        factory_code=scoped_factory,
+        status=status,
+        report_view=report_view,
+    )
+    if report_view == "salary":
+        items = _sewing_salary_summary(qry)
+    else:
+        rows = qry.order_by(PayrollRecord.scanned_at.desc(), PayrollRecord.id.desc()).all()
+        items = _sewing_production_report_items(rows)
+    currencies = {str(item["currency"]) for item in items if item.get("currency")}
+    report_currency = next(iter(currencies)) if len(currencies) == 1 else ("MIXED" if currencies else "UZS")
+    generated_at = datetime.now(ZoneInfo("Asia/Tashkent"))
+    builder = build_sewing_salary_summary_xlsx if report_view == "salary" else build_sewing_production_report_xlsx
+    workbook = builder(
+        items,
+        date_from=date_from,
+        date_to=date_to,
+        generated_label=generated_at.strftime("%Y-%m-%d %H:%M:%S"),
+        lang=lang,
+        currency=report_currency,
+    )
+    report_name = "sewing-salary-summary" if report_view == "salary" else "sewing-production-report"
+    filename = f"{report_name}-{generated_at.strftime('%Y-%m-%d')}.xlsx"
+    return workbook, filename
