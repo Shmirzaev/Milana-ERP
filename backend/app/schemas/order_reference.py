@@ -20,3 +20,17 @@ class BusinessOrderAlias(Base, PkMixin, TimestampMixin):
     def reserve_bundle_reference(cls, db: Session, reference: str) -> None:
         db.add(cls(namespace="BND", entity_id=0, reference=reference, canonical_reference=reference))
         db.flush()
+
+    @classmethod
+    def reserve_bundle_references(cls, db: Session, references: list[str]) -> None:
+        db.add_all([
+            cls(namespace="BND", entity_id=0, reference=reference, canonical_reference=reference)
+            for reference in references
+        ])
+        db.flush()
+
+    @classmethod
+    def link_reserved_bundle_reference(cls, db: Session, reference: str, bundle_id: int) -> None:
+        db.query(cls).filter(
+            cls.namespace == "BND", cls.reference == reference, cls.entity_id == 0,
+        ).update({cls.entity_id: bundle_id}, synchronize_session=False)

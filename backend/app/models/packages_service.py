@@ -9,10 +9,11 @@ from sqlalchemy.orm import Session, object_session
 from app.schemas import (
     Package, PackageItem, PackageBatchAllocation, PackageScanLog, PackageChangeRequest,
     ProductionOrder, FinishedGoodsStock, Warehouse, ModelBOM, StockBatch,
-    ProductionBatch, StockReservation, ShipmentPackage, User, Notification,
+    ProductionBatch, StockReservation, ShipmentPackage, User,
     PackagingRecord, WorkOrder, PackagePrintRunMember, WarehousePackReservation,
 )
 from app.core.deps import user_permissions
+from app.schemas.core_persistence import add_notification_row
 from app.models.barcode_service import generate_barcode_value, save_qr_image, save_barcode_image
 from app.models.finished_goods_service import infer_brand_and_collection
 from app.models.numbering_service import next_package_no, next_package_nos
@@ -1137,13 +1138,9 @@ def _notify_package_change_approvers(
             continue
         if not _is_package_change_approver(user):
             continue
-        db.add(
-            Notification(
-                user_id=user.id,
-                title=f"Package {request_type} approval needed",
-                message=f"{package_no} has a pending {request_type} request.",
-                link="/packages",
-            )
+        add_notification_row(
+            db, user_id=user.id, title=f"Package {request_type} approval needed",
+            message=f"{package_no} has a pending {request_type} request.", link="/packages",
         )
         created += 1
     return created
@@ -1158,14 +1155,8 @@ def _notify_package_requester(
 ) -> None:
     if not request.requested_by:
         return
-    db.add(
-        Notification(
-            user_id=request.requested_by,
-            title=title,
-            message=message,
-            link="/packages",
-        )
-    )
+    add_notification_row(db, user_id=request.requested_by, title=title,
+                         message=message, link="/packages")
 
 
 def create_package_change_request(
