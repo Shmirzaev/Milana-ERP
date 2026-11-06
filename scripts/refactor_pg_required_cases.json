@@ -422,6 +422,16 @@
         "test_pg_undo_completed_count_refuses_without_mutation",
         "test_pg_undo_waits_for_completion_with_preloaded_count"
       ]
+    },
+    "test_stocktake_scan_postgres": {
+      "revision": "fc815d2578c205bc011f4f7e36d6b89541ded031",
+      "git_blob_sha256": "0fc2bc2bb647c5780ee58b6672dd8107bd44fad182fed2a82353a2e4af3efe20",
+      "selected_functions": [
+        "test_pg_scan_auth_duplicate_first_evidence_and_completed_refusal",
+        "test_pg_scan_request_audit_finalization_failure_then_retry",
+        "test_pg_scan_expected_unexpected_package_and_refusals",
+        "test_pg_duplicate_package_scan_waits_on_first_parent_lock"
+      ]
     }
   },
   "cases": {
@@ -1015,6 +1025,12 @@
       "test_pg_undo_completed_count_refuses_without_mutation",
       "test_pg_undo_waits_for_completion_with_preloaded_count[False]",
       "test_pg_undo_waits_for_completion_with_preloaded_count[True]"
+    ],
+    "test_stocktake_scan_postgres": [
+      "test_pg_scan_auth_duplicate_first_evidence_and_completed_refusal",
+      "test_pg_scan_request_audit_finalization_failure_then_retry",
+      "test_pg_scan_expected_unexpected_package_and_refusals",
+      "test_pg_duplicate_package_scan_waits_on_first_parent_lock"
     ]
   },
   "isolated_supplemental_cases": [
