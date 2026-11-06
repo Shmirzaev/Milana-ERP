@@ -9,7 +9,7 @@ from app.libs.dto.work_management.tasks import NotificationOut
 from app.models.audit_service import log_action
 from app.models.notifications_service import notify_many
 from app.libs.dto.work_management.notification_send import NotificationSendIn
-from app.models.work_management.notifications_service import mark_read as mark_read_operation, send_notification as send_notification_operation
+from app.models.work_management.notifications_service import mark_all_read as mark_all_read_operation, mark_read as mark_read_operation, send_notification as send_notification_operation
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
 
@@ -64,8 +64,4 @@ def mark_read(nid: int, db: DbSession, current: CurrentUser):
 
 @router.post("/read-all")
 def mark_all_read(db: DbSession, current: CurrentUser):
-    db.query(Notification).filter(
-        Notification.user_id == current.id, Notification.is_read.is_(False),
-    ).update({Notification.is_read: True})
-    db.commit()
-    return {"message": "all read"}
+    return mark_all_read_operation(db, current)
