@@ -17,6 +17,7 @@ from starlette.concurrency import run_in_threadpool
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse, Response
 from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
 
 from app.core.config import settings
 from app.core.proxy_trust import client_ip, effective_request_scheme, validate_proxy_runtime_configuration
@@ -73,6 +74,11 @@ def _run_startup() -> None:
     """Validate runtime settings and database readiness before serving."""
     settings.validate_runtime_security()
     validate_proxy_runtime_configuration(strict_security_required=settings.strict_security_required)
+    if settings.INCIDENT_READ_ONLY and (
+        settings.STARTUP_SCHEMA_SYNC
+        or os.environ.get("RUN_SEED_ON_STARTUP", "false").lower() == "true"
+    ):
+        raise RuntimeError("INCIDENT_READ_ONLY forbids startup schema sync and seed writes")
     # In production validate_runtime_security() hard-fails on insecure defaults.
     # Outside production we don't block local dev, but we still surface them
     # loudly so a misconfigured deploy (e.g. ENV left at "development") can't run
@@ -113,6 +119,11 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title=settings.APP_NAME, version="0.1.0", lifespan=lifespan)
+
+_INCIDENT_SESSION_POSTS = {
+    "/api/auth/login", "/api/auth/login-json", "/api/auth/token", "/api/auth/logout",
+    "/api/session/login", "/api/session/login-json", "/api/session/logout",
+}
 
 _UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 _RATE_LIMIT_EXEMPT_PATHS = {"/health", "/ready"}
@@ -299,6 +310,35 @@ async def _unhandled_exception(request: Request, exc: Exception):
         status_code=500,
         content={"detail": "Internal server error"},
     )
+
+
+@app.exception_handler(DBAPIError)
+async def _database_error(request: Request, exc: DBAPIError):
+    state = getattr(exc.orig, "sqlstate", None) or getattr(exc.orig, "pgcode", None)
+    if settings.INCIDENT_READ_ONLY and state == "25006":
+        return JSONResponse(status_code=503,
+            content={"detail": "Incident recovery is read-only. This legacy read requires a write."},
+            headers={"Retry-After": "60", "X-ERP-Read-Only": "true"})
+    return await _unhandled_exception(request, exc)
+
+
+@app.middleware("http")
+async def _incident_read_only_guard(request: Request, call_next):
+    if not settings.INCIDENT_READ_ONLY:
+        return await call_next(request)
+    method = request.method.upper()
+    path = request.url.path.rstrip("/") or "/"
+    # The old packages list creates QR files and commits during GET. Keep it
+    # unavailable, even with a read-only DB, to prevent filesystem side effects.
+    writing_get = method in {"GET", "HEAD"} and path == "/api/packages"
+    session_login = method == "POST" and path in _INCIDENT_SESSION_POSTS
+    if writing_get or (method not in {"GET", "HEAD", "OPTIONS"} and not session_login):
+        return JSONResponse(status_code=503,
+            content={"detail": "Incident recovery is read-only. Changes are temporarily unavailable."},
+            headers={"Retry-After": "60", "X-ERP-Read-Only": "true"})
+    response = await call_next(request)
+    response.headers["X-ERP-Read-Only"] = "true"
+    return response
 
 
 cors_origins = settings.cors_origins_list

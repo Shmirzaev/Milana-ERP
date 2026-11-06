@@ -11,9 +11,21 @@ this checkout, a new combined candidate or deployed production. Inspect current
 code and the operation ledger before advancing a gate. Schema-owned writers,
 system-wide enum/type adoption and human acceptance remain incomplete.
 
-Last updated 2026-11-04. Keep this file short: current decisions, release pointers and
+Last updated 2026-11-06. Keep this file short: current decisions, release pointers and
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
+
+## Read-only incident recovery candidate (6 November)
+
+The combined passport/floor deployment requires a fenced recovery application:
+plain488 cannot safely mutate later grouped allocations, Cutting rejections or ECO
+usage. The [recovery packet](READONLY_ROLLBACK_20261106.md) records a narrow branch
+from freshly verified live488 / `20261105_065721`. Opt-in `INCIDENT_READ_ONLY=true`
+blocks business HTTP writes, packages GET and startup writers, suppresses auth
+timestamp persistence and enforces PostgreSQL read-only transactions. It is degraded
+inspection recovery, not writable feature compatibility. Exact immutable artifacts,
+explicit startup flags and probes must be retained/verified before any recovery
+activation. This branch has not changed production; old pointers below are historical.
 
 ## Current ECO runtime and narrow feature candidate (4 November)
 

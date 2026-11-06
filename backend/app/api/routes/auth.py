@@ -159,6 +159,8 @@ def _clear_auth_cookie(request: Request, response: Response) -> None:
 
 
 def _mark_successful_login(db: Session, user: User) -> None:
+    if settings.INCIDENT_READ_ONLY:
+        return
     now = utcnow()
     user.last_login_at = now
     user.last_seen_at = now
@@ -301,8 +303,9 @@ def reset_password(payload: ResetPasswordIn, db: DbSession):
 @session_router.get("/me", response_model=UserMe)
 @router.get("/me", response_model=UserMe)
 def me(user: CurrentUser, db: DbSession):
-    user.last_seen_at = utcnow()
-    db.commit()
+    if not settings.INCIDENT_READ_ONLY:
+        user.last_seen_at = utcnow()
+        db.commit()
     return UserMe(
         sewing_band_id=user.sewing_band_id,
         id=user.id,

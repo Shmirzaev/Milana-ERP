@@ -10,6 +10,9 @@ class Settings(BaseSettings):
     APP_NAME: str = "Milana ERP"
     ENV: str = "development"
     DEBUG: bool = False
+    # Incident recovery only: the old application may inspect newer business
+    # facts, but must never interpret them through its obsolete write paths.
+    INCIDENT_READ_ONLY: bool = False
     DATABASE_URL: str = "postgresql+psycopg2://erp:erp@db:5432/erp"
     DB_POOL_SIZE: int | None = None
     DB_MAX_OVERFLOW: int | None = None

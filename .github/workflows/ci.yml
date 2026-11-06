@@ -78,6 +78,11 @@ jobs:
       - name: Backend regression suite
         working-directory: backend
         run: python -m pytest -q
+      - name: Incident read-only rollback PostgreSQL preservation
+        working-directory: backend
+        env:
+          STABILIZATION_POSTGRES_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/first_grade_qa_ci
+        run: python -m pytest -q app/tests/test_incident_read_only_postgres.py
       - name: Purchasing approval PostgreSQL write boundary
         env:
           PUR_APPROVAL_PG_ADMIN_URL: postgresql://postgres@127.0.0.1:5432/postgres
