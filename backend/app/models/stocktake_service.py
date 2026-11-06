@@ -158,7 +158,7 @@ def row_payload(row, current):
 def get_count(db, count_id, *, lock=False):
     query = db.query(WarehouseStocktake).filter(WarehouseStocktake.id == count_id)
     if lock:
-        query = query.with_for_update()
+        query = query.populate_existing().with_for_update()
     count = query.first()
     if not count:
         raise HTTPException(404, "Inventory count not found")

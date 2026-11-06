@@ -5,11 +5,14 @@ from threading import Event
 from time import monotonic, sleep
 from uuid import uuid4
 
+import pytest
+
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy import event, select, text
 
 from app.api.routes import stocktake
+from app.libs.dto.inventory.warehouse_stocktake_input import DeleteScans
 from app.models import audit_service, stocktake_service
 from app.schemas import AuditLog, User
 from app.schemas.inventory.stocktake import WarehouseStocktake, WarehouseStocktakeRow
@@ -131,7 +134,8 @@ def test_pg_undo_completed_count_refuses_without_mutation(pg_sessions, pg_case, 
     assert state(pg_sessions, count_id) == before
 
 
-def test_pg_undo_waits_for_completion_with_preloaded_count(pg_sessions, pg_case, pg_app, monkeypatch):
+@pytest.mark.parametrize("bulk", [False, True])
+def test_pg_undo_waits_for_completion_with_preloaded_count(pg_sessions, pg_case, pg_app, monkeypatch, bulk):
     count_id, ids = prepare(pg_sessions, pg_case, pg_app)
     actor_id = pg_case["actors"]["standard"]
     before = state(pg_sessions, count_id)
@@ -164,7 +168,8 @@ def test_pg_undo_waits_for_completion_with_preloaded_count(pg_sessions, pg_case,
                     selecting.set()
             event.listen(db.connection(), "before_cursor_execute", before_execute)
             try:
-                return stocktake_service.undo_scan(db, count_id, ids[0], actor)
+                return (stocktake_service.delete_scans(db, count_id, DeleteScans(row_ids=ids), actor)
+                        if bulk else stocktake_service.undo_scan(db, count_id, ids[0], actor))
             except HTTPException as exc:
                 db.rollback()
                 return exc.status_code, exc.detail
