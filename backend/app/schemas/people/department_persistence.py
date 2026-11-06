@@ -9,3 +9,8 @@ def insert_department(db: Session, *, name: str, code: str) -> Department:
     department = Department(name=name, code=code)
     db.add(department)
     return department
+
+
+def update_department_values(db: Session, department: Department, *, name: str, code: str) -> None:
+    department.name = name
+    department.code = code

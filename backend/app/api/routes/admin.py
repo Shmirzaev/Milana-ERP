@@ -497,29 +497,7 @@ def update_department(
     db: DbSession,
     current: User = Depends(require_permissions("*")),
 ):
-    d = db.get(Department, department_id)
-    if not d:
-        raise HTTPException(404, "Department not found")
-
-    name = payload.name.strip()
-    code = payload.code.strip().upper()
-    if not name or not code:
-        raise HTTPException(400, "name and code are required")
-
-    name_exists = db.query(Department).filter(Department.name == name, Department.id != department_id).first()
-    if name_exists:
-        raise HTTPException(400, "Department name already exists")
-    code_exists = db.query(Department).filter(Department.code == code, Department.id != department_id).first()
-    if code_exists:
-        raise HTTPException(400, "Department code already exists")
-
-    old = {"name": d.name, "code": d.code}
-    d.name = name
-    d.code = code
-    log_action(db, current, "update", "Department", d.id, old_value=old, new_value={"name": d.name, "code": d.code})
-    db.commit()
-    db.refresh(d)
-    return d
+    return departments_service.update_department(department_id, payload, db, current)
 
 
 @router.delete("/departments/{department_id}", status_code=204)
