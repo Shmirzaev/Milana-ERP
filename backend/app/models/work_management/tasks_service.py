@@ -14,7 +14,7 @@ from app.core.deps import PRODUCTION_READ_PERMISSIONS, user_permissions, is_admi
 from app.models.factory_scope_service import available_factory_codes, factory_for_department, require_factory_access, selected_factory_code, user_is_super_admin
 from app.models.packaging_scope_service import normalize_packaging_department_code, require_package_access
 from app.schemas import Bundle, Invoice, Package, ProductionOrder, SalesOrder, Shipment, Task, User, WorkOrder
-from app.libs.enums.work_management import TaskPriority, TaskStatus
+from app.libs.enums.work_management import TaskPriority, TaskReferenceKind, TaskStatus
 from app.schemas.work_management.task_persistence import delete_task_row, complete_task_row, apply_task_update, add_stock_shortage_task, add_created_task
 from app.schemas.core_persistence import add_notification_row
 from app.libs.dto.work_management.tasks import TaskIn, TaskUpdate
@@ -176,7 +176,7 @@ _REFERENCE_PERMISSIONS = {
 
 @dataclass(frozen=True)
 class TaskReference:
-    key: str
+    key: TaskReferenceKind
     row: object
     factory: str | None
 
@@ -224,7 +224,7 @@ def resolve_task_reference(
         raise HTTPException(404, "Task reference target not found")
     if required and not set(user_permissions(current)).intersection(required):
         raise HTTPException(403, "Not allowed to reference this task target")
-    reference = TaskReference(key, row, _reference_factory(db, key, row))
+    reference = TaskReference(TaskReferenceKind(key), row, _reference_factory(db, key, row))
     if key == "package":
         require_package_access(current, row)
     elif reference.factory:
