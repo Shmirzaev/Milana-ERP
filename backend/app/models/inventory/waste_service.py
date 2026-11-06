@@ -21,6 +21,7 @@ from app.models.idempotency_service import replay_idempotent_response, store_ide
 from app.schemas import Item, StockBatch, User, WasteDisposalRequest, WasteRecord, WasteSale
 from app.schemas.inventory.waste import add_disposal_request, apply_disposal_approval, mark_waste_disposed, persist_disposal_rejection
 from app.schemas.inventory.waste_create_persistence import insert_manual_waste
+from app.schemas.inventory.waste import insert_waste_sale, set_waste_sale_status
 
 
 def _unit_cost_for_waste(db, item_id: int | None, batch_id: int | None) -> float:
@@ -171,7 +172,8 @@ def sell_waste(db, wid: int, payload: WasteSaleIn, current: User, idempotency_ke
     if quantity > remaining_quantity:
         raise HTTPException(400, f"Sale quantity exceeds remaining waste quantity {remaining_quantity:f}")
 
-    sale = WasteSale(
+    sale = insert_waste_sale(
+        db,
         waste_record_id=w.id,
         buyer_name=buyer_name,
         quantity=quantity,
@@ -180,13 +182,11 @@ def sell_waste(db, wid: int, payload: WasteSaleIn, current: User, idempotency_ke
         sold_by=current.id,
         sold_at=datetime.now(timezone.utc),
     )
-    db.add(sale)
-    db.flush()
     remaining_after_sale = remaining_quantity - quantity
     # Only a sale that exhausts the record closes it. Marking it sold on a
     # partial sale stranded the leftover waste as unsellable.
     if remaining_after_sale == 0:
-        w.status = "sold"
+        set_waste_sale_status(w, WasteStatus.SOLD.value)
     log_action(db, current, "sell", "WasteRecord", w.id, new_value={
         "quantity": float(quantity),
         "remaining_quantity": float(remaining_after_sale),

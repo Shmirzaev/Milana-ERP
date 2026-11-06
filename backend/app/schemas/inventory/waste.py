@@ -1,5 +1,6 @@
 from __future__ import annotations
 from datetime import datetime
+from decimal import Decimal
 from sqlalchemy import String, Boolean, ForeignKey, DateTime, Text, Numeric
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
@@ -85,3 +86,20 @@ def persist_disposal_rejection(
     request.approved_by = actor_id
     request.approved_at = decided_at
     waste.status = WasteStatus.RECEIVED_BY_WASTE_DEPARTMENT.value
+
+
+def insert_waste_sale(
+    db: Session, *, waste_record_id: int, buyer_name: str, quantity: Decimal,
+    unit_price: Decimal, total_amount: Decimal, sold_by: int | None, sold_at: datetime,
+) -> WasteSale:
+    sale = WasteSale(
+        waste_record_id=waste_record_id, buyer_name=buyer_name, quantity=quantity,
+        unit_price=unit_price, total_amount=total_amount, sold_by=sold_by, sold_at=sold_at,
+    )
+    db.add(sale)
+    db.flush()
+    return sale
+
+
+def set_waste_sale_status(record: WasteRecord, status: str) -> None:
+    record.status = status
