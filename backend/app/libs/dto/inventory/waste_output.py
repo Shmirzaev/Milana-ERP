@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Optional
 
 from app.libs.dto.common import ORMModel
+from app.libs.enums.inventory import WasteStatus
 
 
 class WasteOut(ORMModel):
@@ -19,5 +20,5 @@ class WasteOut(ORMModel):
     reason: Optional[str] = None
     sellable: bool
     estimated_value: float
-    status: str
+    status: WasteStatus
     created_at: datetime

@@ -14,6 +14,7 @@ from app.libs.dto.inventory.waste_input import WasteIn
 from app.libs.dto.inventory.waste_output import WasteOut
 from app.libs.dto.inventory.waste_sale_input import WasteSaleIn
 from app.libs.dto.inventory.waste_sale_output import WasteSaleOut
+from app.libs.enums.inventory import WasteStatus
 from app.models.audit_service import log_action
 from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response
 from app.schemas import Item, StockBatch, User, WasteDisposalRequest, WasteRecord, WasteSale
@@ -45,7 +46,7 @@ def _estimated_value_for_waste(db, w: WasteRecord) -> float:
     return round(float(w.quantity or 0) * unit_cost, 2)
 
 
-def list_waste(db, status: str | None = None, sellable: bool | None = None) -> list[WasteOut]:
+def list_waste(db, status: WasteStatus | None = None, sellable: bool | None = None) -> list[WasteOut]:
     qry = db.query(WasteRecord)
     if status: qry = qry.filter(WasteRecord.status == status)
     if sellable is not None: qry = qry.filter(WasteRecord.sellable.is_(sellable))
