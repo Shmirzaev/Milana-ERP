@@ -118,3 +118,43 @@ def test_pg_update_then_delete_waits_and_audits_loaded_url(pg_sessions, pg_case)
         first.result(timeout=30)
         second.result(timeout=30)
     assert _read(pg_sessions, image_id) == (None, [("delete", {"model_id": mid, "file_url": "/old.png"})])
+
+
+def test_pg_deferred_delete_commit_failure_rolls_back_binary_and_audit(pg_sessions, pg_case, pg_app):
+    """A fixture-only deferred constraint fails inside PostgreSQL COMMIT."""
+    mid = pg_case["models"]["standard"]
+    image_id = _image(pg_sessions, mid)
+    engine = pg_sessions.kw["bind"]
+    observed = []
+    with engine.begin() as connection:
+        connection.exec_driver_sql("""
+            CREATE FUNCTION pr419_reject_deferred_commit() RETURNS trigger
+            LANGUAGE plpgsql AS $$ BEGIN
+                RAISE EXCEPTION 'fixture deferred commit failure'
+                    USING ERRCODE = '23514', CONSTRAINT = 'pr419_deferred_commit_guard';
+            END; $$
+        """)
+        connection.exec_driver_sql(f"""
+            CREATE CONSTRAINT TRIGGER pr419_deferred_commit_guard
+            AFTER DELETE ON model_images DEFERRABLE INITIALLY DEFERRED
+            FOR EACH ROW WHEN (OLD.id = {int(image_id)})
+            EXECUTE FUNCTION pr419_reject_deferred_commit()
+        """)
+
+    def capture_commit_error(context):
+        original = context.original_exception
+        if getattr(original, "pgcode", None) == "23514":
+            observed.append((context.statement, original.diag.constraint_name))
+
+    event.listen(engine, "handle_error", capture_commit_error)
+    try:
+        with TestClient(pg_app, raise_server_exceptions=False) as client:
+            response = client.delete(f"/api/models/{mid}/images/{image_id}")
+        assert response.status_code == 500
+        assert observed == [(None, "pr419_deferred_commit_guard")]
+        assert _read(pg_sessions, image_id) == ((mid, "/old.png", b"old binary"), [])
+    finally:
+        event.remove(engine, "handle_error", capture_commit_error)
+        with engine.begin() as connection:
+            connection.exec_driver_sql("DROP TRIGGER pr419_deferred_commit_guard ON model_images")
+            connection.exec_driver_sql("DROP FUNCTION pr419_reject_deferred_commit()")
