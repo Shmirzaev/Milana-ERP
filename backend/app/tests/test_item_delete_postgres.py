@@ -136,8 +136,10 @@ def test_pg_unchecked_direct_reference_rejects_delete_atomically(customer_pg_ses
     actor_id, item_id, _ = make_case(sessions)
     row_type, row_id = add_direct_reference(sessions, item_id, kind)
     with sessions() as db:
-        with pytest.raises(IntegrityError):
+        with pytest.raises(IntegrityError) as failure:
             stock_service.delete_item(db, item_id, db.get(User, actor_id), force=force)
+        assert failure.value.orig.pgcode == "23503"
+        assert failure.value.orig.diag.table_name == row_type.__tablename__
         db.rollback()
     with sessions() as db:
         assert db.get(Item, item_id).is_active is True
@@ -161,7 +163,9 @@ def test_pg_reference_insert_after_link_check_rolls_back_delete(customer_pg_sess
         with sessions() as db:
             try:
                 stock_service.delete_item(db, item_id, db.get(User, actor_id))
-            except IntegrityError:
+            except IntegrityError as failure:
+                assert failure.orig.pgcode == "23503"
+                assert failure.orig.diag.table_name == WasteRecord.__tablename__
                 db.rollback()
                 return 'fk_rejected'
             return 'deleted'
