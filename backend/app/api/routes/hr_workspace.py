@@ -273,10 +273,7 @@ def create_org_unit(payload: OrgUnitIn, db: DbSession, current: User = HrUser):
 
 @router.delete("/organization/{unit_id}", status_code=204)
 def delete_org_unit(unit_id: int, db: DbSession, current: User = HrUser):
-    factory = _factory(current)
-    row = db.query(HrOrgUnit).filter(HrOrgUnit.id == unit_id, HrOrgUnit.factory_code == factory).first()
-    if not row: raise HTTPException(404, "Organization unit not found")
-    db.delete(row); log_action(db, current, "delete", "HrOrgUnit", unit_id); db.commit()
+    return hr_workspace_service.delete_org_unit(unit_id, db, current, audit=log_action)
 
 
 @router.get("/positions")
