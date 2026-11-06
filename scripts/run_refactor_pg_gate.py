@@ -18,6 +18,7 @@ import xml.etree.ElementTree as ET
 # Minimum collected counts pin the current parameterized business cases. Adding
 # cases is allowed; removing a required case needs an explicit ledger change.
 GROUPS = {
+    "test_batch_restore_postgres": (2, ("test_pg_batch_restore_audit_failure_rolls_back", "test_pg_batch_restore_concurrent_duplicate_serializes")),
     "test_waste_create_receive_postgres": (2, ("test_waste_create_receive_audit_failure_rolls_back_then_retry",)),
     "test_waste_receipt_race_characterization_postgres": (1, ("test_receipt_concurrent_observed_recorded_characterization",)),
     "test_customer_receipt_http_postgres": (2, ()),
