@@ -1,3 +1,4 @@
+from datetime import date, datetime
 from math import isfinite
 
 from fastapi import HTTPException
@@ -60,5 +61,49 @@ class PositionIn(BaseModel):
     def validate_salary_range(self):
         if self.salary_min is not None and self.salary_max is not None and self.salary_min > self.salary_max:
             raise ValueError("Minimum salary cannot exceed maximum salary")
+        return self
+
+
+
+class CandidateIn(BaseModel):
+    position_id: int | None = Field(default=None, gt=0, le=MAX_INT4)
+    department_id: int | None = Field(default=None, gt=0, le=MAX_INT4)
+    full_name: str = Field(min_length=1, max_length=255)
+    first_name: str | None = Field(default=None, max_length=100)
+    last_name: str | None = Field(default=None, max_length=100)
+    middle_name: str | None = Field(default=None, max_length=100)
+    date_of_birth: date | None = None
+    gender: str | None = Field(default=None, pattern="^(male|female|other)$")
+    nationality: str | None = Field(default=None, max_length=80)
+    country: str | None = Field(default=None, max_length=80)
+    region: str | None = Field(default=None, max_length=120)
+    district: str | None = Field(default=None, max_length=120)
+    address: str | None = Field(default=None, max_length=255)
+    passport_number: str | None = Field(default=None, max_length=32)
+    passport_issued_by: str | None = Field(default=None, max_length=255)
+    passport_issue_date: date | None = None
+    passport_expiry_date: date | None = None
+    pinfl: str | None = Field(default=None, pattern="^[0-9]{14}$")
+    phone: str | None = Field(default=None, max_length=64)
+    email: str | None = None
+    source: str | None = None
+    stage: str = Field(default="applied", pattern="^(applied|screening|interview|offer|hired|rejected)$")
+    applied_on: date | None = None
+    interview_at: datetime | None = None
+    notes: str | None = None
+
+    @field_validator("full_name")
+    @classmethod
+    def validate_full_name(cls, value: str) -> str:
+        return _required_text(value, "Candidate name")
+
+    @model_validator(mode="after")
+    def validate_passport_dates(self):
+        if (
+            self.passport_issue_date is not None
+            and self.passport_expiry_date is not None
+            and self.passport_expiry_date < self.passport_issue_date
+        ):
+            raise ValueError("Passport expiry date cannot precede its issue date")
         return self
 
