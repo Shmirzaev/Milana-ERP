@@ -5,17 +5,24 @@
     "test_batch_restore_postgres": {
       "revision": "db914a5b803810e1f9c24c870711c6b77559f364",
       "git_blob_sha256": "33fc05acf06663991548a1641e60548eed240c45e1de9c3e63306325f4c5fd97",
-      "selected_functions": ["test_pg_batch_restore_audit_failure_rolls_back", "test_pg_batch_restore_concurrent_duplicate_serializes"]
+      "selected_functions": [
+        "test_pg_batch_restore_audit_failure_rolls_back",
+        "test_pg_batch_restore_concurrent_duplicate_serializes"
+      ]
     },
     "test_waste_create_receive_postgres": {
       "revision": "cd9054ae42f3efeca75cbbca5cd6a3e1d3cb804a",
       "git_blob_sha256": "70d24a5a856dfa52ac05e489df7b6bcd753e9a9b4b805e7b39048b3cc5e4b38c",
-      "selected_functions": ["test_waste_create_receive_audit_failure_rolls_back_then_retry"]
+      "selected_functions": [
+        "test_waste_create_receive_audit_failure_rolls_back_then_retry"
+      ]
     },
     "test_waste_receipt_race_characterization_postgres": {
       "revision": "cd9054ae42f3efeca75cbbca5cd6a3e1d3cb804a",
       "git_blob_sha256": "e3d91379e8387416028fd4e3da0308e8a34d28e216c08b8e98fa04c36dcd2f42",
-      "selected_functions": ["test_receipt_concurrent_observed_recorded_characterization"]
+      "selected_functions": [
+        "test_receipt_concurrent_observed_recorded_characterization"
+      ]
     },
     "test_brand_create_postgres": {
       "revision": "53ba460e85bb8b7e5ee9803affd624099276f9fe",
@@ -213,13 +220,14 @@
       ]
     },
     "test_process_qr_size_setup_postgres": {
-      "revision": "edcb6af942d8790b82b3e8a060a707b3160882c9",
-      "git_blob_sha256": "1c3bb50d083d4cafbb5085d6d7363b54f41e7ee7e655a220095f9664099d81e4",
+      "revision": "01eead17e78a90b0e119bc7f0b59b72d9754ce92",
+      "git_blob_sha256": "8034b5081e0a724cb230789437eeca7eeabe9a3eab5bc6fa3ba9ce249d7cb695",
       "selected_functions": [
         "test_postgres_setup_audit_failure_rolls_back",
         "test_postgres_simultaneous_setup_serializes",
         "test_postgres_setup_then_generic_writer_waits_on_parent_fk",
-        "test_postgres_http_failure_teardown_rolls_back"
+        "test_postgres_http_failure_teardown_rolls_back",
+        "test_postgres_deferred_commit_failure_rolls_back_request"
       ],
       "case_identity_source": "static function signatures and literal pytest parameters; runtime qualification pending"
     },
@@ -556,7 +564,8 @@
       "test_postgres_setup_then_generic_writer_waits_on_parent_fk",
       "test_postgres_http_failure_teardown_rolls_back[after_flush]",
       "test_postgres_http_failure_teardown_rolls_back[audit_finalize]",
-      "test_postgres_http_failure_teardown_rolls_back[before_commit]"
+      "test_postgres_http_failure_teardown_rolls_back[before_commit]",
+      "test_postgres_deferred_commit_failure_rolls_back_request"
     ],
     "test_modelsize_create_postgres": [
       "test_pg_create_atomic_audit_and_failure_retry",

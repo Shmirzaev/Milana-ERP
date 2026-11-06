@@ -64,11 +64,12 @@ GROUPS = {
         "test_pg_shipment_reopen_audit_failure_rolls_back_and_retry_commits_all",
         "test_pg_invoice_payment_and_shipment_reopen_serialize_on_invoice_row",
     )),
-    "test_process_qr_size_setup_postgres": (6, (
+    "test_process_qr_size_setup_postgres": (7, (
         "test_postgres_setup_audit_failure_rolls_back",
         "test_postgres_simultaneous_setup_serializes",
         "test_postgres_setup_then_generic_writer_waits_on_parent_fk",
         "test_postgres_http_failure_teardown_rolls_back",
+        "test_postgres_deferred_commit_failure_rolls_back_request",
     )),
     "test_modelsize_create_postgres": (2, ("test_pg_create_atomic_audit_and_failure_retry", "test_pg_concurrent_duplicate_creates")),
     "test_modelcolor_create_postgres": (27, ()),

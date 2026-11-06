@@ -32,12 +32,12 @@ class RequiredPGGateTests(unittest.TestCase):
 
     def test_complete_evidence_passes(self):
         counts = gate.check_report(self.write_report(self.report()))
-        self.assertEqual(sum(counts.values()), 476)
+        self.assertEqual(sum(counts.values()), 477)
 
     def test_process_qr_size_cases_cannot_be_skipped_or_replaced(self):
         module = "test_process_qr_size_setup_postgres"
-        self.assertEqual(len(gate.REQUIRED_CASES[module]), 6)
-        self.assertEqual(gate.GROUPS[module][0], 6)
+        self.assertEqual(len(gate.REQUIRED_CASES[module]), 7)
+        self.assertEqual(gate.GROUPS[module][0], 7)
         for name in gate.REQUIRED_CASES[module]:
             for mutation in ("skipped", "replacement"):
                 with self.subTest(name=name, mutation=mutation):
