@@ -13,6 +13,9 @@ function load(path) {
   return exports;
 }
 const { changeAccess, accessText } = load("src/lib/userAccess.ts");
+const catalogRows = fs.readFileSync("../backend/app/core/permission_catalog.py", "utf8").match(/_ROWS = """([\s\S]*?)"""/)?.[1];
+assert.ok(catalogRows, "Permission catalog rows missing");
+const catalogGroups = [...new Set(catalogRows.trim().split("\n").map((row) => row.split("|")[0]))].sort();
 const access = load("src/lib/access.ts");
 const { isSewingRole, factoryWorkspaceHome } = access;
 assert.equal(factoryWorkspaceHome({ factory_code: "BST", permissions: ["besttex.cutting_sheets"] }), "/besttex/cutting-orders");
@@ -33,7 +36,8 @@ assert.equal(isSewingRole({ role: "Sewing", access_configured: true, permissions
 for (const language of ["en", "ru", "uz"]) {
   const text = accessText(language);
   assert.ok(text.title && text.allow && text.deny && text.inherit && text.scopeHelp);
-  assert.equal(Object.keys(text.groups).length, 20);
+  assert.deepEqual(Object.keys(text.groups).sort(), catalogGroups);
+  for (const group of catalogGroups) assert.ok(text.groups[group], `${language} label missing for ${group}`);
 }
 console.log("User access: allow/deny/default, factory isolation, legacy and configured Sewing, and EN/RU/UZ labels passed.");
 

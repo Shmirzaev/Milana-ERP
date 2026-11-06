@@ -1,24 +1,18 @@
 
-from collections.abc import Iterator
-from contextlib import contextmanager
-
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
 from typing import Annotated
 from fastapi import Depends
 from datetime import datetime, timezone
 from pydantic import BaseModel, EmailStr
-from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.proxy_trust import client_ip, effective_request_scheme
 from app.core.deps import DbSession, CurrentUser, user_permissions
 from app.core.dt import as_utc, utcnow
-from app.core.shared_store import SharedCounterStore, get_shared_counter_store
+from app.core.shared_store import get_shared_counter_store
 from app.core.security import (
     create_access_token,
-    hash_password,
-    is_legacy_default_admin_login,
     normalize_email,
     validate_password_strength,
     verify_password,
@@ -29,8 +23,8 @@ from app.schemas import (
 from app.libs.dto.identity.auth import ForgotPasswordIn, LoginIn, LoginOk, ResetPasswordIn, TokenOut, UserMe
 from app.models.audit_service import log_action
 from app.models.credentials_service import apply_password_credential_change, lock_user_for_credential_change
-from app.models.factory_scope_service import assigned_factory_code, authorize_login_factory, available_factory_codes, selected_factory_code
-from app.models.identity.authentication_service import select_session_factory
+from app.models.factory_scope_service import assigned_factory_code, available_factory_codes, selected_factory_code
+from app.models.identity.authentication_service import auth_counter_store, login_user, select_session_factory
 from app.models.password_reset_service import (
     create_password_reset_token,
     password_reset_hash,
@@ -40,9 +34,6 @@ from app.models.password_reset_service import (
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 session_router = APIRouter(prefix="/session", tags=["auth"])
-
-_DUMMY_PASSWORD_HASH = hash_password("dummy-login-password-0")
-
 
 class ProfileUpdateIn(BaseModel):
     name: str
@@ -63,52 +54,8 @@ def _client_ip(request: Request) -> str:
     return client_ip(request)
 
 
-def _login_key(request: Request, email: str) -> str:
-    return f"{_client_ip(request)}:{normalize_email(email)}"
-
-
-@contextmanager
-def _auth_counter_store() -> Iterator[SharedCounterStore]:
-    try:
-        yield get_shared_counter_store()
-    except HTTPException:
-        raise
-    except Exception:
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            "Authentication is temporarily unavailable. Try again later.",
-        ) from None
-
-
-def _enforce_login_rate_limit(key: str) -> None:
-    with _auth_counter_store() as store:
-        locked_ttl = store.ttl(f"auth:login-lock:{key}")
-        if locked_ttl:
-            raise HTTPException(
-                status.HTTP_429_TOO_MANY_REQUESTS,
-                "Too many failed login attempts. Try again later.",
-                headers={"Retry-After": str(locked_ttl)},
-            )
-
-
-def _record_login_failure(key: str) -> None:
-    if settings.AUTH_MAX_FAILED_ATTEMPTS <= 0:
-        return
-    with _auth_counter_store() as store:
-        failure_key = f"auth:login-fail:{key}"
-        attempts = store.increment(failure_key, settings.AUTH_WINDOW_SECONDS)
-        if attempts >= settings.AUTH_MAX_FAILED_ATTEMPTS:
-            store.set(f"auth:login-lock:{key}", "1", settings.AUTH_LOCKOUT_SECONDS)
-            store.delete(failure_key)
-
-
-def _clear_login_failures(key: str) -> None:
-    with _auth_counter_store() as store:
-        store.delete(f"auth:login-fail:{key}", f"auth:login-lock:{key}")
-
-
 def _enforce_reset_rate_limit(request: Request, email: str) -> None:
-    with _auth_counter_store() as store:
+    with auth_counter_store(get_shared_counter_store) as store:
         client = _client_ip(request)
         keys = [f"ip:{client}", f"email:{normalize_email(email)}"]
         for key in keys:
@@ -120,30 +67,6 @@ def _enforce_reset_rate_limit(request: Request, email: str) -> None:
                     "Too many password reset requests. Try again later.",
                     headers={"Retry-After": str(retry_after)},
                 )
-
-
-def _authenticate(request: Request, db: Session, email: str, password: str) -> User:
-    email_norm = normalize_email(email)
-    key = _login_key(request, email_norm)
-    _enforce_login_rate_limit(key)
-
-    user = db.query(User).filter(User.email == email_norm).first()
-    password_hash = user.password_hash if user else _DUMMY_PASSWORD_HASH
-    try:
-        password_ok = verify_password(password, password_hash)
-    except Exception:
-        password_ok = False
-
-    blocked_default = (
-        is_legacy_default_admin_login(email_norm, password)
-        and not settings.ALLOW_INSECURE_DEFAULT_ADMIN_LOGIN
-    )
-    if blocked_default or not user or not user.is_active or not password_ok:
-        _record_login_failure(key)
-        raise HTTPException(401, "Invalid credentials")
-
-    _clear_login_failures(key)
-    return user
 
 
 def _is_https_request(request: Request) -> bool:
@@ -175,13 +98,6 @@ def _clear_auth_cookie(request: Request, response: Response) -> None:
     )
 
 
-def _mark_successful_login(db: Session, user: User) -> None:
-    now = utcnow()
-    user.last_login_at = now
-    user.last_seen_at = now
-    db.commit()
-
-
 @session_router.post("/login", response_model=LoginOk)
 @router.post("/login", response_model=LoginOk)
 def login_oauth(
@@ -191,8 +107,7 @@ def login_oauth(
     db: DbSession,
 ):
     """Browser login: set the HttpOnly auth cookie and do not expose the JWT to JavaScript."""
-    user = _authenticate(request, db, form_data.username, form_data.password)
-    _mark_successful_login(db, user)
+    user, _ = login_user(db, form_data.username, form_data.password, _client_ip(request), None, get_shared_counter_store)
     token = create_access_token(user.id)
     _set_auth_cookie(request, response, token)
     return LoginOk()
@@ -201,9 +116,7 @@ def login_oauth(
 @session_router.post("/login-json", response_model=LoginOk)
 @router.post("/login-json", response_model=LoginOk)
 def login_json(request: Request, response: Response, payload: LoginIn, db: DbSession):
-    user = _authenticate(request, db, str(payload.email), payload.password)
-    factory_code = authorize_login_factory(user, payload.factory_code)
-    _mark_successful_login(db, user)
+    user, factory_code = login_user(db, str(payload.email), payload.password, _client_ip(request), payload.factory_code, get_shared_counter_store)
     token = create_access_token(user.id, extra={"factory_code": factory_code})
     _set_auth_cookie(request, response, token)
     return LoginOk()
@@ -225,8 +138,7 @@ def token_oauth(
     db: DbSession,
 ):
     """Machine/API-client login: return a bearer token without setting browser cookies."""
-    user = _authenticate(request, db, form_data.username, form_data.password)
-    _mark_successful_login(db, user)
+    user, _ = login_user(db, form_data.username, form_data.password, _client_ip(request), None, get_shared_counter_store)
     return TokenOut(access_token=create_access_token(user.id))
 
 
@@ -268,7 +180,7 @@ def forgot_password(payload: ForgotPasswordIn, db: DbSession, background_tasks: 
 @session_router.post("/reset-password")
 @router.post("/reset-password")
 def reset_password(payload: ResetPasswordIn, db: DbSession):
-    with _auth_counter_store() as store:
+    with auth_counter_store(get_shared_counter_store) as store:
         store.ttl("auth:reset-completion")
     if payload.new_password != payload.confirm_new_password:
         raise HTTPException(400, "New passwords do not match")
