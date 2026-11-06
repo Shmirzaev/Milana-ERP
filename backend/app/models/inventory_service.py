@@ -1293,6 +1293,10 @@ def consume_material_reservations_for_stock_batch(
     quantity = float(quantity or 0)
     if quantity <= 0:
         return 0.0
+    from app.models.production.ect_passport_fabric_service import eco_cutting_actor, transferred_fabric_rows
+    if eco_cutting_actor(db, user_id, reference_type) and transferred_fabric_rows(db, production_order_id, stock_batch_id) is not None:
+        # The Milana reservation does not own transferred ECO physical stock.
+        return 0.0
     stock_batch_cache, item_cache = _locked_stock_batches_for_consumption(db, [stock_batch_id])
     reservations = _locked_reservations_by_stock_batch(
         db,
@@ -1348,6 +1352,9 @@ def consume_cutting_materials(
         db, production_order_id=production_order_id, lines=lines,
     )
     stock_batch_ids = sorted({int(line["stock_batch_id"]) for line in lines})
+    from app.models.production.ect_passport_fabric_service import eco_cutting_actor, transferred_fabric_rows
+    transferred_ids = {batch_id for batch_id in stock_batch_ids
+        if transferred_fabric_rows(db, production_order_id, batch_id) is not None} if eco_cutting_actor(db, user_id, reference_type) else set()
     if require_full:
         remaining_reserved = {
             batch_id: sum(
@@ -1358,6 +1365,8 @@ def consume_cutting_materials(
         }
         for line in lines:
             batch_id = int(line["stock_batch_id"])
+            if batch_id in transferred_ids:
+                continue
             quantity = float(line["quantity"])
             available = remaining_reserved.get(batch_id, 0.0)
             if available + EPSILON < quantity:
@@ -1371,6 +1380,11 @@ def consume_cutting_materials(
     for line in lines:
         batch_id = int(line["stock_batch_id"])
         input_quantity = float(line["quantity"])
+        if batch_id in transferred_ids:
+            consume_stock_batch(db, batch_id=batch_id, quantity=input_quantity, unit=str(line["unit"]),
+                reference_type=reference_type, reference_id=reference_id, user_id=user_id,
+                batch_cache=stock_batch_cache, item_cache=item_cache)
+            continue
         reserved_consumed = _consume_loaded_stock_batch_reservations(
             db,
             reservations_by_batch.get(batch_id, []),

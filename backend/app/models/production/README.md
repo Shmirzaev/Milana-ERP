@@ -1,5 +1,16 @@
 # Production execution
 
+## Transferred fabric for ECT passports
+
+`ect_passport_fabric_service.py` resolves only authoritative
+`EcoMaterialBatch.source_stock_batch_id` links for ECT standard orders. The existing
+central ID remains the planned-material identity; receipt balances, QC, actual
+debits and receive/reversal evidence belong to Eco stock. Do not substitute Eco
+primary keys into central foreign keys or fall back to Milana after a linked Eco
+balance is exhausted. The caller owns authorization, order/record locks and commit;
+mapped writes use the existing Eco schema persistence operations. See the
+[task packet](../../../../docs/PASSPORT_TOTALS_ECT_20261106.md) for scope and tests.
+
 ## Selected Nastil factory routing
 
 The existing Cutting `PATCH /work-orders/{wid}/sewing-factory` accepts optional

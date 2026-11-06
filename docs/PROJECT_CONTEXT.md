@@ -11,9 +11,35 @@ this checkout, a new combined candidate or deployed production. Inspect current
 code and the operation ledger before advancing a gate. Schema-owned writers,
 system-wide enum/type adoption and human acceptance remain incomplete.
 
-Last updated 2026-11-04. Keep this file short: current decisions, release pointers and
+Last updated 2026-11-06. Keep this file short: current decisions, release pointers and
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
+
+## Passport totals, pictures and transferred ECT fabric (6 November)
+
+Both live application hosts were verified on `20261105_065721` / `488f3d654`,
+manifest `e6c603d4c1954c64a75962cf189427eb5e316c039ea23de4699b9bd4f3112095`.
+All 1,905 manifest entries match the candidate base; database remains
+`0154_eco_receipt_details`, rollback source `20261105_043000`. The user approved
+using this exact source after the required baseline drift stop. Older runtime
+pointers below are historical. This task has not deployed or changed production.
+
+The [passport repair packet](PASSPORT_TOTALS_ECT_20261106.md) records a reporting-only
+correction: sum saved fabric-row pieces, with a legacy parent fallback and the
+existing dashboard-only Tepa multiplier. Screenshot passports 800/801 total 2,400,
+not 1,200. Read-only live-history comparison finds 65 affected CUT passports and
+342,110 corrected all-time pieces versus 307,880 before; ECT totals are unchanged.
+No Nastil, bundle, stock or confirmed production quantity is rewritten. Excel adds
+separate embedded family-model/exact-variant pictures while retaining quantity columns.
+
+For transferred batch 5A, ECT passport lookup/validation and Cutting consumption
+use authoritative Eco receipt links to the central source batch, including split
+receipts and archived/empty Milana sources. Physical consumption and reversal stay
+in the Eco ledger; fabric-usage reports include that evidence. Direct unlinked Eco
+receipts and the separate central-only batch replacement/Planning workflows are
+outside this narrow repair. Candidate tests, independent review, actual browser
+checks and isolated PostgreSQL concurrency evidence are recorded in the packet;
+human acceptance, shared-source integration and deployment remain separate.
 
 ## Current ECO runtime and narrow feature candidate (4 November)
 

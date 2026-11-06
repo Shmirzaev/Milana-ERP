@@ -2,7 +2,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from typing import Literal
 from types import SimpleNamespace
 from fastapi.responses import Response
-from app.models.cutting_passport_reports_service import build_dashboard, export_workbook
+from app.models.cutting_passport_reports_service import build_dashboard, export_passport_workbook
 from app.core.order_reference import canonical_business_order_reference, order_reference_contains
 from fastapi import APIRouter, HTTPException, Depends, Query
 from sqlalchemy import or_, select
@@ -19,12 +19,14 @@ from app.models.inventory_service import create_material_reservations
 from app.models.cutting_batch_guard_service import require_cutting_batch_mutable, sewing_output_batch_ids, sewing_output_batch_query
 from app.models.factory_scope_service import require_work_order_factory_access
 from app.libs.dto.production.cutting_passport import CuttingOperatorOut, CuttingPassportIn, CuttingPassportOut
+from app.libs.dto.production.cutting_passport_fabric_output import CuttingPassportFabricOut
 from app.models.audit_service import log_action
 from app.models.passport_sizes_service import passport_order_sizes, size_count_from_range as _size_count_from_range
 from app.models.cutting_passport_usage_service import validate_passport_stock
 from app.models.passport_nastil_service import passport_batch_map, sync_passport_nastil
 from app.models.factory_scope_service import available_factory_codes, selected_factory_code
 from app.models.model_images_service import model_display_image_url
+from app.models.production.ect_passport_fabric_service import list_passport_fabrics, transferred_fabric_balance
 
 router = APIRouter(prefix="/cutting-passports", tags=["cutting_passports"])
 _MATERIAL_CATEGORIES = ("fabric", "semi_finished")
@@ -457,6 +459,17 @@ def material_defaults(
     return _passport_defaults_payload(db=db, po=po, model=model, item=item, batch=batch, has_print=has_print, can_add_material=can_add_material)
 
 
+@router.get("/material-batches", response_model=list[CuttingPassportFabricOut])
+def passport_material_batches(
+    production_order_id: int,
+    db: DbSession,
+    current: User = Depends(require_permissions("cutting.records", "*")),
+    q: str = Query("", max_length=200),
+):
+    _passport_order(db, production_order_id, current)
+    return list_passport_fabrics(db, current, production_order_id, q)
+
+
 @router.get("/operators", response_model=list[CuttingOperatorOut])
 def cutting_operator_options(
     db: DbSession,
@@ -607,7 +620,7 @@ def export_passports(
     date_to: date | None = None,
     lang: Literal["en", "ru", "uz"] = "en",
 ):
-    content = export_workbook(_report_passports(db, current, q, cutting_department_code, date_from, date_to), lang)
+    content = export_passport_workbook(db, _report_passports(db, current, q, cutting_department_code, date_from, date_to), lang)
     filename = f"cutting-passports-{date_from or 'all'}-{date_to or 'all'}.xlsx"
     return Response(content, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     headers={"Content-Disposition": f'attachment; filename="{filename}"', "Cache-Control": "no-store"})
@@ -710,14 +723,17 @@ def _add_passport_materials(db, order, work_order, payload, current):
         item = items.get(batch.item_id) if batch else None
         if not batch or not item or item.category not in _MATERIAL_CATEGORIES:
             raise HTTPException(400, "Select a fabric inventory batch")
-        if batch.archived_at is not None or float(batch.quantity or 0) <= 0:
+        transferred = transferred_fabric_balance(db, order.id, batch.id)
+        if transferred is not None and addition.estimated_quantity > float(transferred):
+            raise HTTPException(409, f"Insufficient transferred Eco Cotton fabric: available {transferred:g} {batch.unit}")
+        if transferred is None and (batch.archived_at is not None or float(batch.quantity or 0) <= 0):
             raise HTTPException(409, "This fabric batch is archived or empty")
         if addition.unit != batch.unit:
             raise HTTPException(400, "Material unit must match the selected stock batch")
         reservations = reservations_by_batch.get(batch.id, ())
         already_reserved = sum(max(0, float(row.reserved_quantity) - float(row.consumed_quantity or 0) - float(row.released_quantity or 0)) for row in reservations)
         missing = addition.estimated_quantity - already_reserved
-        if missing > 0.0001:
+        if transferred is None and missing > 0.0001:
             reservation_lines.append({
                 "item_id": batch.item_id, "stock_batch_id": batch.id, "warehouse_id": batch.warehouse_id,
                 "reserved_quantity": missing, "unit": batch.unit,

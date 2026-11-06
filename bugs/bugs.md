@@ -1,5 +1,16 @@
 # Team bug tracker — clone_main
 
+## CUT-PASSPORT-20261106 — row totals, Excel pictures and transferred 5A at ECT
+
+- **Local candidate; awaiting human review and release authorization.** Mirshoir
+  owns Production; Ismail reviews. Dashboard sums historical saved fabric rows,
+  Excel embeds separate model/variant pictures, and ECT passports/Cutting use the
+  authoritative transferred Eco balance without deducting Milana twice.
+- Independent review, focused automated tests, actual connected-browser
+  dashboard/export/save/reopen and isolated PostgreSQL concurrency/reversal pass.
+  Extension-injected browser hydration warnings are disclosed; no production
+  mutation or deployment occurred. [Evidence and local operator checklist](../docs/PASSPORT_TOTALS_ECT_20261106.md).
+
 ## INV-INACTIVE-BATCH-20261029 — edit a batch retaining its inactive material
 
 - **Deployed to green `20261029_053553`; awaiting operator verification.** Inventory

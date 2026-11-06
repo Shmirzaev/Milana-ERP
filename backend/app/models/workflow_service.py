@@ -512,6 +512,10 @@ def consume_stock_batch(
 ) -> None:
     if quantity <= 0:
         return
+    from app.models.production.ect_passport_fabric_service import consume_transferred_fabric
+    if consume_transferred_fabric(db, stock_batch_id=batch_id, quantity=quantity, unit=unit,
+            reference_type=reference_type, reference_id=reference_id, user_id=user_id):
+        return
     if batch_cache is None:
         qry = db.query(StockBatch).filter(StockBatch.id == batch_id)
         if db.bind and db.bind.dialect.name == "postgresql":

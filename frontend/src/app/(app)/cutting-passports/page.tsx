@@ -337,7 +337,7 @@ export default function CuttingPassportsPage() {
   const [materialPickerBusy, setMaterialPickerBusy] = useState(false);
   const [saving, setSaving] = useState(false);
   const { data: materialBatches = [], error: materialBatchError, isLoading: materialBatchLoading } = useSWR<any[]>(
-    materialPickerOpen ? `/api/inventory/batches?group=materials&hide_empty=true&page_size=100&q=${encodeURIComponent(materialSearch)}` : null, fetcher,
+    materialPickerOpen && form.production_order_id ? `/api/cutting-passports/material-batches?production_order_id=${form.production_order_id}&q=${encodeURIComponent(materialSearch)}` : null, fetcher,
   );
   const resetMaterialPicker = () => { setAdditionalMaterials([]); setMaterialPickerOpen(false); setSelectedMaterial(null); setMaterialAmount(""); setMaterialSearch(""); };
 

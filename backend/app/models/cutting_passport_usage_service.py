@@ -3,6 +3,7 @@ from decimal import Decimal
 from fastapi import HTTPException
 from sqlalchemy import func
 from app.schemas import CuttingPassport, CuttingRecord, ProductionOrderMaterial, StockBatch, StockMovement, WorkOrder
+from app.models.production.ect_passport_fabric_service import transferred_fabric_balance
 
 
 def material_quantity(source):
@@ -41,6 +42,16 @@ def validate_passport_stock(db, order, values, passport_id=None):
             StockMovement.reference_type == "CuttingRecord",
             StockMovement.movement_type == "consume",
         ).group_by(StockMovement.batch_id).all())
+    eco_consumed = {}
+    if passport_id:
+        from app.schemas.inventory.eco_inventory import EcoMaterialBatch, EcoMaterialMovement
+        eco_consumed = dict(db.query(EcoMaterialBatch.source_stock_batch_id, func.sum(EcoMaterialMovement.quantity)).join(
+            EcoMaterialMovement, EcoMaterialMovement.batch_id == EcoMaterialBatch.id,
+        ).join(CuttingRecord, CuttingRecord.id == EcoMaterialMovement.reference_id).join(
+            WorkOrder, WorkOrder.id == CuttingRecord.work_order_id,
+        ).filter(CuttingRecord.cutting_passport_id == passport_id, WorkOrder.production_order_id == order.id,
+            EcoMaterialMovement.reference_type == "CuttingRecord", EcoMaterialMovement.kind == "consume",
+        ).group_by(EcoMaterialBatch.source_stock_batch_id).all())
     for source in sources:
         quantity = material_quantity(source)
         batch = db.get(StockBatch, source["stock_batch_id"])
@@ -49,7 +60,10 @@ def validate_passport_stock(db, order, values, passport_id=None):
         unit = passport_unit(source, batch.unit)
         if quantity <= 0:  # Incomplete passports may still be saved as before.
             continue
-        available = Decimal(str(batch.quantity or 0)) + Decimal(str(consumed.get(batch.id, 0)))
+        transferred = transferred_fabric_balance(db, order.id, batch.id)
+        available = (Decimal(str(batch.quantity or 0)) + Decimal(str(consumed.get(batch.id, 0)))
+                     if transferred is None else transferred + Decimal(str(eco_consumed.get(batch.id, 0)))
+                     + Decimal(str(consumed.get(batch.id, 0))))
         if quantity > available:
             raise HTTPException(409, f"Insufficient fabric for passport: batch {batch.batch_no}; available {available:g} {unit}; required {quantity:g} {unit}")
 

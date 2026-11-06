@@ -46,7 +46,7 @@ def test_tepa_pass_roundtrip_dashboard_and_excel_keep_original_quantities(client
     assert client.get("/api/cutting-passports/dashboard", headers=auth_headers).json()["totals"]["pieces"] == 300
 
 
-def test_mixed_fabrics_count_pieces_once_and_do_not_mix_kg_with_metres(client, auth_headers):
+def test_mixed_fabrics_count_saved_rows_and_do_not_mix_kg_with_metres(client, auth_headers):
     saved = _create(client, auth_headers, tepa_pass=True)
     with SessionLocal() as db:
         p = db.get(CuttingPassport, saved["id"])
@@ -55,11 +55,98 @@ def test_mixed_fabrics_count_pieces_once_and_do_not_mix_kg_with_metres(client, a
                        for index, metres, weight, rolls in [(1, False, 2, 3), (2, True, 8, 4), (3, False, 1, 2)]]
         db.commit()
     data = client.get("/api/cutting-passports/dashboard", headers=auth_headers).json()
-    assert data["totals"] == dict(passports=1, pieces=600, fabric_kg=15, fabric_m=40, rolls=9)
+    assert data["totals"] == dict(passports=1, pieces=1800, fabric_kg=15, fabric_m=40, rolls=9)
     assert data["daily"] == [{"date": "2026-10-17", **data["totals"]}]
     book = load_workbook(BytesIO(client.get("/api/cutting-passports/export.xlsx", headers=auth_headers).content))
     assert book["Passports"].max_row == 2 and book["Materials"].max_row == 4
     assert [book["Materials"].cell(row, 11).value for row in [2, 3, 4]] == ["kg", "m", "kg"]
+
+
+def test_four_historical_rows_count_2400_without_rewriting_passports(client, auth_headers):
+    ids = [_create(client, auth_headers, passport_no=f"SCREENSHOT-{index}", pieces=600)["id"] for index in range(2)]
+    with SessionLocal() as db:
+        for pid in ids:
+            db.get(CuttingPassport, pid).materials = [
+                PassportMaterial(stock_batch_id=bid, pieces=600, total_layers=100,
+                                 layer_weight_kg=weight).model_dump()
+                for bid, weight in [(1, 0.8), (2, 1.0)]
+            ]
+        db.commit()
+    before = [_snapshot([(CuttingPassport, pid)]) for pid in ids]
+    report = client.get("/api/cutting-passports/dashboard?q=SCREENSHOT", headers=auth_headers)
+    assert report.status_code == 200, report.text
+    assert report.json()["totals"]["pieces"] == 2400
+    assert report.json()["daily"][0]["pieces"] == 2400
+    assert [_snapshot([(CuttingPassport, pid)]) for pid in ids] == before
+
+
+@pytest.mark.parametrize(("quantities", "expected"), [([None, None], 300), ([None, 200], 200), ([0, 0], 0)])
+def test_historical_missing_row_quantities_fall_back_once(client, auth_headers, quantities, expected):
+    pid = _create(client, auth_headers)["id"]
+    with SessionLocal() as db:
+        db.get(CuttingPassport, pid).materials = [
+            PassportMaterial(stock_batch_id=index, pieces=quantity).model_dump()
+            for index, quantity in enumerate(quantities, start=1)
+        ]
+        db.commit()
+    assert client.get("/api/cutting-passports/dashboard", headers=auth_headers).json()["totals"]["pieces"] == expected
+
+
+def test_export_embeds_distinct_model_and_variant_uploads(client, auth_headers):
+    from PIL import Image
+    from app.schemas import Model, ModelImage, ProductionOrder
+
+    references = _passport()
+    with SessionLocal() as db:
+        model = db.get(Model, db.get(ProductionOrder, references[1][1]).model_id)
+        db.query(ModelImage).filter_by(model_id=model.id).delete()
+        for image_type, color in [("model", "red"), ("material", "blue")]:
+            stream = BytesIO()
+            Image.new("RGB", (40, 30), color).save(stream, format="WEBP")
+            db.add(ModelImage(model_id=model.id, file_name=f"passport-{image_type}.webp",
+                              file_url=f"/storage/model-files/passport-{image_type}.webp",
+                              content_type="image/webp", image_type=image_type, file_data=stream.getvalue(),
+                              is_primary=True))
+        db.commit()
+    response = client.get("/api/cutting-passports/export.xlsx", headers=auth_headers)
+    assert response.status_code == 200, response.text
+    book = load_workbook(BytesIO(response.content))
+    for name, columns in [("Passports", [12, 13]), ("Materials", [32, 33])]:
+        images = book[name]._images
+        assert len(images) == 2
+        assert [image.anchor._from.col for image in images] == columns
+        assert all(image.anchor._from.row == 1 for image in images)
+        assert book[name].row_dimensions[2].height == 80
+        pixels = [Image.open(BytesIO(image._data())).convert("RGB").getpixel((0, 0)) for image in images]
+        assert pixels[0][0] > 200 and pixels[0][2] < 30
+        assert pixels[1][2] > 200 and pixels[1][0] < 30
+    assert book["Passports"]["K2"].value == 20
+    assert book["Passports"]["M1"].value == "Model picture"
+    assert book["Passports"].auto_filter.ref == "A1:N2"
+
+
+def test_export_does_not_fetch_external_images_or_execute_text(client, auth_headers, monkeypatch):
+    import socket
+    monkeypatch.setattr(socket, "create_connection", lambda *args, **kwargs: pytest.fail("Outbound image request"))
+    _create(client, auth_headers, image_ref="https://example.invalid/private-image.png", model_code="=1+1")
+    response = client.get("/api/cutting-passports/export.xlsx", headers=auth_headers)
+    assert response.status_code == 200
+    sheet = load_workbook(BytesIO(response.content))["Passports"]
+    assert sheet["M2"].value == "https://example.invalid/private-image.png"
+    assert sheet["D2"].data_type == "s" and sheet["D2"].value == "=1+1"
+    assert sheet._images == []
+
+
+def test_linked_passport_image_fallback_matches_screen(client, auth_headers):
+    from app.schemas import ModelImage
+    references = _passport()
+    with SessionLocal() as db:
+        db.query(ModelImage).delete()
+        db.get(CuttingPassport, references[0][1]).image_ref = "https://example.invalid/passport-photo.png"
+        db.commit()
+    sheet = load_workbook(BytesIO(client.get("/api/cutting-passports/export.xlsx", headers=auth_headers).content))["Passports"]
+    assert sheet["M2"].value == "https://example.invalid/passport-photo.png"
+    assert sheet["N2"].value is None
 
 
 def test_export_and_dashboard_include_more_than_500_and_date_end_is_inclusive(client, auth_headers):
@@ -142,7 +229,7 @@ def test_tepa_pass_does_not_change_stock_nastil_bundles_or_downstream_plan(clien
         assert db.get(ProductionBatch, cutting["production_batch_id"]).planned_quantity == 10
         assert all(row.planned_output_qty == 10 for row in db.query(WorkOrder).filter_by(production_order_id=order["id"]))
     totals = client.get("/api/cutting-passports/dashboard", headers=auth_headers).json()["totals"]
-    assert totals["pieces"] == 20 and totals["fabric_kg"] == 13 and totals["rolls"] == 2
+    assert totals["pieces"] == 40 and totals["fabric_kg"] == 13 and totals["rolls"] == 2
 
 
 @pytest.mark.parametrize("lang", ["ru", "uz"])
