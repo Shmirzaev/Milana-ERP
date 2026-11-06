@@ -10,7 +10,7 @@ from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
 
 from app.models.factory_scope_service import factory_for_department, selected_factory_code
-from app.schemas import Bundle, CuttingPassport, CuttingRecord, Department, MaterialReservation, ProductionBatch, ProductionOrder, StockBatch, Warehouse, WorkOrder
+from app.schemas import Bundle, CuttingMaterialUsage, CuttingPassport, CuttingRecord, Department, MaterialReservation, ProductionBatch, ProductionOrder, StockBatch, Warehouse, WorkOrder
 from app.libs.dto.production.cutting_material import PassportMaterial
 from app.libs.enums.inventory import MaterialReservationStatus
 from app.schemas.production.passport_material_persistence import replace_grouped_passport_materials
@@ -47,7 +47,25 @@ def _ect_order_condition(db: Session, order_id: int):
             Department.code == "ECT", ProductionOrder.source_type != "usluga").exists()
 
 
-def normalize_grouped_materials(db: Session, order, rows: list[dict], current) -> list[dict]:
+def _confirmed_metadata_sources(db: Session, order, rows: list[dict], passport_id: int | None) -> set[int]:
+    if passport_id is None:
+        return set()
+    existing = db.get(CuttingPassport, passport_id)
+    if existing is None or existing.production_order_id != order.id:
+        raise HTTPException(400, "Select the existing cutting passport for this order")
+    used_sources = {row[0] for row in db.query(CuttingMaterialUsage.stock_batch_id).join(
+        CuttingRecord, CuttingRecord.id == CuttingMaterialUsage.cutting_record_id).join(
+        WorkOrder, WorkOrder.id == CuttingRecord.work_order_id).filter(
+        CuttingRecord.cutting_passport_id == existing.id, WorkOrder.production_order_id == order.id).distinct().all()}
+    if not used_sources:
+        return set()
+    # Prove the unchanged saved calculation/source set before admitting an
+    # archived source for metadata editing. New saves/cuts never pass this ID.
+    require_unchanged_used_allocations(existing.materials or [], rows)
+    return used_sources.intersection(material_source_ids(existing.materials or []))
+
+
+def normalize_grouped_materials(db: Session, order, rows: list[dict], current, *, passport_id: int | None = None) -> list[dict]:
     ids = material_source_ids(rows)
     if len(ids) != len(set(ids)):
         raise HTTPException(400, "The same fabric batch cannot appear in more than one material entry")
@@ -56,6 +74,7 @@ def normalize_grouped_materials(db: Session, order, rows: list[dict], current) -
         return rows
     if order.source_type == "usluga":
         raise HTTPException(400, "Customer-supplied Usluga materials cannot group warehouse batches")
+    metadata_sources = _confirmed_metadata_sources(db, order, rows, passport_id)
     # Lock the complete physical source set, including independent legacy rows,
     # before any later item/reservation locks. A grouped-only prefix can invert
     # the inventory consumption lock order when another row sits between IDs.
@@ -92,7 +111,7 @@ def normalize_grouped_materials(db: Session, order, rows: list[dict], current) -
             if transferred and factory != "ECO":
                 raise HTTPException(403, "Grouped transferred fabric requires the Eco Cotton factory")
             if (not batch.item or batch.item.category not in {"fabric", "semi_finished"}
-                    or (batch.archived_at and not transferred)):
+                    or (batch.archived_at and not transferred and batch.id not in metadata_sources)):
                 raise HTTPException(409, "Select active fabric inventory batches for grouping")
             batch_factory = factory_for_department(departments.get(batch.warehouse_id))
             if not transferred and batch_factory and batch_factory != factory:

@@ -784,7 +784,7 @@ def _passport_values(db, payload: CuttingPassportIn, current, passport_id=None) 
     values = payload.model_dump(exclude={"additional_materials"})
     if payload.production_order_id:
         order, work_order = _passport_order(db, payload.production_order_id, current, lock=True)
-        values["materials"] = normalize_grouped_materials(db, order, values["materials"], current)
+        values["materials"] = normalize_grouped_materials(db, order, values["materials"], current, passport_id=passport_id)
         _add_passport_materials(db, order, work_order, payload, current)
         if payload.materials:
             ids = material_source_ids(values["materials"])
