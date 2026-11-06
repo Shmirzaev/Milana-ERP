@@ -4,6 +4,8 @@ These reports preserve what was observed at their recorded date. They are not
 current implementation instructions or proof of today's production state.
 Start with [current context](../PROJECT_CONTEXT.md) for active work.
 
+- [Operational test account, 18 September 2026](OPERATIONAL_TEST_ACCOUNT_2026-09-18.md): sanitized historical record; current account status unverified.
+
 - [BSOrder cleanup historical scripts, 10 September 2026](BS_CLEANUP_2026-09-10/README.md): completed one-off source retained as text; never rerun.
 
 - [FG model-number prefix, 3 November 2026](FG_MODEL_PREFIX_2026-11-03.md): FG202001 start, focused and local-browser verification; PostgreSQL gate pending, not deployed.
