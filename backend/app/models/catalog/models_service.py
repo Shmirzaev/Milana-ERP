@@ -111,7 +111,7 @@ from app.schemas.catalog.model_update_persistence import apply_model_update
 from app.schemas.catalog.model_approval_persistence import apply_model_approval
 from app.schemas.catalog.model_paid_operations_persistence import set_model_paid_operations_details
 from app.schemas.catalog.model_image_persistence import delete_model_image
-from app.schemas.catalog.model_size_persistence import add_initial_model_sizes, insert_model_size
+from app.schemas.catalog.model_size_persistence import add_initial_model_sizes, delete_model_size, insert_model_size
 from app.schemas.catalog.model_color_persistence import insert_model_color
 from app.schemas.catalog.model_create_persistence import build_model, insert_model
 from app.schemas.catalog.model_image_persistence import insert_url_image
@@ -2618,14 +2618,16 @@ def delete_size(
     db: Session,
     mid: int,
     size_id: int,
-    catalog_scope: str = "standard",
+    catalog_scope: CatalogScope = CatalogScope.STANDARD,
 ):
-    if not _catalog_model(db, mid, catalog_scope):
+    scope = catalog_scope.value if isinstance(catalog_scope, CatalogScope) else catalog_scope
+    scope = CatalogScope(_normalize_catalog_scope(scope))
+    if not _catalog_model_for_scope(db, mid, scope):
         raise HTTPException(404, "Model not found")
     s = db.query(ModelSize).filter(ModelSize.id == size_id, ModelSize.model_id == mid).first()
     if not s:
         raise HTTPException(404, "Size not found")
-    db.delete(s)
+    delete_model_size(db, s)
     log_action(db, current, "delete", "ModelSize", size_id, new_value={"model_id": mid, "size": s.size})
     db.commit()
 

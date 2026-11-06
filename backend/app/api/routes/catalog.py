@@ -396,7 +396,7 @@ def delete_size(
     size_id: int,
     db: DbSession,
     current: User = Depends(require_permissions("modeling.models", "*")),
-    catalog_scope: str = Depends(_standard_catalog_scope),
+    catalog_scope: CatalogScope = Depends(_typed_standard_catalog_scope),
 ):
     return models_service.delete_size(current, db, mid, size_id, catalog_scope)
 
