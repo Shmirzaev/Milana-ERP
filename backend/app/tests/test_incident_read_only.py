@@ -6,6 +6,46 @@ from app.core.config import Settings, settings
 from app.db.session import _engine_options
 from app.schemas import User
 from app.tests.conftest import TestSessionLocal
+from sqlalchemy.exc import DBAPIError
+from uuid import uuid4
+
+
+@pytest.mark.parametrize(('enabled', 'sqlstate'), [
+    (False, '25006'), (False, '23505'), (True, '23505'),
+])
+def test_database_errors_preserve_original_server_error(client, monkeypatch, enabled, sqlstate):
+    from app.main import app
+    monkeypatch.setattr(settings, 'INCIDENT_READ_ONLY', enabled)
+    original = ValueError('synthetic database error')
+    original.pgcode = sqlstate
+    failure = DBAPIError('synthetic database failure', {}, original)
+    path = '/api/incident-error-probe-' + uuid4().hex
+    def fail():
+        raise failure
+    app.add_api_route(path, fail, methods=['GET'])
+    try:
+        with pytest.raises(DBAPIError) as raised:
+            client.get(path)
+        assert raised.value is failure
+    finally:
+        app.router.routes[:] = [route for route in app.router.routes if getattr(route, 'path', None) != path]
+
+
+def test_readonly_database_error_is_service_unavailable(client, monkeypatch):
+    from app.main import app
+    monkeypatch.setattr(settings, 'INCIDENT_READ_ONLY', True)
+    original = ValueError('synthetic read-only database error')
+    original.pgcode = '25006'
+    path = '/api/incident-error-probe-' + uuid4().hex
+    def fail():
+        raise DBAPIError('synthetic read-only failure', {}, original)
+    app.add_api_route(path, fail, methods=['GET'])
+    try:
+        response = client.get(path)
+        assert response.status_code == 503
+        assert response.headers['x-erp-read-only'] == 'true'
+    finally:
+        app.router.routes[:] = [route for route in app.router.routes if getattr(route, 'path', None) != path]
 
 
 def test_recovery_container_starts_uvicorn_without_migrations():

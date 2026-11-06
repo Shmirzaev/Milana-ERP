@@ -319,7 +319,9 @@ async def _database_error(request: Request, exc: DBAPIError):
         return JSONResponse(status_code=503,
             content={"detail": "Incident recovery is read-only. This legacy read requires a write."},
             headers={"Retry-After": "60", "X-ERP-Read-Only": "true"})
-    return await _unhandled_exception(request, exc)
+    # Preserve the existing server-error propagation outside this one recovery
+    # case, including TestClient's original-exception behavior.
+    raise exc
 
 
 @app.middleware("http")
