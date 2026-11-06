@@ -15,7 +15,6 @@ from sqlalchemy import func
 from app.core.config import settings
 from app.core.deps import DbSession, require_permissions
 from app.schemas import (
-    AttendanceEvent,
     Department,
     Employee,
     HrCalendarEvent,
@@ -27,9 +26,9 @@ from app.schemas import (
     User,
 )
 from app.models.audit_service import log_action
+from app.models.people import attendance_reconciliation_service
 from app.models.attendance_reports_service import TASHKENT
 from app.models.factory_scope_service import factory_for_department, selected_factory_code
-from app.models.attendance_event_policy_service import accepted_attendance_result
 
 
 router = APIRouter(prefix="/hr", tags=["hr-workspace"])
@@ -589,27 +588,11 @@ def delete_document(document_id: int, db: DbSession, current: User = HrUser):
 
 @router.get("/attendance")
 def hr_attendance(db: DbSession, current: User = HrUser, day: date | None = None):
-    factory = _factory(current); selected = day or datetime.now(TASHKENT).date()
-    start, end = _attendance_day_bounds(selected)
-    default_hours = _load_hr_settings(db, factory).default_workday_hours
-    employees = db.query(Employee).filter(Employee.factory_code == factory, Employee.status == "active").all()
-    events = db.query(AttendanceEvent).filter(
-        AttendanceEvent.factory_code == factory,
-        AttendanceEvent.occurred_at >= start,
-        AttendanceEvent.occurred_at < end,
-        accepted_attendance_result(AttendanceEvent.result),
-    ).order_by(AttendanceEvent.occurred_at).all()
-    grouped: dict[str, list[AttendanceEvent]] = {}
-    for event in events:
-        if event.external_person_id: grouped.setdefault(event.external_person_id, []).append(event)
-    rows = []
-    for employee in employees:
-        scans = grouped.get(str(employee.employee_no or ""), [])
-        first = scans[0].occurred_at if scans else None; last = scans[-1].occurred_at if len(scans) > 1 else None
-        worked = max(0, int((last - first).total_seconds() // 60)) if first and last else 0
-        scheduled = _scheduled_minutes(employee.hr_profile_json, default_hours)
-        rows.append({"employee_id": employee.id, "employee_no": employee.employee_no, "full_name": employee.full_name, "arrival_at": first, "departure_at": last, "worked_minutes": worked, "scheduled_minutes": scheduled, "variance_minutes": worked - scheduled, "status": "present" if scans else "absent"})
-    return {"day": selected, "summary": {"employees": len(rows), "present": sum(1 for row in rows if row["status"] == "present"), "absent": sum(1 for row in rows if row["status"] == "absent"), "overtime_minutes": sum(max(0, row["variance_minutes"]) for row in rows)}, "rows": rows}
+    return attendance_reconciliation_service.hr_attendance(
+        db, current, day, load_hr_settings=_load_hr_settings,
+        scheduled_minutes=_scheduled_minutes, day_bounds=_attendance_day_bounds,
+        clock=datetime,
+    )
 
 
 @router.get("/analytics")
