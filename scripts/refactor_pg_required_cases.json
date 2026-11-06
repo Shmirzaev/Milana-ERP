@@ -381,6 +381,16 @@
         "test_pg_unchecked_direct_reference_rejects_delete_atomically",
         "test_pg_reference_insert_after_link_check_rolls_back_delete"
       ]
+    },
+    "test_model_image_delete_postgres": {
+      "revision": "8e50a89059ee2f543943df57d546a58bd6ea0761",
+      "git_blob_sha256": "1ccfce9424fb7e6e69219f230415c189242150b22fb728910caa3c3ad0dbcf87",
+      "selected_functions": [
+        "test_pg_denied_usluga_and_reverse_scope_keep_binary",
+        "test_pg_request_failure_rolls_back_binary_and_audit",
+        "test_pg_update_then_delete_waits_and_audits_loaded_url",
+        "test_pg_deferred_delete_commit_failure_rolls_back_binary_and_audit"
+      ]
     }
   },
   "cases": {
@@ -946,6 +956,13 @@
       "test_pg_unchecked_direct_reference_rejects_delete_atomically[True-manual_issue]",
       "test_pg_unchecked_direct_reference_rejects_delete_atomically[True-forecast]",
       "test_pg_reference_insert_after_link_check_rolls_back_delete"
+    ],
+    "test_model_image_delete_postgres": [
+      "test_pg_denied_usluga_and_reverse_scope_keep_binary",
+      "test_pg_request_failure_rolls_back_binary_and_audit[after_audit_flush]",
+      "test_pg_request_failure_rolls_back_binary_and_audit[before_commit]",
+      "test_pg_update_then_delete_waits_and_audits_loaded_url",
+      "test_pg_deferred_delete_commit_failure_rolls_back_binary_and_audit"
     ]
   },
   "isolated_supplemental_cases": [

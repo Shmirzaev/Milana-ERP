@@ -32,7 +32,7 @@ class RequiredPGGateTests(unittest.TestCase):
 
     def test_complete_evidence_passes(self):
         counts = gate.check_report(self.write_report(self.report()))
-        self.assertEqual(sum(counts.values()), 493)
+        self.assertEqual(sum(counts.values()), 498)
 
     def test_receipt_cases_are_required_and_cannot_be_skipped_or_replaced(self):
         for module, count in (("test_purchase_receipt_concurrency", 2),
@@ -75,6 +75,24 @@ class RequiredPGGateTests(unittest.TestCase):
         module = "test_process_qr_size_setup_postgres"
         self.assertEqual(len(gate.REQUIRED_CASES[module]), 7)
         self.assertEqual(gate.GROUPS[module][0], 7)
+        for name in gate.REQUIRED_CASES[module]:
+            for mutation in ("skipped", "replacement"):
+                with self.subTest(name=name, mutation=mutation):
+                    tree = self.report()
+                    case = next(row for row in tree.iter("testcase")
+                                if row.get("classname") == f"app.tests.{module}"
+                                and row.get("name") == name)
+                    if mutation == "skipped":
+                        ET.SubElement(case, "skipped")
+                    else:
+                        case.set("name", "unrelated_replacement_case")
+                    with self.assertRaises(ValueError):
+                        gate.check_report(self.write_report(tree))
+
+    def test_model_image_delete_cases_cannot_be_skipped_or_replaced(self):
+        module = "test_model_image_delete_postgres"
+        self.assertEqual(len(gate.REQUIRED_CASES[module]), 5)
+        self.assertEqual(gate.GROUPS[module][0], 5)
         for name in gate.REQUIRED_CASES[module]:
             for mutation in ("skipped", "replacement"):
                 with self.subTest(name=name, mutation=mutation):
