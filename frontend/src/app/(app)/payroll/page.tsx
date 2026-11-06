@@ -23,7 +23,7 @@ import { api, fetcher } from "@/lib/api";
 import { can, useMe } from "@/lib/auth";
 import { useDialogs } from "@/components/DialogProvider";
 import { useT } from "@/lib/i18n";
-import { factoryPeriodIso, monthStart, monthEnd } from "@/lib/payrollPeriodDates";
+import { factoryPeriodIso, formatFactoryPeriodDate, monthStart, monthEnd } from "@/lib/payrollPeriodDates";
 
 type PayrollPeriod = {
   id: number;
@@ -618,7 +618,7 @@ export default function PayrollPage() {
                       <div className="font-medium">{period.name}</div>
                       <div className="text-xs text-[#8a8472]">{period.period_no}</div>
                     </td>
-                    <td>{new Date(period.start_date).toLocaleDateString(lang)} - {new Date(period.end_date).toLocaleDateString(lang)}</td>
+                    <td>{formatFactoryPeriodDate(period.start_date, lang)} - {formatFactoryPeriodDate(period.end_date, lang)}</td>
                     <td><span className={`badge ${statusBadge(period.status)}`}>{t(`statusValue.${period.status}`)}</span></td>
                     <td>{period.approved_at ? new Date(period.approved_at).toLocaleString(lang) : "-"}</td>
                     <td>

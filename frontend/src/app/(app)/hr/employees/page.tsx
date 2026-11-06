@@ -7,6 +7,7 @@ import Modal from "@/components/Modal";
 import { HrHeader, LoadState, MetricGrid } from "@/components/hr/HrUi";
 import { useT } from "@/lib/i18n";
 import { useMe } from "@/lib/auth";
+import { employeeNumberPayload } from "@/lib/employeeNumberPayload";
 import dynamic from "next/dynamic";
 import { PREVIEW_ENABLED, BACKEND_ENABLED } from "@/components/hr/turnstile/turnstilePreview";
 import { backendCopy } from "@/components/hr/turnstile/turnstileBackendCopy";
@@ -141,8 +142,10 @@ export default function EmployeesPage() {
   async function save(event: React.FormEvent) {
     event.preventDefault(); setSaving(true); setMessage("");
     const edit = form;
+    const originalNumber = editing && editing !== "new" ? editing.employee_no : undefined;
     const payload = {
-      employee_no: edit.employee_no.trim() || null, full_name: form.full_name.trim(),
+      ...employeeNumberPayload(originalNumber, edit.employee_no),
+      full_name: form.full_name.trim(),
       department_id: form.department_id ? Number(form.department_id) : null,
       position: form.position.trim() || null, phone: form.phone.trim() || null,
       salary: form.salary === "" ? null : Number(form.salary), status: form.status,
@@ -179,6 +182,7 @@ export default function EmployeesPage() {
     finally { setSaving(false); }
   }
 
+  const editingLegacyNumber = Boolean(editing && editing !== "new" && editing.employee_no && !/^\d+$/.test(editing.employee_no));
   return <div>
     <HrHeader title={t("page.hrEmployees.title")} subtitle={t("page.hrEmployees.subtitle")} actions={<><button className="btn" onClick={downloadEmployees} disabled={exporting}>{t(exporting ? "employeeExport.loading" : "employeeExport.download")}</button><button className="btn btn-primary" onClick={() => open()}>{t("page.hrEmployees.add")}</button></>} />
     {saveNotice && <p role="status" className="mb-4 text-sm text-green-700">{t("page.hrEmployees.saved")}</p>}
@@ -205,7 +209,7 @@ export default function EmployeesPage() {
     <Modal open={editing !== null} onClose={() => setEditing(null)} title={editing === "new" ? t("page.hrEmployees.newEmployee") : t("page.hrEmployees.profileTitle", { name: form.full_name })} wide>
       <form onSubmit={save} className="space-y-5">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <label><span className="label">{t("field.employeeNo")}</span><input className="input" inputMode="numeric" pattern="[0-9]+" value={form.employee_no} onChange={(e) => setForm({ ...form, employee_no: e.target.value })} /></label>
+          <label><span className="label">{t("field.employeeNo")}</span><input className="input" inputMode={editingLegacyNumber ? undefined : "numeric"} pattern={editingLegacyNumber ? undefined : "[0-9]+"} value={form.employee_no} onChange={(e) => setForm({ ...form, employee_no: e.target.value })} /></label>
           <label className="lg:col-span-2"><span className="label">{t("page.hrEmployees.fullName")}</span><input className="input" required value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} /></label>
           <label><span className="label">{t("page.hrEmployees.phone")}</span><input className="input" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></label>
           <label><span className="label">{t("page.hrEmployees.department")}</span><select className="input" value={form.department_id} onChange={(e) => setForm({ ...form, department_id: e.target.value })}><option value="">{t("page.hrEmployees.unassigned")}</option>{departments?.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</select></label>

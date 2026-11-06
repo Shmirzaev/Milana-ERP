@@ -17,3 +17,7 @@ export function factoryPeriodIso(value: string, end = false): string {
   // Factory operations consistently use Asia/Tashkent (UTC+05:00).
   return new Date(`${value}T${end ? "23:59:59" : "00:00:00"}+05:00`).toISOString();
 }
+
+export function formatFactoryPeriodDate(value: string, lang: string): string {
+  return new Date(value).toLocaleDateString(lang, { timeZone: FACTORY_TIMEZONE });
+}
