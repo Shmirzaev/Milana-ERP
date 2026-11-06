@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import http from "node:http";
-import { execFileSync } from "node:child_process";
+import { compileAppCss } from "./lib/compile-app-css.mjs";
 import { build } from "esbuild";
 import { chromium } from "playwright";
 import { runtimeMessages } from "./runtime-locales.mjs";
@@ -23,7 +23,7 @@ const built = await build({stdin:{contents:`import React from 'react';import{cre
  b.onLoad({filter:/.*/,namespace:"fixture"},args=>({contents:mocks[args.path],loader:"js",resolveDir:root}));
  b.onLoad({filter:/process-qr[\\/]page\.tsx$/},args=>({contents:fs.readFileSync(args.path,"utf8").replaceAll('<style jsx global>', '<style>'),loader:"tsx",resolveDir:path.dirname(args.path)}));
 }}]});
-const css=execFileSync(process.execPath,['node_modules/tailwindcss/lib/cli.js','-i','src/app/globals.css','--minify'],{encoding:'utf8',maxBuffer:8*1024*1024,stdio:['ignore','pipe','pipe']});
+const css=await compileAppCss();
 const sizes=["46","48","50","52","54"];
 const operation={id:'sleeve',name:'Sleeve sewing',code:'OP-6162',section:'sewing',sewingFactory:'milana',rate:'550',selected:true,copies:1,splitMode:'none'};
 const model={id:8456,code:'KJ13051-V-6472',sizes:[...sizes,'56'].map(size=>({size})),details_json:{paid_operations:[operation]}};

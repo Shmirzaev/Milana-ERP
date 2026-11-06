@@ -1,10 +1,7 @@
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
 import {build} from 'esbuild';
 import {chromium} from 'playwright';
-import postcss from 'postcss';
-import tailwind from 'tailwindcss';
-import autoprefixer from 'autoprefixer';
+import { compileAppCss } from './lib/compile-app-css.mjs';
 const stubs={
  '@/lib/auth':`export const useMe=()=>({me:{permissions:[]}});export const can=()=>false;`,
  '@/lib/api':`export const API_TIMEOUT_EVENT='milana:api-timeout';export const fetcher=async url=>{if(!url.includes('print-runs'))return {cells:[]};window.runRequests.push(url);const page=new URL(url,location.origin).searchParams.get('page');return window.runPages?.[page]||{rows:window.runs,total:window.runs.length,has_more:false}};export const api={get:async url=>url.includes('resolve')?null:window.pkg,openLabel:async()=>{},post:async()=>{throw Error('Unexpected write')},del:async()=>{throw Error('Unexpected write')}};`,
@@ -14,7 +11,7 @@ const stubs={
  'next/link':`export default function Link({children,...props}){return <a {...props}>{children}</a>}`,
 };
 const built=await build({stdin:{contents:`import React from 'react';import {createRoot} from 'react-dom/client';import {LangProvider} from './src/lib/i18n';import {DialogProvider} from './src/components/DialogProvider';import ScanPage from './src/app/(app)/packages/scan/page';import PrintRunsPage from './src/app/(app)/packages/print-runs/page';const Page=window.location.pathname==='/packages/print-runs'?PrintRunsPage:ScanPage;createRoot(document.getElementById('root')).render(<LangProvider><DialogProvider><Page/></DialogProvider></LangProvider>);`,resolveDir:process.cwd(),loader:'tsx'},bundle:true,write:false,format:'iife',jsx:'automatic',plugins:[{name:'fixtures',setup(b){b.onResolve({filter:/.*/},a=>a.path in stubs?{path:a.path,namespace:'fixture'}:undefined);b.onLoad({filter:/.*/,namespace:'fixture'},a=>({contents:stubs[a.path],loader:'tsx',resolveDir:process.cwd()}));}}]});
-const css=(await postcss([tailwind(),autoprefixer()]).process(fs.readFileSync('src/app/globals.css','utf8'),{from:'src/app/globals.css'})).css;
+const css=await compileAppCss();
 const browser=await chromium.launch({channel:process.platform==='win32'?'chrome':undefined});
 try{
  const page=await browser.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
