@@ -23,6 +23,7 @@ from refactor_pg_evidence import (
 # Minimum collected counts pin the current parameterized business cases. Adding
 # cases is allowed; removing a required case needs an explicit ledger change.
 GROUPS = {
+    "test_stocktake_scan_postgres": (5, ('test_pg_scan_auth_duplicate_first_evidence_and_completed_refusal', 'test_pg_scan_request_audit_finalization_failure_then_retry', 'test_pg_scan_expected_unexpected_package_and_refusals', 'test_pg_duplicate_package_scan_waits_on_first_parent_lock', 'test_pg_scan_deferred_commit_abort_preserves_evidence_then_retry')),
     "test_stocktake_undo_postgres": (6, (
         'test_pg_undo_auth_and_selection_refusal_before_mutation',
         'test_pg_undo_request_audit_finalization_failure_then_retry',
