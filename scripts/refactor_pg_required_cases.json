@@ -393,8 +393,8 @@
       ]
     },
     "test_stocktake_delete_postgres": {
-      "revision": "3ad59367daddb8a56e6aa6476f8708da7714ad4d",
-      "git_blob_sha256": "c9c289f95499524f856476c61d15035d422d6308647190e1a1b884df207a6cc2",
+      "revision": "f613e28a7029a16ee1a5eac6c4c8772474d40317",
+      "git_blob_sha256": "588d8a2daa084ba3b84c6dc9c775a1c149d883fb701d2b284a11584bd44e9ce1",
       "selected_functions": [
         "test_pg_request_audit_flush_failure_rolls_back_bulk",
         "test_pg_overlapping_bulk_deletes_serialize",
