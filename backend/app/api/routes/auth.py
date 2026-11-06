@@ -1,5 +1,5 @@
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, Response, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, Response
 from fastapi.security import OAuth2PasswordRequestForm
 from typing import Annotated
 from fastapi import Depends
@@ -17,18 +17,14 @@ from app.core.security import (
     validate_password_strength,
     verify_password,
 )
-from app.schemas import (
-    User, Notification, PasswordResetToken,
-)
+from app.schemas import User, PasswordResetToken
 from app.libs.dto.identity.auth import ForgotPasswordIn, LoginIn, LoginOk, ResetPasswordIn, TokenOut, UserMe
 from app.models.audit_service import log_action
 from app.models.credentials_service import apply_password_credential_change, lock_user_for_credential_change
 from app.models.factory_scope_service import assigned_factory_code, available_factory_codes, selected_factory_code
-from app.models.identity.authentication_service import auth_counter_store, login_user, select_session_factory
+from app.models.identity.authentication_service import auth_counter_store, login_user, request_password_reset, select_session_factory
 from app.models.password_reset_service import (
-    create_password_reset_token,
     password_reset_hash,
-    password_reset_url,
     send_password_email_safely,
 )
 
@@ -52,21 +48,6 @@ class ChangePasswordIn(BaseModel):
 
 def _client_ip(request: Request) -> str:
     return client_ip(request)
-
-
-def _enforce_reset_rate_limit(request: Request, email: str) -> None:
-    with auth_counter_store(get_shared_counter_store) as store:
-        client = _client_ip(request)
-        keys = [f"ip:{client}", f"email:{normalize_email(email)}"]
-        for key in keys:
-            requests = store.increment(f"auth:reset:{key}", 60 * 60)
-            if requests > 5:
-                retry_after = store.ttl(f"auth:reset:{key}") or 60 * 60
-                raise HTTPException(
-                    status.HTTP_429_TOO_MANY_REQUESTS,
-                    "Too many password reset requests. Try again later.",
-                    headers={"Retry-After": str(retry_after)},
-                )
 
 
 def _is_https_request(request: Request) -> bool:
@@ -152,28 +133,10 @@ def logout(request: Request, response: Response):
 @session_router.post("/forgot-password")
 @router.post("/forgot-password")
 def forgot_password(payload: ForgotPasswordIn, db: DbSession, background_tasks: BackgroundTasks, request: Request):
-    email = normalize_email(str(payload.email))
-    _enforce_reset_rate_limit(request, email)
-    user = db.query(User).filter(User.email == email).first()
-    if user and user.is_active:
-        raw_token = create_password_reset_token(db, user)
-        reset_url = password_reset_url(raw_token)
+    delivery = request_password_reset(db, str(payload.email), _client_ip(request), get_shared_counter_store)
+    if delivery:
+        user, reset_url = delivery
         background_tasks.add_task(send_password_email_safely, user.email, user.name, reset_url, user.id)
-        recipients = [
-            admin for admin in db.query(User).filter(User.is_active.is_(True)).all()
-            if "*" in user_permissions(admin) or "admin.users" in user_permissions(admin)
-        ]
-        for admin in recipients:
-            db.add(Notification(
-                user_id=admin.id,
-                title="Password reset requested",
-                message=(
-                    f"{user.name} ({user.email}) requested a password reset. "
-                    "A reset email was queued."
-                ),
-                link="/admin/users",
-            ))
-        db.commit()
     return {"message": "If this account exists, a reset link has been sent."}
 
 
