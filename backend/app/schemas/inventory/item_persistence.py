@@ -1,4 +1,4 @@
-"""Schema-owned Item insert using the caller's transaction."""
+"""Schema-owned Item writes using the caller's transaction."""
 
 from sqlalchemy.orm import Session
 
@@ -28,3 +28,13 @@ def insert_item(db: Session, command: ItemInsertCommand) -> Item:
 def set_item_image(db: Session, item: Item, image_url: str | None) -> None:
     """Assign the normalized image using the caller's transaction."""
     item.image_url = image_url
+
+
+def archive_item(db: Session, item: Item) -> None:
+    """Mark a linked item inactive without flushing or committing."""
+    item.is_active = False
+
+
+def delete_item(db: Session, item: Item) -> None:
+    """Schedule an unlinked item for deletion in the supplied session."""
+    db.delete(item)
