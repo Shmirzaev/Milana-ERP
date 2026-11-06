@@ -2,16 +2,16 @@
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 import json
-from typing import Any
+from typing import Any, Literal
 from fastapi import HTTPException
-from sqlalchemy import func, or_
+from sqlalchemy import Date, String, and_, cast, func, or_
 from sqlalchemy.orm import load_only, object_session
 from app.core.dt import as_utc, utcnow
+from app.core.model_search import normalized_model_code_column, normalized_model_code_pattern
 from app.core.order_reference import (
     canonical_order_reference, order_reference_variants,
 )
 from app.schemas import (
-    Bundle,
     Department,
     Employee,
     Model,
@@ -23,6 +23,8 @@ from app.schemas import (
     SalesOrder,
     SewingFlow,
     User,
+    WorkOrder,
+    SewingRecord,
 )
 from app.libs.dto.people.payroll import (
     PayrollPeriodIn,
@@ -30,6 +32,8 @@ from app.libs.dto.people.payroll import (
 )
 from app.models.audit_service import log_action
 from app.models.factory_scope_service import require_factory_access, selected_factory_code
+from app.models.payroll_reports_service import salary_report_days
+from app.schemas import Bundle
 from app.models.paid_operations_service import filter_operation_rows, paid_operations_from_details
 from app.core.order_reference import order_reference_contains
 from app.schemas.people.payroll import apply_payroll_period_changes, update_period_record_status
@@ -1108,3 +1112,289 @@ def sewing_production_report_options(db: Session, current: User=None, factory_co
     if factory_code:
         require_factory_access(current, factory_code)
     return _sewing_report_options(db, scoped_factory)
+
+
+def _sewing_report_base_query(db: Session, factory_code: str):
+    return (
+        db.query(PayrollRecord, Employee, PayrollQrLabel, Model, SewingFlow)
+        .join(Employee, Employee.id == PayrollRecord.employee_id)
+        .outerjoin(PayrollQrLabel, PayrollQrLabel.payroll_record_id == PayrollRecord.id)
+        .outerjoin(Model, Model.id == PayrollRecord.model_id)
+        .outerjoin(SewingFlow, SewingFlow.id == PayrollQrLabel.sewing_flow_id)
+        .filter(PayrollRecord.factory_code == factory_code)
+    )
+
+
+def _filtered_sewing_production_report_query(
+    db: Session,
+    *,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+    employee_id: int | None = None,
+    order_no: str | None = None,
+    cutting_reference: str | None = None,
+    model_code: str | None = None,
+    sewing_flow_id: int | None = None,
+    sewing_line: str | None = None,
+    operation: str | None = None,
+    barcode: str | None = None,
+    size: str | None = None,
+    factory_code: str | None = None,
+    status: str = "active",
+    report_view: str = "details",
+):
+    allowed_statuses = {"active", "all", *RECORD_STATUSES}
+    if status not in allowed_statuses:
+        raise HTTPException(400, "Invalid payroll report status")
+    factory_code = _sewing_report_factory_code(factory_code)
+
+    if not factory_code:
+        raise HTTPException(400, "Factory scope is required")
+    qry = _sewing_report_base_query(db, factory_code)
+    if status == "active":
+        qry = qry.filter(PayrollRecord.status != "voided")
+    elif status != "all":
+        qry = qry.filter(PayrollRecord.status == status)
+    if date_from:
+        qry = qry.filter(PayrollRecord.scanned_at >= as_utc(date_from))
+    if date_to:
+        qry = qry.filter(PayrollRecord.scanned_at <= as_utc(date_to))
+    if employee_id:
+        qry = qry.filter(PayrollRecord.employee_id == employee_id)
+    if order_no and order_no.strip():
+        pattern = f"%{order_no.strip()}%"
+        qry = qry.filter(or_(_payroll_order_reference_match(db, PayrollRecord.production_no, "PO", pattern), _payroll_order_reference_match(db, PayrollRecord.sales_order_no, "SO", pattern)))
+    if cutting_reference and cutting_reference.strip():
+        pattern = f"%{cutting_reference.strip()}%"
+        qry = qry.filter(or_(PayrollQrLabel.cutting_passport_no.ilike(pattern), PayrollRecord.batch_no.ilike(pattern)))
+    if model_code and model_code.strip():
+        qry = qry.filter(normalized_model_code_column(PayrollRecord.model_code).ilike(normalized_model_code_pattern(model_code)))
+    if report_view == "salary" and (sewing_flow_id or (sewing_line and not sewing_line.strip().startswith("manager:"))):
+        raise HTTPException(422, "Select an employee Master for the salary report")
+    if sewing_flow_id:
+        qry = qry.filter(PayrollQrLabel.sewing_flow_id == sewing_flow_id)
+    if sewing_line and sewing_line.strip().startswith("manager:"):
+        try:
+            manager_id = int(sewing_line.strip().removeprefix("manager:"))
+        except ValueError:
+            raise HTTPException(400, "Invalid report group") from None
+        manager = db.query(Employee).filter(Employee.id == manager_id, Employee.factory_code == factory_code).first()
+        if not manager or (report_view != "salary" and (manager.hr_profile_json or {}).get("payroll_report_group") is not True):
+            raise HTTPException(404, "Report group not found")
+        leader = Employee.id == manager_id
+        if report_view == "salary":
+            leader = and_(leader, Employee.manager_employee_id.is_(None))
+        qry = qry.filter(Employee.factory_code == factory_code, or_(
+            Employee.manager_employee_id == manager_id, leader,
+        ))
+    elif sewing_line and sewing_line.strip():
+        pattern = f"%{sewing_line.strip()}%"
+        qry = qry.filter(or_(
+            PayrollQrLabel.sewing_line_code.ilike(pattern),
+            PayrollQrLabel.sewing_line_name.ilike(pattern),
+            SewingFlow.code.ilike(pattern),
+            SewingFlow.name.ilike(pattern),
+        ))
+    if operation and operation.strip():
+        qry = qry.filter(or_(PayrollRecord.operation_code == operation.strip(), PayrollRecord.operation_name == operation.strip()))
+    if barcode and barcode.strip():
+        pattern = f"%{barcode.strip()}%"
+        qry = qry.filter(or_(
+            PayrollQrLabel.label_uid.ilike(pattern),
+            PayrollRecord.scan_uid.ilike(pattern),
+            PayrollRecord.original_scan_uid.ilike(pattern),
+        ))
+    if size and size.strip():
+        qry = qry.filter(PayrollQrLabel.size == size.strip())
+    return qry, factory_code
+
+
+def _sewing_production_report_items(rows) -> list[dict]:
+    items = []
+    for record, employee, label, model, flow in rows:
+        raw_work = record.raw_work_json if isinstance(record.raw_work_json, dict) else {}
+        line_code = label.sewing_line_code if label else raw_work.get("sewing_line_code")
+        line_name = label.sewing_line_name if label else raw_work.get("sewing_line_name")
+        cutting_no = label.cutting_passport_no if label else raw_work.get("cutting_passport_no")
+        items.append({
+            "id": record.id,
+            "scanned_at": record.scanned_at,
+            "employee_id": record.employee_id,
+            "employee_no": employee.employee_no,
+            "employee_name": employee.full_name,
+            "barcode": _work_qr_token(int(label.id)) if label else str(record.original_scan_uid or record.scan_uid or record.id),
+            "sewing_line_code": line_code or (flow.code if flow else None),
+            "sewing_line_name": line_name or (flow.name if flow else None),
+            "cutting_reference": cutting_no or _normalize_production_batch_no(record.batch_no),
+            "production_no": record.production_no,
+            "sales_order_no": record.sales_order_no,
+            "batch_no": _normalize_production_batch_no(record.batch_no),
+            "model_code": record.model_code,
+            "product_name": (model.product_type or model.name) if model else None,
+            "operation_code": record.operation_code,
+            "operation_name": record.operation_name,
+            "size": label.size if label else raw_work.get("size"),
+            "quantity": record.quantity,
+            "rate_per_piece": record.rate_per_piece,
+            "total_amount": record.total_amount,
+            "currency": record.currency,
+            "status": record.status,
+            "factory_code": record.factory_code,
+        })
+    return items
+
+
+def _sewing_salary_summary(qry) -> list[dict]:
+    # Aggregate the complete filtered ledger before any scan pagination.
+    day = (cast(func.timezone("Asia/Tashkent", PayrollRecord.scanned_at), Date)
+           if qry.session.get_bind().dialect.name == "postgresql"
+           else func.date(PayrollRecord.scanned_at, "+5 hours"))
+    rows = qry.with_entities(
+        PayrollRecord.employee_id,
+        Employee.employee_no,
+        Employee.full_name,
+        PayrollRecord.currency,
+        day,
+        func.count(PayrollRecord.id),
+        func.coalesce(func.sum(PayrollRecord.quantity), 0),
+        func.coalesce(func.sum(PayrollRecord.total_amount), 0),
+    ).group_by(
+        PayrollRecord.employee_id, Employee.employee_no, Employee.full_name, PayrollRecord.currency, day,
+    ).order_by(Employee.full_name, PayrollRecord.employee_id, PayrollRecord.currency, day).all()
+    employees = {}
+    for employee_id, employee_no, name, currency, work_day, count, quantity, amount in rows:
+        key = (employee_id, currency)
+        item = employees.setdefault(key, {
+            "employee_id": employee_id, "employee_no": employee_no, "employee_name": name,
+            "currency": currency, "record_count": 0, "quantity": Decimal("0"),
+            "total_amount": Decimal("0"), "daily_amounts": {},
+        })
+        item["record_count"] += count
+        item["quantity"] += quantity
+        item["total_amount"] += amount
+        item["daily_amounts"][str(work_day)] = amount
+    people = {row.id: row for row in qry.session.query(
+        Employee.id, Employee.full_name, Employee.manager_employee_id, Employee.factory_code, Employee.hr_profile_json,
+    ).filter(
+        Employee.id.in_([key[0] for key in employees]),
+    )} if employees else {}
+    manager_ids = {row.manager_employee_id for row in people.values() if row.manager_employee_id}
+    managers = {row.id: row for row in qry.session.query(
+        Employee.id, Employee.full_name, Employee.factory_code,
+    ).filter(Employee.id.in_(manager_ids))} if manager_ids else {}
+    team_leaders = {row[0] for row in qry.session.query(Employee.manager_employee_id).filter(
+        Employee.manager_employee_id.in_(people),
+    ).distinct()} if people else set()
+    for item in employees.values():
+        person = people[item["employee_id"]]
+        manager = managers.get(person.manager_employee_id)
+        if manager and manager.factory_code == person.factory_code:
+            item["master_id"], item["master_name"] = manager.id, manager.full_name
+        elif not person.manager_employee_id and (person.id in team_leaders or (person.hr_profile_json or {}).get("payroll_report_group") is True):
+            item["master_id"], item["master_name"] = person.id, person.full_name
+    return sorted(employees.values(), key=lambda row: (row.get("master_name", "").casefold(), row.get("master_id", 0), row["employee_name"].casefold(), row["employee_id"], row["currency"]))
+
+
+def _sewing_report_product_quantity(qry, *, size: str | None = None) -> Decimal:
+    """Count produced batches once, never once per paid operation/employee.
+
+    Linked batches use saved Sewing output. Legacy/manual work without Sewing
+    records uses the largest operation subtotal per batch/model/size; split
+    labels and work shared by employees are summed before deduplication.
+    """
+    order = func.coalesce(cast(PayrollRecord.production_order_id, String), PayrollRecord.production_no, PayrollRecord.sales_order_no, "")
+    batch = func.coalesce(cast(PayrollRecord.production_batch_id, String), PayrollQrLabel.cutting_passport_no, PayrollRecord.batch_no, "")
+    model = func.coalesce(PayrollRecord.model_code, "")
+    size_key = func.coalesce(PayrollQrLabel.size, PayrollRecord.raw_work_json["size"].as_string(), "")
+    operation = func.coalesce(PayrollRecord.operation_code, PayrollRecord.operation_name, "")
+    operation_totals = qry.with_entities(
+        PayrollRecord.production_order_id.label("po_id"), PayrollRecord.production_batch_id.label("batch_id"),
+        order.label("order_ref"), batch.label("batch_ref"), model.label("model_ref"),
+        size_key.label("size_ref"), operation.label("operation_ref"), func.sum(PayrollRecord.quantity).label("quantity"),
+    ).group_by(PayrollRecord.production_order_id, PayrollRecord.production_batch_id,
+               order, batch, model, size_key, operation).subquery()
+    # Collapse operations in SQL: a report can contain tens of thousands of paid
+    # operations but only hundreds of physical batches. Avoid materializing every
+    # operation in Python just to retain the largest subtotal for each batch.
+    physical_keys = [operation_totals.c[name] for name in
+                     ("po_id", "batch_id", "order_ref", "batch_ref", "model_ref", "size_ref")]
+    rows = qry.session.query(*physical_keys, func.max(operation_totals.c.quantity)).group_by(*physical_keys).all()
+    fallback = {}
+    linked = set()
+    for po_id, batch_id, order_ref, batch_ref, model_ref, label_size, quantity in rows:
+        key = (po_id, batch_id, order_ref, batch_ref, model_ref, label_size)
+        fallback[key] = max(fallback.get(key, Decimal(0)), quantity or Decimal(0))
+        if po_id is not None:
+            linked.add((po_id, batch_id))
+    actual = {}
+    if linked and not size:
+        record_batch = func.coalesce(SewingRecord.production_batch_id, WorkOrder.production_batch_id)
+        for po_id, batch_id, quantity in qry.session.query(
+            WorkOrder.production_order_id, record_batch, func.sum(SewingRecord.passed_qty),
+        ).join(SewingRecord, SewingRecord.work_order_id == WorkOrder.id).filter(
+            WorkOrder.production_order_id.in_({key[0] for key in linked}),
+            WorkOrder.operation == "sewing", WorkOrder.status != "cancelled",
+        ).group_by(WorkOrder.production_order_id, record_batch).all():
+            if (po_id, batch_id) in linked:
+                actual[(po_id, batch_id)] = Decimal(quantity or 0)
+    return sum(actual.values(), Decimal(0)) + sum(
+        (quantity for key, quantity in fallback.items() if key[:2] not in actual), Decimal(0),
+    )
+
+
+def sewing_production_report(db: Session, current: User=None, date_from: datetime | None=None, date_to: datetime | None=None, employee_id: int | None=None, order_no: str | None=None, cutting_reference: str | None=None, model_code: str | None=None, sewing_flow_id: int | None=None, sewing_line: str | None=None, operation: str | None=None, barcode: str | None=None, size: str | None=None, factory_code: str | None=None, status: str='active', report_view: Literal['details', 'salary']='details', limit: int=100, offset: int=0):
+    scoped_factory = selected_factory_code(current)
+    if factory_code:
+        require_factory_access(current, factory_code)
+    qry, factory_code = _filtered_sewing_production_report_query(
+        db,
+        date_from=date_from,
+        date_to=date_to,
+        employee_id=employee_id,
+        order_no=order_no,
+        cutting_reference=cutting_reference,
+        model_code=model_code,
+        sewing_flow_id=sewing_flow_id,
+        sewing_line=sewing_line,
+        operation=operation,
+        barcode=barcode,
+        size=size,
+        factory_code=scoped_factory,
+        status=status,
+        report_view=report_view,
+    )
+
+    aggregate = qry.with_entities(
+        func.coalesce(func.sum(PayrollRecord.quantity), 0),
+        func.coalesce(func.sum(PayrollRecord.total_amount), 0),
+        func.count(),
+        func.min(func.nullif(PayrollRecord.currency, "")),
+        func.max(func.nullif(PayrollRecord.currency, "")),
+    ).one()
+    total = int(aggregate[2])
+    first_currency, last_currency = aggregate[3], aggregate[4]
+    report_currency = (first_currency if first_currency == last_currency else "MIXED") or "UZS"
+    safe_limit = max(1, min(limit, 5000))
+    safe_offset = max(0, offset)
+    salary_summary = _sewing_salary_summary(qry) if report_view == "salary" else []
+    rows = [] if report_view == "salary" else (
+        qry.order_by(PayrollRecord.scanned_at.desc(), PayrollRecord.id.desc())
+        .offset(safe_offset)
+        .limit(safe_limit)
+        .all()
+    )
+
+    items = _sewing_production_report_items(rows)
+    return {
+        "items": items,
+        "salary_summary": salary_summary,
+        "salary_days": salary_report_days(salary_summary, date_from, date_to) if report_view == "salary" else [],
+        "total": total,
+        "offset": safe_offset,
+        "limit": safe_limit,
+        "total_quantity": aggregate[0],
+        "total_product_quantity": _sewing_report_product_quantity(qry, size=size),
+        "total_amount": aggregate[1],
+        "currency": report_currency,
+        "options": _sewing_report_options(db, factory_code),
+    }
