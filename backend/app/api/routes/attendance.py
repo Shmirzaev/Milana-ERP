@@ -1,14 +1,10 @@
 from __future__ import annotations
 
-import hashlib
 import hmac
-import os
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
-from tempfile import NamedTemporaryFile
 from zoneinfo import ZoneInfo
 
-from anyio import CancelScope, to_thread
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse, Response
 from sqlalchemy import case, func, or_
@@ -19,7 +15,6 @@ from app.core.deps import DbSession, require_permissions
 from app.core.dt import as_utc, utcnow
 from app.schemas import AttendanceDevice, AttendanceEvent, AttendancePerson, User
 from app.models.factory_scope_service import selected_factory_code
-from app.models.image_storage_service import convert_image_to_webp
 from app.models.attendance_reports_service import ReportLanguage, build_daily_attendance_xlsx
 from app.models.audit_service import log_action
 from app.models.people import attendance_service
@@ -92,32 +87,6 @@ def import_events(
     )
 
 
-def _write_new_attendance_photo(destination: Path, content: bytes) -> bool:
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    temporary_path: Path | None = None
-    try:
-        with NamedTemporaryFile(
-            prefix=".attendance_",
-            suffix=".tmp",
-            dir=destination.parent,
-            delete=False,
-        ) as stream:
-            stream.write(content)
-            temporary_path = Path(stream.name)
-        os.link(temporary_path, destination)
-    except FileExistsError:
-        return False
-    finally:
-        if temporary_path is not None:
-            temporary_path.unlink(missing_ok=True)
-    return True
-
-
-async def _discard_attendance_photo(destination: Path) -> None:
-    with CancelScope(shield=True):
-        await to_thread.run_sync(destination.unlink, True)
-
-
 @router.post("/integration/photos/{device_key}/{external_person_id}")
 async def import_person_photo(
     device_key: str,
@@ -134,39 +103,7 @@ async def import_person_photo(
         raise HTTPException(400, "Photo body is empty")
     if len(content) > settings.ATTENDANCE_PHOTO_MAX_BYTES:
         raise HTTPException(413, "Photo is too large")
-    device = db.query(AttendanceDevice).filter(
-        AttendanceDevice.factory_code == (identity.factory_code if identity else _integration_factory()),
-        AttendanceDevice.device_key == device_key,
-    ).one_or_none()
-    if not device:
-        raise HTTPException(404, "Attendance device not found")
-    if identity is not None and device.id != identity.id:
-        raise HTTPException(403, "Connector token does not belong to this attendance device")
-    person = db.query(AttendancePerson).filter(
-        AttendancePerson.device_id == device.id,
-        AttendancePerson.external_person_id == external_person_id,
-    ).one_or_none()
-    if not person:
-        raise HTTPException(404, "Attendance person not found")
-    converted = await to_thread.run_sync(convert_image_to_webp, content)
-    digest = hashlib.sha256(converted.data).hexdigest()
-    if person.photo_sha256 == digest and person.photo_file_name:
-        return {"updated": False, "photo_sha256": digest}
-    file_name = f"{device.id}_{person.id}_{digest[:20]}.webp"
-    destination = Path(settings.ATTENDANCE_PHOTOS_DIR) / file_name
-    created = await to_thread.run_sync(_write_new_attendance_photo, destination, converted.data)
-    try:
-        person.photo_file_name = file_name
-        person.photo_sha256 = digest
-        db.commit()
-    except BaseException:
-        try:
-            db.rollback()
-        finally:
-            if created:
-                await _discard_attendance_photo(destination)
-        raise
-    return {"updated": True, "photo_sha256": digest}
+    return await attendance_service.import_person_photo(device_key, external_person_id, content, db, identity)
 
 
 def _day_bounds(day: date) -> tuple[datetime, datetime]:
