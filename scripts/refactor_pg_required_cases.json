@@ -433,6 +433,14 @@
         "test_pg_duplicate_package_scan_waits_on_first_parent_lock",
         "test_pg_scan_deferred_commit_abort_preserves_evidence_then_retry"
       ]
+    },
+    "test_waste_manual_create_commit_postgres": {
+      "revision": "4de79e914aad3094f6f455e1fd1af0697b37b882",
+      "git_blob_sha256": "1ea26b77d08cb07fb4b8c5ef632777fc1d312320808dc7ce310303b32ad71633",
+      "selected_functions": [
+        "test_pg_manual_create_commit_abort_rolls_back_then_retry",
+        "test_pg_unicode_create_and_all_typed_status_filters_round_trip"
+      ]
     }
   },
   "cases": {
@@ -1033,6 +1041,10 @@
       "test_pg_scan_expected_unexpected_package_and_refusals",
       "test_pg_duplicate_package_scan_waits_on_first_parent_lock",
       "test_pg_scan_deferred_commit_abort_preserves_evidence_then_retry"
+    ],
+    "test_waste_manual_create_commit_postgres": [
+      "test_pg_manual_create_commit_abort_rolls_back_then_retry",
+      "test_pg_unicode_create_and_all_typed_status_filters_round_trip"
     ]
   },
   "isolated_supplemental_cases": [
