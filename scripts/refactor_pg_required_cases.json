@@ -236,6 +236,16 @@
         "test_pg_canonical_scope_accepted"
       ]
     },
+    "test_item_delete_postgres": {
+      "revision": "cdf676c5483f431869d533bbd631b469d8996786",
+      "git_blob_sha256": "7b3f36bec2139678ea782511edb2459ca19b3bf4c77dd6e9e79111890d868c2a",
+      "selected_functions": [
+        "test_pg_delete_and_archive_share_session_and_preserve_audit",
+        "test_pg_actual_audit_finalization_failure_rolls_back",
+        "test_pg_unchecked_direct_reference_rejects_delete_atomically",
+        "test_pg_reference_insert_after_link_check_rolls_back_delete"
+      ]
+    },
     "test_shipment_reopen_invoice_postgres": {
       "revision": "bb00ca3921404fe8482f774752ee0d05db45c180",
       "git_blob_sha256": "e03a4da9b9da696ede2f908fa9a5b1f6d95fdad17fd77c310167c2950cd24f97",
@@ -479,6 +489,19 @@
       "test_pg_bounded_concurrent_independent_and_duplicate_values[False]",
       "test_pg_canonical_scope_accepted[standard-standard]",
       "test_pg_canonical_scope_accepted[usluga-eco]"
+    ],
+    "test_item_delete_postgres": [
+      "test_pg_delete_and_archive_share_session_and_preserve_audit[False]",
+      "test_pg_delete_and_archive_share_session_and_preserve_audit[True]",
+      "test_pg_actual_audit_finalization_failure_rolls_back[False]",
+      "test_pg_actual_audit_finalization_failure_rolls_back[True]",
+      "test_pg_unchecked_direct_reference_rejects_delete_atomically[False-reservation]",
+      "test_pg_unchecked_direct_reference_rejects_delete_atomically[False-manual_issue]",
+      "test_pg_unchecked_direct_reference_rejects_delete_atomically[False-forecast]",
+      "test_pg_unchecked_direct_reference_rejects_delete_atomically[True-reservation]",
+      "test_pg_unchecked_direct_reference_rejects_delete_atomically[True-manual_issue]",
+      "test_pg_unchecked_direct_reference_rejects_delete_atomically[True-forecast]",
+      "test_pg_reference_insert_after_link_check_rolls_back_delete"
     ],
     "test_shipment_reopen_invoice_postgres": [
       "test_pg_shipment_reopen_finance_participant_same_session_and_no_early_commit",
