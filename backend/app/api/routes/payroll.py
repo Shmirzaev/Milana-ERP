@@ -19,7 +19,7 @@ from app.core.deps import DbSession, require_permissions, is_admin, user_permiss
 from app.core.dt import as_utc, utcnow
 from app.core.model_search import normalized_model_code_column, normalized_model_code_pattern
 from app.core.order_reference import (
-    canonical_order_reference, order_reference_contains, order_reference_variants, resolve_order_id,
+    canonical_order_reference, order_reference_variants, resolve_order_id,
 )
 from app.schemas import (
     Bundle,
@@ -101,6 +101,11 @@ from app.models.people.payroll_service import (
     _serialize_record as _serialize_record,
     _to_int as _to_int,
     _to_text as _to_text,
+)
+
+from app.models.people.payroll_service import (
+    _payroll_order_reference_match as _payroll_order_reference_match,
+    _payroll_order_reference_variants as _payroll_order_reference_variants,
 )
 
 router = APIRouter(prefix="/payroll", tags=["payroll"])
@@ -285,16 +290,8 @@ def _legacy_payroll_dedupe_keys(db, data: dict[str, Any]) -> set[str]:
     }
 
 
-def _payroll_order_reference_variants(db, reference: str) -> set[str]:
-    # Historical factory SO display aliases now identify actual PO references.
-    # Either payroll field may hold that old displayed value; don't infer type
-    # merely from which denormalized snapshot column contains it.
-    return order_reference_variants(db, "SO", reference) | order_reference_variants(db, "PO", reference) | {reference}
 
 
-def _payroll_order_reference_match(db, column, namespace: str, pattern: str):
-    variants = _payroll_order_reference_variants(db, pattern.strip("%"))
-    return or_(order_reference_contains(column, pattern), column.in_(variants))
 
 
 def _parse_compact_payload(raw: str) -> dict[str, Any] | None:
@@ -1278,75 +1275,7 @@ def order_qr_status_orders(
     search: str | None = None,
     limit: int = 50,
 ):
-    qry = db.query(
-        PayrollQrLabel.sales_order_no,
-        PayrollQrLabel.production_no,
-        PayrollQrLabel.model_code,
-        func.count(PayrollQrLabel.id),
-        func.max(PayrollQrLabel.issued_at),
-    ).filter(
-        PayrollQrLabel.factory_code == selected_factory_code(current),
-        PayrollQrLabel.status != "superseded",
-        or_(
-            PayrollQrLabel.sales_order_no.isnot(None),
-            PayrollQrLabel.production_no.isnot(None),
-        ),
-    )
-    needle = (search or "").strip()
-    if needle:
-        pattern = f"%{needle}%"
-        qry = qry.filter(or_(
-            _payroll_order_reference_match(db, PayrollQrLabel.sales_order_no, "SO", pattern),
-            _payroll_order_reference_match(db, PayrollQrLabel.production_no, "PO", pattern),
-        ))
-    rows = (
-        qry.group_by(
-            PayrollQrLabel.sales_order_no,
-            PayrollQrLabel.production_no,
-            PayrollQrLabel.model_code,
-        )
-        .order_by(func.max(PayrollQrLabel.issued_at).desc())
-        .limit(500)
-        .all()
-    )
-    grouped: dict[str, dict[str, Any]] = {}
-    for sales_no, production_no, model_code, label_count, latest_at in rows:
-        order_key = str(sales_no or production_no or "").strip()
-        if not order_key:
-            continue
-        current = grouped.setdefault(order_key, {
-            "order_no": order_key,
-            "sales_order_nos": set(),
-            "production_nos": set(),
-            "model_codes": set(),
-            "label_count": 0,
-            "latest_at": latest_at,
-        })
-        if sales_no:
-            current["sales_order_nos"].add(str(sales_no))
-        if production_no:
-            current["production_nos"].add(str(production_no))
-        if model_code:
-            current["model_codes"].add(str(model_code))
-        current["label_count"] += int(label_count or 0)
-        if latest_at and (not current["latest_at"] or latest_at > current["latest_at"]):
-            current["latest_at"] = latest_at
-    ordered = sorted(
-        grouped.values(),
-        key=lambda row: row["latest_at"].timestamp() if row["latest_at"] else 0,
-        reverse=True,
-    )
-    safe_limit = max(1, min(limit, 100))
-    return [
-        {
-            "order_no": row["order_no"],
-            "sales_order_nos": sorted(row["sales_order_nos"]),
-            "production_nos": sorted(row["production_nos"]),
-            "model_codes": sorted(row["model_codes"]),
-            "label_count": row["label_count"],
-        }
-        for row in ordered[:safe_limit]
-    ]
+    return payroll_service.order_qr_status_orders(db, current, search, limit)
 
 
 @router.get("/reports/order-qr-status", response_model=OrderQrStatusOut)
