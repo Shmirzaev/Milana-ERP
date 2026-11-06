@@ -5,7 +5,7 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import event
 
-from app.core.security import verify_password
+from app.core.security import create_access_token, verify_password
 from app.schemas import AuditLog, PasswordResetToken, Role, User
 from app.tests.test_auth_login_characterization import login_database as login_database
 from app.tests.test_identity_admin_role_list import identity_admin as identity_admin
@@ -86,6 +86,26 @@ def test_admin_password_rotates_cutoff_and_unused_reset_links_in_same_commit(ide
         assert tokens[1].used_at.replace(tzinfo=timezone.utc) == used_at
         audit = db.query(AuditLog).filter_by(entity_type='User', entity_id=target).one()
         assert audit.new_value_json == {'credential_changed': True, 'reset_links_invalidated': True}
+
+
+def test_password_change_rejects_old_bearer_and_accepts_new_bearer(identity_admin):
+    h = identity_admin
+    target, old_headers = h.actors['ordinary']
+    with h.db() as db:
+        user = db.get(User, target)
+        assert user.tokens_valid_from is None
+        before = (user.is_active, user.factory_code, user.role_id, user.extra_permissions)
+    assert h.client.get('/api/roles', headers=old_headers).status_code == 200
+    response = patch(h, 'manager', 'ordinary', {'password': PASSWORD})
+    assert response.status_code == 200, response.text
+    with h.db() as db:
+        user = db.get(User, target)
+        assert user.tokens_valid_from is not None
+        assert (user.is_active, user.factory_code, user.role_id, user.extra_permissions) == before
+    response = h.client.get('/api/roles', headers=old_headers)
+    assert (response.status_code, response.json()) == (401, {'detail': 'Token expired, please sign in again'})
+    fresh_headers = {'Authorization': 'Bearer ' + create_access_token(target, {'factory_code': 'MIL'})}
+    assert h.client.get('/api/roles', headers=fresh_headers).status_code == 200
 
 
 def test_super_admin_changes_factory_and_revokes_old_session(identity_admin):
