@@ -28,7 +28,7 @@ export default function FabricScansPage() {
   const input = useRef<HTMLInputElement>(null);
   const queue = useRef(Promise.resolve());
   const pending = useRef(0);
-  const scanTimer = useRef<ReturnType<typeof setTimeout>>();
+  const scanTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(scanTimer.current), []);
   const permitted = me?.factory_code !== "BST" && can(me, ...FABRIC_REPORT_PERMISSIONS);
   const canScan = permitted && can(me, ...FABRIC_SCAN_PERMISSIONS);

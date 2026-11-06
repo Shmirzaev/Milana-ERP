@@ -76,6 +76,7 @@ from app.schemas import (
 )
 from app.schemas.inventory import item_persistence
 from app.schemas.inventory import stock_movement_persistence
+from app.schemas.inventory import batch_restore_persistence
 from app.schemas.inventory import stock_receipt_persistence
 from app.schemas.inventory import warehouse_persistence
 from app.schemas.inventory.eco_transfer import EcoFabricRoll
@@ -274,7 +275,7 @@ def update_item_image(db, item_id: int, payload, current: User) -> Item:
     if not it:
         raise HTTPException(404, "Item not found")
     old_value = {"image_url": it.image_url}
-    it.image_url = _validate_item_image_url(payload.image_url)
+    item_persistence.set_item_image(db, it, _validate_item_image_url(payload.image_url))
     log_action(db, current, "update_image", "Item", it.id, old_value=old_value, new_value={"image_url": it.image_url})
     db.commit(); db.refresh(it)
     return it
@@ -345,7 +346,7 @@ def delete_item(db, item_id: int, current: User, force: bool = False) -> bool:
         raise HTTPException(409, "Item is linked to stock, BOM, purchasing, or waste records")
     if linked:
         old_value = {"sku": it.sku, "name": it.name, "is_active": it.is_active}
-        it.is_active = False
+        item_persistence.archive_item(db, it)
         log_action(
             db,
             current,
@@ -357,7 +358,7 @@ def delete_item(db, item_id: int, current: User, force: bool = False) -> bool:
         )
         db.commit()
         return True
-    db.delete(it)
+    item_persistence.delete_item(db, it)
     log_action(db, current, "delete", "Item", item_id, new_value={"sku": it.sku, "name": it.name})
     db.commit()
     return False
@@ -1352,6 +1353,7 @@ def restore_material_batch(db, batch_id: int, payload: StockBatchRestoreIn, curr
     batch = db.execute(
         select(StockBatch).options(lazyload(StockBatch.item))
         .where(StockBatch.id == batch_id).with_for_update(of=StockBatch)
+        .execution_options(populate_existing=True)
     ).scalar_one_or_none()
     if not batch:
         raise HTTPException(404, "Stock batch not found")
@@ -1380,18 +1382,7 @@ def restore_material_batch(db, batch_id: int, payload: StockBatchRestoreIn, curr
     }
     # The user confirms physical stock, not a rollback of historical consumption.
     # Past receipts, usage and released/consumed reservations remain unchanged.
-    batch.quantity = payload.quantity
-    batch.archived_at = None
-    batch.archived_by = None
-    batch.qc_status = "pending"
-    batch.roll_weights_kg = []
-    batch.roll_lengths_m = []
-    batch.piece_count = None
-    db.add(StockMovement(
-        movement_type="return", item_id=batch.item_id, batch_id=batch.id,
-        to_warehouse_id=batch.warehouse_id, quantity=payload.quantity, unit=batch.unit,
-        reference_type="StockBatchRestore", reference_id=batch.id, created_by=current.id,
-    ))
+    batch_restore_persistence.restore_material_batch(db, batch, quantity=payload.quantity, user_id=current.id)
     log_action(db, current, "restore", "StockBatch", batch.id, old_value=old_value, new_value={
         "quantity": float(payload.quantity), "reason": reason, "qc_status": "pending",
         "physical_stock_confirmed": True, "history_preserved": True,

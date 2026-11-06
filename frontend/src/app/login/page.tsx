@@ -8,6 +8,8 @@ import BrandLogo from "@/components/BrandLogo";
 
 const LANGS: Lang[] = ["en", "ru", "uz"];
 const SHORT: Record<Lang, string> = { en: "EN", ru: "RU", uz: "UZ" };
+const UZ_MONTHS = ["yanvar", "fevral", "mart", "aprel", "may", "iyun", "iyul", "avgust", "sentabr", "oktabr", "noyabr", "dekabr"];
+const UZ_WEEKDAYS = ["yakshanba", "dushanba", "seshanba", "chorshanba", "payshanba", "juma", "shanba"];
 
 type LoginPanel = {
   active_orders: number;
@@ -34,6 +36,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [factoryCode, setFactoryCode] = useState<"MIL" | "BST" | "ECO">("MIL");
   const [error, setError] = useState("");
+  const [passwordChanged, setPasswordChanged] = useState(false);
   const [forgotOpen, setForgotOpen] = useState(false);
   const [forgotEmail, setForgotEmail] = useState("");
   const [forgotMsg, setForgotMsg] = useState("");
@@ -42,6 +45,10 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [clientTz, setClientTz] = useState("UTC");
   const [now, setNow] = useState<Date | null>(null);
+
+  useEffect(() => {
+    setPasswordChanged(new URLSearchParams(window.location.search).get("password_changed") === "1");
+  }, []);
 
   useEffect(() => {
     try {
@@ -144,7 +151,7 @@ export default function LoginPage() {
   }
 
   const dateStr = now
-    ? new Intl.DateTimeFormat(
+    ? lang === "uz" ? `${now.getFullYear()}-yil ${now.getDate()}-${UZ_MONTHS[now.getMonth()]}, ${UZ_WEEKDAYS[now.getDay()]}` : new Intl.DateTimeFormat(
         locale,
         { day: "numeric", month: "long", year: "numeric", weekday: "long" }
       ).format(now)
@@ -247,7 +254,7 @@ export default function LoginPage() {
               {openTasks.length ? openTasks.map((row, idx) => (
                 <div key={`${row.title}-${idx}`} className="flex items-center gap-2 text-[11.5px] text-[#2c2920]">
                   <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ background: priorityColor(row.priority) }} />
-                  {row.title}
+                  {row.title === "Secure sign-in required" ? t("login.secureSignIn") : row.title}
                 </div>
               )) : (
                 <div className="text-[11.5px] text-[#8a8472]">{t("tasks.empty")}</div>
@@ -300,10 +307,11 @@ export default function LoginPage() {
             {t("login.signInTitle")}
           </h2>
           <p className="m-0 mb-8 text-sm text-[#56503f]">{t("login.subtitle")}</p>
+          {passwordChanged && <p role="status" className="mb-4 text-sm text-green-700">{t("page.profile.passwordUpdated")}</p>}
 
           <form onSubmit={onSubmit} className="flex flex-col gap-4" noValidate>
             <div>
-              <label className="label" htmlFor="login-factory">Factory</label>
+              <label className="label" htmlFor="login-factory">{t("common.factory")}</label>
               <select
                 id="login-factory"
                 className="input mt-1"

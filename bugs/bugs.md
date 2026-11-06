@@ -1,5 +1,115 @@
 # Team bug tracker — clone_main
 
+## UX-KEEP-DECISIONS-20261106 — behavior retained by Dilmurod
+
+- **Decision (Dilmurod, 6 Nov) · Keep · Work/Tasks.** “Everyone” assigns to all users, with no recipient limit.
+- **Decision (Dilmurod, 6 Nov) · Keep · Support/Settings.** Concurrent Settings edits use last save wins.
+- **Decision (Dilmurod, 6 Nov) · Keep · UI.** Native date picker remains in use.
+- **Decision (Dilmurod, 6 Nov) · Keep · Identity/Roles.** No Roles screen; role creation stays API-only for Super Admin.
+- **Decision (Dilmurod, 6 Nov) · Keep · Identity/Roles.** Any signed-in user may read the role list.
+
+## PERF37-CI-TIMING-20261106 — rate-store isolation timing test intermittently fails in hosted CI
+
+- **P3 · Flaky timing test, root cause unknown · Shared backend infrastructure · Owner: Dilmurod.** On [#485](https://github.com/Shmirzaev/Milana-ERP/pull/485), one hosted backend run measured a health p95 increase of 0.948 s over the 0.25 s limit under SQLite rate-store contention; its one rerun passed. The test passed 3/3 on current `clone_main` and 3/3 on #485 locally (about 11–12 s per run). #485 moves `/api/auth/me`'s existing last-seen update and single commit into the Identity service without adding a query or lock; the failing test exercises `/health` and OPTIONS, not `/api/auth/me`. Investigate hosted runner timing before changing the budget or runtime behavior. No production failure claimed.
+
+## CUT-INBOX-CI-FLAKE-20261106 — cutting search pagination test intermittently fails in hosted CI
+
+- **P3 · Flaky test, root cause unknown · Production/Cutting · Owner: Mirshoir.** On [#495](https://github.com/Shmirzaev/Milana-ERP/pull/495), one hosted backend run reported 63 instead of 3 matching cutting cards in `test_cutting_search_matches_displayed_fields_before_paging_and_keeps_latest_passport`; its one rerun passed. The same test passed 3/3 on current `clone_main` and 3/3 on #495 locally (about 9.1–9.3 s per run). Running attendance characterization tests immediately before it also passed (27 passed, 26 PostgreSQL-only skips). The attendance fixture resets SQLite state per test; no attendance-to-cutting data leak was reproduced. Investigate the hosted full-suite order and search query before changing Production behavior. No production failure claimed.
+
+## PEO-PAY-CREATE-20261106 — payroll extraction awaiting user browser acceptance
+
+- **USER BROWSER PENDING · People · Owner: Dilmurod; lead: Mirshoir (review delegated).** Payroll period/read stack and final three families are tracked in [task evidence](../docs/archive/payroll-create-2026-11-06/CONTINUATION.md). User explicitly owns browser checks and authorized one combined top-PR CI merge. Normal-routed QR44/adjustments24/records70 checks passed with zero skips; full combined payroll and hosted CI gates remain pending at this commit. Production acceptance remains unrecorded; no deployment.
+
+## IDN-ROLES-NO-SCREEN-20261105 — role creation has no screen
+
+- **P3 · Keep (Dilmurod, 6 Nov) · Identity/Roles · Owner: Dilmurod.** No Roles screen; roles can only be created via the API by a Super Admin.
+- Source: `W5_BROWSER_RESULTS_2026-11-05.md`, isolated #505 stack at localhost:19850, 5 November 2026. `/admin/roles` returned 404; roles appeared in the Admin → Users role dropdown. Existing behavior recorded for triage; no production occurrence or policy change claimed.
+
+## IDN-ROLE-LIST-ALL-SIGNED-IN-20261105 — full role permissions visible to signed-in users
+
+- **P3 · Keep (Dilmurod, 6 Nov) · Identity/Roles · Owner: Dilmurod.** Any signed-in user can read the full role list with permissions (GET /api/roles).
+- Source: `W5_BROWSER_RESULTS_2026-11-05.md`, isolated #505 stack at localhost:19850, 5 November 2026. Restricted account received 200 and the full list. Existing behavior retained; no production occurrence or authorization-policy change claimed.
+
+## IDN-PASSWORD-CHANGE-STALE-PROFILE-20261105 — Profile stays visible after password change
+
+- **P3 · Fix candidate in #537, awaiting browser and human acceptance · Identity/Profile UI · Owner: Dilmurod.** After a successful
+  password change, the session ends, but Profile stays on screen with “Password
+  updated.” until the next click or reload. It should say “Please sign in again”
+  and go to sign-in immediately. Observed in the isolated W1 connected-browser
+  run on the [#485 stack](https://github.com/Shmirzaev/Milana-ERP/pull/485):
+  password change returned 200, then `/api/auth/me` returned 401. Source:
+  `W1_BROWSER_RESULTS_2026-11-05.md`. This is a UI follow-up, not a change to
+  the password or session-invalidation contract; no production occurrence is claimed.
+
+## SUP-SETTINGS-NONADMIN-SILENT-403-20261105 — non-admin Settings controls and silent refusal
+
+- **P3 · Fix candidate in #537, awaiting browser and human acceptance · Support/Settings UI · Owner: Dilmurod.**
+  Non-admins see Settings Save buttons and the logo picker; a refused save shows
+  no error (API correctly returns 403). Observed in the 5 November W6 connected-
+  browser report, `W6_BROWSER_RESULTS_2026-11-05.md`, on the isolated #472/#477 copy.
+  Reload confirmed the attempted change did not persist. Record as a follow-up;
+  no application fix, production occurrence or extraction regression is claimed.
+
+## PEO-ORG-MANAGER-ARCHIVED-20261105 — org-unit Manager dropdown lists archived employees
+
+- **P3 · Fix candidate in #537, awaiting browser and human acceptance · People/Organization UI · Owner: Dilmurod.** The 5 November
+  W3 connected-browser check found archived “People archive target” in the
+  organization-unit Manager dropdown. Source: `W3_BROWSER_RESULTS_2026-11-05.md`,
+  isolated People copy; no production occurrence is claimed. Record as a separate
+  follow-up; the service-extraction PRs do not change the picker or fix this behavior.
+
+## WRK-TASK-ASSIGNEE-PICKER-20261105 — task assignee picker omits individual users
+
+- **P3 · Fix candidate in #536, awaiting browser and human acceptance · Work/Tasks UI · Owner: Dilmurod.** Tasks drawer says managers can assign to anyone, but the picker offers only Myself and Everyone; Management gets 403 on /api/users.
+- Reported in the isolated connected-browser W4 results dated 2026-11-05 on the [#467 stack](https://github.com/Shmirzaev/Milana-ERP/pull/467), localhost:19750. Existing behavior retained; no permission or application change, production occurrence, or fix acceptance is claimed.
+
+## PEO01-EMPLOYEE-SAVE-CONFIRMATION-20261105 — successful save has no confirmation
+
+- **P3 · Fix candidate in #537, awaiting browser and human acceptance · People/Employees UI · Dilmurod; reviewer Mirshoir.** In the
+  isolated connected-browser check for [#447](https://github.com/Shmirzaev/Milana-ERP/pull/447),
+  saving employee 74002 closed the form and showed the new row, but no success
+  message. Reload and profile readback confirmed the record and salary persisted.
+  Consider an accessible confirmation in a separate UI change; no production
+  occurrence or PEO-01 extraction failure is claimed.
+## CI-FINANCE-INVOICE-CONTRACT-20261105 — stale invoice/customer-payment contract tests
+
+- **P3 · Open · Owner: Ismail. Mirshoir FYI.** Quarantined `check-invoice-status-parity.mjs` and the eight named failures in `test-invoice-status-parity.mjs`. All cases still execute; a new failure name/signature fails CI. No Finance application or test code is fixed by this CI change.
+- Test/guard introduced at `bdfb167d` (26 October 2026). All eight first fail at **`dbe6ec94` (27 October 2026, 21:18:18 +09:00)**, which extracts the inline `PaymentStatus` into canonical `CustomerOrderPaymentStatus`. Historical replay on Node 24.22.2, UTC/en_US.UTF-8: parent `865445c78889bc0b4c55e5d3d15ae281a7cf0cd9` **22 passed / 0 failed**; `dbe6ec94` **14 passed / 8 failed**. History investigation completed within the ten-minute bound.
+- Assessment: **test appears stale**, rather than a demonstrated runtime regression. The distinct customer-payment vocabulary/values remain in their canonical type. The guard still demands the removed inline declaration, so several mutation tests fail before reaching their intended checks; the aggregate-payment mutation still replaces `payment_status: PaymentStatus`, now a no-op. Ismail decides the correction; no business-policy change is inferred. `decision pending Dilmurod` applies to quarantine follow-up scheduling, not permission to alter Ismail's contract.
+
+| Exact failing test | First failing source | Assessment |
+| --- | --- | --- |
+| the current real source satisfies the invoice contract | `dbe6ec94` | Stale guard/mutation after canonical type extraction; owner review pending |
+| a separate Sales-owned enum is allowed by the Finance guard | `dbe6ec94` | Stale guard/mutation after canonical type extraction; owner review pending |
+| Sales status cannot borrow InvoiceStatus | `dbe6ec94` | Stale guard/mutation after canonical type extraction; owner review pending |
+| Sales status cannot borrow InvoiceStatus \| string | `dbe6ec94` | Stale guard/mutation after canonical type extraction; owner review pending |
+| Sales status cannot borrow Readonly<InvoiceStatus> | `dbe6ec94` | Stale guard/mutation after canonical type extraction; owner review pending |
+| a local alias cannot disguise the invoice vocabulary as Sales status | `dbe6ec94` | Stale guard/mutation after canonical type extraction; owner review pending |
+| an import alias cannot disguise the invoice vocabulary as Sales status | `dbe6ec94` | Stale guard/mutation after canonical type extraction; owner review pending |
+| the aggregate payment projection must not use persisted invoice states | `dbe6ec94` | Stale guard/mutation after canonical type extraction; owner review pending |
+
+## CI-SEWING-PARTIAL-SIZE-CONTRACT-20261105 — pre-partial-size Sewing guard fails
+
+- **P3 · Open · Owner: Mirshoir.** `check-sewing-partial-size.mjs` fails on current `clone_main` `c5a0d2e4`: `Missing pre-partial-size sewing contract: t("field.inputQty")`. The guard's legacy source expectation is absent from the current Sewing screen. Whether the guard or screen should change is an owner decision; no production defect or fix is claimed. Recorded failure remains executed and reported in `frontend/scripts/node-test-quarantine.json`.
+
+## CI-HR-PAGINATION-MOCK-20261105 — HR pagination harness rejects dynamic import
+
+- **P3 · Open · Owner: Dilmurod.** `test-hr-employees-pagination.mjs` fails on unchanged `c5a0d2e4`: `Unexpected dependency: next/dynamic`. Its page-module mock has not adopted the current employee page dependency. Quarantined with that exact signature; no employee page or permission change in this PR.
+
+## CI-PAYROLL-ADJUSTMENT-SCHEMA-PATH-20261105 — payroll adjustment harness reads retired schema path
+
+- **P3 · Open · Owner: Dilmurod.** `test-payroll-adjustment-pagination.mjs` fails on unchanged `c5a0d2e4` with ENOENT for `backend/app/schemas/payroll.py`, retired by the schema namespace separation. Quarantined while still executed; owner must update the fixture path and validate the test, without altering payroll behavior in this CI PR.
+
+## CI-PAYROLL-OPTIONS-SCHEMA-PATH-20261105 — payroll employee-options harness reads retired schema path
+
+- **P3 · Open · Owner: Dilmurod.** `test-payroll-employee-options.mjs` fails on unchanged `c5a0d2e4` with ENOENT for `backend/app/schemas/payroll.py`. Quarantined with the exact missing-path signature; no payroll API or business rules changed. Ownership follows `docs/TEAM_OWNERSHIP.md` (People/payroll).
+
+## UI-FORECAST-MOBILE-20261104 — forecasting page overflows on phones
+
+- **Open · Forecasting UI · Ismail; reviewer Mirshoir. Human verification pending; not deployed.** On an isolated 390px phone viewport, the forecasting page expanded to 730px in EN, 835px in RU and 758px in UZ. Independent inspection identified the chart's visually hidden data table as the overflowing element; the visible chart already had a local horizontal scroll region.
+- Fix candidate `2caafd483f5690073eeeb5d33efe5e1fd803da8a` moves the visually hidden class to a containing wrapper while retaining the semantic table, caption, headers and values. On the fix-only isolated runtime, EN/RU/UZ document width measured 390px at a 390px viewport; chart and table containers reached both ends by programmatic scrolling, and chart values appeared in the accessibility snapshot. TypeScript passed. No business writes occurred.
+- Keep active for independent UI recheck, physical touch and keyboard scrolling, empty-chart and assistive-technology checks, full frontend build, and recorded human verification before deployment. This candidate is not production acceptance.
+
 ## REF350-INVOICE-REVERSAL-20261104 - Finance participant / remaining Shipment debt
 
 - **AI_VERIFIED_AWAITING_HUMAN for Finance participant; whole Shipment incomplete;
@@ -255,12 +365,15 @@ this update is not a new whole-register census or a production acceptance record
 
 ### UI-DASHBOARD-RESTRICTED-20261031 — restricted home shows unavailable work and New Order
 
-- **P2 · UI note, not a demonstrated permission bypass · Sales/home dashboard ·
+- **P3 · Watch; not a demonstrated permission bypass · Sales/home dashboard ·
   Ismail; reviewer Mirshoir; Production coordination Mirshoir and shared frontend
   coordination Dilmurod.** #314's `dashboard.view`-only account sees “Could not load
   active production” and New Order. Fresh isolated current `clone_main` `5bffd255`
   confirms active-production GET 403 and a valid New Order POST 403. All seven denied
   model/dashboard/order requests left model/order/image/audit snapshots unchanged.
+  The isolated connected-browser check for [#447](https://github.com/Shmirzaev/Milana-ERP/pull/447)
+  saw the same UI for a user without production permission; no production occurrence
+  or authorization bypass is claimed.
 - Sources: `frontend/src/app/(app)/page.tsx:135,284` fetches/renders these unconditionally;
   server guards `backend/app/api/routes/dashboards.py:93` and
   `backend/app/api/routes/sales.py:93` correctly refuse. Next: hide unavailable
@@ -467,7 +580,7 @@ Verified against remote `clone_main` at [`418d5215`](https://github.com/Shmirzae
 | --- | --- | --- |
 | **API02** | Dilmurod | Validate task states, dates and references; enforce permission/factory scope and reference locks. |
 | **SEC04** | Dilmurod | Reject disabled/revoked sessions downloading model files; release the authentication connection before streaming. This historical missing item was later merged through #309 as [`c0b1c618`](https://github.com/Shmirzaev/Milana-ERP/commit/c0b1c618a84a89ffde1e7e26a36b545dcadf65e3); human acceptance remains pending. |
-| **OPS05** | Dilmurod | Probe PostgreSQL and the required shared store within one bounded readiness deadline. |
+| **OPS05** | Dilmurod | Candidate probes PostgreSQL and the required shared store within one bounded deadline; merged-source verification pending. [Earlier evidence](../docs/archive/OPS05_READINESS_2026-10-26.md). |
 | **OPS06** | Dilmurod | Verify paired database/upload backup identities and missing, changed or extra files. |
 | **OPS08** | Dilmurod | Complete runtime/dependency hardening, token compatibility checks and fresh dependency/image security scans. |
 
@@ -684,11 +797,11 @@ The Tracking cells below retain the per-task assignments and history; refer to s
 
 | 51 | **FN07-HR-SALARY** | Employee salary values lack storage validation. | Reject nonfinite, negative and column-overflow employee salaries before create/update. | `B:api/routes/hr.py:21`; `15833133`, `dd03309c` | merged, awaiting acceptance · Dilmurod · [#271](https://github.com/Shmirzaev/Milana-ERP/pull/271) · [`b2adb84b`](https://github.com/Shmirzaev/Milana-ERP/commit/b2adb84bbbc9dd6af347e1699cbd99aa16fea93d) · [checklist](#acceptance-checklist-reference) |
 
-| 52 | **OPS05** | Readiness ignores a failed required shared store. | Probe PostgreSQL and required shared store under one bounded, single-flight readiness deadline. | `B:main.py:499`; `c275be7` | Open · Dilmurod |
+| 52 | **OPS05** | Readiness ignores a failed required shared store. | Probe PostgreSQL and required shared store under one bounded, single-flight readiness deadline. | `B:main.py`; donor `c275be7`; [candidate evidence](../docs/archive/OPS05_READINESS_2026-10-26.md) | Blocked · Dilmurod; gates 3/4 and review pending |
 
 | 53 | **OPS06** | Recovery tooling cannot verify paired database/upload backups. | Add paired DB/upload manifest verification for dump identity and missing/changed/extra files. | `scripts/storage_recovery_manifest.py (missing)`; `13f5994` | Open · Dilmurod |
 
-| 54 | **OPS08** | Runtime/dependency hardening from develop remains incomplete. | Review PyJWT/runtime migration; verify legacy tokens and run fresh dependency/built-image scans. | `B:core/security.py`; `frontend/Dockerfile`; `.github/workflows/ci.yml`; `06705b9`, `1896408`, `f288ada`, `f0a1536` | Open · Dilmurod · Pillow [#355](https://github.com/Shmirzaev/Milana-ERP/pull/355) merged as [`f4b77764`](https://github.com/Shmirzaev/Milana-ERP/commit/f4b777644cea36a6d461fc9542df77df584c8d33); awaiting acceptance. HMAC-only guard [#357](https://github.com/Shmirzaev/Milana-ERP/pull/357) remains draft; operator must confirm production `JWT_ALGORITHM` before it can proceed. PyJWT [#364](https://github.com/Shmirzaev/Milana-ERP/pull/364) remains draft, stacked on #357. Node 24 [#360](https://github.com/Shmirzaev/Milana-ERP/pull/360) and backend image [#362](https://github.com/Shmirzaev/Milana-ERP/pull/362) remain open. Legacy-token compatibility, fresh dependency/image scans, and the outstanding human decision remain pending. |
+| 54 | **OPS08** | Runtime/dependency hardening from develop remains incomplete. | Land #507's green scan gate, then release and obtain acceptance. | `B:core/security.py`; `frontend/Dockerfile`; `.github/workflows/ci.yml`; `06705b9`, `1896408`, `f288ada`, `f0a1536` | Open · Dilmurod · Every step has a PR: Next [#316](https://github.com/Shmirzaev/Milana-ERP/pull/316), Pillow [#355](https://github.com/Shmirzaev/Milana-ERP/pull/355), Node 24 [#360](https://github.com/Shmirzaev/Milana-ERP/pull/360) and backend image [#362](https://github.com/Shmirzaev/Milana-ERP/pull/362) merged; HMAC guard [#357](https://github.com/Shmirzaev/Milana-ERP/pull/357) and PyJWT [#364](https://github.com/Shmirzaev/Milana-ERP/pull/364) merged; development npm [#476](https://github.com/Shmirzaev/Milana-ERP/pull/476) merged as [`aa715870`](https://github.com/Shmirzaev/Milana-ERP/commit/aa715870ddfbfdcc9e575821ed5248204a546747); release scan gate [#507](https://github.com/Shmirzaev/Milana-ERP/pull/507) open. The six fixable HIGH bundled-npm findings are addressed by runtime-only removal in [#509](https://github.com/Shmirzaev/Milana-ERP/pull/509), merged as `e4c5b0ac`; #507 is retargeted to clone_main. The nightly schedule starts once the workflow reaches main; no setting changed. Shavkat confirmed production HS256 in both backend slots on 5 November; no signing key was recorded. #364 retains old→new and new→old HS256 compatibility evidence. #507's backend/frontend/refactor PR checks pass; the manual security-only baseline passed on its resolved head in [run 42078339287 attempt 2](https://github.com/Shmirzaev/Milana-ERP/actions/runs/42078339287/attempts/2) after attempt 1's artifact-upload ECONNRESET. The manual release job remains unrun. Shavkat's later `JWT_SECRET` rotation is separate. Review, release and human acceptance remain; no deployment claim. |
 
 | 55 | **OPS09-WEB** | Production scripts lack nonce CSP and reliable HTTPS headers. | Restore nonce CSP/layout and trusted HTTPS/HSTS handling; keep 1C retired. | `frontend/next.config.js:32`; `aa8fac1`, `f35a62e6`, `0ad74a69`, `4fee48be` | merged, awaiting acceptance · Dilmurod · [#277](https://github.com/Shmirzaev/Milana-ERP/pull/277) · [`fef59445`](https://github.com/Shmirzaev/Milana-ERP/commit/fef59445127fb61866e0fdb6d3c96b548f85f46f) · [checklist](#acceptance-checklist-reference) · Separate historical login formatter/hydration follow-up [#359](https://github.com/Shmirzaev/Milana-ERP/pull/359) merged as [`b80fe8d5`](https://github.com/Shmirzaev/Milana-ERP/commit/b80fe8d5ce66fa0bd8ee7b5d3d2928a83c8e7d40); human/operator acceptance remains pending. |
 

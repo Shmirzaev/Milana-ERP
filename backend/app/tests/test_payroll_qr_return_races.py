@@ -295,7 +295,7 @@ def test_postgres_qr_return_blocks_period_finalization(payroll_postgres_sessions
     return_holds_locks = Event()
     release_return = Event()
     pids = Queue()
-    original_log_action = payroll.log_action
+    original_log_action = payroll.payroll_records_service.log_action
 
     def pause_return_audit(db, current, action, *args, **kwargs):
         result = original_log_action(db, current, action, *args, **kwargs)
@@ -304,7 +304,7 @@ def test_postgres_qr_return_blocks_period_finalization(payroll_postgres_sessions
             assert release_return.wait(10), "QR return was not released"
         return result
 
-    monkeypatch.setattr(payroll, "log_action", pause_return_audit)
+    monkeypatch.setattr(payroll.payroll_records_service, "log_action", pause_return_audit)
 
     def finalize_period():
         with sessions() as db:

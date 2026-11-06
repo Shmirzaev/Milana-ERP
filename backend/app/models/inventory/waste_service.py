@@ -70,7 +70,7 @@ def create_waste(db, payload: WasteIn, current: User) -> WasteRecord:
 
 
 def receive_waste(db, wid: int, current: User) -> WasteRecord:
-    w = db.get(WasteRecord, wid)
+    w = db.query(WasteRecord).filter(WasteRecord.id == wid).with_for_update().populate_existing().first()
     if not w: raise HTTPException(404, "Waste record not found")
     if w.status != "recorded":
         raise HTTPException(400, f"Can't receive from status '{w.status}'")
