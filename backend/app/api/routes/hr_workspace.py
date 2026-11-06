@@ -234,13 +234,7 @@ def create_candidate(payload: CandidateIn, db: DbSession, current: User = HrUser
 
 @router.patch("/recruitment/{candidate_id}")
 def update_candidate(candidate_id: int, payload: CandidateIn, db: DbSession, current: User = HrUser):
-    factory = _factory(current)
-    row = db.query(HrRecruitmentCandidate).filter(HrRecruitmentCandidate.id == candidate_id, HrRecruitmentCandidate.factory_code == factory).first()
-    if not row: raise HTTPException(404, "Candidate not found")
-    _validate_candidate_links(payload, db, factory, candidate_id)
-    for key, value in payload.model_dump().items(): setattr(row, key, value)
-    log_action(db, current, "update", "HrRecruitmentCandidate", row.id, new_value={"stage": row.stage}); db.commit()
-    return {"id": row.id}
+    return hr_workspace_service.update_candidate(candidate_id, payload, db, current, audit=log_action)
 
 
 def _document_dict(row: HrEmployeeDocument, employee_name: str | None = None) -> dict:
