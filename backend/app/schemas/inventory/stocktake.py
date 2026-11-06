@@ -55,6 +55,25 @@ def delete_stocktake(db: Session, count: WarehouseStocktake, rows: Query) -> Non
     db.delete(count)
 
 
+def add_scan_row(db, *, stocktake_id, identity, package_id, category, snapshot):
+    """Add a scan-created row to the caller's transaction."""
+    row = WarehouseStocktakeRow(
+        stocktake_id=stocktake_id, identity=identity, package_id=package_id,
+        expected=False, category=category, snapshot=snapshot,
+    )
+    db.add(row)
+    return row
+
+
+def record_first_scan(db, row, *, snapshot, code, scanned_at, scanned_by):
+    """Persist first-scan evidence and expose the row ID before audit."""
+    row.scan_snapshot = snapshot
+    row.scan_code = code
+    row.scanned_at = scanned_at
+    row.scanned_by = scanned_by
+    db.flush()
+
+
 def freeze_stocktake_completion(
     db: Session, count: WarehouseStocktake, rows: list[WarehouseStocktakeRow],
     snapshots: dict, completed_at: datetime,
