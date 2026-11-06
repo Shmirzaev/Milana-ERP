@@ -560,7 +560,7 @@ Verified against remote `clone_main` at [`418d5215`](https://github.com/Shmirzae
 | --- | --- | --- |
 | **API02** | Dilmurod | Validate task states, dates and references; enforce permission/factory scope and reference locks. |
 | **SEC04** | Dilmurod | Reject disabled/revoked sessions downloading model files; release the authentication connection before streaming. This historical missing item was later merged through #309 as [`c0b1c618`](https://github.com/Shmirzaev/Milana-ERP/commit/c0b1c618a84a89ffde1e7e26a36b545dcadf65e3); human acceptance remains pending. |
-| **OPS05** | Dilmurod | Probe PostgreSQL and the required shared store within one bounded readiness deadline. |
+| **OPS05** | Dilmurod | Candidate probes PostgreSQL and the required shared store within one bounded deadline; merged-source verification pending. [Earlier evidence](../docs/archive/OPS05_READINESS_2026-10-26.md). |
 | **OPS06** | Dilmurod | Verify paired database/upload backup identities and missing, changed or extra files. |
 | **OPS08** | Dilmurod | Complete runtime/dependency hardening, token compatibility checks and fresh dependency/image security scans. |
 
@@ -777,7 +777,7 @@ The Tracking cells below retain the per-task assignments and history; refer to s
 
 | 51 | **FN07-HR-SALARY** | Employee salary values lack storage validation. | Reject nonfinite, negative and column-overflow employee salaries before create/update. | `B:api/routes/hr.py:21`; `15833133`, `dd03309c` | merged, awaiting acceptance · Dilmurod · [#271](https://github.com/Shmirzaev/Milana-ERP/pull/271) · [`b2adb84b`](https://github.com/Shmirzaev/Milana-ERP/commit/b2adb84bbbc9dd6af347e1699cbd99aa16fea93d) · [checklist](#acceptance-checklist-reference) |
 
-| 52 | **OPS05** | Readiness ignores a failed required shared store. | Probe PostgreSQL and required shared store under one bounded, single-flight readiness deadline. | `B:main.py:499`; `c275be7` | Open · Dilmurod |
+| 52 | **OPS05** | Readiness ignores a failed required shared store. | Probe PostgreSQL and required shared store under one bounded, single-flight readiness deadline. | `B:main.py`; donor `c275be7`; [candidate evidence](../docs/archive/OPS05_READINESS_2026-10-26.md) | Blocked · Dilmurod; gates 3/4 and review pending |
 
 | 53 | **OPS06** | Recovery tooling cannot verify paired database/upload backups. | Add paired DB/upload manifest verification for dump identity and missing/changed/extra files. | `scripts/storage_recovery_manifest.py (missing)`; `13f5994` | Open · Dilmurod |
 
