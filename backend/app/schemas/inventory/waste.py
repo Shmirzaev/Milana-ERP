@@ -74,3 +74,14 @@ def apply_disposal_approval(
     request.approved_by = approved_by
     request.approved_at = approved_at
     waste.status = WasteStatus.DISPOSAL_APPROVED.value
+
+
+def persist_disposal_rejection(
+    db: Session, request: WasteDisposalRequest, waste: WasteRecord,
+    actor_id: int, decided_at: datetime,
+) -> None:
+    """Apply a service-approved rejection in the caller's transaction."""
+    request.status = WasteDisposalRequestStatus.REJECTED.value
+    request.approved_by = actor_id
+    request.approved_at = decided_at
+    waste.status = WasteStatus.RECEIVED_BY_WASTE_DEPARTMENT.value
