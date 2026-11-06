@@ -443,10 +443,7 @@ def create_bundle(
     db.add(b)
     db.flush()
 
-    db.query(BusinessOrderAlias).filter(
-        BusinessOrderAlias.namespace == "BND", BusinessOrderAlias.reference == bundle_no,
-        BusinessOrderAlias.entity_id == 0,
-    ).update({BusinessOrderAlias.entity_id: b.id}, synchronize_session=False)
+    BusinessOrderAlias.link_reserved_bundle_reference(db, bundle_no, b.id)
 
     b.qr_code_url = bundle_qr_image_url(b.id)
     # also persist a barcode image for printing labels
@@ -474,16 +471,7 @@ def reserve_bundle_numbers(db: Session, count: int) -> list[str]:
         f"{prefix}-{number:0{width}d}"
         for number in range(start, start + count)
     ]
-    db.add_all([
-        BusinessOrderAlias(
-            namespace="BND",
-            entity_id=0,
-            reference=reference,
-            canonical_reference=reference,
-        )
-        for reference in references[1:]
-    ])
-    db.flush()
+    BusinessOrderAlias.reserve_bundle_references(db, references[1:])
     return references
 
 
