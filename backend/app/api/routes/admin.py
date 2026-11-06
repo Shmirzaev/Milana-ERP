@@ -1,40 +1,27 @@
-from datetime import datetime, time, timezone
+from datetime import datetime, time
 
 from pydantic import BaseModel
 from fastapi import APIRouter, BackgroundTasks, HTTPException
-from sqlalchemy import delete, update
-from sqlalchemy.exc import IntegrityError
 
 from app.core.config import settings
 from app.core.deps import (
-    SUPER_ADMIN_PERMISSION,
     DbSession,
     CurrentUser,
-    is_super_admin,
-    normalize_permissions,
     require_permissions,
     require_super_admin,
-    user_permissions,
 )
 from fastapi import Depends
-from app.core.security import normalize_email
-from app.db.base import Base
 from app.schemas import User, Department, AuditLog
-from app.models.factory_scope_service import normalize_factory_code
 from app.libs.dto.catalog.catalog import (
     UserIn, UserUpdate, UserOut, RoleIn, RoleOut, DepartmentIn, DepartmentOut,
 )
 from app.models.people import departments_service
-from app.models.credentials_service import apply_password_credential_change, lock_user_for_credential_change
-from app.models.audit_service import export_audit_hash_chain, log_action, verify_audit_hash_chain
+from app.models.audit_service import export_audit_hash_chain, verify_audit_hash_chain
 from app.models.password_reset_service import send_password_email_safely
 from app.db.reset_demo import reset_to_seed
-from app.core.permission_catalog import PERMISSION_CATALOG, PERMISSION_KEYS
-from app.models.factory_scope_service import FACTORY_CODES, available_factory_codes
-from app.models.identity.users_service import create_user as create_user_account, require_strong_password as _require_strong_password, list_users as list_identity_users, get_user as get_identity_user, update_user as update_identity_user, delete_user as delete_identity_user, _count_active_admins, _count_active_super_admins, _lock_active_user_memberships
+from app.models.identity.users_service import create_user as create_user_account, list_users as list_identity_users, get_user as get_identity_user, update_user as update_identity_user, delete_user as delete_identity_user
 from app.models.identity.access_service import (
-    get_access_catalog, preview_user_access as preview_identity_access, _access_subject, _user_access_values, _assert_policy_change,
-    _assert_can_grant_role, _assert_can_grant_permissions,
+    get_access_catalog, preview_user_access as preview_identity_access,
 )
 
 from app.models.identity.roles_service import (
