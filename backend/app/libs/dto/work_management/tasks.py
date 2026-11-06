@@ -6,6 +6,11 @@ from app.libs.dto.common import ORMModel
 from app.libs.enums.work_management import TaskPriority, TaskStatus
 
 
+class TaskAssigneeOption(BaseModel):
+    id: int
+    name: str
+
+
 def _reject_numeric_datetime(value):
     if isinstance(value, (int, float)) and not isinstance(value, bool):
         raise ValueError("date must be an ISO date or datetime")
