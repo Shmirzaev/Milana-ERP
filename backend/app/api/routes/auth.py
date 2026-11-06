@@ -3,13 +3,12 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, Response
 from fastapi.security import OAuth2PasswordRequestForm
 from typing import Annotated
 from fastapi import Depends
-from datetime import datetime, timezone
 from pydantic import BaseModel, EmailStr
 
 from app.core.config import settings
 from app.core.proxy_trust import client_ip, effective_request_scheme
 from app.core.deps import DbSession, CurrentUser, user_permissions
-from app.core.dt import as_utc, utcnow
+from app.core.dt import utcnow
 from app.core.shared_store import get_shared_counter_store
 from app.core.security import (
     create_access_token,
@@ -17,14 +16,13 @@ from app.core.security import (
     validate_password_strength,
     verify_password,
 )
-from app.schemas import User, PasswordResetToken
+from app.schemas import User
 from app.libs.dto.identity.auth import ForgotPasswordIn, LoginIn, LoginOk, ResetPasswordIn, TokenOut, UserMe
 from app.models.audit_service import log_action
 from app.models.credentials_service import apply_password_credential_change, lock_user_for_credential_change
 from app.models.factory_scope_service import assigned_factory_code, available_factory_codes, selected_factory_code
-from app.models.identity.authentication_service import auth_counter_store, login_user, request_password_reset, select_session_factory
+from app.models.identity.authentication_service import complete_password_reset, login_user, request_password_reset, select_session_factory
 from app.models.password_reset_service import (
-    password_reset_hash,
     send_password_email_safely,
 )
 
@@ -143,50 +141,7 @@ def forgot_password(payload: ForgotPasswordIn, db: DbSession, background_tasks: 
 @session_router.post("/reset-password")
 @router.post("/reset-password")
 def reset_password(payload: ResetPasswordIn, db: DbSession):
-    with auth_counter_store(get_shared_counter_store) as store:
-        store.ttl("auth:reset-completion")
-    if payload.new_password != payload.confirm_new_password:
-        raise HTTPException(400, "New passwords do not match")
-    try:
-        validate_password_strength(payload.new_password)
-    except ValueError as e:
-        raise HTTPException(400, str(e)) from e
-
-    token_hash = password_reset_hash(payload.token.strip())
-    user_id = db.query(PasswordResetToken.user_id).filter(PasswordResetToken.token_hash == token_hash).scalar()
-    if user_id is None:
-        raise HTTPException(400, "Invalid or expired reset link")
-
-    # Sibling links must serialize on the same account, not individual tokens.
-    # Re-read the token after acquiring the lock so a waiting reset observes the
-    # first reset's invalidation even if this session already loaded the token.
-    user = lock_user_for_credential_change(db, user_id, require_active=True)
-    reset_token = (
-        db.query(PasswordResetToken)
-        .filter(PasswordResetToken.token_hash == token_hash)
-        .populate_existing()
-        .first()
-    )
-    now = datetime.now(timezone.utc)
-    if (
-        not reset_token
-        or reset_token.used_at is not None
-        or as_utc(reset_token.expires_at) < now
-        or not user
-        or not user.is_active
-    ):
-        raise HTTPException(400, "Invalid or expired reset link")
-
-    apply_password_credential_change(db, user, payload.new_password, changed_at=now)
-    log_action(
-        db,
-        user,
-        "reset_password",
-        "User",
-        user.id,
-        new_value={"credential_changed": True, "reset_links_invalidated": True},
-    )
-    db.commit()
+    complete_password_reset(db, payload, get_shared_counter_store)
     return {"message": "password_reset"}
 
 
