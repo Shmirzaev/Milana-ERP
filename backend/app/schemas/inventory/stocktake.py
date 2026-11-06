@@ -4,6 +4,8 @@ from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, Uni
 from sqlalchemy.orm import Mapped, Query, Session, mapped_column
 
 from app.db.base import Base, PkMixin, TimestampMixin
+from app.libs.enums.stocktake import StocktakeCategory
+from app.libs.types.stocktake import StocktakeSnapshot
 
 
 class WarehouseStocktake(Base, PkMixin, TimestampMixin):
@@ -41,11 +43,11 @@ def add_stocktake(db: Session, *, request_key: str, title: str, created_by: int)
     return count
 
 
-def add_expected_stocktake_row(db: Session, *, stocktake_id: int, package_id: int, snapshot: dict) -> None:
+def add_expected_stocktake_row(db: Session, *, stocktake_id: int, package_id: int, snapshot: StocktakeSnapshot) -> None:
     """Record one count-start snapshot in the caller's session."""
     db.add(WarehouseStocktakeRow(
         stocktake_id=stocktake_id, identity=f"package:{package_id}",
-        package_id=package_id, expected=True, category="expected", snapshot=snapshot,
+        package_id=package_id, expected=True, category=StocktakeCategory.EXPECTED.value, snapshot=snapshot,
     ))
 
 
