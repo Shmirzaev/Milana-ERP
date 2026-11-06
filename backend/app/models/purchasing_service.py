@@ -14,8 +14,6 @@ from app.schemas import (
     PurchaseOrder,
     PurchaseRequest,
     SalesOrder,
-    StockBatch,
-    StockMovement,
     Supplier,
     User,
     Warehouse,
@@ -39,7 +37,11 @@ from app.models.material_rolls_service import normalize_material_roll_weights
 from app.models.numbering_service import next_purchase_order_no, next_purchase_request_no
 from app.models.planning_service import material_requirements_for_sales_order
 from app.models.workflow_service import notify_department
+from app.schemas.inventory.purchase_receipt_persistence import add_purchase_receipt_batch
+from app.schemas.inventory.stock_receipt_persistence import add_receive_movement
 from app.schemas.purchasing.purchase_order_persistence import (
+    apply_purchase_order_receipt_line,
+    apply_purchase_order_receipt_status,
     add_purchase_order_line_row,
     add_purchase_order_row,
     apply_purchase_request_conversion,
@@ -716,7 +718,8 @@ def receive_purchase_order(db: Session, *, order_id: int, data: PurchaseOrderRec
             piece_count=raw.get("piece_count"),
         )
 
-        batch = StockBatch(
+        batch = add_purchase_receipt_batch(
+            db,
             item_id=item.id,
             batch_no=batch_no,
             internal_batch_no=order.po_no,
@@ -741,11 +744,9 @@ def receive_purchase_order(db: Session, *, order_id: int, data: PurchaseOrderRec
             qc_status=(raw["qc_status"].value if isinstance(raw.get("qc_status"), StockBatchQcStatus)
                        else raw.get("qc_status") or StockBatchQcStatus.PASSED.value),
         )
-        db.add(batch)
-        db.flush()
 
-        movement = StockMovement(
-            movement_type="receive",
+        add_receive_movement(
+            db,
             item_id=item.id,
             batch_id=batch.id,
             to_warehouse_id=warehouse_id,
@@ -755,12 +756,11 @@ def receive_purchase_order(db: Session, *, order_id: int, data: PurchaseOrderRec
             reference_id=line.id,
             created_by=current.id,
         )
-        db.add(movement)
-        line.received_quantity = float(total_received)
-        if raw.get("cost_per_unit") is not None:
-            line.unit_cost = cost_per_unit
-        if not line.warehouse_id:
-            line.warehouse_id = warehouse_id
+        apply_purchase_order_receipt_line(
+            db, line, received_quantity=float(total_received),
+            unit_cost=cost_per_unit, update_cost=raw.get("cost_per_unit") is not None,
+            warehouse_id=warehouse_id,
+        )
 
         log_action(
             db,
@@ -798,7 +798,7 @@ def receive_purchase_order(db: Session, *, order_id: int, data: PurchaseOrderRec
     )
     new_status = "received" if close_order else _purchase_order_status(order)
     if new_status != old_status:
-        order.status = new_status
+        apply_purchase_order_receipt_status(db, order, status=PurchaseOrderStatus(new_status))
         new_value = {"status": new_status, "po_no": order.po_no}
         if close_order and remaining_quantity > 1e-9:
             new_value.update({
