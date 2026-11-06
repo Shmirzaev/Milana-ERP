@@ -27,11 +27,11 @@ import Flows from './src/app/(app)/sewing/flows/page';import Reports from './src
 import Scan from './src/app/(app)/bundles/scan/sewing/page';import Floor from './src/app/(app)/departments/[code]/page';import Order from './src/app/(app)/work-orders/[id]/sewing/page';
 const Page=window.testPath.includes('daily-report')?Reports:window.testPath.includes('bundles')?Scan:window.testPath.includes('departments')?Floor:window.testPath.includes('work-orders')?Order:Flows;
 createRoot(document.getElementById('root')).render(<Providers><Gate><Shell><Page/></Shell></Gate></Providers>);`;
-const built=await build({stdin:{contents:entry,resolveDir:root,loader:'tsx'},bundle:true,write:false,format:'iife',jsx:'automatic',plugins:[{name:'fixtures',setup(b){
+const built=await build({stdin:{contents:entry,resolveDir:root,loader:'tsx'},bundle:true,write:false,outfile:'fixture.js',format:'iife',jsx:'automatic',plugins:[{name:'fixtures',setup(b){
   b.onResolve({filter:/^(?:@\/|next\/)/},a=>a.path in stubs?{path:a.path,namespace:'fixtures'}:undefined);
   b.onLoad({filter:/.*/,namespace:'fixtures'},a=>({contents:stubs[a.path],loader:'tsx',resolveDir:root}));
 }}]});
-const css=(await postcss([tailwind(),autoprefixer()]).process(fs.readFileSync('src/app/globals.css','utf8'),{from:'src/app/globals.css'})).css;
+const css=(await postcss([tailwind(),autoprefixer()]).process(fs.readFileSync('src/app/globals.css','utf8'),{from:'src/app/globals.css'})).css + '\n' + built.outputFiles.filter(file=>file.path.endsWith('.css')).map(file=>file.text).join('\n');
 const job={id:41,work_order_id:81,production_order_id:71,production_batch_id:91,order_no:'PO-100',model:'1001-1',batch:'Kroy 1',quantity:100,reported_qty:40,actual_qty:0,top_qty:40,bottom_qty:40,line_finished:false,awaiting_final:false,finish_reason:null,status:'planned'};
 const work={...job,sewing_assignment_id:41,model_no:'1001',variant_no:'1',batch_no:'Kroy 1',planned_qty:100,completed_qty:0,remaining_qty:100,report_remaining_top_qty:60,report_remaining_bottom_qty:60};
 const me={id:9,name:'Band 1',sewing_band_id:64,factory_code:'ECO',available_factories:['ECO'],role:'Eco Band',permissions:['sewing.workspace','sewing.bundles','sewing.records'],access_configured:true};
@@ -47,7 +47,7 @@ try{
   async function load(options={}){
     await page.goto('http://localhost:3199/band-test');
     await page.evaluate(opts=>{Object.assign(window,opts);localStorage.setItem('erp_lang',opts.testLang||'en');},{calls:[],reads:[],navigations:[],me,testPath:'/sewing/flows?factory=ECO',bands:[{id:64,name:'1-Band',code:'ECO-01',jobs:[job]}],orders:[{...job,sewing_assignment_id:41,model_no:'1001',variant_no:'1',planned_output_qty:100,passed_qty:0,operation:'sewing'}],line:{sewing_flow_id:64,line_code:'ECO-01',line_name:'1-Band',active_work_orders:[work]},options:[{production_order_id:71,production_batch_id:91,model_id:1,order_no:'PO-100',model_code:'1001-1',batch_label:'Kroy 1',quantity:100,bundle_count:10}],...options});
-    await page.addStyleTag({content:css});await page.addScriptTag({content:built.outputFiles[0].text});await page.locator('main h1').waitFor();
+    await page.addStyleTag({content:css});await page.addScriptTag({content:built.outputFiles.find(file=>file.path.endsWith('.js')).text});await page.locator('main h1').waitFor();
     assert.equal(await page.locator('aside:visible nav a').count(),4);assert.equal(await page.locator('aside:visible img').count(),1);
     await page.waitForTimeout(100);
     assert.deepEqual(await page.evaluate(()=>window.reads.filter(url=>!url.startsWith('/api/sewing-bands')&&!url.startsWith('/api/sewing-daily-reports'))),[],'No unscoped reads while session identity resolves');
