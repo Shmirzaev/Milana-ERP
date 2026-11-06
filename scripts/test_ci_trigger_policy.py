@@ -48,11 +48,11 @@ class CITriggerPolicyTests(unittest.TestCase):
 
     def test_policy_regression_check_is_wired_into_both_workflows(self):
         for name in WORKFLOWS:
-            commands = [step.get("run", "") for job in workflow(name)["jobs"].values() for step in job["steps"]]
+            commands = [step.get("run", "") for job in workflow(name)["jobs"].values() for step in job.get("steps", [])]
             self.assertIn("python scripts/test_ci_trigger_policy.py", commands)
 
     def test_release_images_remain_manual_and_rollback_qa_keeps_its_separate_push(self):
-        self.assertEqual(workflow("ci.yml")["jobs"]["release"]["if"], "github.event_name == 'workflow_dispatch'")
+        self.assertEqual(workflow("ci.yml")["jobs"]["release"]["if"], "github.event_name == 'workflow_dispatch' && !inputs.security_scan_only")
         rollback = workflow("rollback-image-qa.yml")
         self.assertEqual(rollback["on"]["push"]["branches"], ["codex/pack-customer-fg-rollback-20261103"])
         self.assertNotIn("concurrency", rollback)
