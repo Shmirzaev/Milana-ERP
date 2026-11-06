@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import Response
-from sqlalchemy import String, cast, func, or_
+from sqlalchemy import or_
 
 from app.core.deps import DbSession, require_permissions, is_admin, user_permissions
 from app.core.dt import as_utc, utcnow
@@ -19,7 +19,6 @@ from app.core.order_reference import (
     order_reference_variants, resolve_order_id,
 )
 from app.schemas import (
-    Department,
     Employee,
     Model,
     PayrollAdjustment,
@@ -2769,69 +2768,7 @@ def list_payroll_employee_options(
     page_size: Annotated[int, Query(ge=1, le=50)] = 50,
     selected_id: Annotated[int | None, Query(ge=1)] = None,
 ):
-    factory_code = selected_factory_code(current)
-    normalized_search = search.strip()
-    terms = normalized_search.split()
-    query = db.query(
-        Employee.id,
-        Employee.full_name,
-        Employee.employee_no,
-        Employee.position,
-        Employee.department_id,
-        Department.code.label("department_code"),
-        Department.name.label("department_name"),
-    ).outerjoin(Department, Employee.department_id == Department.id).filter(
-        Employee.factory_code == factory_code,
-    )
-    for term in terms:
-        escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-        pattern = f"%{escaped}%"
-        query = query.filter(or_(
-            Employee.full_name.ilike(pattern, escape="\\"),
-            Employee.employee_no.ilike(pattern, escape="\\"),
-            Employee.position.ilike(pattern, escape="\\"),
-            Department.code.ilike(pattern, escape="\\"),
-            Department.name.ilike(pattern, escape="\\"),
-            cast(Employee.id, String).ilike(pattern, escape="\\"),
-        ))
-    rows = query.order_by(func.lower(Employee.full_name), Employee.employee_no, Employee.id).offset(
-        (page - 1) * page_size,
-    ).limit(page_size + 1).all()
-
-    def serialize(row):
-        return {
-            "id": int(row.id),
-            "full_name": row.full_name,
-            "employee_no": row.employee_no,
-            "position": row.position,
-            "department_id": row.department_id,
-            "department_code": row.department_code,
-            "department_name": row.department_name,
-        }
-
-    selected = None
-    if selected_id:
-        selected_row = db.query(
-            Employee.id,
-            Employee.full_name,
-            Employee.employee_no,
-            Employee.position,
-            Employee.department_id,
-            Department.code.label("department_code"),
-            Department.name.label("department_name"),
-        ).outerjoin(Department, Employee.department_id == Department.id).filter(
-            Employee.factory_code == factory_code,
-            Employee.id == selected_id,
-        ).first()
-        selected = serialize(selected_row) if selected_row else None
-    return {
-        "items": [serialize(row) for row in rows[:page_size]],
-        "selected": selected,
-        "page": page,
-        "page_size": page_size,
-        "search": normalized_search,
-        "has_more": len(rows) > page_size,
-    }
+    return payroll_service.list_payroll_employee_options(db, current, search, page, page_size, selected_id)
 
 
 
