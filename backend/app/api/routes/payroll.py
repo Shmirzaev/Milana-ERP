@@ -131,6 +131,12 @@ from app.models.people.payroll_service import (
     _sewing_salary_summary as _sewing_salary_summary,
 )
 
+from app.models.people.payroll_service import (
+    PAYROLL_EMPLOYEE_TOKEN_PREFIX as PAYROLL_EMPLOYEE_TOKEN_PREFIX,
+    _employee_qr_token as _employee_qr_token,
+    _employee_scan_payload as _employee_scan_payload,
+)
+
 router = APIRouter(prefix="/payroll", tags=["payroll"])
 
 # Payroll raw snapshots are retained and returned as open JSON objects. Keep
@@ -145,7 +151,6 @@ PAYROLL_RECORD_COMPONENT_MAX = Decimal("9999999999.9999")
 PAYROLL_RECORD_TOTAL_MAX = Decimal("999999999999.99")
 PAYROLL_ADJUSTMENT_MAX_AMOUNT = Decimal("999999999999.99")
 PAYROLL_WORK_UNITS = {"piece", "work_unit"}
-PAYROLL_EMPLOYEE_TOKEN_PREFIX = "1"
 
 
 
@@ -173,8 +178,6 @@ def _validated_record_total_amount(quantity: Decimal, rate: Decimal) -> Decimal:
 
 
 
-def _employee_qr_token(employee_id: int) -> str:
-    return _numeric_qr_token(PAYROLL_EMPLOYEE_TOKEN_PREFIX, employee_id)
 
 
 
@@ -1472,32 +1475,6 @@ def issue_qr_labels(
 
 
 
-def _employee_scan_payload(
-    employee: Employee, *, badge_id: str, source: str, db: DbSession,
-    departments: dict[int, Department] | None = None,
-) -> dict[str, Any]:
-    if employee.status == "archived":
-        raise HTTPException(404, "Employee not found")
-    department = (
-        departments.get(employee.department_id) if departments is not None
-        else db.get(Department, employee.department_id) if employee.department_id else None
-    )
-    department_name = None
-    if department:
-        department_name = f"{department.code} - {department.name}" if department.code else department.name
-    return {
-        "type": "employee_payroll",
-        "source": source,
-        "badge_id": badge_id,
-        "employee_id": employee.id,
-        "employee_no": employee.employee_no,
-        "user_id": employee.user_id,
-        "employee_name": employee.full_name,
-        "department_id": employee.department_id,
-        "department_name": department_name,
-        "position": employee.position,
-        "status": employee.status,
-    }
 
 
 @router.get("/employees/search")
@@ -1506,32 +1483,7 @@ def search_payroll_employees(
     q: str = Query(min_length=2, max_length=100),
     current: User = Depends(require_permissions("payroll.scan", "payroll.manage", "*")),
 ):
-    terms = q.strip().split()
-    if len(q.strip()) < 2:
-        return {"items": [], "has_more": False}
-    query = db.query(Employee, Department).outerjoin(Department, Employee.department_id == Department.id).filter(
-        Employee.factory_code == selected_factory_code(current),
-        Employee.status == "active",
-    )
-    for term in terms:
-        # Treat scanner/operator input literally, including SQL wildcard characters.
-        pattern = "%" + term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
-        query = query.filter(or_(
-            Employee.full_name.ilike(pattern, escape="\\"),
-            Employee.employee_no.ilike(pattern, escape="\\"),
-        ))
-    rows = query.order_by(func.lower(Employee.full_name), Employee.employee_no, Employee.id).limit(21).all()
-    departments = {department.id: department for _, department in rows if department is not None}
-    return {
-        "items": [
-            _employee_scan_payload(
-                employee, badge_id=employee.employee_no or _employee_qr_token(employee.id),
-                source="milana_erp_employee_search", db=db, departments=departments,
-            )
-            for employee, _ in rows[:20]
-        ],
-        "has_more": len(rows) > 20,
-    }
+    return payroll_service.search_payroll_employees(db, q, current)
 
 
 @router.get("/employees/resolve")

@@ -4,7 +4,7 @@ from decimal import Decimal, InvalidOperation
 import json
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
-from fastapi import HTTPException
+from fastapi import HTTPException, Query
 from sqlalchemy import String, and_, cast, func, or_
 from sqlalchemy.orm import load_only, object_session
 from app.core.dt import as_utc, utcnow
@@ -30,10 +30,12 @@ from app.libs.dto.people.payroll import (
     PayrollPeriodIn,
     PayrollPeriodUpdate,
 )
-from app.models.process_qr_export_service import ProcessQrExportIn, build_process_qr_xlsx
+from app.models.process_qr_export_service import ProcessQrExportIn
 from app.models.audit_service import log_action
-from app.models.factory_scope_service import require_factory_access, selected_factory_code
+from app.models.factory_scope_service import selected_factory_code
 from app.models.payroll_reports_service import ReportLanguage
+from app.models.process_qr_export_service import build_process_qr_xlsx
+from app.models.factory_scope_service import require_factory_access
 from app.models.payroll_reports_service import build_sewing_production_report_xlsx, build_sewing_salary_summary_xlsx
 from sqlalchemy import Date
 from app.schemas import SewingRecord
@@ -1451,3 +1453,66 @@ def sewing_production_report_excel(db: Session, current: User=None, lang: Report
 def export_process_qr_operations(payload: ProcessQrExportIn, current: User=None):
     require_factory_access(current, payload.factory)
     return build_process_qr_xlsx(payload)
+
+PAYROLL_EMPLOYEE_TOKEN_PREFIX = "1"
+
+
+def _employee_qr_token(employee_id: int) -> str:
+    return _numeric_qr_token(PAYROLL_EMPLOYEE_TOKEN_PREFIX, employee_id)
+
+
+def _employee_scan_payload(
+    employee: Employee, *, badge_id: str, source: str, db: Session,
+    departments: dict[int, Department] | None = None,
+) -> dict[str, Any]:
+    if employee.status == "archived":
+        raise HTTPException(404, "Employee not found")
+    department = (
+        departments.get(employee.department_id) if departments is not None
+        else db.get(Department, employee.department_id) if employee.department_id else None
+    )
+    department_name = None
+    if department:
+        department_name = f"{department.code} - {department.name}" if department.code else department.name
+    return {
+        "type": "employee_payroll",
+        "source": source,
+        "badge_id": badge_id,
+        "employee_id": employee.id,
+        "employee_no": employee.employee_no,
+        "user_id": employee.user_id,
+        "employee_name": employee.full_name,
+        "department_id": employee.department_id,
+        "department_name": department_name,
+        "position": employee.position,
+        "status": employee.status,
+    }
+
+
+def search_payroll_employees(db: Session, q: str=Query(min_length=2, max_length=100), current: User=None):
+    terms = q.strip().split()
+    if len(q.strip()) < 2:
+        return {"items": [], "has_more": False}
+    query = db.query(Employee, Department).outerjoin(Department, Employee.department_id == Department.id).filter(
+        Employee.factory_code == selected_factory_code(current),
+        Employee.status == "active",
+    )
+    for term in terms:
+        # Treat scanner/operator input literally, including SQL wildcard characters.
+        pattern = "%" + term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+        query = query.filter(or_(
+            Employee.full_name.ilike(pattern, escape="\\"),
+            Employee.employee_no.ilike(pattern, escape="\\"),
+        ))
+    rows = query.order_by(func.lower(Employee.full_name), Employee.employee_no, Employee.id).limit(21).all()
+    departments = {department.id: department for _, department in rows if department is not None}
+    return {
+        "items": [
+            _employee_scan_payload(
+                employee, badge_id=employee.employee_no or _employee_qr_token(employee.id),
+                source="milana_erp_employee_search", db=db, departments=departments,
+            )
+            for employee, _ in rows[:20]
+        ],
+        "has_more": len(rows) > 20,
+    }
