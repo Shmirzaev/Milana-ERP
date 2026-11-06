@@ -120,7 +120,8 @@ jobs:
           app/tests/test_rate_limit_scheduling.py::test_postgres_roster_lock_survives_concurrent_rate_store_workers
       - name: Backend regression suite
         working-directory: backend
-        run: python -m pytest -q
+        # This strict dual-engine suite runs in the approved-PG workflow instead.
+        run: python -m pytest -q --ignore=app/tests/test_readiness_operation_characterization.py
       - name: Purchasing approval PostgreSQL write boundary
         env:
           PUR_APPROVAL_PG_ADMIN_URL: postgresql://postgres@127.0.0.1:5432/postgres
