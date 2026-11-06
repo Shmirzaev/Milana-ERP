@@ -56,3 +56,9 @@ def add_disposal_request(
     waste.status = "pending_disposal_approval"
     db.flush()
     return request
+
+
+def mark_waste_disposed(db: Session, request: WasteDisposalRequest, waste: WasteRecord) -> None:
+    """Apply the already-authorized disposal using the caller's transaction."""
+    request.status = "disposed"
+    waste.status = "disposed"

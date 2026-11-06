@@ -18,7 +18,7 @@ from app.libs.dto.inventory.waste_sale_output import WasteSaleOut
 from app.models.audit_service import log_action
 from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response
 from app.schemas import Item, StockBatch, User, WasteDisposalRequest, WasteRecord, WasteSale
-from app.schemas.inventory.waste import add_disposal_request
+from app.schemas.inventory.waste import add_disposal_request, mark_waste_disposed
 
 
 def _unit_cost_for_waste(db, item_id: int | None, batch_id: int | None) -> float:
@@ -278,8 +278,7 @@ def mark_disposed(db, rid: int, current: User) -> WasteDisposalRequest:
     r, w = _disposal_request_for_update(db, rid)
     if r.status != "approved": raise HTTPException(400, "Disposal not approved yet")
     _require_disposal_waste(w, "disposal_approved")
-    r.status = "disposed"
-    w.status = "disposed"
+    mark_waste_disposed(db, r, w)
     log_action(db, current, "mark_disposed", "WasteDisposalRequest", r.id)
     db.commit(); db.refresh(r)
     return r
