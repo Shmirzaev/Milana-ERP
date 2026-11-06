@@ -36,6 +36,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [factoryCode, setFactoryCode] = useState<"MIL" | "BST" | "ECO">("MIL");
   const [error, setError] = useState("");
+  const [passwordChanged, setPasswordChanged] = useState(false);
   const [forgotOpen, setForgotOpen] = useState(false);
   const [forgotEmail, setForgotEmail] = useState("");
   const [forgotMsg, setForgotMsg] = useState("");
@@ -44,6 +45,10 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [clientTz, setClientTz] = useState("UTC");
   const [now, setNow] = useState<Date | null>(null);
+
+  useEffect(() => {
+    setPasswordChanged(new URLSearchParams(window.location.search).get("password_changed") === "1");
+  }, []);
 
   useEffect(() => {
     try {
@@ -302,6 +307,7 @@ export default function LoginPage() {
             {t("login.signInTitle")}
           </h2>
           <p className="m-0 mb-8 text-sm text-[#56503f]">{t("login.subtitle")}</p>
+          {passwordChanged && <p role="status" className="mb-4 text-sm text-green-700">{t("page.profile.passwordUpdated")}</p>}
 
           <form onSubmit={onSubmit} className="flex flex-col gap-4" noValidate>
             <div>

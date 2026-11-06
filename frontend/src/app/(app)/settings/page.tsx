@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import useSWR from "swr";
 
 import { api, fetcher } from "@/lib/api";
+import { can, useMe } from "@/lib/auth";
 import PageHeader from "@/components/PageHeader";
 import { useT } from "@/lib/i18n";
 import { numberOrFallback, parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
@@ -21,24 +22,27 @@ const DEFAULTS: SettingsPayload = {
   preferences: { default_language: "en", timezone: "UTC", model_types: ["Dress", "Top", "Skirt", "Pants", "Outerwear"], require_material_reservation_before_cutting: false },
 };
 
-function Section({ title, children, footer }: { title: string; children: React.ReactNode; footer: React.ReactNode }) {
+function Section({ title, children, footer, readOnly }: { title: string; children: React.ReactNode; footer?: React.ReactNode; readOnly: boolean }) {
   return (
     <section className="card p-4">
       <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-[#56503f]">{title}</h2>
-      <div className="space-y-3">{children}</div>
-      <div className="mt-4 flex items-center justify-end gap-2 border-t border-[#ecebe3] pt-3">{footer}</div>
+      <fieldset disabled={readOnly} className="space-y-3">{children}</fieldset>
+      {footer && <div className="mt-4 flex items-center justify-end gap-2 border-t border-[#ecebe3] pt-3">{footer}</div>}
     </section>
   );
 }
 
 export default function SettingsPage() {
   const { t } = useT();
+  const { me } = useMe();
+  const canEdit = can(me, "*");
   const { data, mutate } = useSWR<SettingsPayload>("/api/settings", fetcher);
   const [company, setCompany] = useState(DEFAULTS.company_info);
   const [financial, setFinancial] = useState<FinancialForm>(DEFAULTS.financial);
   const [preferences, setPreferences] = useState(DEFAULTS.preferences);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saved, setSaved] = useState("");
+  const [saveError, setSaveError] = useState("");
   const [logoFile, setLogoFile] = useState<File | null>(null);
 
   useEffect(() => {
@@ -81,22 +85,27 @@ export default function SettingsPage() {
 
   async function save(section: keyof SettingsPayload) {
     setSaved("");
+    setSaveError("");
     if (!validate(section)) return;
-    const payload =
+    try {
+      const payload =
       section === "company_info"
         ? { ...company, logo_url: await uploadLogoIfNeeded() }
         : section === "financial"
           ? { ...financial, fiscal_year_start_month: numberOrFallback(financial.fiscal_year_start_month, DEFAULTS.financial.fiscal_year_start_month) }
           : preferences;
-    await api.patch(`/api/settings/${section}`, payload);
-    setSaved(t("page.settings.sectionSaved", { section: t(
+      await api.patch(`/api/settings/${section}`, payload);
+      setSaved(t("page.settings.sectionSaved", { section: t(
       section === "company_info"
         ? "page.settings.companyInfo"
         : section === "financial"
           ? "page.settings.financialSettings"
           : "page.settings.systemPreferences",
-    ) }));
-    mutate();
+      ) }));
+      mutate();
+    } catch (error) {
+      setSaveError((error as Error).message);
+    }
   }
 
   return (
@@ -105,52 +114,56 @@ export default function SettingsPage() {
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
         <Section
           title={t("page.settings.companyInfo")}
-          footer={<button className="btn btn-primary" onClick={() => save("company_info")}>{t("common.save")}</button>}
+          readOnly={!canEdit}
+          footer={canEdit && <button className="btn btn-primary" onClick={() => save("company_info")}>{t("common.save")}</button>}
         >
-          <div><label className="label">{t("common.name")}</label><input className="input" value={company.name} onChange={(e) => setCompany({ ...company, name: e.target.value })} /></div>
+          <div><label className="label">{t("common.name")}</label><input className="input" readOnly={!canEdit} value={company.name} onChange={(e) => setCompany({ ...company, name: e.target.value })} /></div>
           {errors.company_name && <div className="text-xs text-red-600">{errors.company_name}</div>}
-          <div>
+          {canEdit && <div>
             <span className="label">{t("field.logo")}</span>
             <input id="company-logo-file" className="sr-only" type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={(e) => setLogoFile(e.target.files?.[0] || null)} />
             <label htmlFor="company-logo-file" className="btn mt-1 cursor-pointer">{t("page.settings.chooseLogo")}</label>
             <span className="ml-2 text-sm">{logoFile?.name || t("page.settings.noLogoSelected")}</span>
-          </div>
+          </div>}
           {company.logo_url && <img src={company.logo_url} alt={t("page.settings.companyLogo")} className="h-12 w-12 rounded-md border border-[#ecebe3] object-contain" />}
-          <div><label className="label">{t("field.address")}</label><input className="input" value={company.address || ""} onChange={(e) => setCompany({ ...company, address: e.target.value })} /></div>
-          <div><label className="label">{t("field.phone")}</label><input className="input" value={company.phone || ""} onChange={(e) => setCompany({ ...company, phone: e.target.value })} /></div>
-          <div><label className="label">{t("field.email")}</label><input className="input" type="email" value={company.email || ""} onChange={(e) => setCompany({ ...company, email: e.target.value })} /></div>
+          <div><label className="label">{t("field.address")}</label><input className="input" readOnly={!canEdit} value={company.address || ""} onChange={(e) => setCompany({ ...company, address: e.target.value })} /></div>
+          <div><label className="label">{t("field.phone")}</label><input className="input" readOnly={!canEdit} value={company.phone || ""} onChange={(e) => setCompany({ ...company, phone: e.target.value })} /></div>
+          <div><label className="label">{t("field.email")}</label><input className="input" readOnly={!canEdit} type="email" value={company.email || ""} onChange={(e) => setCompany({ ...company, email: e.target.value })} /></div>
           {errors.company_email && <div className="text-xs text-red-600">{errors.company_email}</div>}
         </Section>
 
         <Section
           title={t("page.settings.financialSettings")}
-          footer={<button className="btn btn-primary" onClick={() => save("financial")}>{t("common.save")}</button>}
+          readOnly={!canEdit}
+          footer={canEdit && <button className="btn btn-primary" onClick={() => save("financial")}>{t("common.save")}</button>}
         >
-          <div><label className="label">{t("field.defaultCurrency")}</label><input className="input" value={financial.default_currency} onChange={(e) => setFinancial({ ...financial, default_currency: e.target.value.toUpperCase() })} /></div>
+          <div><label className="label">{t("field.defaultCurrency")}</label><input className="input" readOnly={!canEdit} value={financial.default_currency} onChange={(e) => setFinancial({ ...financial, default_currency: e.target.value.toUpperCase() })} /></div>
           {errors.currency && <div className="text-xs text-red-600">{errors.currency}</div>}
-          <div><label className="label">{t("field.fiscalYearStartMonth")}</label><input className="input" type="number" min={1} max={12} value={financial.fiscal_year_start_month} onChange={(e) => setFinancial({ ...financial, fiscal_year_start_month: parseNumberInput(e.target.value) })} /></div>
+          <div><label className="label">{t("field.fiscalYearStartMonth")}</label><input className="input" readOnly={!canEdit} type="number" min={1} max={12} value={financial.fiscal_year_start_month} onChange={(e) => setFinancial({ ...financial, fiscal_year_start_month: parseNumberInput(e.target.value) })} /></div>
           {errors.fiscal && <div className="text-xs text-red-600">{errors.fiscal}</div>}
         </Section>
 
         <Section
           title={t("page.settings.systemPreferences")}
-          footer={<button className="btn btn-primary" onClick={() => save("preferences")}>{t("common.save")}</button>}
+          readOnly={!canEdit}
+          footer={canEdit && <button className="btn btn-primary" onClick={() => save("preferences")}>{t("common.save")}</button>}
         >
           <div>
             <label className="label">{t("field.defaultLanguage")}</label>
-            <select className="input" value={preferences.default_language} onChange={(e) => setPreferences({ ...preferences, default_language: e.target.value })}>
+            <select className="input" disabled={!canEdit} value={preferences.default_language} onChange={(e) => setPreferences({ ...preferences, default_language: e.target.value })}>
               <option value="en">{t("language.en")}</option>
               <option value="ru">{t("language.ru")}</option>
               <option value="uz">{t("language.uz")}</option>
             </select>
           </div>
           {errors.lang && <div className="text-xs text-red-600">{errors.lang}</div>}
-          <div><label className="label">{t("field.timezone")}</label><input className="input" value={preferences.timezone} onChange={(e) => setPreferences({ ...preferences, timezone: e.target.value })} /></div>
+          <div><label className="label">{t("field.timezone")}</label><input className="input" readOnly={!canEdit} value={preferences.timezone} onChange={(e) => setPreferences({ ...preferences, timezone: e.target.value })} /></div>
           {errors.tz && <div className="text-xs text-red-600">{errors.tz}</div>}
           <div>
             <label className="label">{t("field.modelTypeOptions")}</label>
             <textarea
               className="input min-h-24"
+              readOnly={!canEdit}
               value={preferences.model_types.join("\n")}
               onChange={(e) => setPreferences({ ...preferences, model_types: e.target.value.split("\n").map((v) => v.trim()).filter(Boolean) })}
             />
@@ -158,6 +171,7 @@ export default function SettingsPage() {
           <label className="flex items-start gap-2 rounded-md border border-[#ecebe3] p-3 text-sm">
             <input
               type="checkbox"
+              disabled={!canEdit}
               className="mt-1"
               checked={preferences.require_material_reservation_before_cutting}
               onChange={(e) => setPreferences({ ...preferences, require_material_reservation_before_cutting: e.target.checked })}
@@ -170,6 +184,7 @@ export default function SettingsPage() {
         </Section>
       </div>
       {saved && <div className="mt-4 text-sm text-green-700">{saved}</div>}
+      {saveError && <div role="alert" className="mt-4 text-sm text-red-700">{saveError}</div>}
     </div>
   );
 }
