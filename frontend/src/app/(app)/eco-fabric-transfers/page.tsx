@@ -26,7 +26,7 @@ export default function EcoFabricTransfers() {
   const [sending, setSending] = useState(false); const [frozen, setFrozen] = useState(false);
   const [failure, setFailure] = useState(""); const [message, setMessage] = useState("");
   const [lastDispatch, setLastDispatch] = useState<Dispatch | null>(null);
-  const input = useRef<HTMLInputElement>(null); const timer = useRef<ReturnType<typeof setTimeout>>();
+  const input = useRef<HTMLInputElement>(null); const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const queue = useRef(Promise.resolve()); const pending = useRef(0); const sendKey = useRef("");
   const returnAttempt = useRef<{ code: string; dispatch_id: number; request_key: string } | null>(null);
   const [returnRetry, setReturnRetry] = useState(false);

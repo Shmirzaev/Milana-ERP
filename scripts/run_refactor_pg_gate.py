@@ -23,6 +23,27 @@ from refactor_pg_evidence import (
 # Minimum collected counts pin the current parameterized business cases. Adding
 # cases is allowed; removing a required case needs an explicit ledger change.
 GROUPS = {
+    "test_waste_manual_create_commit_postgres": (2, ('test_pg_manual_create_commit_abort_rolls_back_then_retry', 'test_pg_unicode_create_and_all_typed_status_filters_round_trip')),
+    "test_stocktake_scan_postgres": (5, ('test_pg_scan_auth_duplicate_first_evidence_and_completed_refusal', 'test_pg_scan_request_audit_finalization_failure_then_retry', 'test_pg_scan_expected_unexpected_package_and_refusals', 'test_pg_duplicate_package_scan_waits_on_first_parent_lock', 'test_pg_scan_deferred_commit_abort_preserves_evidence_then_retry')),
+    "test_stocktake_undo_postgres": (6, (
+        'test_pg_undo_auth_and_selection_refusal_before_mutation',
+        'test_pg_undo_request_audit_finalization_failure_then_retry',
+        'test_pg_undo_duplicate_and_foreign_selection_and_single_success',
+        'test_pg_undo_completed_count_refuses_without_mutation',
+        'test_pg_undo_waits_for_completion_with_preloaded_count',
+    )),
+    "test_stocktake_create_postgres": (4, (
+        "test_pg_http_create_auth_and_request_key_replay",
+        "test_pg_same_key_concurrent_create_replays_unique_winner",
+        "test_pg_request_audit_finalization_failure_rolls_back_then_retry",
+        "test_pg_deferred_create_commit_abort_rolls_back_then_retry",
+    )),
+    "test_stocktake_delete_postgres": (5, (
+        'test_pg_request_audit_flush_failure_rolls_back_bulk',
+        'test_pg_overlapping_bulk_deletes_serialize',
+        'test_pg_deferred_commit_failure_restores_bulk',
+        'test_pg_delete_blocks_scan_or_completion',
+    )),
     'test_identity_access_catalog': (20, ('test_catalog_authentication_and_permission_refusals', 'test_catalog_retains_order_labels_and_grantability_without_writes', 'test_direct_service_rejects_inactive_privileged_actor', 'test_direct_service_rejects_stale_deactivated_actor', 'test_direct_service_rejects_unprivileged_actor')),
     'test_identity_access_preview': (30, ('test_direct_service_rejects_inactive_privileged_actor', 'test_direct_service_rejects_stale_deactivated_actor', 'test_direct_service_rejects_unprivileged_actor', 'test_preview_expands_wildcard_without_saving_or_enforcing_grant_rights', 'test_preview_primary_denies_secondary_grants_and_empty_factories', 'test_preview_refusal_order_and_no_writes', 'test_super_admin_subject_is_available_in_every_factory')),
     'test_identity_admin_user_list': (20, ('test_direct_service_rejects_inactive_privileged_actor', 'test_direct_service_rejects_stale_deactivated_actor', 'test_direct_service_rejects_unprivileged_actor', 'test_list_authentication_and_permission_refusals', 'test_list_includes_inactive_other_factory_and_protected_accounts_in_id_order')),
@@ -69,11 +90,26 @@ GROUPS = {
         "test_pg_shipment_reopen_audit_failure_rolls_back_and_retry_commits_all",
         "test_pg_invoice_payment_and_shipment_reopen_serialize_on_invoice_row",
     )),
+    "test_purchase_receipt_concurrency": (2, ("test_postgres_receipts_serialize_line_totals_and_closed_order_no_write",)),
+    "test_purchase_receipt_idempotency": (3, ("test_postgres_concurrent_receipts_serialize_before_replay", "test_postgres_receipt_audit_finalization_failure_rolls_back_then_replays")),
     "test_item_delete_postgres": (11, (
         "test_pg_delete_and_archive_share_session_and_preserve_audit",
         "test_pg_actual_audit_finalization_failure_rolls_back",
         "test_pg_unchecked_direct_reference_rejects_delete_atomically",
         "test_pg_reference_insert_after_link_check_rolls_back_delete",
+    )),
+    "test_process_qr_size_setup_postgres": (7, (
+        "test_postgres_setup_audit_failure_rolls_back",
+        "test_postgres_simultaneous_setup_serializes",
+        "test_postgres_setup_then_generic_writer_waits_on_parent_fk",
+        "test_postgres_http_failure_teardown_rolls_back",
+        "test_postgres_deferred_commit_failure_rolls_back_request",
+    )),
+    "test_model_image_delete_postgres": (5, (
+        "test_pg_denied_usluga_and_reverse_scope_keep_binary",
+        "test_pg_request_failure_rolls_back_binary_and_audit",
+        "test_pg_update_then_delete_waits_and_audits_loaded_url",
+        "test_pg_deferred_delete_commit_failure_rolls_back_binary_and_audit",
     )),
     "test_modelsize_create_postgres": (2, ("test_pg_create_atomic_audit_and_failure_retry", "test_pg_concurrent_duplicate_creates")),
     "test_modelcolor_create_postgres": (27, ()),

@@ -2,6 +2,7 @@
 import { useState } from "react";
 import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
+import type { WasteRecord } from "@/lib/wasteContracts";
 import PageHeader from "@/components/PageHeader";
 import { statusLabel } from "@/components/StagePipeline";
 import { useT } from "@/lib/i18n";
@@ -21,7 +22,7 @@ type WasteForm = {
 export default function WastePage() {
   const { t } = useT();
   const dialogs = useDialogs();
-  const { data, mutate } = useSWR<any[]>("/api/waste", fetcher);
+  const { data, mutate } = useSWR<WasteRecord[]>("/api/waste", fetcher);
   const { data: items } = useSWR<any[]>("/api/inventory/items", fetcher);
   const { data: depts } = useSWR<any[]>("/api/departments", fetcher);
   const { data: dash } = useSWR<any>("/api/dashboard/waste", fetcher);

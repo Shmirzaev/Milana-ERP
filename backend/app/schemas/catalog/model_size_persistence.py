@@ -11,3 +11,9 @@ def insert_model_size(db: Session, command: ModelSizeCreateCommand) -> ModelSize
     db.add(row)
     db.flush()
     return row
+
+
+def add_initial_model_sizes(db: Session, model_id: int, sizes: list[str]) -> None:
+    """Stage the setup rows in order; the caller owns flush and transaction timing."""
+    for size in sizes:
+        db.add(ModelSize(model_id=model_id, size=size))

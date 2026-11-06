@@ -4,11 +4,47 @@ from fastapi import HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from app.core.deps import require_permissions
+from app.core.pagination import clamp_pagination
 from app.schemas import Department, Notification, Role, User
 from app.schemas.work_management.notification_persistence import mark_notification_read, mark_user_notifications_read
+from app.libs.dto.work_management.tasks import NotificationOut
 from app.libs.dto.work_management.notification_send import NotificationSendIn
 from app.models.audit_service import log_action
 from app.models.notifications_service import notify_many, _max_bulk_recipients
+
+
+def list_my_notifications(db: Session, current: User, only_unread: bool = False, limit: int = 50) -> list[Notification]:
+    safe_limit = 0 if limit == 0 else clamp_pagination(page_size=limit)[1]
+    qry = db.query(Notification).filter(Notification.user_id == current.id)
+    if only_unread:
+        qry = qry.filter(Notification.is_read.is_(False))
+    return qry.order_by(Notification.id.desc()).limit(safe_limit).all()
+
+
+def unread_count(db: Session, current: User) -> dict[str, int]:
+    count = db.query(func.count(Notification.id)).filter(
+        Notification.user_id == current.id, Notification.is_read.is_(False),
+    ).scalar() or 0
+    return {"count": int(count)}
+
+
+def notification_summary(db: Session, current: User, limit: int = 10) -> dict:
+    safe_limit = max(1, min(int(limit or 10), 50))
+    count = db.query(func.count(Notification.id)).filter(
+        Notification.user_id == current.id,
+        Notification.is_read.is_(False),
+    ).scalar() or 0
+    rows = (
+        db.query(Notification)
+        .filter(Notification.user_id == current.id, Notification.is_read.is_(False))
+        .order_by(Notification.id.desc())
+        .limit(safe_limit)
+        .all()
+    )
+    return {
+        "count": int(count),
+        "rows": [NotificationOut.model_validate(row).model_dump(mode="json") for row in rows],
+    }
 
 
 def _safe_link(link: str | None) -> str | None:
