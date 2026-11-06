@@ -23,6 +23,7 @@ from refactor_pg_evidence import (
 # Minimum collected counts pin the current parameterized business cases. Adding
 # cases is allowed; removing a required case needs an explicit ledger change.
 GROUPS = {
+    'test_price_calculation_creation_postgres': (8, ('test_pg_signed_creation_auth_duplicates_and_recipients', 'test_pg_signed_creation_margin_contract', 'test_pg_signed_creation_failure_teardown_retry')),
     'test_price_calculation_status_postgres': (1, ('test_pg_signed_status_transitions_finance_gate_and_notifications',)),
     'test_price_calculation_purchasing_postgres': (2, ('test_pg_purchasing_completion_transition_recipients_and_audit_actor', 'test_pg_purchasing_request_audit_and_notification_rollback_then_retry')),
 
