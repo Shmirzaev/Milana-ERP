@@ -392,6 +392,16 @@
         "test_pg_deferred_delete_commit_failure_rolls_back_binary_and_audit"
       ]
     },
+    "test_stocktake_create_postgres": {
+      "revision": "658568d10f33e2eeacf686455c25d1fe1a1f5e0c",
+      "git_blob_sha256": "cb49e70d98ba4e3d83796a9b497d68f103475a4248087058dc6fcbb00944858a",
+      "selected_functions": [
+        "test_pg_http_create_auth_and_request_key_replay",
+        "test_pg_same_key_concurrent_create_replays_unique_winner",
+        "test_pg_request_audit_finalization_failure_rolls_back_then_retry",
+        "test_pg_deferred_create_commit_abort_rolls_back_then_retry"
+      ]
+    },
     "test_stocktake_delete_postgres": {
       "revision": "f613e28a7029a16ee1a5eac6c4c8772474d40317",
       "git_blob_sha256": "588d8a2daa084ba3b84c6dc9c775a1c149d883fb701d2b284a11584bd44e9ce1",
@@ -400,6 +410,36 @@
         "test_pg_overlapping_bulk_deletes_serialize",
         "test_pg_deferred_commit_failure_restores_bulk",
         "test_pg_delete_blocks_scan_or_completion"
+      ]
+    },
+    "test_stocktake_undo_postgres": {
+      "revision": "02b09812523f433720c707ad5d5eeb6bae450641",
+      "git_blob_sha256": "b1cbdd3a7816e9ea322d422660130600d82dcda8b3851da7b532420d7afd5655",
+      "selected_functions": [
+        "test_pg_undo_auth_and_selection_refusal_before_mutation",
+        "test_pg_undo_request_audit_finalization_failure_then_retry",
+        "test_pg_undo_duplicate_and_foreign_selection_and_single_success",
+        "test_pg_undo_completed_count_refuses_without_mutation",
+        "test_pg_undo_waits_for_completion_with_preloaded_count"
+      ]
+    },
+    "test_stocktake_scan_postgres": {
+      "revision": "f7cc228daf1c3a6524acee063e865a5cc7427814",
+      "git_blob_sha256": "bc6506e31222f014e8ea3e9a3a6cacdd50c0382e939880b79cc3f8e2e2d7bb4c",
+      "selected_functions": [
+        "test_pg_scan_auth_duplicate_first_evidence_and_completed_refusal",
+        "test_pg_scan_request_audit_finalization_failure_then_retry",
+        "test_pg_scan_expected_unexpected_package_and_refusals",
+        "test_pg_duplicate_package_scan_waits_on_first_parent_lock",
+        "test_pg_scan_deferred_commit_abort_preserves_evidence_then_retry"
+      ]
+    },
+    "test_waste_manual_create_commit_postgres": {
+      "revision": "4de79e914aad3094f6f455e1fd1af0697b37b882",
+      "git_blob_sha256": "1ea26b77d08cb07fb4b8c5ef632777fc1d312320808dc7ce310303b32ad71633",
+      "selected_functions": [
+        "test_pg_manual_create_commit_abort_rolls_back_then_retry",
+        "test_pg_unicode_create_and_all_typed_status_filters_round_trip"
       ]
     }
   },
@@ -974,12 +1014,37 @@
       "test_pg_update_then_delete_waits_and_audits_loaded_url",
       "test_pg_deferred_delete_commit_failure_rolls_back_binary_and_audit"
     ],
+    "test_stocktake_create_postgres": [
+      "test_pg_http_create_auth_and_request_key_replay",
+      "test_pg_same_key_concurrent_create_replays_unique_winner",
+      "test_pg_request_audit_finalization_failure_rolls_back_then_retry",
+      "test_pg_deferred_create_commit_abort_rolls_back_then_retry"
+    ],
     "test_stocktake_delete_postgres": [
       "test_pg_request_audit_flush_failure_rolls_back_bulk",
       "test_pg_overlapping_bulk_deletes_serialize",
       "test_pg_deferred_commit_failure_restores_bulk",
       "test_pg_delete_blocks_scan_or_completion[scan]",
       "test_pg_delete_blocks_scan_or_completion[complete]"
+    ],
+    "test_stocktake_undo_postgres": [
+      "test_pg_undo_auth_and_selection_refusal_before_mutation",
+      "test_pg_undo_request_audit_finalization_failure_then_retry",
+      "test_pg_undo_duplicate_and_foreign_selection_and_single_success",
+      "test_pg_undo_completed_count_refuses_without_mutation",
+      "test_pg_undo_waits_for_completion_with_preloaded_count[False]",
+      "test_pg_undo_waits_for_completion_with_preloaded_count[True]"
+    ],
+    "test_stocktake_scan_postgres": [
+      "test_pg_scan_auth_duplicate_first_evidence_and_completed_refusal",
+      "test_pg_scan_request_audit_finalization_failure_then_retry",
+      "test_pg_scan_expected_unexpected_package_and_refusals",
+      "test_pg_duplicate_package_scan_waits_on_first_parent_lock",
+      "test_pg_scan_deferred_commit_abort_preserves_evidence_then_retry"
+    ],
+    "test_waste_manual_create_commit_postgres": [
+      "test_pg_manual_create_commit_abort_rolls_back_then_retry",
+      "test_pg_unicode_create_and_all_typed_status_filters_round_trip"
     ]
   },
   "isolated_supplemental_cases": [

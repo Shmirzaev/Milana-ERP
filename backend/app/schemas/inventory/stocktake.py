@@ -4,6 +4,8 @@ from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, Uni
 from sqlalchemy.orm import Mapped, Query, Session, mapped_column
 
 from app.db.base import Base, PkMixin, TimestampMixin
+from app.libs.enums.stocktake import StocktakeCategory
+from app.libs.types.stocktake import StocktakeSnapshot
 
 
 class WarehouseStocktake(Base, PkMixin, TimestampMixin):
@@ -34,10 +36,50 @@ class WarehouseStocktakeRow(Base, PkMixin):
     scanned_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
 
 
+def add_stocktake(db: Session, *, request_key: str, title: str, created_by: int) -> WarehouseStocktake:
+    """Add the count to the caller's session; the service controls flushing."""
+    count = WarehouseStocktake(request_key=request_key, title=title, created_by=created_by)
+    db.add(count)
+    return count
+
+
+def add_expected_stocktake_row(db: Session, *, stocktake_id: int, package_id: int, snapshot: StocktakeSnapshot) -> None:
+    """Record one count-start snapshot in the caller's session."""
+    db.add(WarehouseStocktakeRow(
+        stocktake_id=stocktake_id, identity=f"package:{package_id}",
+        package_id=package_id, expected=True, category=StocktakeCategory.EXPECTED.value, snapshot=snapshot,
+    ))
+
+
 def delete_stocktake(db: Session, count: WarehouseStocktake, rows: Query) -> None:
     """Delete a locked count and its rows in the caller's transaction."""
     rows.delete(synchronize_session=False)
     db.delete(count)
+
+
+def add_scan_row(
+    db: Session, *, stocktake_id: int, identity: str, package_id: int | None,
+    category: StocktakeCategory, snapshot: StocktakeSnapshot,
+) -> WarehouseStocktakeRow:
+    """Add a scan-created row to the caller's transaction."""
+    row = WarehouseStocktakeRow(
+        stocktake_id=stocktake_id, identity=identity, package_id=package_id,
+        expected=False, category=category, snapshot=snapshot,
+    )
+    db.add(row)
+    return row
+
+
+def record_first_scan(
+    db: Session, row: WarehouseStocktakeRow, *, snapshot: StocktakeSnapshot | None,
+    code: str, scanned_at: datetime, scanned_by: int,
+) -> None:
+    """Persist first-scan evidence and expose the row ID before audit."""
+    row.scan_snapshot = snapshot
+    row.scan_code = code
+    row.scanned_at = scanned_at
+    row.scanned_by = scanned_by
+    db.flush()
 
 
 def freeze_stocktake_completion(
@@ -48,3 +90,12 @@ def freeze_stocktake_completion(
     for row in rows:
         row.final_snapshot = snapshots.get(row.package_id, {})
     count.completed_at = completed_at
+
+
+def remove_recorded_scan(db, row: WarehouseStocktakeRow) -> None:
+    """Apply an already-authorized undo in the caller's transaction."""
+    if row.expected:
+        row.scan_code = row.scanned_at = row.scanned_by = None
+        row.scan_snapshot = None
+    else:
+        db.delete(row)

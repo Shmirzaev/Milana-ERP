@@ -32,7 +32,70 @@ class RequiredPGGateTests(unittest.TestCase):
 
     def test_complete_evidence_passes(self):
         counts = gate.check_report(self.write_report(self.report()))
-        self.assertEqual(sum(counts.values()), 503)
+        self.assertEqual(sum(counts.values()), 520)
+
+    def test_stocktake_undo_cases_are_required_and_passing(self):
+        module = "test_stocktake_undo_postgres"
+        self.assertEqual(len(gate.REQUIRED_CASES[module]), 6)
+        self.assertEqual(gate.GROUPS[module][0], 6)
+        for name in gate.REQUIRED_CASES[module]:
+            for mutation in ("missing", "replacement", "duplicate", "skipped", "failure", "error"):
+                with self.subTest(name=name, mutation=mutation):
+                    tree = self.report()
+                    suite = next(tree.iter("testsuite"))
+                    case = next(row for row in suite if row.get("classname") == f"app.tests.{module}" and row.get("name") == name)
+                    if mutation == "missing":
+                        suite.remove(case)
+                    elif mutation == "replacement":
+                        case.set("name", "unrelated_replacement_case")
+                    elif mutation == "duplicate":
+                        ET.SubElement(suite, "testcase", classname=case.get("classname"), name=name)
+                    else:
+                        ET.SubElement(case, mutation)
+                    with self.assertRaises(ValueError):
+                        gate.check_report(self.write_report(tree))
+
+    def test_stocktake_scan_cases_are_required_and_passing(self):
+        module = "test_stocktake_scan_postgres"
+        self.assertEqual(len(gate.REQUIRED_CASES[module]), 5)
+        self.assertEqual(gate.GROUPS[module][0], 5)
+        for name in gate.REQUIRED_CASES[module]:
+            for mutation in ("missing", "replacement", "duplicate", "skipped", "failure", "error"):
+                with self.subTest(name=name, mutation=mutation):
+                    tree = self.report()
+                    suite = next(tree.iter("testsuite"))
+                    case = next(row for row in suite if row.get("classname") == f"app.tests.{module}" and row.get("name") == name)
+                    if mutation == "missing":
+                        suite.remove(case)
+                    elif mutation == "replacement":
+                        case.set("name", "unrelated_replacement_case")
+                    elif mutation == "duplicate":
+                        ET.SubElement(suite, "testcase", classname=case.get("classname"), name=name)
+                    else:
+                        ET.SubElement(case, mutation)
+                    with self.assertRaises(ValueError):
+                        gate.check_report(self.write_report(tree))
+
+    def test_waste_manual_create_cases_are_required_and_passing(self):
+        module = "test_waste_manual_create_commit_postgres"
+        self.assertEqual(len(gate.REQUIRED_CASES[module]), 2)
+        self.assertEqual(gate.GROUPS[module][0], 2)
+        for name in gate.REQUIRED_CASES[module]:
+            for mutation in ("missing", "replacement", "duplicate", "skipped", "failure", "error"):
+                with self.subTest(name=name, mutation=mutation):
+                    tree = self.report()
+                    suite = next(tree.iter("testsuite"))
+                    case = next(row for row in suite if row.get("classname") == f"app.tests.{module}" and row.get("name") == name)
+                    if mutation == "missing":
+                        suite.remove(case)
+                    elif mutation == "replacement":
+                        case.set("name", "unrelated_replacement_case")
+                    elif mutation == "duplicate":
+                        ET.SubElement(suite, "testcase", classname=case.get("classname"), name=name)
+                    else:
+                        ET.SubElement(case, mutation)
+                    with self.assertRaises(ValueError):
+                        gate.check_report(self.write_report(tree))
 
     def test_receipt_cases_are_required_and_cannot_be_skipped_or_replaced(self):
         for module, count in (("test_purchase_receipt_concurrency", 2),
@@ -104,6 +167,29 @@ class RequiredPGGateTests(unittest.TestCase):
                         ET.SubElement(case, "skipped")
                     else:
                         case.set("name", "unrelated_replacement_case")
+                    with self.assertRaises(ValueError):
+                        gate.check_report(self.write_report(tree))
+
+    def test_stocktake_create_each_case_rejects_missing_duplicate_and_nonpass(self):
+        module = "test_stocktake_create_postgres"
+        self.assertEqual(len(gate.REQUIRED_CASES[module]), 4)
+        self.assertEqual(gate.GROUPS[module][0], 4)
+        for name in gate.REQUIRED_CASES[module]:
+            for mutation in ("missing", "replacement", "duplicate", "skipped", "error", "failure"):
+                with self.subTest(name=name, mutation=mutation):
+                    tree = self.report()
+                    suite = next(tree.iter("testsuite"))
+                    rows = [row for row in suite if row.get("classname") == f"app.tests.{module}"]
+                    case = next(row for row in rows if row.get("name") == name)
+                    if mutation == "missing":
+                        suite.remove(case)
+                    elif mutation == "replacement":
+                        case.set("name", "unrelated_replacement_case")
+                    elif mutation == "duplicate":
+                        other = next(row for row in rows if row is not case)
+                        other.set("name", name)
+                    else:
+                        ET.SubElement(case, mutation)
                     with self.assertRaises(ValueError):
                         gate.check_report(self.write_report(tree))
 
