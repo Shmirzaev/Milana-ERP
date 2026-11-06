@@ -8,9 +8,24 @@ from unittest.mock import Mock
 import pytest
 from pydantic import ValidationError
 
-from app.libs.dto.inventory.material_reservation_output import MaterialReservationPlanOut
+from app.libs.dto.inventory.material_reservation_output import MaterialReservationPlanOut, ReservationPlanSummaryOut
 from app.libs.enums.inventory import ReservationPlanRowStatus, ReservationPlanStatus
 from app.models import inventory_service
+
+
+def test_summary_requires_complete_contract_and_preserves_json_number_types():
+    values = {
+        "required_quantity": 0, "already_reserved_quantity": 2.5,
+        "remaining_to_reserve": 1.0, "shortage": 0.0,
+        "line_count": 2, "ready_line_count": 1, "shortage_line_count": 0,
+    }
+    wire = json.loads(ReservationPlanSummaryOut.model_validate(values).model_dump_json())
+    assert list(wire) == list(values)
+    assert wire == values
+    assert all(type(wire[key]) is type(value) for key, value in values.items())
+    for key in values:
+        with pytest.raises(ValidationError):
+            ReservationPlanSummaryOut.model_validate({k: v for k, v in values.items() if k != key})
 
 
 @pytest.mark.parametrize(
@@ -37,6 +52,10 @@ def test_plan_statuses_and_json(monkeypatch, required, reserved, stock, row_stat
     assert plan["rows"][0]["status"] is ReservationPlanRowStatus(row_status)
     assert plan["is_complete"] is complete
     wire = json.loads(MaterialReservationPlanOut.model_validate(plan).model_dump_json())
+    assert wire["summary"] == plan["summary"]
+    assert list(wire["summary"]) == list(plan["summary"])
+    for key in ("required_quantity", "already_reserved_quantity", "remaining_to_reserve", "shortage"):
+        assert type(wire["summary"][key]) is type(plan["summary"][key])
     assert wire["status"] == wire["rows"][0]["status"] == row_status
     assert json.loads(json.dumps(plan))["status"] == row_status
     plan["rows"][0]["status"] = "no_bom"
@@ -63,6 +82,9 @@ def test_no_bom_is_complete_and_serializes(monkeypatch):
     ))
     wire = json.loads(MaterialReservationPlanOut.model_validate(plan).model_dump_json())
     assert wire["status"] == "no_bom" and wire["rows"] == []
+    assert wire["summary"] == plan["summary"]
+    assert list(wire["summary"]) == list(plan["summary"])
+    assert all(type(wire["summary"][key]) is int for key in plan["summary"])
     plan["status"] = "unknown"
     with pytest.raises(ValidationError):
         MaterialReservationPlanOut.model_validate(plan)
@@ -75,6 +97,16 @@ def test_openapi_exposes_distinct_readiness_vocabularies(client):
     row_status = schemas["MaterialReservationPlanRow"]["properties"]["status"]
     assert plan_status["$ref"] == "#/components/schemas/ReservationPlanStatus"
     assert row_status["$ref"] == "#/components/schemas/ReservationPlanRowStatus"
+    assert schemas["MaterialReservationPlanOut"]["properties"]["summary"]["$ref"] == "#/components/schemas/ReservationPlanSummaryOut"
+    summary = schemas["ReservationPlanSummaryOut"]
+    assert set(summary["required"]) == {
+        "required_quantity", "already_reserved_quantity", "remaining_to_reserve", "shortage",
+        "line_count", "ready_line_count", "shortage_line_count",
+    }
+    for name in ("required_quantity", "already_reserved_quantity", "remaining_to_reserve", "shortage"):
+        assert {branch["type"] for branch in summary["properties"][name]["anyOf"]} == {"integer", "number"}
+    for name in ("line_count", "ready_line_count", "shortage_line_count"):
+        assert summary["properties"][name]["type"] == "integer"
     assert set(schemas["ReservationPlanStatus"]["enum"]) == {"ready", "shortage", "partial", "no_bom"}
     assert set(schemas["ReservationPlanRowStatus"]["enum"]) == {"ready", "shortage", "partial"}
     response = document["paths"]["/api/inventory/reservations/plan"]["get"]["responses"]["200"]

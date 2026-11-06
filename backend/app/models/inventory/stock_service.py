@@ -275,7 +275,7 @@ def update_item_image(db, item_id: int, payload, current: User) -> Item:
     if not it:
         raise HTTPException(404, "Item not found")
     old_value = {"image_url": it.image_url}
-    it.image_url = _validate_item_image_url(payload.image_url)
+    item_persistence.set_item_image(db, it, _validate_item_image_url(payload.image_url))
     log_action(db, current, "update_image", "Item", it.id, old_value=old_value, new_value={"image_url": it.image_url})
     db.commit(); db.refresh(it)
     return it
