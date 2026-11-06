@@ -100,7 +100,7 @@ def test_all_reference_guards_are_aggregated_in_order(monkeypatch):
             seen.append(cls)
             return Query()
 
-    monkeypatch.setattr(models_service, "_catalog_model", lambda *args: SimpleNamespace(id=123))
+    monkeypatch.setattr(models_service, "_catalog_model_for_scope", lambda *args: SimpleNamespace(id=123))
     with pytest.raises(HTTPException) as exc:
         models_service.delete_model(None, Database(), 123)
     assert exc.value.status_code == 409

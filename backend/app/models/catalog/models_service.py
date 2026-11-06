@@ -2839,9 +2839,11 @@ def delete_model(
     current: User,
     db: Session,
     mid: int,
-    catalog_scope: str = "standard",
+    catalog_scope: CatalogScope = CatalogScope.STANDARD,
 ):
-    m = _catalog_model(db, mid, catalog_scope)
+    raw_scope = catalog_scope.value if isinstance(catalog_scope, CatalogScope) else catalog_scope
+    scope = CatalogScope(_normalize_catalog_scope(raw_scope))
+    m = _catalog_model_for_scope(db, mid, scope)
     if not m:
         raise HTTPException(404, "Model not found")
 

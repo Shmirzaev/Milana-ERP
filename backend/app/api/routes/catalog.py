@@ -38,7 +38,7 @@ def _standard_catalog_scope() -> str:
     return "standard"
 
 
-def _create_catalog_scope() -> CatalogScope:
+def _typed_standard_catalog_scope() -> CatalogScope:
     return CatalogScope.STANDARD
 
 
@@ -203,7 +203,7 @@ def create_model(
     payload: ModelIn,
     db: DbSession,
     current: User = Depends(require_permissions("modeling.models", "*")),
-    catalog_scope: CatalogScope = Depends(_create_catalog_scope),
+    catalog_scope: CatalogScope = Depends(_typed_standard_catalog_scope),
 ):
     return models_service.create_model(current, db, payload, catalog_scope)
 
@@ -466,6 +466,6 @@ def delete_model(
     mid: int,
     db: DbSession,
     current: User = Depends(require_permissions("modeling.models", "*")),
-    catalog_scope: str = Depends(_standard_catalog_scope),
+    catalog_scope: CatalogScope = Depends(_typed_standard_catalog_scope),
 ):
     return models_service.delete_model(current, db, mid, catalog_scope)
