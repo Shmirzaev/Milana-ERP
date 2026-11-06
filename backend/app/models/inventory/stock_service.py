@@ -1353,6 +1353,7 @@ def restore_material_batch(db, batch_id: int, payload: StockBatchRestoreIn, curr
     batch = db.execute(
         select(StockBatch).options(lazyload(StockBatch.item))
         .where(StockBatch.id == batch_id).with_for_update(of=StockBatch)
+        .execution_options(populate_existing=True)
     ).scalar_one_or_none()
     if not batch:
         raise HTTPException(404, "Stock batch not found")
