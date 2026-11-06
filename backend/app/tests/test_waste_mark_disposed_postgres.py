@@ -195,12 +195,26 @@ def test_pg_mark_disposed_race_serializes_on_parent(pg_sessions):
             pids = [ready.get(timeout=10) for _ in futures]
             start.set()
             deadline = monotonic() + 10
+            graph = {}
+            owned = {*pids, holder_pid}
+
+            def reaches_holder(pid, visited=frozenset()):
+                if pid == holder_pid:
+                    return True
+                if pid in visited:
+                    return False
+                return any(reaches_holder(blocker, visited | {pid}) for blocker in graph.get(pid, ()))
+
             while monotonic() < deadline:
-                if all(holder_pid in holder.execute(text('SELECT pg_blocking_pids(:pid)'), {'pid': pid}).scalar_one() for pid in pids):
+                graph = {pid: holder.execute(text('SELECT pg_blocking_pids(:pid)'), {'pid': pid}).scalar_one() for pid in pids}
+                # A tuple-lock waiter may queue behind the first worker.
+                if (all(graph[pid] and set(graph[pid]) <= owned and reaches_holder(pid) for pid in pids)
+                        and all(not future.done() for future in futures)):
+                    print('OWNED_PARENT_WAIT_GRAPH', {'holder': holder_pid, 'workers': pids, 'blockers': graph})
                     break
                 sleep(0.01)
             else:
-                pytest.fail('Both mark requests did not wait on the owned parent lock')
+                pytest.fail(f'Both mark requests did not enter the owned parent wait chain holder={holder_pid}; graph={graph}')
         finally:
             start.set()
             holder.rollback()
