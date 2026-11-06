@@ -11,6 +11,7 @@ from math import isfinite
 from fastapi import HTTPException
 
 from app.libs.dto.inventory.waste_input import WasteIn
+from app.libs.dto.inventory.waste_disposal_input import WasteDisposalIn
 from app.libs.dto.inventory.waste_output import WasteOut
 from app.libs.dto.inventory.waste_sale_input import WasteSaleIn
 from app.libs.dto.inventory.waste_sale_output import WasteSaleOut
@@ -18,6 +19,7 @@ from app.libs.enums.inventory import WasteStatus
 from app.models.audit_service import log_action
 from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response
 from app.schemas import Item, StockBatch, User, WasteDisposalRequest, WasteRecord, WasteSale
+from app.schemas.inventory.waste import add_disposal_request
 from app.schemas.inventory.waste_create_persistence import insert_manual_waste
 
 
@@ -235,13 +237,10 @@ def _disposal_request_for_update(db, rid: int) -> tuple[WasteDisposalRequest, Wa
     return r, w
 
 
-def request_disposal(db, wid: int, payload, current: User) -> WasteDisposalRequest:
+def request_disposal(db, wid: int, payload: WasteDisposalIn, current: User) -> WasteDisposalRequest:
     w = _disposal_waste_for_update(db, wid)
     _require_disposal_waste(w, "received_by_waste_department")
-    r = WasteDisposalRequest(waste_record_id=w.id, reason=payload.reason, requested_by=current.id, status="pending")
-    db.add(r)
-    w.status = "pending_disposal_approval"
-    db.flush()
+    r = add_disposal_request(db, w, reason=payload.reason, requested_by=current.id)
     log_action(db, current, "request_disposal", "WasteRecord", w.id)
     db.commit(); db.refresh(r)
     return r

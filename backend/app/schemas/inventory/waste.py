@@ -1,7 +1,7 @@
 from __future__ import annotations
 from datetime import datetime
 from sqlalchemy import String, Boolean, ForeignKey, DateTime, Text, Numeric
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from app.db.base import Base, PkMixin, TimestampMixin
 from app.libs.enums.inventory import WasteStatus
@@ -44,3 +44,16 @@ class WasteDisposalRequest(Base, PkMixin, TimestampMixin):
     approved_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     proof_file_url: Mapped[str | None] = mapped_column(String(512))
+
+
+def add_disposal_request(
+    db: Session, waste: WasteRecord, *, reason: str | None, requested_by: int | None,
+) -> WasteDisposalRequest:
+    """Persist a service-approved request in the caller's transaction."""
+    request = WasteDisposalRequest(
+        waste_record_id=waste.id, reason=reason, requested_by=requested_by, status="pending",
+    )
+    db.add(request)
+    waste.status = "pending_disposal_approval"
+    db.flush()
+    return request
