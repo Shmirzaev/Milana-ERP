@@ -14,12 +14,12 @@ PURCHASING_PERMISSION = "price_calculation.purchasing"
 LIST_PATH = "/api/price-calculation/requests"
 
 
-def _account(*, permissions=(), extra=(), policy=None, factory="MIL"):
+def _account(*, permissions=(), extra=(), policy=None, factory="MIL", email=None):
     marker = uuid4().hex[:10]
     with TestSessionLocal() as db:
         role = Role(name=f"Name authorization {marker}", permissions=list(permissions))
         user = User(
-            name="Ordinary employee", email=f"identity-{marker}@example.com",
+            name="Ordinary employee", email=email or f"identity-{marker}@example.com",
             password_hash="not-used-by-token-fixture", role=role,
             extra_permissions=list(extra), access_policy=policy, factory_code="MIL",
         )
@@ -42,12 +42,13 @@ def _account(*, permissions=(), extra=(), policy=None, factory="MIL"):
     ("Ordinary employee", "abbosbek@identity-test.example.com"),
 ], ids=["exact-name", "normalized-name-prefix", "email-local-part"])
 def test_profile_identity_change_cannot_grant_pricing_access(client, policy, name, email):
-    account = _account(policy=policy)
+    # Email is now fixed on Profile; set the identity before exercising profile edits.
+    account = _account(policy=policy, email=email)
     headers = account["headers"]
     assert client.get(LIST_PATH, headers=headers).status_code == 403
     changed = client.patch(
         "/api/auth/me", headers=headers,
-        json={"name": name, "email": email or account["email"]},
+        json={"name": name, "email": account["email"]},
     )
     assert changed.status_code == 200, changed.text
     listed = client.get(LIST_PATH, headers=headers)

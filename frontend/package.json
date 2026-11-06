@@ -54,7 +54,7 @@
     "test:shipment-preparation": "node scripts/check-shipment-preparation.mjs && node scripts/test-invoice-price-toggle.mjs && node scripts/test-shipment-duplicate-scan.mjs",
     "test:process-qr-ordering": "node scripts/test-process-qr-batch-groups.mjs && node scripts/test-process-qr-size-allocation.mjs && node scripts/test-process-qr-select-all.mjs && node scripts/check-process-qr-ordering.mjs && node scripts/check-process-qr-factory-operations.mjs && node scripts/test-process-qr-family-save.mjs",
     "test:process-qr-manual-order": "node scripts/check-process-qr-manual-order.mjs",
-    "test:user-access": "node scripts/test-user-access.mjs",
+    "test:user-access": "node scripts/test-user-access.mjs && node scripts/check-profile-email-readonly.mjs",
     "test:process-timeline": "node scripts/test-process-timeline.mjs",
     "test:garment-size-ranges": "node scripts/test-garment-size-ranges.mjs",
     "test:process-qr-label-identity": "node scripts/test-process-qr-label-identity.mjs",

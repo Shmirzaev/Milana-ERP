@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.libs.enums.catalog import CollectionStatus
 from app.libs.types.catalog import CollectionUpdateCommand
-from app.schemas.catalog.catalog import Collection
+from app.schemas.catalog.catalog import Collection, CollectionModel
 
 
 def insert_collection(
@@ -48,3 +48,8 @@ def apply_collection_update(
         collection.status = fields["status"].value
     if "unchanged_legacy_status" in fields:
         collection.status = fields["unchanged_legacy_status"]
+
+
+def insert_collection_model(db: Session, *, collection_id: int, model_id: int) -> None:
+    """Stage the association in the caller-owned transaction."""
+    db.add(CollectionModel(collection_id=collection_id, model_id=model_id))

@@ -233,6 +233,10 @@
     }
   },
   "cases": {
+    "test_customer_receipt_http_postgres": [
+      "test_pg_receipt_http_auth_split_and_idempotent_replay",
+      "test_pg_receipt_http_finalization_flush_failure_rolls_back_then_retry"
+    ],
     "test_brand_create_postgres": [
       "test_pg_create_duplicate_and_audit",
       "test_pg_audit_failure_rolls_back_then_retry"
