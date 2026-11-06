@@ -464,8 +464,8 @@
       ]
     },
     "test_waste_disposal_integrity": {
-      "revision": "9d25728f99a6a4cd24b3ed2a5e3686322d7ff8d8",
-      "git_blob_sha256": "40a8509e8a04eadc95e5a9e79fbec57773b948ce8aa957a6e14494e75052a094",
+      "revision": "e3d0b774c05624b48597fa4536988ab12884ae54",
+      "git_blob_sha256": "1568e3fe8b0477cfb77be6a7d91a0ffee8d976fa17df1b2dca79d8e1265df3bd",
       "selected_functions": [
         "test_postgres_concurrent_disposal_has_one_effect_and_refreshes_cached_state"
       ]
@@ -480,6 +480,19 @@
         "test_pg_approve_auth_refusal_audit_failure_retry",
         "test_pg_approve_deferred_commit_failure_retry",
         "test_pg_approval_race_serializes_on_parent"
+      ]
+    },
+    "test_waste_reject_postgres": {
+      "revision": "e3d0b774c05624b48597fa4536988ab12884ae54",
+      "git_blob_sha256": "03bf206cd8011fb5e31ac9a96725762b1b194a6c6f4cf815d661ef0ec01a8e43",
+      "selected_functions": [
+        "test_pg_reject_refuses_request_before_invalid_parent",
+        "test_pg_reject_refuses_invalid_parent",
+        "test_pg_reject_recovers_invalid_historical_parent",
+        "test_pg_reject_orphan_creation_fk_refusal_then_existing_request",
+        "test_pg_reject_auth_refusal_audit_failure_retry",
+        "test_pg_reject_deferred_commit_failure_retry",
+        "test_pg_rejection_race_serializes_on_parent"
       ]
     }
   },
@@ -1131,6 +1144,25 @@
       "test_pg_approve_deferred_commit_failure_retry",
       "test_pg_approval_race_serializes_on_parent[approve]",
       "test_pg_approval_race_serializes_on_parent[reject]"
+    ],
+    "test_waste_reject_postgres": [
+      "test_pg_reject_refuses_request_before_invalid_parent[approved]",
+      "test_pg_reject_refuses_request_before_invalid_parent[rejected]",
+      "test_pg_reject_refuses_request_before_invalid_parent[disposed]",
+      "test_pg_reject_refuses_invalid_parent[recorded]",
+      "test_pg_reject_refuses_invalid_parent[received_by_waste_department]",
+      "test_pg_reject_refuses_invalid_parent[sold]",
+      "test_pg_reject_refuses_invalid_parent[disposal_approved]",
+      "test_pg_reject_refuses_invalid_parent[disposed]",
+      "test_pg_reject_recovers_invalid_historical_parent[True-2]",
+      "test_pg_reject_recovers_invalid_historical_parent[False-0]",
+      "test_pg_reject_recovers_invalid_historical_parent[False--0.25]",
+      "test_pg_reject_recovers_invalid_historical_parent[False-NaN]",
+      "test_pg_reject_orphan_creation_fk_refusal_then_existing_request",
+      "test_pg_reject_auth_refusal_audit_failure_retry",
+      "test_pg_reject_deferred_commit_failure_retry",
+      "test_pg_rejection_race_serializes_on_parent[reject]",
+      "test_pg_rejection_race_serializes_on_parent[approve]"
     ]
   },
   "isolated_supplemental_cases": [
