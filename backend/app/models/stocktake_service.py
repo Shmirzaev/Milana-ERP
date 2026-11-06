@@ -17,7 +17,7 @@ from app.libs.dto.inventory.warehouse_stocktake_input import (
 from app.models.audit_service import log_action
 from app.schemas import FinishedGoodsStock, Model, Package, PackageItem, User
 from app.schemas.inventory.stocktake import (
-    WarehouseStocktake, WarehouseStocktakeRow, freeze_stocktake_completion,
+    WarehouseStocktake, WarehouseStocktakeRow, delete_stocktake, freeze_stocktake_completion,
 )
 from app.models.package_identity_service import resolve_warehouse_package
 
@@ -435,8 +435,7 @@ def delete_counts(db, body: DeleteCounts, current: User) -> dict:
             **count_info(count), "rows": rows.count(),
             "recorded_scans": rows.filter(WarehouseStocktakeRow.scanned_at.is_not(None)).count(),
         })
-        rows.delete(synchronize_session=False)
-        db.delete(count)
+        delete_stocktake(db, count, rows)
     db.commit()
     return {"deleted": ids}
 

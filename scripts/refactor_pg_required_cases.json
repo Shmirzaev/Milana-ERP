@@ -391,6 +391,16 @@
         "test_pg_update_then_delete_waits_and_audits_loaded_url",
         "test_pg_deferred_delete_commit_failure_rolls_back_binary_and_audit"
       ]
+    },
+    "test_stocktake_delete_postgres": {
+      "revision": "f613e28a7029a16ee1a5eac6c4c8772474d40317",
+      "git_blob_sha256": "588d8a2daa084ba3b84c6dc9c775a1c149d883fb701d2b284a11584bd44e9ce1",
+      "selected_functions": [
+        "test_pg_request_audit_flush_failure_rolls_back_bulk",
+        "test_pg_overlapping_bulk_deletes_serialize",
+        "test_pg_deferred_commit_failure_restores_bulk",
+        "test_pg_delete_blocks_scan_or_completion"
+      ]
     }
   },
   "cases": {
@@ -963,6 +973,13 @@
       "test_pg_request_failure_rolls_back_binary_and_audit[before_commit]",
       "test_pg_update_then_delete_waits_and_audits_loaded_url",
       "test_pg_deferred_delete_commit_failure_rolls_back_binary_and_audit"
+    ],
+    "test_stocktake_delete_postgres": [
+      "test_pg_request_audit_flush_failure_rolls_back_bulk",
+      "test_pg_overlapping_bulk_deletes_serialize",
+      "test_pg_deferred_commit_failure_restores_bulk",
+      "test_pg_delete_blocks_scan_or_completion[scan]",
+      "test_pg_delete_blocks_scan_or_completion[complete]"
     ]
   },
   "isolated_supplemental_cases": [
