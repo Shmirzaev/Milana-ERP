@@ -1,0 +1,441 @@
+{
+  "source": "#357 cb4c640f1a975f4a8bd72fddb38130acc9695160 / python-jose3.5.0",
+  "key": "jwt-compatibility-fixture-secret-64-bytes-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  "now": 1700000000.75,
+  "valid": [
+    {
+      "algorithm": "HS256",
+      "factory": "MIL",
+      "iat": 1700000000,
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0MjQyNDIiLCJpYXQiOjE3MDAwMDAwMDAsImV4cCI6NDEwMjQ0NDgwMCwiZmFjdG9yeV9jb2RlIjoiTUlMIn0.fB3XsaUOHm_6mTQhlfcJ4QU6bPyX6Qh2kbK-3aLHtww",
+      "claims": {
+        "sub": "424242",
+        "iat": 1700000000,
+        "exp": 4102444800,
+        "factory_code": "MIL"
+      }
+    },
+    {
+      "algorithm": "HS256",
+      "factory": "MIL",
+      "iat": 1700000000.25,
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0MjQyNDIiLCJpYXQiOjE3MDAwMDAwMDAuMjUsImV4cCI6NDEwMjQ0NDgwMCwiZmFjdG9yeV9jb2RlIjoiTUlMIn0.rwVJky6pLVaMdvN2_9jLB0l3sNPAdMGWsxdr9VqTxPU",
+      "claims": {
+        "sub": "424242",
+        "iat": 1700000000.25,
+        "exp": 4102444800,
+        "factory_code": "MIL"
+      }
+    },
+    {
+      "algorithm": "HS256",
+      "factory": "BST",
+      "iat": 1700000000,
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0MjQyNDIiLCJpYXQiOjE3MDAwMDAwMDAsImV4cCI6NDEwMjQ0NDgwMCwiZmFjdG9yeV9jb2RlIjoiQlNUIn0.koiF1rmm_XTTLtS4z4eLI8gcQXgElhF4CZGy8mdpH38",
+      "claims": {
+        "sub": "424242",
+        "iat": 1700000000,
+        "exp": 4102444800,
+        "factory_code": "BST"
+      }
+    },
+    {
+      "algorithm": "HS256",
+      "factory": "BST",
+      "iat": 1700000000.25,
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0MjQyNDIiLCJpYXQiOjE3MDAwMDAwMDAuMjUsImV4cCI6NDEwMjQ0NDgwMCwiZmFjdG9yeV9jb2RlIjoiQlNUIn0.ya_Sgz3j0X-pdAGEkGdjV3ltbNxgZsQ5BXjeK4x-sEs",
+      "claims": {
+        "sub": "424242",
+        "iat": 1700000000.25,
+        "exp": 4102444800,
+        "factory_code": "BST"
+      }
+    },
+    {
+      "algorithm": "HS256",
+      "factory": "ECO",
+      "iat": 1700000000,
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0MjQyNDIiLCJpYXQiOjE3MDAwMDAwMDAsImV4cCI6NDEwMjQ0NDgwMCwiZmFjdG9yeV9jb2RlIjoiRUNPIn0.oK_tDKU_YrjNtXcYAiJZjF9oLgebTEX_fKnfcod_fnA",
+      "claims": {
+        "sub": "424242",
+        "iat": 1700000000,
+        "exp": 4102444800,
+        "factory_code": "ECO"
+      }
+    },
+    {
+      "algorithm": "HS256",
+      "factory": "ECO",
+      "iat": 1700000000.25,
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0MjQyNDIiLCJpYXQiOjE3MDAwMDAwMDAuMjUsImV4cCI6NDEwMjQ0NDgwMCwiZmFjdG9yeV9jb2RlIjoiRUNPIn0.za1aKhLZJrsDVbsqyj18-toDiOVegaC-ptRL4eHmdsw",
+      "claims": {
+        "sub": "424242",
+        "iat": 1700000000.25,
+        "exp": 4102444800,
+        "factory_code": "ECO"
+      }
+    },
+    {
+      "algorithm": "HS384",
+      "factory": "MIL",
+      "iat": 1700000000,
+      "token": "eyJhbGciOiJIUzM4NCIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0MjQyNDIiLCJpYXQiOjE3MDAwMDAwMDAsImV4cCI6NDEwMjQ0NDgwMCwiZmFjdG9yeV9jb2RlIjoiTUlMIn0.g-W-a5COsgAzojn-F3RV5w5vEEEvbZyyJJ_OfSHoCDD6ZJzwHVwqBGMAHdlKEkMp",
+      "claims": {
+        "sub": "424242",
+        "iat": 1700000000,
+        "exp": 4102444800,
+        "factory_code": "MIL"
+      }
+    },
+    {
+      "algorithm": "HS384",
+      "factory": "MIL",
+      "iat": 1700000000.25,
+      "token": "eyJhbGciOiJIUzM4NCIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0MjQyNDIiLCJpYXQiOjE3MDAwMDAwMDAuMjUsImV4cCI6NDEwMjQ0NDgwMCwiZmFjdG9yeV9jb2RlIjoiTUlMIn0.LuAnXT4yz5almO5blwGSHDO3wq1ev_G9qvWVGXFPPphUT9RjWULDOe0YxapXO7gk",
+      "claims": {
+        "sub": "424242",
+        "iat": 1700000000.25,
+        "exp": 4102444800,
+        "factory_code": "MIL"
+      }
+    },
+    {
+      "algorithm": "HS384",
+      "factory": "BST",
+      "iat": 1700000000,
+      "token": "eyJhbGciOiJIUzM4NCIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0MjQyNDIiLCJpYXQiOjE3MDAwMDAwMDAsImV4cCI6NDEwMjQ0NDgwMCwiZmFjdG9yeV9jb2RlIjoiQlNUIn0.zo44Qn-5PjSIF6iTVMbGc_xbfRHz98HisETBC7_BskGUen2nUsQ3sx5-8LFk3Zel",
+      "claims": {
+        "sub": "424242",
+        "iat": 1700000000,
+        "exp": 4102444800,
+        "factory_code": "BST"
+      }
+    },
+    {
+      "algorithm": "HS384",
+      "factory": "BST",
+      "iat": 1700000000.25,
+      "token": "eyJhbGciOiJIUzM4NCIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0MjQyNDIiLCJpYXQiOjE3MDAwMDAwMDAuMjUsImV4cCI6NDEwMjQ0NDgwMCwiZmFjdG9yeV9jb2RlIjoiQlNUIn0.8AciurrEJrVWR_Xo4YxyIUyBHMhC_0fka3wOc7AeloN3T9V6gl_KNyMeldH0YU8a",
+      "claims": {
+        "sub": "424242",
+        "iat": 1700000000.25,
+        "exp": 4102444800,
+        "factory_code": "BST"
+      }
+    },
+    {
+      "algorithm": "HS384",
+      "factory": "ECO",
+      "iat": 1700000000,
+      "token": "eyJhbGciOiJIUzM4NCIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0MjQyNDIiLCJpYXQiOjE3MDAwMDAwMDAsImV4cCI6NDEwMjQ0NDgwMCwiZmFjdG9yeV9jb2RlIjoiRUNPIn0.nk9c30hqw4T5_jM0zPdMEoW4OB8pDolWjVpnICfI37sCUjp71JVkwZwCKVFir0Af",
+      "claims": {
+        "sub": "424242",
+        "iat": 1700000000,
+        "exp": 4102444800,
+        "factory_code": "ECO"
+      }
+    },
+    {
+      "algorithm": "HS384",
+      "factory": "ECO",
+      "iat": 1700000000.25,
+      "token": "eyJhbGciOiJIUzM4NCIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0MjQyNDIiLCJpYXQiOjE3MDAwMDAwMDAuMjUsImV4cCI6NDEwMjQ0NDgwMCwiZmFjdG9yeV9jb2RlIjoiRUNPIn0.ccYAUHKpsYe53Q7ZAREL0o_1545x1hrQ7GbPKuUAW7GJPQg0bcEGhRMAN_xoirCm",
+      "claims": {
+        "sub": "424242",
+        "iat": 1700000000.25,
+        "exp": 4102444800,
+        "factory_code": "ECO"
+      }
+    },
+    {
+      "algorithm": "HS512",
+      "factory": "MIL",
+      "iat": 1700000000,
+      "token": "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0MjQyNDIiLCJpYXQiOjE3MDAwMDAwMDAsImV4cCI6NDEwMjQ0NDgwMCwiZmFjdG9yeV9jb2RlIjoiTUlMIn0.uWllQ8PuVmWP9i4D8hHYbfStHITCaDXoT-gxGSQaMJSmc9NqBZvaHPl3fPBUFgNldDNOLPwvVw9L4t0a1mIe0A",
+      "claims": {
+        "sub": "424242",
+        "iat": 1700000000,
+        "exp": 4102444800,
+        "factory_code": "MIL"
+      }
+    },
+    {
+      "algorithm": "HS512",
+      "factory": "MIL",
+      "iat": 1700000000.25,
+      "token": "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0MjQyNDIiLCJpYXQiOjE3MDAwMDAwMDAuMjUsImV4cCI6NDEwMjQ0NDgwMCwiZmFjdG9yeV9jb2RlIjoiTUlMIn0.Au3SrqehG0PKjREhxGLPqG3YMFvwCb6GYWw8ZjjN8wLnZ819PZaLXq-wBnsixUjTwoB1a67kPeYlYsqo50hTqw",
+      "claims": {
+        "sub": "424242",
+        "iat": 1700000000.25,
+        "exp": 4102444800,
+        "factory_code": "MIL"
+      }
+    },
+    {
+      "algorithm": "HS512",
+      "factory": "BST",
+      "iat": 1700000000,
+      "token": "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0MjQyNDIiLCJpYXQiOjE3MDAwMDAwMDAsImV4cCI6NDEwMjQ0NDgwMCwiZmFjdG9yeV9jb2RlIjoiQlNUIn0.Pp0VdgAZk8GHvdjAWB-7HIdVd4SzwcvJZxtbpj634H-YOvzt8h8SRj6PxNF9jnk22K-gsbVkTkiSJ8LNZDKENw",
+      "claims": {
+        "sub": "424242",
+        "iat": 1700000000,
+        "exp": 4102444800,
+        "factory_code": "BST"
+      }
+    },
+    {
+      "algorithm": "HS512",
+      "factory": "BST",
+      "iat": 1700000000.25,
+      "token": "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0MjQyNDIiLCJpYXQiOjE3MDAwMDAwMDAuMjUsImV4cCI6NDEwMjQ0NDgwMCwiZmFjdG9yeV9jb2RlIjoiQlNUIn0.HZjEaParOu8utGpK0XPPLVK3bdvqUe5iCtEWo9k3Za9x69heis-zVRSn-57S48f-SEEYc6v3MTlY8FajHebIaQ",
+      "claims": {
+        "sub": "424242",
+        "iat": 1700000000.25,
+        "exp": 4102444800,
+        "factory_code": "BST"
+      }
+    },
+    {
+      "algorithm": "HS512",
+      "factory": "ECO",
+      "iat": 1700000000,
+      "token": "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0MjQyNDIiLCJpYXQiOjE3MDAwMDAwMDAsImV4cCI6NDEwMjQ0NDgwMCwiZmFjdG9yeV9jb2RlIjoiRUNPIn0.3H3BbPBSrdCvG20jn4RX_LgvHKPRrGpD013ApFhqeI63JfbP4i1Eg-HIgcKu70y4ylR7rmmmO-nRmMCtAOgTHA",
+      "claims": {
+        "sub": "424242",
+        "iat": 1700000000,
+        "exp": 4102444800,
+        "factory_code": "ECO"
+      }
+    },
+    {
+      "algorithm": "HS512",
+      "factory": "ECO",
+      "iat": 1700000000.25,
+      "token": "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0MjQyNDIiLCJpYXQiOjE3MDAwMDAwMDAuMjUsImV4cCI6NDEwMjQ0NDgwMCwiZmFjdG9yeV9jb2RlIjoiRUNPIn0._3rwbikkP4PW1Exesb2BrAP0RwYSZFxPImbetfId3CoqnD-kFFqt5qtAkmL5cSYZXwaP56KKE50J7bWZUtqu9g",
+      "claims": {
+        "sub": "424242",
+        "iat": 1700000000.25,
+        "exp": 4102444800,
+        "factory_code": "ECO"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "name": "fraction",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0MjQyNDIiLCJpYXQiOjE3MDAwMDAwMDAuMjUsImV4cCI6NDEwMjQ0NDgwMCwiZmFjdG9yeV9jb2RlIjoiTUlMIn0.rwVJky6pLVaMdvN2_9jLB0l3sNPAdMGWsxdr9VqTxPU",
+      "accepted": true,
+      "claims": {
+        "sub": "424242",
+        "iat": 1700000000.25,
+        "exp": 4102444800,
+        "factory_code": "MIL"
+      }
+    },
+    {
+      "name": "integer",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0MjQyNDIiLCJpYXQiOjE3MDAwMDAwMDAsImV4cCI6NDEwMjQ0NDgwMCwiZmFjdG9yeV9jb2RlIjoiTUlMIn0.fB3XsaUOHm_6mTQhlfcJ4QU6bPyX6Qh2kbK-3aLHtww",
+      "accepted": true,
+      "claims": {
+        "sub": "424242",
+        "iat": 1700000000,
+        "exp": 4102444800,
+        "factory_code": "MIL"
+      }
+    },
+    {
+      "name": "future-iat",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0MjQyNDIiLCJpYXQiOjE3MDAwMDEwMDAuMjUsImV4cCI6NDEwMjQ0NDgwMCwiZmFjdG9yeV9jb2RlIjoiTUlMIn0.kEeYxUQpg1PzFNGDiHEymUdhVTBuPOKLc_fwsOasB4M",
+      "accepted": true,
+      "claims": {
+        "sub": "424242",
+        "iat": 1700001000.25,
+        "exp": 4102444800,
+        "factory_code": "MIL"
+      }
+    },
+    {
+      "name": "numeric-string-iat",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0MjQyNDIiLCJpYXQiOiIxNzAwMDAwMDAwIiwiZXhwIjo0MTAyNDQ0ODAwLCJmYWN0b3J5X2NvZGUiOiJNSUwifQ.-OIT-unMCB2Dlf6UAb2RjH5psVzX9zeWZ91sXd94FXE",
+      "accepted": true,
+      "claims": {
+        "sub": "424242",
+        "iat": "1700000000",
+        "exp": 4102444800,
+        "factory_code": "MIL"
+      }
+    },
+    {
+      "name": "bool-iat",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0MjQyNDIiLCJpYXQiOnRydWUsImV4cCI6NDEwMjQ0NDgwMCwiZmFjdG9yeV9jb2RlIjoiTUlMIn0.mQaM9ajJbfjWy9LCGXijotrFWIW_wTNvStQAGGQqSHk",
+      "accepted": true,
+      "claims": {
+        "sub": "424242",
+        "iat": true,
+        "exp": 4102444800,
+        "factory_code": "MIL"
+      }
+    },
+    {
+      "name": "null-iat",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0MjQyNDIiLCJpYXQiOm51bGwsImV4cCI6NDEwMjQ0NDgwMCwiZmFjdG9yeV9jb2RlIjoiTUlMIn0.GL3MUnYOQzqsvN5t8ab6WZlsi9Eby1VYj8_C4Rprf6w",
+      "accepted": false,
+      "claims": null
+    },
+    {
+      "name": "bad-iat",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0MjQyNDIiLCJpYXQiOiJub3QtYS10aW1lIiwiZXhwIjo0MTAyNDQ0ODAwLCJmYWN0b3J5X2NvZGUiOiJNSUwifQ.UcBG2VIdSMVBOW4D4zv0ZgdQeZqPKxF8zZWJ2xqiN3Y",
+      "accepted": false,
+      "claims": null
+    },
+    {
+      "name": "nan-iat",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0MjQyNDIiLCJpYXQiOk5hTiwiZXhwIjo0MTAyNDQ0ODAwLCJmYWN0b3J5X2NvZGUiOiJNSUwifQ.tZESpEAArSusbR9lrqOeF49QgsaFA_1pKEutzjTTjbI",
+      "accepted": false,
+      "claims": null
+    },
+    {
+      "name": "inf-iat",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0MjQyNDIiLCJpYXQiOkluZmluaXR5LCJleHAiOjQxMDI0NDQ4MDAsImZhY3RvcnlfY29kZSI6Ik1JTCJ9.YnVsgGz_ROK48QkLQOcoaQb6YzLFvcgrpoJb3521vss",
+      "accepted": false,
+      "claims": null
+    },
+    {
+      "name": "expiry-equal",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0MjQyNDIiLCJpYXQiOjE3MDAwMDAwMDAuMjUsImV4cCI6MTcwMDAwMDAwMCwiZmFjdG9yeV9jb2RlIjoiTUlMIn0.yxfSVwA7xbBfuT6YJQeMretapxvWgP6Qr2lpDNy4-T8",
+      "accepted": true,
+      "claims": {
+        "sub": "424242",
+        "iat": 1700000000.25,
+        "exp": 1700000000,
+        "factory_code": "MIL"
+      }
+    },
+    {
+      "name": "expiry-fraction-equal",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0MjQyNDIiLCJpYXQiOjE3MDAwMDAwMDAuMjUsImV4cCI6MTcwMDAwMDAwMC43NSwiZmFjdG9yeV9jb2RlIjoiTUlMIn0.o1EIeku6Ic9y2k6egOjCSnoJZnDctmukmK12iMDkpsM",
+      "accepted": true,
+      "claims": {
+        "sub": "424242",
+        "iat": 1700000000.25,
+        "exp": 1700000000.75,
+        "factory_code": "MIL"
+      }
+    },
+    {
+      "name": "expiry-next",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0MjQyNDIiLCJpYXQiOjE3MDAwMDAwMDAuMjUsImV4cCI6MTcwMDAwMDAwMSwiZmFjdG9yeV9jb2RlIjoiTUlMIn0.k38YXNcun3Y-Y4y4Zgclq1QjUTv3-D2UJQfhUHWD68o",
+      "accepted": true,
+      "claims": {
+        "sub": "424242",
+        "iat": 1700000000.25,
+        "exp": 1700000001,
+        "factory_code": "MIL"
+      }
+    },
+    {
+      "name": "expired",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0MjQyNDIiLCJpYXQiOjE3MDAwMDAwMDAuMjUsImV4cCI6MTY5OTk5OTk5OSwiZmFjdG9yeV9jb2RlIjoiTUlMIn0.7nBL9QyF_Xon-selhPz2kqcqcnFBa2yFaJ0dzFhS9T0",
+      "accepted": false,
+      "claims": null
+    },
+    {
+      "name": "null-exp",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0MjQyNDIiLCJpYXQiOjE3MDAwMDAwMDAuMjUsImV4cCI6bnVsbCwiZmFjdG9yeV9jb2RlIjoiTUlMIn0.-6mFMZo6QSsb-cEIGiTqRSS3HW5jIlwmEuYgDAgl0Mo",
+      "accepted": false,
+      "claims": null
+    },
+    {
+      "name": "bad-exp",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0MjQyNDIiLCJpYXQiOjE3MDAwMDAwMDAuMjUsImV4cCI6ImJhZCIsImZhY3RvcnlfY29kZSI6Ik1JTCJ9._a3fY0_DVA8_BIDmyBkes37Co0gmYZdoV3sjw3-Y9G0",
+      "accepted": false,
+      "claims": null
+    },
+    {
+      "name": "nbf-equal",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0MjQyNDIiLCJpYXQiOjE3MDAwMDAwMDAuMjUsImV4cCI6NDEwMjQ0NDgwMCwiZmFjdG9yeV9jb2RlIjoiTUlMIiwibmJmIjoxNzAwMDAwMDAwfQ.z8E8nLUSITEEG9ZPBaakkwyK9ggdEPzpCY1NXKKLGQE",
+      "accepted": true,
+      "claims": {
+        "sub": "424242",
+        "iat": 1700000000.25,
+        "exp": 4102444800,
+        "factory_code": "MIL",
+        "nbf": 1700000000
+      }
+    },
+    {
+      "name": "future-nbf",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0MjQyNDIiLCJpYXQiOjE3MDAwMDAwMDAuMjUsImV4cCI6NDEwMjQ0NDgwMCwiZmFjdG9yeV9jb2RlIjoiTUlMIiwibmJmIjoxNzAwMDAwMDAxfQ.qafXwqx_7MgI7WupyZP06_tN6ybKlAWk5BonpaNws2U",
+      "accepted": false,
+      "claims": null
+    },
+    {
+      "name": "empty-aud",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0MjQyNDIiLCJpYXQiOjE3MDAwMDAwMDAuMjUsImV4cCI6NDEwMjQ0NDgwMCwiZmFjdG9yeV9jb2RlIjoiTUlMIiwiYXVkIjoiIn0.9Ctt1z_N9iqhtELr8mqyGH3zcrKlb25sZuUQ04mQDAY",
+      "accepted": false,
+      "claims": null
+    },
+    {
+      "name": "empty-list-aud",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0MjQyNDIiLCJpYXQiOjE3MDAwMDAwMDAuMjUsImV4cCI6NDEwMjQ0NDgwMCwiZmFjdG9yeV9jb2RlIjoiTUlMIiwiYXVkIjpbXX0.oBhQ9VI-bhyFE_zEtbtjq7j53yTebcRXwy6CjNWknz8",
+      "accepted": false,
+      "claims": null
+    },
+    {
+      "name": "null-aud",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0MjQyNDIiLCJpYXQiOjE3MDAwMDAwMDAuMjUsImV4cCI6NDEwMjQ0NDgwMCwiZmFjdG9yeV9jb2RlIjoiTUlMIiwiYXVkIjpudWxsfQ.YdhnB-JcOndH2f8H4Jp1H7uomTG5s5Fz-XzNjz83BpM",
+      "accepted": false,
+      "claims": null
+    },
+    {
+      "name": "named-aud",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0MjQyNDIiLCJpYXQiOjE3MDAwMDAwMDAuMjUsImV4cCI6NDEwMjQ0NDgwMCwiZmFjdG9yeV9jb2RlIjoiTUlMIiwiYXVkIjoiZXJwIn0.sAAK9TrJG-BPFITCJUcu38Oo_IYfO6LczAvr-ONvS7o",
+      "accepted": false,
+      "claims": null
+    },
+    {
+      "name": "at-hash",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0MjQyNDIiLCJpYXQiOjE3MDAwMDAwMDAuMjUsImV4cCI6NDEwMjQ0NDgwMCwiZmFjdG9yeV9jb2RlIjoiTUlMIiwiYXRfaGFzaCI6InZhbHVlIn0.utMDwg9SLk4-Wo1USwXwl__wco2re8LQn5SaqwFo5m0",
+      "accepted": false,
+      "claims": null
+    },
+    {
+      "name": "empty-at-hash",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0MjQyNDIiLCJpYXQiOjE3MDAwMDAwMDAuMjUsImV4cCI6NDEwMjQ0NDgwMCwiZmFjdG9yeV9jb2RlIjoiTUlMIiwiYXRfaGFzaCI6IiJ9.e3AVRLR-1Cx6dKymGpvL811tghReNxN11GTpac6zMmI",
+      "accepted": false,
+      "claims": null
+    },
+    {
+      "name": "integer-sub",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOjQyNDI0MiwiaWF0IjoxNzAwMDAwMDAwLjI1LCJleHAiOjQxMDI0NDQ4MDAsImZhY3RvcnlfY29kZSI6Ik1JTCJ9.v_5xusHy1LFH7JmbaUoVXRjyzEJjn5NQuh0vDLePGNg",
+      "accepted": false,
+      "claims": null
+    },
+    {
+      "name": "integer-jti",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0MjQyNDIiLCJpYXQiOjE3MDAwMDAwMDAuMjUsImV4cCI6NDEwMjQ0NDgwMCwiZmFjdG9yeV9jb2RlIjoiTUlMIiwianRpIjoxfQ.arnS6fO42q8iDNw5WneosYH7eBkzPtYzBEa3gpwb0z8",
+      "accepted": false,
+      "claims": null
+    },
+    {
+      "name": "missing-iat",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0MjQyNDIiLCJleHAiOjQxMDI0NDQ4MDAsImZhY3RvcnlfY29kZSI6Ik1JTCJ9.hMj-Nhx5CsifUns4aiJxO0YV_CTXzHoIVm4wiBDuiDU",
+      "accepted": true,
+      "claims": {
+        "sub": "424242",
+        "exp": 4102444800,
+        "factory_code": "MIL"
+      }
+    },
+    {
+      "name": "no-expiry",
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0MjQyNDIiLCJpYXQiOjE3MDAwMDAwMDAuMjUsImZhY3RvcnlfY29kZSI6Ik1JTCJ9.rVcCbXyVKcR0xPAZQYP2_Q-Joihg3hOxOgKFRW_r8j4",
+      "accepted": true,
+      "claims": {
+        "sub": "424242",
+        "iat": 1700000000.25,
+        "factory_code": "MIL"
+      }
+    }
+  ]
+}

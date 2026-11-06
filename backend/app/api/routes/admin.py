@@ -25,6 +25,7 @@ from app.models.factory_scope_service import normalize_factory_code
 from app.libs.dto.catalog.catalog import (
     UserIn, UserUpdate, UserOut, RoleIn, RoleOut, DepartmentIn, DepartmentOut,
 )
+from app.models.people import departments_service
 from app.models.credentials_service import apply_password_credential_change, lock_user_for_credential_change
 from app.models.audit_service import export_audit_hash_chain, log_action, verify_audit_hash_chain
 from app.models.password_reset_service import send_password_email_safely
@@ -486,13 +487,7 @@ def list_departments(db: DbSession, _: CurrentUser):
 
 @router.post("/departments", response_model=DepartmentOut, status_code=201)
 def create_department(payload: DepartmentIn, db: DbSession, current: User = Depends(require_permissions("*"))):
-    d = Department(name=payload.name, code=payload.code)
-    db.add(d)
-    db.flush()
-    log_action(db, current, "create", "Department", d.id, new_value={"name": d.name})
-    db.commit()
-    db.refresh(d)
-    return d
+    return departments_service.create_department(payload, db, current)
 
 
 @router.patch("/departments/{department_id}", response_model=DepartmentOut)
