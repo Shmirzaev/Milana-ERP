@@ -1,7 +1,6 @@
 """Whole-record waste disposal decisions cannot replay or reopen terminal stock."""
 from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
-import os
 from queue import Queue
 from threading import Event
 from time import monotonic, sleep
@@ -9,16 +8,15 @@ from uuid import uuid4
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import create_engine, text
-from sqlalchemy.engine import make_url
+from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 
 from app.api.routes import waste
 from app.models.inventory import waste_service
 from app.core.security import create_access_token
-from app.db.base import Base
 from app.db.session import SessionLocal
 from app.schemas import AuditLog, User, WasteDisposalRequest, WasteRecord
+from app.tests.test_modelsize_create_postgres import pg_sessions as pg_sessions  # noqa: F401
 
 
 def _actor(permissions=("waste.receive", "waste.disposal", "management.approve"), session_factory=SessionLocal):
@@ -306,35 +304,9 @@ def test_nonfinite_legacy_numeric_nan_is_refused():
 
 
 @pytest.fixture(scope="module")
-def disposal_postgres_engine():
-    raw_url = os.environ.get("STABILIZATION_POSTGRES_URL")
-    if not raw_url:
-        pytest.skip("Set STABILIZATION_POSTGRES_URL for real PostgreSQL disposal concurrency coverage")
-    url = make_url(raw_url)
-    if url.get_backend_name() != "postgresql" or url.host not in {"127.0.0.1", "localhost", "::1"} or url.query:
-        pytest.fail("Disposal concurrency tests require a loopback PostgreSQL URL without connection overrides")
-    schema = f"waste_disposal_{uuid4().hex}"
-    engine = create_engine(
-        url, connect_args={"options": f"-csearch_path={schema} -clock_timeout=15000 -cstatement_timeout=20000"},
-        pool_size=4, max_overflow=0, isolation_level="READ COMMITTED",
-    )
-    with engine.begin() as connection:
-        connection.exec_driver_sql(f'CREATE SCHEMA "{schema}"')
-    try:
-        tables = {WasteRecord.__table__, WasteDisposalRequest.__table__, AuditLog.__table__}
-        pending = list(tables)
-        while pending:
-            for foreign_key in pending.pop().foreign_keys:
-                target = foreign_key.column.table
-                if target not in tables:
-                    tables.add(target)
-                    pending.append(target)
-        Base.metadata.create_all(engine, tables=list(tables))
-        yield engine
-    finally:
-        with engine.begin() as connection:
-            connection.exec_driver_sql(f'DROP SCHEMA "{schema}" CASCADE')
-        engine.dispose()
+def disposal_postgres_engine(pg_sessions):
+    # The common fixture owns identity validation, migrated DB and terminal cleanup.
+    return pg_sessions.kw['bind']
 
 
 @pytest.mark.parametrize("actions", [
