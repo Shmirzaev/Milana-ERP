@@ -155,15 +155,21 @@ def _effective_permissions_for(db: DbSession, role_id: int | None, extra_permiss
     return normalize_permissions(permissions)
 
 
-def get_access_catalog(actor: User) -> list[dict]:
+def _require_active_admin_actor(actor: User) -> None:
+    if actor is None or not actor.is_active:
+        raise HTTPException(status_code=401, detail="Inactive or unknown user")
     require_permissions("admin.users", "*")(actor)
+
+
+def get_access_catalog(actor: User) -> list[dict]:
+    _require_active_admin_actor(actor)
     own = set(user_permissions(actor))
     return [{**row, "grantable": is_super_admin(actor) if row["key"] in {"*", SUPER_ADMIN_PERMISSION}
              else "*" in own or row["key"] in own} for row in PERMISSION_CATALOG]
 
 
 def preview_user_access(db: DbSession, payload: UserIn, actor: User) -> dict:
-    require_permissions("admin.users", "*")(actor)
+    _require_active_admin_actor(actor)
     values = payload.model_dump(exclude={"password"})
     subject = _access_subject(db, values)
     available = available_factory_codes(subject)

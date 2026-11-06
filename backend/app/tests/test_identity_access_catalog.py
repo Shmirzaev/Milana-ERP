@@ -41,3 +41,26 @@ def test_direct_service_rejects_unprivileged_actor(identity_admin):
         with pytest.raises(HTTPException) as error:
             get_access_catalog(actor)
         assert error.value.status_code == 403
+
+
+@pytest.mark.parametrize("actor_kind", ["manager", "super"])
+def test_direct_service_rejects_inactive_privileged_actor(identity_admin, actor_kind):
+    from fastapi import HTTPException
+    from app.models.identity.access_service import get_access_catalog
+    h = identity_admin
+    target_id = h.actors["ordinary"][0]
+    with h.db() as setup:
+        setup.get(User, h.actors[actor_kind][0]).is_active = False
+        setup.commit()
+    with h.db() as before:
+        target = before.get(User, target_id)
+        expected = (target.name, target.email, target.is_active, before.query(AuditLog).count(), before.query(User).count())
+    with h.db() as db:
+        actor = db.get(User, h.actors[actor_kind][0])
+        with pytest.raises(HTTPException) as error:
+            get_access_catalog(actor)
+        assert (error.value.status_code, error.value.detail) == (401, "Inactive or unknown user")
+        db.rollback()
+    with h.db() as after:
+        target = after.get(User, target_id)
+        assert (target.name, target.email, target.is_active, after.query(AuditLog).count(), after.query(User).count()) == expected

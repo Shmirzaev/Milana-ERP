@@ -137,17 +137,12 @@ def test_last_wildcard_admin_refusal_precedes_history_check(identity_admin):
     assert snapshot(h, target, []) == before
 
 
-def test_last_super_admin_guard_for_existing_direct_route_caller(identity_admin):
+def test_active_wildcard_actor_cannot_delete_protected_super_admin(identity_admin):
     h = identity_admin
-    target, actor = h.actors['ordinary'][0], h.actors['super'][0]
-    with h.db() as db:
-        db.query(User).filter(User.id != target).update({'is_active': False})
-        db.get(User, target).extra_permissions = ['admin.super']
-        db.commit()
-    # An authenticated active Super Admin would itself be another active member.
+    target, actor = h.actors['super'][0], h.actors['wildcard'][0]
     with h.db() as db, pytest.raises(HTTPException) as refused:
         admin.delete_user(target, db, db.get(User, actor))
-    assert (refused.value.status_code, refused.value.detail) == (400, 'Cannot delete the last active super administrator')
+    assert (refused.value.status_code, refused.value.detail) == (403, 'Only a super admin can delete administrator accounts')
 
 
 @pytest.mark.parametrize('error_kind', ['runtime', 'integrity'])
@@ -219,3 +214,26 @@ def test_direct_service_rejects_unprivileged_actor(identity_admin):
         with pytest.raises(HTTPException) as error:
             delete_user(db, 2147483647, actor)
         assert error.value.status_code == 403
+
+
+@pytest.mark.parametrize("actor_kind", ["manager", "super"])
+def test_direct_service_rejects_inactive_privileged_actor(identity_admin, actor_kind):
+    from fastapi import HTTPException
+    from app.models.identity.users_service import delete_user
+    h = identity_admin
+    target_id = h.actors["ordinary"][0]
+    with h.db() as setup:
+        setup.get(User, h.actors[actor_kind][0]).is_active = False
+        setup.commit()
+    with h.db() as before:
+        target = before.get(User, target_id)
+        expected = (target.name, target.email, target.is_active, before.query(AuditLog).count(), before.query(User).count())
+    with h.db() as db:
+        actor = db.get(User, h.actors[actor_kind][0])
+        with pytest.raises(HTTPException) as error:
+            delete_user(db, target_id, actor)
+        assert (error.value.status_code, error.value.detail) == (401, "Inactive or unknown user")
+        db.rollback()
+    with h.db() as after:
+        target = after.get(User, target_id)
+        assert (target.name, target.email, target.is_active, after.query(AuditLog).count(), after.query(User).count()) == expected

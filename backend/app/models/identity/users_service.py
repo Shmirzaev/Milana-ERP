@@ -14,7 +14,7 @@ from app.models.audit_service import log_action
 from app.models.credentials_service import apply_password_credential_change, lock_user_for_credential_change
 from app.models.factory_scope_service import normalize_factory_code, selected_factory_code
 from app.models.identity.access_service import (
-    _assert_can_grant_permissions, _assert_can_grant_role, _assert_policy_change, _user_access_values,
+    _assert_can_grant_permissions, _assert_can_grant_role, _assert_policy_change, _user_access_values, _require_active_admin_actor,
 )
 from app.models.password_reset_service import create_password_reset_token, password_reset_url
 from app.schemas import AuditLog, User
@@ -71,12 +71,12 @@ def create_user(db: Session, payload: UserIn, actor: User) -> tuple[User, str | 
 
 
 def list_users(db: Session, actor: User) -> list[User]:
-    require_permissions("admin.users", "*")(actor)
+    _require_active_admin_actor(actor)
     return db.query(User).order_by(User.id).all()
 
 
 def get_user(db: Session, user_id: int, actor: User) -> User:
-    require_permissions("admin.users", "*")(actor)
+    _require_active_admin_actor(actor)
     u = db.get(User, user_id)
     if not u:
         raise HTTPException(404, "User not found")
@@ -116,7 +116,7 @@ def _lock_active_user_memberships(db: Session) -> None:
 
 
 def update_user(db: Session, user_id: int, payload: UserUpdate, current: User) -> User:
-    require_permissions("admin.users", "*")(current)
+    _require_active_admin_actor(current)
     # Lock memberships in stable order before taking a target credential lock.
     if {"role_id", "extra_permissions", "access_policy", "is_active", "factory_code"} & payload.model_fields_set:
         _lock_active_user_memberships(db)
@@ -199,7 +199,7 @@ def _assert_user_has_no_audit_history(db: Session, user_id: int) -> None:
 
 
 def delete_user(db: Session, user_id: int, current: User) -> None:
-    require_permissions("admin.users", "*")(current)
+    _require_active_admin_actor(current)
     _lock_active_user_memberships(db)
     u = db.get(User, user_id)
     if not u:
