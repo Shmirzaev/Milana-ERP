@@ -125,6 +125,13 @@ export default {
     "login.production": "Ishlab chiqarish - 14 kun",
     "login.units": "BIRLIK",
     "login.openTasks": "Ochiq vazifalar",
+    "common.factory": "Fabrika",
+    "login.secureSignIn": "Xavfsiz kirish talab qilinadi",
+    "page.admin.audit.user": "foydalanuvchi",
+    "page.admin.audit.factorySwitch": "{actor} foydalanuvchi #{id} uchun fabrikani almashtirdi.",
+    "page.admin.audit.factorySwitchHint": "Fabrika almashtirildi.",
+    "page.settings.chooseLogo": "Logotipni tanlash",
+    "page.settings.noLogoSelected": "Fayl tanlanmagan",
     "login.presentation": "Taqdimot",
     "login.presentationAria": "Taqdimot sahifasini ochish",
 

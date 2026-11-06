@@ -478,6 +478,10 @@ and all four health checks passed. Backup and full evidence are in
 
 ## Required checks and open risks
 
+- OPS05 isolated candidate adds the shared-store readiness probe and a shared
+  bounded flight; `/health` stays dependency-free. Automated evidence and blocked
+  visual/stress gates are in [the task record](archive/OPS05_READINESS_2026-10-26.md).
+  This candidate is not merged, deployed or human-accepted.
 - API02 candidate (re-aimed 29 October, Dilmurod; Mirshoir review): task write DTOs now
   validate state, priority, date and reference input; task creation/reassignment
   checks target visibility and holds a PostgreSQL key-share lock through commit.

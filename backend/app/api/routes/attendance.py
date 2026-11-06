@@ -24,6 +24,8 @@ from app.models.factory_scope_service import normalize_factory_code, selected_fa
 from app.models.image_storage_service import convert_image_to_webp
 from app.models.attendance_reports_service import ReportLanguage, build_daily_attendance_xlsx
 from app.models.audit_service import log_action
+from app.models.people import attendance_service
+from app.libs.dto.people.attendance import DeviceIn as DeviceIn, ManagedDeviceIn as ManagedDeviceIn, ManagedDeviceUpdateIn as ManagedDeviceUpdateIn
 from app.models.attendance_event_policy_service import accepted_attendance_result
 
 
@@ -31,24 +33,6 @@ router = APIRouter(prefix="/attendance", tags=["attendance"])
 TASHKENT = ZoneInfo("Asia/Tashkent")
 ATTENDANCE_IMPORT_LOCK_NAMESPACE = 1096043342
 ATTENDANCE_SOURCE_SETTING_PREFIX = "att_src:"
-
-
-class DeviceIn(BaseModel):
-    device_key: str = Field(min_length=1, max_length=64)
-    name: str = Field(default="Main turnstile", min_length=1, max_length=128)
-    vendor: str = Field(default="Hikvision", min_length=1, max_length=64)
-    model: str | None = Field(default=None, max_length=128)
-    serial_no: str | None = Field(default=None, max_length=128)
-    source_host: str | None = Field(default=None, max_length=255)
-    reported_person_count: int | None = Field(default=None, ge=0, le=100_000)
-
-    @field_validator("device_key")
-    @classmethod
-    def validate_device_key(cls, value: str) -> str:
-        normalized = value.strip()
-        if not normalized.replace("-", "").replace("_", "").isalnum():
-            raise ValueError("device_key may contain only letters, numbers, hyphens, and underscores")
-        return normalized
 
 
 class PersonIn(BaseModel):
@@ -116,42 +100,7 @@ class EventBatchIn(BaseModel):
         return PeopleSnapshotIn.validate_source_snapshot_at(value)
 
 
-class ManagedDeviceIn(BaseModel):
-    device_key: str = Field(min_length=1, max_length=64)
-    name: str = Field(min_length=1, max_length=128)
-    vendor: str = Field(pattern="^(Hikvision|Dahua)$")
-    source_host: str = Field(min_length=8, max_length=255)
-    certificate_sha256: str = Field(min_length=64, max_length=64)
-
-    @field_validator("device_key")
-    @classmethod
-    def validate_managed_device_key(cls, value: str) -> str:
-        return DeviceIn.validate_device_key(value)
-
-    @field_validator("source_host")
-    @classmethod
-    def validate_source_host(cls, value: str) -> str:
-        normalized = value.strip().rstrip("/")
-        if not normalized.lower().startswith("https://"):
-            raise ValueError("Attendance device URL must use HTTPS")
-        return normalized
-
-    @field_validator("certificate_sha256")
-    @classmethod
-    def validate_certificate_sha256(cls, value: str) -> str:
-        normalized = "".join(character for character in value.lower() if character in "0123456789abcdef")
-        if len(normalized) != 64:
-            raise ValueError("Certificate SHA-256 must contain 64 hexadecimal characters")
-        return normalized
-
-
-class ManagedDeviceUpdateIn(BaseModel):
-    name: str | None = Field(default=None, min_length=1, max_length=128)
-    sync_enabled: bool | None = None
-
-
-def _connector_token_hash(token: str) -> str:
-    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+_connector_token_hash = attendance_service._connector_token_hash
 
 
 def _require_integration_token(
@@ -751,24 +700,7 @@ def _attendance_row_payload(
     }
 
 
-def _device_payload(device: AttendanceDevice) -> dict:
-    return {
-        "id": device.id,
-        "device_key": device.device_key,
-        "name": device.name,
-        "vendor": device.vendor,
-        "model": device.model,
-        "serial_no": device.serial_no,
-        "source_host": device.source_host,
-        "certificate_sha256": device.certificate_sha256,
-        "managed": bool(device.connector_token_hash),
-        "sync_enabled": device.sync_enabled,
-        "read_only": device.read_only,
-        "reported_person_count": device.reported_person_count,
-        "last_seen_at": device.last_seen_at,
-        "last_people_sync_at": device.last_people_sync_at,
-        "last_event_sync_at": device.last_event_sync_at,
-    }
+_device_payload = attendance_service._device_payload
 
 
 @router.post("/devices", status_code=201)
@@ -777,42 +709,7 @@ def create_managed_attendance_device(
     db: DbSession,
     current: User = Depends(require_permissions("attendance.manage", "*")),
 ):
-    factory_code = selected_factory_code(current)
-    existing = db.query(AttendanceDevice.id).filter(
-        AttendanceDevice.factory_code == factory_code,
-        AttendanceDevice.device_key == payload.device_key,
-    ).first()
-    if existing:
-        raise HTTPException(400, "Attendance device key already exists in this factory")
-    connector_token = secrets.token_urlsafe(48)
-    device = AttendanceDevice(
-        factory_code=factory_code,
-        device_key=payload.device_key,
-        name=payload.name.strip(),
-        vendor=payload.vendor,
-        source_host=payload.source_host,
-        certificate_sha256=payload.certificate_sha256,
-        connector_token_hash=_connector_token_hash(connector_token),
-        sync_enabled=True,
-        configured_by=current.id,
-        read_only=True,
-    )
-    db.add(device)
-    db.flush()
-    log_action(
-        db,
-        current,
-        "create",
-        "AttendanceDeviceConfig",
-        device.id,
-        new_value={"factory_code": factory_code, "device_key": device.device_key, "vendor": device.vendor},
-    )
-    db.commit()
-    result = _device_payload(device)
-    # The plaintext token is intentionally returned once and never stored.
-    result["connector_token"] = connector_token
-    return result
-
+    return attendance_service.create_managed_attendance_device(payload, db, current, audit=log_action)
 
 @router.patch("/devices/{device_id}")
 def update_managed_attendance_device(
