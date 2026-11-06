@@ -4,6 +4,7 @@ from sqlalchemy import String, Boolean, ForeignKey, DateTime, Text, Numeric
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, PkMixin, TimestampMixin
+from app.libs.enums.inventory import WasteStatus
 
 
 class WasteRecord(Base, PkMixin, TimestampMixin):
@@ -19,7 +20,7 @@ class WasteRecord(Base, PkMixin, TimestampMixin):
     reason: Mapped[str | None] = mapped_column(Text)
     sellable: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     estimated_value: Mapped[float] = mapped_column(Numeric(12, 2), default=0, nullable=False)
-    status: Mapped[str] = mapped_column(String(32), default="recorded", nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default=WasteStatus.RECORDED.value, nullable=False)
     created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
 
 

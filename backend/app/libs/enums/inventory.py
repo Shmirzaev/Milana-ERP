@@ -14,6 +14,17 @@ services still own the legal states, the allowed inputs and the errors.
 from enum import Enum
 
 
+class WasteStatus(str, Enum):
+    """Lifecycle values recognized for waste records."""
+
+    RECORDED = "recorded"
+    RECEIVED_BY_WASTE_DEPARTMENT = "received_by_waste_department"
+    PENDING_DISPOSAL_APPROVAL = "pending_disposal_approval"
+    DISPOSAL_APPROVED = "disposal_approved"
+    SOLD = "sold"
+    DISPOSED = "disposed"
+
+
 class WarehouseType(str, Enum):
     """Source-recognized warehouse kinds; membership does not permit creation.
 
