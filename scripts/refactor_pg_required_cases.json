@@ -494,6 +494,33 @@
         "test_pg_reject_deferred_commit_failure_retry",
         "test_pg_rejection_race_serializes_on_parent"
       ]
+    },
+    "test_waste_race_rollback_postgres": {
+      "revision": "fdaa65d7543e768572b619deaa3b540bce010524",
+      "git_blob_sha256": "8b4c7f01b4a54a4d660b7f300a605b3e624850acfd607b8dcdd5864800cc1374",
+      "selected_functions": [
+        "test_waste_sale_postgres_contending_http_requests",
+        "test_waste_sale_postgres_audit_finalization_rollback"
+      ]
+    },
+    "test_waste_sale_commit_postgres": {
+      "revision": "fdaa65d7543e768572b619deaa3b540bce010524",
+      "git_blob_sha256": "d0772b050bb58ee562c5449816c9ae76e5d9f868b3c8f9363729956fd3aabba2",
+      "selected_functions": [
+        "test_pg_sale_deferred_commit_failure_rolls_back_replay_then_retry",
+        "test_pg_sale_auth_partial_then_exhaust_and_replay",
+        "test_pg_sale_same_key_service_race_serializes_and_replays"
+      ]
+    },
+    "test_waste_sale_list_postgres": {
+      "revision": "fdaa65d7543e768572b619deaa3b540bce010524",
+      "git_blob_sha256": "c8410d589a2d2e5549621ae1b2c3937787cb60e8b5907da9ea82c46c0ba5d14c",
+      "selected_functions": [
+        "test_pg_empty_filtered_list_has_no_sale_query",
+        "test_pg_list_batch_history_filters_auth_and_no_writes",
+        "test_pg_partial_sale_remaining_stale_and_exhaustion",
+        "test_pg_nan_original_service_diagnostic"
+      ]
     }
   },
   "cases": {
@@ -1163,6 +1190,21 @@
       "test_pg_reject_deferred_commit_failure_retry",
       "test_pg_rejection_race_serializes_on_parent[reject]",
       "test_pg_rejection_race_serializes_on_parent[approve]"
+    ],
+    "test_waste_race_rollback_postgres": [
+      "test_waste_sale_postgres_contending_http_requests",
+      "test_waste_sale_postgres_audit_finalization_rollback"
+    ],
+    "test_waste_sale_commit_postgres": [
+      "test_pg_sale_deferred_commit_failure_rolls_back_replay_then_retry",
+      "test_pg_sale_auth_partial_then_exhaust_and_replay",
+      "test_pg_sale_same_key_service_race_serializes_and_replays"
+    ],
+    "test_waste_sale_list_postgres": [
+      "test_pg_empty_filtered_list_has_no_sale_query",
+      "test_pg_list_batch_history_filters_auth_and_no_writes",
+      "test_pg_partial_sale_remaining_stale_and_exhaustion",
+      "test_pg_nan_original_service_diagnostic"
     ]
   },
   "isolated_supplemental_cases": [
