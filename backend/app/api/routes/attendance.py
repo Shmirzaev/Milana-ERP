@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import hmac
 import os
-import secrets
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from tempfile import NamedTemporaryFile
@@ -13,73 +12,39 @@ from anyio import CancelScope, to_thread
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import case, func, or_, text
+from sqlalchemy import case, func, or_
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.deps import DbSession, require_permissions
 from app.core.dt import as_utc, utcnow
-from app.schemas import AttendanceDevice, AttendanceEvent, AttendancePerson, SystemSetting, User
-from app.models.factory_scope_service import normalize_factory_code, selected_factory_code
+from app.schemas import AttendanceDevice, AttendanceEvent, AttendancePerson, User
+from app.models.factory_scope_service import selected_factory_code
 from app.models.image_storage_service import convert_image_to_webp
 from app.models.attendance_reports_service import ReportLanguage, build_daily_attendance_xlsx
 from app.models.audit_service import log_action
+from app.models.people import attendance_service
+from app.models.people.attendance_service import (
+    _integration_factory as _integration_factory,
+    _lock_attendance_import as _lock_attendance_import,
+    _source_setting_key as _source_setting_key,
+    _source_checkpoint as _source_checkpoint,
+    _source_state as _source_state,
+    _store_source_state as _store_source_state,
+    _source_snapshot_at as _source_snapshot_at,
+    _advance_source_checkpoint as _advance_source_checkpoint,
+    _upsert_device as _upsert_device,
+    ATTENDANCE_IMPORT_LOCK_NAMESPACE as ATTENDANCE_IMPORT_LOCK_NAMESPACE,
+    ATTENDANCE_SOURCE_SETTING_PREFIX as ATTENDANCE_SOURCE_SETTING_PREFIX,
+)
+from app.libs.dto.people.attendance import PersonIn as PersonIn, PeopleSnapshotIn
+from app.libs.dto.people.attendance import DeviceIn as DeviceIn, ManagedDeviceIn as ManagedDeviceIn, ManagedDeviceUpdateIn as ManagedDeviceUpdateIn
 from app.models.attendance_event_policy_service import accepted_attendance_result
 
 
 router = APIRouter(prefix="/attendance", tags=["attendance"])
 TASHKENT = ZoneInfo("Asia/Tashkent")
-ATTENDANCE_IMPORT_LOCK_NAMESPACE = 1096043342
-ATTENDANCE_SOURCE_SETTING_PREFIX = "att_src:"
-
-
-class DeviceIn(BaseModel):
-    device_key: str = Field(min_length=1, max_length=64)
-    name: str = Field(default="Main turnstile", min_length=1, max_length=128)
-    vendor: str = Field(default="Hikvision", min_length=1, max_length=64)
-    model: str | None = Field(default=None, max_length=128)
-    serial_no: str | None = Field(default=None, max_length=128)
-    source_host: str | None = Field(default=None, max_length=255)
-    reported_person_count: int | None = Field(default=None, ge=0, le=100_000)
-
-    @field_validator("device_key")
-    @classmethod
-    def validate_device_key(cls, value: str) -> str:
-        normalized = value.strip()
-        if not normalized.replace("-", "").replace("_", "").isalnum():
-            raise ValueError("device_key may contain only letters, numbers, hyphens, and underscores")
-        return normalized
-
-
-class PersonIn(BaseModel):
-    external_person_id: str = Field(min_length=1, max_length=64)
-    full_name: str = Field(min_length=1, max_length=255)
-    user_type: str | None = Field(default=None, max_length=32)
-    valid_from: datetime | None = None
-    valid_to: datetime | None = None
-    is_valid: bool = True
-    has_face: bool = False
-    card_count: int = Field(default=0, ge=0, le=100)
-    fingerprint_count: int = Field(default=0, ge=0, le=100)
-
-    @field_validator("external_person_id", "full_name")
-    @classmethod
-    def strip_required_text(cls, value: str) -> str:
-        return value.strip()
-
-
-class PeopleSnapshotIn(BaseModel):
-    device: DeviceIn
-    people: list[PersonIn] = Field(max_length=5_000)
-    full_snapshot: bool = True
-    source_snapshot_at: datetime | None = None
-
-    @field_validator("source_snapshot_at")
-    @classmethod
-    def validate_source_snapshot_at(cls, value: datetime | None) -> datetime | None:
-        if value is not None and (value.tzinfo is None or value.utcoffset() is None):
-            raise ValueError("source_snapshot_at must include a timezone offset")
-        return value.astimezone(timezone.utc) if value is not None else None
+secrets = attendance_service.secrets
 
 
 class EventIn(BaseModel):
@@ -116,42 +81,7 @@ class EventBatchIn(BaseModel):
         return PeopleSnapshotIn.validate_source_snapshot_at(value)
 
 
-class ManagedDeviceIn(BaseModel):
-    device_key: str = Field(min_length=1, max_length=64)
-    name: str = Field(min_length=1, max_length=128)
-    vendor: str = Field(pattern="^(Hikvision|Dahua)$")
-    source_host: str = Field(min_length=8, max_length=255)
-    certificate_sha256: str = Field(min_length=64, max_length=64)
-
-    @field_validator("device_key")
-    @classmethod
-    def validate_managed_device_key(cls, value: str) -> str:
-        return DeviceIn.validate_device_key(value)
-
-    @field_validator("source_host")
-    @classmethod
-    def validate_source_host(cls, value: str) -> str:
-        normalized = value.strip().rstrip("/")
-        if not normalized.lower().startswith("https://"):
-            raise ValueError("Attendance device URL must use HTTPS")
-        return normalized
-
-    @field_validator("certificate_sha256")
-    @classmethod
-    def validate_certificate_sha256(cls, value: str) -> str:
-        normalized = "".join(character for character in value.lower() if character in "0123456789abcdef")
-        if len(normalized) != 64:
-            raise ValueError("Certificate SHA-256 must contain 64 hexadecimal characters")
-        return normalized
-
-
-class ManagedDeviceUpdateIn(BaseModel):
-    name: str | None = Field(default=None, min_length=1, max_length=128)
-    sync_enabled: bool | None = None
-
-
-def _connector_token_hash(token: str) -> str:
-    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+_connector_token_hash = attendance_service._connector_token_hash
 
 
 def _require_integration_token(
@@ -175,319 +105,15 @@ def _require_integration_token(
     return None
 
 
-def _integration_factory() -> str:
-    return normalize_factory_code(settings.ATTENDANCE_INTEGRATION_FACTORY_CODE, default="MIL")
-
-
-def _lock_attendance_import(db: Session, factory_code: str, device_key: str) -> None:
-    if db.get_bind().dialect.name == "postgresql":
-        db.execute(
-            text("SELECT pg_advisory_xact_lock(:namespace, hashtext(:resource))"),
-            {
-                "namespace": ATTENDANCE_IMPORT_LOCK_NAMESPACE,
-                "resource": f"{factory_code}:{device_key}",
-            },
-        )
-
-
-def _source_setting_key(factory_code: str, device_key: str) -> str:
-    identity = f"{factory_code}:{device_key}".encode("utf-8")
-    return ATTENDANCE_SOURCE_SETTING_PREFIX + hashlib.sha256(identity).hexdigest()[:56]
-
-
-def _source_checkpoint(value: object, field: str) -> datetime | None:
-    if not isinstance(value, dict) or not value.get(field):
-        return None
-    try:
-        parsed = datetime.fromisoformat(str(value[field]).replace("Z", "+00:00"))
-    except ValueError as exc:
-        raise RuntimeError(f"Invalid attendance source checkpoint: {field}") from exc
-    if parsed.tzinfo is None or parsed.utcoffset() is None:
-        raise RuntimeError(f"Attendance source checkpoint lacks timezone: {field}")
-    return parsed.astimezone(timezone.utc)
-
-
-def _source_state(
-    db: Session,
-    factory_code: str,
-    device_key: str,
-) -> tuple[SystemSetting | None, dict[str, object]]:
-    query = db.query(SystemSetting).filter(
-        SystemSetting.key == _source_setting_key(factory_code, device_key),
-    )
-    if db.get_bind().dialect.name == "postgresql":
-        query = query.with_for_update(of=SystemSetting)
-    row = query.one_or_none()
-    if row is None:
-        return None, {"factory_code": factory_code, "device_key": device_key}
-    state = dict(row.value_json) if isinstance(row.value_json, dict) else {}
-    if state.get("factory_code") not in {None, factory_code} or state.get("device_key") not in {None, device_key}:
-        raise RuntimeError("Attendance source checkpoint identity mismatch")
-    state.update(factory_code=factory_code, device_key=device_key)
-    return row, state
-
-
-def _store_source_state(
-    db: Session,
-    row: SystemSetting | None,
-    state: dict[str, object],
-) -> None:
-    if row is None:
-        db.add(SystemSetting(
-            key=_source_setting_key(str(state["factory_code"]), str(state["device_key"])),
-            value_json=state,
-        ))
-    else:
-        row.value_json = state
-
-
-def _source_snapshot_at(
-    source_snapshot_at: datetime | None,
-    sync_started_at: datetime,
-) -> datetime | None:
-    if source_snapshot_at is None:
-        return None
-    normalized = as_utc(source_snapshot_at)
-    if normalized is None:
-        raise HTTPException(400, "source_snapshot_at must include a timezone offset")
-    maximum = sync_started_at + timedelta(seconds=settings.ATTENDANCE_SOURCE_MAX_FUTURE_SECONDS)
-    if normalized > maximum:
-        raise HTTPException(400, "source_snapshot_at is too far in the future")
-    return normalized
-
-
-def _advance_source_checkpoint(
-    state: dict[str, object],
-    field: str,
-    source_snapshot_at: datetime,
-    legacy_checkpoint: datetime | None,
-) -> tuple[bool, datetime | None]:
-    checkpoint = _source_checkpoint(state, field)
-    baseline = checkpoint if checkpoint is not None else as_utc(legacy_checkpoint)
-    if baseline is not None and source_snapshot_at <= baseline:
-        state[field] = baseline.isoformat()
-        return False, baseline
-    state[field] = source_snapshot_at.isoformat()
-    return True, baseline
-
-
-def _upsert_device(
-    db: Session,
-    payload: DeviceIn,
-    identity: AttendanceDevice | None,
-    *,
-    sync_started_at: datetime,
-    source_snapshot_at: datetime | None = None,
-    people_sync: bool = False,
-    event_sync: bool = False,
-) -> tuple[AttendanceDevice, str | None, str | None]:
-    if identity is not None:
-        if identity.device_key != payload.device_key:
-            raise HTTPException(403, "Connector token does not belong to this attendance device")
-        factory_code = identity.factory_code
-    else:
-        factory_code = _integration_factory()
-    _lock_attendance_import(db, factory_code, payload.device_key)
-    device_query = db.query(AttendanceDevice).filter(
-        AttendanceDevice.factory_code == factory_code,
-        AttendanceDevice.device_key == payload.device_key,
-    ).populate_existing()
-    if db.get_bind().dialect.name == "postgresql":
-        device_query = device_query.with_for_update(of=AttendanceDevice)
-    device = device_query.one_or_none()
-    if identity is not None and device is None:
-        raise HTTPException(404, "Attendance device not found")
-    source_snapshot_at = _source_snapshot_at(source_snapshot_at, sync_started_at)
-    source_row, source_state = _source_state(db, factory_code, payload.device_key)
-
-    if people_sync and device is not None:
-        source_people_checkpoint = _source_checkpoint(source_state, "people_snapshot_at")
-        source_metadata_checkpoint = _source_checkpoint(source_state, "metadata_snapshot_at")
-        if source_snapshot_at is None and (
-            source_people_checkpoint is not None or source_metadata_checkpoint is not None
-        ):
-            return device, "missing_source_version", "missing_source_version"
-        if source_snapshot_at is not None:
-            people_is_newer, _baseline = _advance_source_checkpoint(
-                source_state,
-                "people_snapshot_at",
-                source_snapshot_at,
-                device.last_people_sync_at,
-            )
-            if not people_is_newer:
-                if (
-                    _source_checkpoint(source_state, "metadata_snapshot_at") is None
-                    and as_utc(device.last_seen_at) is not None
-                ):
-                    source_state["metadata_snapshot_at"] = as_utc(device.last_seen_at).isoformat()
-                _store_source_state(db, source_row, source_state)
-                return device, "stale_source_version", "stale_source_version"
-        else:
-            previous_people_sync = as_utc(device.last_people_sync_at)
-            if previous_people_sync is not None and previous_people_sync >= sync_started_at:
-                return device, "stale_receipt", "stale_receipt"
-
-    vendor = payload.vendor
-    if device is None:
-        device = AttendanceDevice(
-            factory_code=factory_code,
-            device_key=payload.device_key,
-            name=payload.name,
-            vendor=vendor,
-            read_only=True,
-        )
-        db.add(device)
-        db.flush()
-        if people_sync and source_snapshot_at is not None:
-            source_state["people_snapshot_at"] = source_snapshot_at.isoformat()
-
-    metadata_ignored_reason = None
-    previous_seen = as_utc(device.last_seen_at)
-    if source_snapshot_at is not None:
-        metadata_is_newer, _baseline = _advance_source_checkpoint(
-            source_state,
-            "metadata_snapshot_at",
-            source_snapshot_at,
-            previous_seen,
-        )
-        if not metadata_is_newer:
-            metadata_ignored_reason = "stale_source_version"
-    elif _source_checkpoint(source_state, "metadata_snapshot_at") is not None:
-        metadata_is_newer = False
-        metadata_ignored_reason = "missing_source_version"
-    else:
-        metadata_is_newer = previous_seen is None or sync_started_at > previous_seen
-        if not metadata_is_newer:
-            metadata_ignored_reason = "stale_receipt"
-
-    if metadata_is_newer:
-        device.name = payload.name
-        device.vendor = vendor
-        device.model = payload.model
-        device.serial_no = payload.serial_no
-        device.source_host = payload.source_host
-        device.reported_person_count = payload.reported_person_count
-        device.read_only = True
-    if previous_seen is None or sync_started_at > previous_seen:
-        device.last_seen_at = sync_started_at
-    if people_sync:
-        device.last_people_sync_at = sync_started_at
-    if event_sync:
-        previous_event_sync = as_utc(device.last_event_sync_at)
-        if previous_event_sync is None or sync_started_at > previous_event_sync:
-            device.last_event_sync_at = sync_started_at
-    if source_snapshot_at is not None:
-        if event_sync:
-            _advance_source_checkpoint(
-                source_state,
-                "event_snapshot_at",
-                source_snapshot_at,
-                None,
-            )
-        _store_source_state(db, source_row, source_state)
-    return device, None, metadata_ignored_reason
-
-
 @router.post("/integration/people")
 def import_people_snapshot(
     payload: PeopleSnapshotIn,
     db: DbSession,
     identity: AttendanceDevice | None = Depends(_require_integration_token),
 ):
-    seen: set[str] = set()
-    for incoming in payload.people:
-        external_id = incoming.external_person_id
-        if external_id in seen:
-            raise HTTPException(400, f"Duplicate person ID in snapshot: {external_id}")
-        seen.add(external_id)
-    if payload.full_snapshot and not seen and (payload.device.reported_person_count or 0) != 0:
-        raise HTTPException(400, "Refusing an empty full snapshot for a non-empty device")
-
-    sync_started_at = utcnow()
-    device, ignored_reason, _metadata_ignored_reason = _upsert_device(
-        db,
-        payload.device,
-        identity,
-        sync_started_at=sync_started_at,
-        source_snapshot_at=payload.source_snapshot_at,
-        people_sync=True,
+    return attendance_service.import_people_snapshot(
+        payload, db, identity, clock=utcnow, upsert_device=_upsert_device,
     )
-    if ignored_reason is not None:
-        device_id = device.id
-        db.commit()
-        response = {
-            "device_id": device_id,
-            "received": len(payload.people),
-            "created": 0,
-            "updated": 0,
-            "marked_absent": 0,
-            "reported_person_count": payload.device.reported_person_count,
-            "ignored": True,
-        }
-        if ignored_reason != "stale_receipt":
-            response["ignored_reason"] = ignored_reason
-        return response
-    now = sync_started_at
-    created = 0
-    updated = 0
-
-    # AT06 acquires the device import lock and rejects stale snapshots above.
-    # Read the roster only after that gate, refreshing any preloaded ORM rows.
-    existing_people = {}
-    incoming_ids = sorted(seen)
-    for offset in range(0, len(incoming_ids), 400):
-        rows = db.query(AttendancePerson).filter(
-            AttendancePerson.device_id == device.id,
-            AttendancePerson.external_person_id.in_(incoming_ids[offset:offset + 400]),
-        ).populate_existing().all()
-        existing_people.update({person.external_person_id: person for person in rows})
-
-    for incoming in payload.people:
-        external_id = incoming.external_person_id
-        person = existing_people.get(external_id)
-        if person is None:
-            person = AttendancePerson(
-                factory_code=device.factory_code,
-                device_id=device.id,
-                external_person_id=external_id,
-                full_name=incoming.full_name,
-                last_synced_at=now,
-            )
-            db.add(person)
-            created += 1
-        else:
-            updated += 1
-        person.factory_code = device.factory_code
-        person.full_name = incoming.full_name
-        person.user_type = incoming.user_type
-        person.valid_from = as_utc(incoming.valid_from)
-        person.valid_to = as_utc(incoming.valid_to)
-        person.is_valid = incoming.is_valid
-        person.has_face = incoming.has_face
-        person.card_count = incoming.card_count
-        person.fingerprint_count = incoming.fingerprint_count
-        person.present_on_device = True
-        person.last_synced_at = now
-
-    marked_absent = 0
-    if payload.full_snapshot:
-        absent_query = db.query(AttendancePerson).filter(
-            AttendancePerson.device_id == device.id,
-            AttendancePerson.present_on_device.is_(True),
-        )
-        if seen:
-            absent_query = absent_query.filter(AttendancePerson.external_person_id.notin_(seen))
-        marked_absent = absent_query.update({AttendancePerson.present_on_device: False}, synchronize_session=False)
-    db.commit()
-    return {
-        "device_id": device.id,
-        "received": len(payload.people),
-        "created": created,
-        "updated": updated,
-        "marked_absent": marked_absent,
-        "reported_person_count": payload.device.reported_person_count,
-        "ignored": False,
-    }
 
 
 @router.post("/integration/events")
@@ -751,24 +377,7 @@ def _attendance_row_payload(
     }
 
 
-def _device_payload(device: AttendanceDevice) -> dict:
-    return {
-        "id": device.id,
-        "device_key": device.device_key,
-        "name": device.name,
-        "vendor": device.vendor,
-        "model": device.model,
-        "serial_no": device.serial_no,
-        "source_host": device.source_host,
-        "certificate_sha256": device.certificate_sha256,
-        "managed": bool(device.connector_token_hash),
-        "sync_enabled": device.sync_enabled,
-        "read_only": device.read_only,
-        "reported_person_count": device.reported_person_count,
-        "last_seen_at": device.last_seen_at,
-        "last_people_sync_at": device.last_people_sync_at,
-        "last_event_sync_at": device.last_event_sync_at,
-    }
+_device_payload = attendance_service._device_payload
 
 
 @router.post("/devices", status_code=201)
@@ -777,42 +386,7 @@ def create_managed_attendance_device(
     db: DbSession,
     current: User = Depends(require_permissions("attendance.manage", "*")),
 ):
-    factory_code = selected_factory_code(current)
-    existing = db.query(AttendanceDevice.id).filter(
-        AttendanceDevice.factory_code == factory_code,
-        AttendanceDevice.device_key == payload.device_key,
-    ).first()
-    if existing:
-        raise HTTPException(400, "Attendance device key already exists in this factory")
-    connector_token = secrets.token_urlsafe(48)
-    device = AttendanceDevice(
-        factory_code=factory_code,
-        device_key=payload.device_key,
-        name=payload.name.strip(),
-        vendor=payload.vendor,
-        source_host=payload.source_host,
-        certificate_sha256=payload.certificate_sha256,
-        connector_token_hash=_connector_token_hash(connector_token),
-        sync_enabled=True,
-        configured_by=current.id,
-        read_only=True,
-    )
-    db.add(device)
-    db.flush()
-    log_action(
-        db,
-        current,
-        "create",
-        "AttendanceDeviceConfig",
-        device.id,
-        new_value={"factory_code": factory_code, "device_key": device.device_key, "vendor": device.vendor},
-    )
-    db.commit()
-    result = _device_payload(device)
-    # The plaintext token is intentionally returned once and never stored.
-    result["connector_token"] = connector_token
-    return result
-
+    return attendance_service.create_managed_attendance_device(payload, db, current, audit=log_action)
 
 @router.patch("/devices/{device_id}")
 def update_managed_attendance_device(
@@ -821,27 +395,7 @@ def update_managed_attendance_device(
     db: DbSession,
     current: User = Depends(require_permissions("attendance.manage", "*")),
 ):
-    device = db.query(AttendanceDevice).filter(
-        AttendanceDevice.id == device_id,
-        AttendanceDevice.factory_code == selected_factory_code(current),
-    ).one_or_none()
-    if not device:
-        raise HTTPException(404, "Attendance device not found")
-    if payload.name is not None:
-        device.name = payload.name.strip()
-    if payload.sync_enabled is not None:
-        device.sync_enabled = payload.sync_enabled
-    log_action(
-        db,
-        current,
-        "update",
-        "AttendanceDeviceConfig",
-        device.id,
-        new_value={"name": device.name, "sync_enabled": device.sync_enabled},
-    )
-    db.commit()
-    return _device_payload(device)
-
+    return attendance_service.update_managed_attendance_device(device_id, payload, db, current, audit=log_action)
 
 @router.post("/devices/{device_id}/rotate-token")
 def rotate_attendance_device_token(
@@ -849,21 +403,7 @@ def rotate_attendance_device_token(
     db: DbSession,
     current: User = Depends(require_permissions("attendance.manage", "*")),
 ):
-    device = db.query(AttendanceDevice).filter(
-        AttendanceDevice.id == device_id,
-        AttendanceDevice.factory_code == selected_factory_code(current),
-    ).one_or_none()
-    if not device:
-        raise HTTPException(404, "Attendance device not found")
-    connector_token = secrets.token_urlsafe(48)
-    device.connector_token_hash = _connector_token_hash(connector_token)
-    device.configured_by = current.id
-    log_action(db, current, "rotate_connector_token", "AttendanceDeviceConfig", device.id)
-    db.commit()
-    result = _device_payload(device)
-    result["connector_token"] = connector_token
-    return result
-
+    return attendance_service.rotate_attendance_device_token(device_id, db, current, audit=log_action)
 
 @router.get("/overview")
 def attendance_overview(
