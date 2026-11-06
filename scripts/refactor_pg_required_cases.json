@@ -424,13 +424,14 @@
       ]
     },
     "test_stocktake_scan_postgres": {
-      "revision": "fc815d2578c205bc011f4f7e36d6b89541ded031",
-      "git_blob_sha256": "0fc2bc2bb647c5780ee58b6672dd8107bd44fad182fed2a82353a2e4af3efe20",
+      "revision": "f7cc228daf1c3a6524acee063e865a5cc7427814",
+      "git_blob_sha256": "bc6506e31222f014e8ea3e9a3a6cacdd50c0382e939880b79cc3f8e2e2d7bb4c",
       "selected_functions": [
         "test_pg_scan_auth_duplicate_first_evidence_and_completed_refusal",
         "test_pg_scan_request_audit_finalization_failure_then_retry",
         "test_pg_scan_expected_unexpected_package_and_refusals",
-        "test_pg_duplicate_package_scan_waits_on_first_parent_lock"
+        "test_pg_duplicate_package_scan_waits_on_first_parent_lock",
+        "test_pg_scan_deferred_commit_abort_preserves_evidence_then_retry"
       ]
     }
   },
@@ -1030,7 +1031,8 @@
       "test_pg_scan_auth_duplicate_first_evidence_and_completed_refusal",
       "test_pg_scan_request_audit_finalization_failure_then_retry",
       "test_pg_scan_expected_unexpected_package_and_refusals",
-      "test_pg_duplicate_package_scan_waits_on_first_parent_lock"
+      "test_pg_duplicate_package_scan_waits_on_first_parent_lock",
+      "test_pg_scan_deferred_commit_abort_preserves_evidence_then_retry"
     ]
   },
   "isolated_supplemental_cases": [
