@@ -7,6 +7,11 @@ from sqlalchemy.orm import Session
 from app.schemas import PasswordResetToken, User
 
 
+def record_user_login_activity(db: Session, user: User, now: datetime) -> None:
+    user.last_login_at = now
+    user.last_seen_at = now
+
+
 def add_user(
     db: Session, *, name: str, email: str, password_hash: str,
     role_id: int | None, department_id: int | None, factory_code: str,
