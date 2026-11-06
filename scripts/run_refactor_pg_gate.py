@@ -64,6 +64,12 @@ GROUPS = {
         "test_pg_shipment_reopen_audit_failure_rolls_back_and_retry_commits_all",
         "test_pg_invoice_payment_and_shipment_reopen_serialize_on_invoice_row",
     )),
+    "test_model_image_delete_postgres": (5, (
+        "test_pg_denied_usluga_and_reverse_scope_keep_binary",
+        "test_pg_request_failure_rolls_back_binary_and_audit",
+        "test_pg_update_then_delete_waits_and_audits_loaded_url",
+        "test_pg_deferred_delete_commit_failure_rolls_back_binary_and_audit",
+    )),
     "test_modelsize_create_postgres": (2, ("test_pg_create_atomic_audit_and_failure_retry", "test_pg_concurrent_duplicate_creates")),
     "test_modelcolor_create_postgres": (27, ()),
 }
