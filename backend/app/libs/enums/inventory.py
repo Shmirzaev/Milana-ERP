@@ -14,6 +14,15 @@ services still own the legal states, the allowed inputs and the errors.
 from enum import Enum
 
 
+class WasteDisposalRequestStatus(str, Enum):
+    """Lifecycle values recognized for waste disposal requests."""
+
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    DISPOSED = "disposed"
+
+
 class WasteStatus(str, Enum):
     """Lifecycle values recognized for waste records."""
 

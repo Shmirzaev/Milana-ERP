@@ -1,10 +1,10 @@
 from __future__ import annotations
 from datetime import datetime
 from sqlalchemy import String, Boolean, ForeignKey, DateTime, Text, Numeric
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from app.db.base import Base, PkMixin, TimestampMixin
-from app.libs.enums.inventory import WasteStatus
+from app.libs.enums.inventory import WasteDisposalRequestStatus, WasteStatus
 
 
 class WasteRecord(Base, PkMixin, TimestampMixin):
@@ -39,8 +39,21 @@ class WasteDisposalRequest(Base, PkMixin, TimestampMixin):
     __tablename__ = "waste_disposal_requests"
     waste_record_id: Mapped[int] = mapped_column(ForeignKey("waste_records.id"), nullable=False)
     reason: Mapped[str | None] = mapped_column(Text)
-    status: Mapped[str] = mapped_column(String(32), default="pending", nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default=WasteDisposalRequestStatus.PENDING.value, nullable=False)
     requested_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     approved_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     proof_file_url: Mapped[str | None] = mapped_column(String(512))
+
+
+def add_disposal_request(
+    db: Session, waste: WasteRecord, *, reason: str | None, requested_by: int | None,
+) -> WasteDisposalRequest:
+    """Persist a service-approved request in the caller's transaction."""
+    request = WasteDisposalRequest(
+        waste_record_id=waste.id, reason=reason, requested_by=requested_by, status=WasteDisposalRequestStatus.PENDING.value,
+    )
+    db.add(request)
+    waste.status = WasteStatus.PENDING_DISPOSAL_APPROVAL.value
+    db.flush()
+    return request

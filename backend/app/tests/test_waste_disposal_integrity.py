@@ -66,6 +66,16 @@ def test_request_disposal_requires_received_state_without_writes(client, state):
     assert _snapshot(wid) == before
 
 
+def test_request_disposal_checks_state_before_sellable_and_quantity(client):
+    _, headers = _actor()
+    wid, _ = _fixture(state="recorded", sellable=True, quantity=0)
+    before = _snapshot(wid)
+    response = client.post(f"/api/waste/{wid}/request-disposal", headers=headers, json={})
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Cannot dispose from status 'recorded'"
+    assert _snapshot(wid) == before
+
+
 def test_request_disposal_refuses_duplicate_without_second_request_or_audit(client):
     _, headers = _actor()
     wid, _ = _fixture()
