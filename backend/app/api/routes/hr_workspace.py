@@ -15,7 +15,6 @@ from sqlalchemy import func
 from app.core.config import settings
 from app.core.deps import DbSession, require_permissions
 from app.schemas import (
-    AttendanceEvent,
     Department,
     Employee,
     HrCalendarEvent,
@@ -27,30 +26,19 @@ from app.schemas import (
     User,
 )
 from app.models.audit_service import log_action
+from app.models.people import attendance_reconciliation_service, hr_workspace_service
+from app.libs.dto.people.hr_workspace import OrgUnitIn as OrgUnitIn, _required_text as _required_text
+from app.models.people.hr_workspace_service import (
+    _factory as _factory, _employee as _employee, _department as _department,
+    _org_unit as _org_unit,
+)
 from app.models.attendance_reports_service import TASHKENT
-from app.models.factory_scope_service import factory_for_department, selected_factory_code
-from app.models.attendance_event_policy_service import accepted_attendance_result
 
 
 router = APIRouter(prefix="/hr", tags=["hr-workspace"])
 HrUser = Depends(require_permissions("hr.employees", "*"))
 MAX_INT4 = 2_147_483_647
 MAX_POSITION_SALARY = 999_999_999_999.99
-
-
-class OrgUnitIn(BaseModel):
-    parent_id: int | None = Field(default=None, gt=0, le=MAX_INT4)
-    department_id: int | None = Field(default=None, gt=0, le=MAX_INT4)
-    manager_employee_id: int | None = Field(default=None, gt=0, le=MAX_INT4)
-    unit_type: str = Field(pattern="^(company|factory|department|section|team)$")
-    name: str = Field(min_length=1, max_length=160)
-    code: str | None = Field(default=None, max_length=48)
-    sort_order: int = 0
-
-    @field_validator("name")
-    @classmethod
-    def validate_name(cls, value: str) -> str:
-        return _required_text(value, "Organization unit name")
 
 
 class PositionIn(BaseModel):
@@ -171,17 +159,6 @@ class HrSettingsIn(BaseModel):
         return value
 
 
-def _required_text(value: str, label: str) -> str:
-    normalized = value.strip()
-    if not normalized:
-        raise ValueError(f"{label} is required")
-    return normalized
-
-
-def _factory(current: User) -> str:
-    return selected_factory_code(current)
-
-
 def _attendance_day_bounds(day: date) -> tuple[datetime, datetime]:
     start_local = datetime.combine(day, time.min, tzinfo=TASHKENT)
     end_local = start_local + timedelta(days=1)
@@ -214,39 +191,6 @@ def _scheduled_minutes(profile, default_hours: float) -> int:
     if not isfinite(hours) or hours <= 0 or hours > 24:
         hours = default_hours
     return int(hours * 60)
-
-
-def _employee(db: DbSession, factory: str, employee_id: int) -> Employee:
-    row = db.query(Employee).filter(Employee.id == employee_id, Employee.factory_code == factory).first()
-    if not row:
-        raise HTTPException(404, "Employee not found")
-    return row
-
-
-def _department(db: DbSession, factory: str, department_id: int) -> Department:
-    row = db.get(Department, department_id)
-    if not row:
-        raise HTTPException(404, "Department not found")
-    department_factory = factory_for_department(row.code)
-    if department_factory and department_factory != factory:
-        raise HTTPException(409, "Department belongs to another factory")
-    return row
-
-
-def _org_unit(db: DbSession, factory: str, unit_id: int) -> HrOrgUnit:
-    row = db.query(HrOrgUnit).filter(HrOrgUnit.id == unit_id, HrOrgUnit.factory_code == factory).first()
-    if not row:
-        raise HTTPException(404, "Organization unit not found")
-    return row
-
-
-def _validate_org_unit_links(payload: OrgUnitIn, db: DbSession, factory: str) -> None:
-    if payload.parent_id is not None:
-        _org_unit(db, factory, payload.parent_id)
-    if payload.department_id is not None:
-        _department(db, factory, payload.department_id)
-    if payload.manager_employee_id is not None:
-        _employee(db, factory, payload.manager_employee_id)
 
 
 def _validate_position_links(payload: PositionIn, db: DbSession, factory: str) -> None:
@@ -324,13 +268,7 @@ def list_organization(db: DbSession, current: User = HrUser):
 
 @router.post("/organization", status_code=201)
 def create_org_unit(payload: OrgUnitIn, db: DbSession, current: User = HrUser):
-    factory = _factory(current)
-    _validate_org_unit_links(payload, db, factory)
-    row = HrOrgUnit(factory_code=factory, **payload.model_dump())
-    db.add(row); db.flush()
-    log_action(db, current, "create", "HrOrgUnit", row.id, new_value={"name": row.name, "unit_type": row.unit_type})
-    db.commit(); db.refresh(row)
-    return {"id": row.id}
+    return hr_workspace_service.create_org_unit(payload, db, current, audit=log_action)
 
 
 @router.delete("/organization/{unit_id}", status_code=204)
@@ -589,27 +527,11 @@ def delete_document(document_id: int, db: DbSession, current: User = HrUser):
 
 @router.get("/attendance")
 def hr_attendance(db: DbSession, current: User = HrUser, day: date | None = None):
-    factory = _factory(current); selected = day or datetime.now(TASHKENT).date()
-    start, end = _attendance_day_bounds(selected)
-    default_hours = _load_hr_settings(db, factory).default_workday_hours
-    employees = db.query(Employee).filter(Employee.factory_code == factory, Employee.status == "active").all()
-    events = db.query(AttendanceEvent).filter(
-        AttendanceEvent.factory_code == factory,
-        AttendanceEvent.occurred_at >= start,
-        AttendanceEvent.occurred_at < end,
-        accepted_attendance_result(AttendanceEvent.result),
-    ).order_by(AttendanceEvent.occurred_at).all()
-    grouped: dict[str, list[AttendanceEvent]] = {}
-    for event in events:
-        if event.external_person_id: grouped.setdefault(event.external_person_id, []).append(event)
-    rows = []
-    for employee in employees:
-        scans = grouped.get(str(employee.employee_no or ""), [])
-        first = scans[0].occurred_at if scans else None; last = scans[-1].occurred_at if len(scans) > 1 else None
-        worked = max(0, int((last - first).total_seconds() // 60)) if first and last else 0
-        scheduled = _scheduled_minutes(employee.hr_profile_json, default_hours)
-        rows.append({"employee_id": employee.id, "employee_no": employee.employee_no, "full_name": employee.full_name, "arrival_at": first, "departure_at": last, "worked_minutes": worked, "scheduled_minutes": scheduled, "variance_minutes": worked - scheduled, "status": "present" if scans else "absent"})
-    return {"day": selected, "summary": {"employees": len(rows), "present": sum(1 for row in rows if row["status"] == "present"), "absent": sum(1 for row in rows if row["status"] == "absent"), "overtime_minutes": sum(max(0, row["variance_minutes"]) for row in rows)}, "rows": rows}
+    return attendance_reconciliation_service.hr_attendance(
+        db, current, day, load_hr_settings=_load_hr_settings,
+        scheduled_minutes=_scheduled_minutes, day_bounds=_attendance_day_bounds,
+        clock=datetime,
+    )
 
 
 @router.get("/analytics")

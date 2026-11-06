@@ -1,0 +1,58 @@
+"""HR workspace operations; each service owns its supplied transaction."""
+
+from collections.abc import Callable
+
+from fastapi import HTTPException
+from sqlalchemy.orm import Session
+
+from app.libs.dto.people.hr_workspace import OrgUnitIn
+from app.models.factory_scope_service import factory_for_department, selected_factory_code
+from app.schemas import Department, Employee, HrOrgUnit, User
+from app.schemas.people.hr_workspace_persistence import insert_org_unit
+
+
+def _factory(current: User) -> str:
+    return selected_factory_code(current)
+
+
+def _employee(db: Session, factory: str, employee_id: int) -> Employee:
+    row = db.query(Employee).filter(Employee.id == employee_id, Employee.factory_code == factory).first()
+    if not row:
+        raise HTTPException(404, "Employee not found")
+    return row
+
+
+def _department(db: Session, factory: str, department_id: int) -> Department:
+    row = db.get(Department, department_id)
+    if not row:
+        raise HTTPException(404, "Department not found")
+    department_factory = factory_for_department(row.code)
+    if department_factory and department_factory != factory:
+        raise HTTPException(409, "Department belongs to another factory")
+    return row
+
+
+def _org_unit(db: Session, factory: str, unit_id: int) -> HrOrgUnit:
+    row = db.query(HrOrgUnit).filter(HrOrgUnit.id == unit_id, HrOrgUnit.factory_code == factory).first()
+    if not row:
+        raise HTTPException(404, "Organization unit not found")
+    return row
+
+
+def _validate_org_unit_links(payload: OrgUnitIn, db: Session, factory: str) -> None:
+    if payload.parent_id is not None:
+        _org_unit(db, factory, payload.parent_id)
+    if payload.department_id is not None:
+        _department(db, factory, payload.department_id)
+    if payload.manager_employee_id is not None:
+        _employee(db, factory, payload.manager_employee_id)
+
+
+def create_org_unit(payload: OrgUnitIn, db: Session, current: User, *, audit: Callable):
+    factory = _factory(current)
+    _validate_org_unit_links(payload, db, factory)
+    row = insert_org_unit(db, factory_code=factory, values=payload.model_dump())
+    db.flush()
+    audit(db, current, "create", "HrOrgUnit", row.id, new_value={"name": row.name, "unit_type": row.unit_type})
+    db.commit(); db.refresh(row)
+    return {"id": row.id}

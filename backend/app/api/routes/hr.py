@@ -6,15 +6,16 @@ from app.schemas import Employee, User
 from app.models.audit_service import log_action
 from app.models.people.employees_service import (
     create_employee as create_employee_record,
-    _ensure_employee_no_available,
-    _validate_employee_references,
-    _validated_employee_salary,
-    _validate_hr_profile_json,
+    update_employee as update_employee_record,
+    archive_employee as archive_employee_record,
+    _ensure_employee_no_available as _ensure_employee_no_available,
+    _validate_employee_references as _validate_employee_references,
+    _validated_employee_salary as _validated_employee_salary,
+    _validate_hr_profile_json as _validate_hr_profile_json,
 )
 from app.models.factory_scope_service import selected_factory_code
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, or_
-from sqlalchemy.exc import IntegrityError
 from decimal import Decimal
 from datetime import datetime
 from typing import Literal, Optional
@@ -314,35 +315,8 @@ def create_employee(payload: EmployeeIn, db: DbSession, current: User = Depends(
 
 @router.patch("/employees/{eid}")
 def update_employee(eid: int, payload: EmployeeUpdate, db: DbSession, current: User = Depends(require_permissions("hr.employees", "payroll.manage", "*"))):
-    factory_code = selected_factory_code(current)
-    e = db.query(Employee).filter(Employee.id == eid, Employee.factory_code == factory_code).first()
-    if not e: raise HTTPException(404, "Employee not found")
-    changes = payload.model_dump(exclude_unset=True)
-    _validate_employee_references(
-        db,
-        factory_code,
-        changes.get("user_id", e.user_id),
-        changes.get("department_id", e.department_id),
-        changes.get("manager_employee_id", e.manager_employee_id),
-        changes.get("hr_position_id", e.hr_position_id),
-        employee_id=e.id,
-    )
-    if "employee_no" in changes:
-        _ensure_employee_no_available(db, factory_code, changes["employee_no"], exclude_id=e.id)
-    if "salary" in changes:
-        changes["salary"] = _validated_employee_salary(changes["salary"])
-    if "hr_profile_json" in changes:
-        changes["hr_profile_json"] = _validate_hr_profile_json(changes["hr_profile_json"], existing_profile=e.hr_profile_json)
-    for k, v in changes.items():
-        setattr(e, k, v)
-    try:
-        log_action(db, current, "update", "Employee", e.id, new_value=changes)
-        db.commit()
-    except IntegrityError as exc:
-        db.rollback()
-        raise HTTPException(409, "Employee number already exists in this factory") from exc
-    db.refresh(e)
-    return _serialize(e, include_private=True)
+    employee = update_employee_record(db, current, eid, payload.model_dump(exclude_unset=True), audit=log_action)
+    return _serialize(employee, include_private=True)
 
 
 @router.delete("/employees/{eid}", status_code=204)
@@ -356,15 +330,4 @@ def archive_employee(eid: int, db: DbSession, current: User = Depends(require_pe
 
 
 def _archive_employee(eid: int, db: DbSession, current: User):
-    e = db.query(Employee).filter(
-        Employee.id == eid,
-        Employee.factory_code == selected_factory_code(current),
-    ).with_for_update().first()
-    if not e: raise HTTPException(404, "Employee not found")
-    if e.status == "archived":
-        return
-    old_status = e.status
-    e.status = "archived"
-    log_action(db, current, "archive", "Employee", eid,
-               old_value={"status": old_status}, new_value={"status": "archived"})
-    db.commit()
+    return archive_employee_record(db, current, eid, audit=log_action)
