@@ -1365,4 +1365,5 @@ export default {
     "departmentDashboard.printing": "Bosma paneli",
     "departmentDashboard.warehouse": "Ombor paneli",
     "departmentDashboard.unassigned": "Belgilanmagan",
+    "page.admin.users.personName": "Ism",
   } as Record<string, string>;

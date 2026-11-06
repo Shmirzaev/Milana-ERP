@@ -219,7 +219,7 @@ def test_postgres_returned_metadata_and_historical_period_lock_both_succeed_with
     sessions = split_postgres_sessions
     seed = _returned_seed(sessions, all_returned=True)
     other = lambda db, actor: payroll.lock_period(seed["period_id"], db, actor)
-    ready, release = _pause(monkeypatch, _service() if correction_first else payroll,
+    ready, release = _pause(monkeypatch, _service() if correction_first else payroll.payroll_service,
                             AUDIT if correction_first else "lock")
     first, second = _race(sessions, seed, _correct(seed) if correction_first else other,
                           other if correction_first else _correct(seed), ready, release)

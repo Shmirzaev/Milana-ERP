@@ -11,6 +11,7 @@ from app.libs.dto.inventory.material_reservation_input import (
 )
 from app.libs.dto.inventory.material_reservation_output import MaterialReservationOut
 from app.libs.enums.inventory import MaterialReservationSource
+from app.libs.types.inventory import ReservationPlan
 from app.models import inventory_access_service as inventory_access
 from app.models.audit_service import log_action
 from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response
@@ -37,7 +38,7 @@ def reservation_payload(reservation: MaterialReservation) -> dict:
     }
 
 
-def material_reservation_plan(db, user: User, production_order_id: int) -> dict:
+def material_reservation_plan(db, user: User, production_order_id: int) -> ReservationPlan:
     """The material reservation plan for one production order."""
     return reservation_plan_for_production_order(
         db, production_order_id,
