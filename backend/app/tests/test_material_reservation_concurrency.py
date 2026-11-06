@@ -77,7 +77,7 @@ def _add_passport_materials(db, ids, payload):
         ProductionOrder.id == ids["orders"][0],
     ).with_for_update(of=ProductionOrder).one()
     cutting_passports._add_passport_materials(
-        db, order, SimpleNamespace(status="in_progress", production_order_id=order.id), payload, SimpleNamespace(id=None),
+        db, order, SimpleNamespace(operation="cutting", status="in_progress", production_order_id=order.id), payload, SimpleNamespace(id=None),
     )
 
 
