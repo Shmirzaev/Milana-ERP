@@ -32,7 +32,25 @@ class RequiredPGGateTests(unittest.TestCase):
 
     def test_complete_evidence_passes(self):
         counts = gate.check_report(self.write_report(self.report()))
-        self.assertEqual(sum(counts.values()), 470)
+        self.assertEqual(sum(counts.values()), 476)
+
+    def test_process_qr_size_cases_cannot_be_skipped_or_replaced(self):
+        module = "test_process_qr_size_setup_postgres"
+        self.assertEqual(len(gate.REQUIRED_CASES[module]), 6)
+        self.assertEqual(gate.GROUPS[module][0], 6)
+        for name in gate.REQUIRED_CASES[module]:
+            for mutation in ("skipped", "replacement"):
+                with self.subTest(name=name, mutation=mutation):
+                    tree = self.report()
+                    case = next(row for row in tree.iter("testcase")
+                                if row.get("classname") == f"app.tests.{module}"
+                                and row.get("name") == name)
+                    if mutation == "skipped":
+                        ET.SubElement(case, "skipped")
+                    else:
+                        case.set("name", "unrelated_replacement_case")
+                    with self.assertRaises(ValueError):
+                        gate.check_report(self.write_report(tree))
 
     def test_postgres_old_bearer_cutoff_missing_or_skipped_fails(self):
         module = "test_identity_admin_user_update"

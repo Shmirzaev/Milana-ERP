@@ -212,6 +212,17 @@
         "test_pg_delete_flush_blocks_payment_until_commit"
       ]
     },
+    "test_process_qr_size_setup_postgres": {
+      "revision": "edcb6af942d8790b82b3e8a060a707b3160882c9",
+      "git_blob_sha256": "1c3bb50d083d4cafbb5085d6d7363b54f41e7ee7e655a220095f9664099d81e4",
+      "selected_functions": [
+        "test_postgres_setup_audit_failure_rolls_back",
+        "test_postgres_simultaneous_setup_serializes",
+        "test_postgres_setup_then_generic_writer_waits_on_parent_fk",
+        "test_postgres_http_failure_teardown_rolls_back"
+      ],
+      "case_identity_source": "static function signatures and literal pytest parameters; runtime qualification pending"
+    },
     "test_modelsize_create_postgres": {
       "revision": "uncommitted CREATE-only + approved G012 wrap integration on exact 58bca5491e7759a18875656500588f37c3a418bd; test lifecycle repair; fresh verification required",
       "candidate_file_sha256": "d5b163f1323f3958a1898dbb3d4f2ceb689b5e1fc622cfd1bfaf45fdd0a4c89a",
@@ -538,6 +549,14 @@
     "test_customer_delete_reference_race_postgres": [
       "test_pg_payment_commit_after_guards_before_delete_flush",
       "test_pg_delete_flush_blocks_payment_until_commit"
+    ],
+    "test_process_qr_size_setup_postgres": [
+      "test_postgres_setup_audit_failure_rolls_back",
+      "test_postgres_simultaneous_setup_serializes",
+      "test_postgres_setup_then_generic_writer_waits_on_parent_fk",
+      "test_postgres_http_failure_teardown_rolls_back[after_flush]",
+      "test_postgres_http_failure_teardown_rolls_back[audit_finalize]",
+      "test_postgres_http_failure_teardown_rolls_back[before_commit]"
     ],
     "test_modelsize_create_postgres": [
       "test_pg_create_atomic_audit_and_failure_retry",
