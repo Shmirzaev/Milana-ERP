@@ -12,12 +12,27 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
-import xml.etree.ElementTree as ET
+
+from refactor_pg_evidence import (
+    check_required_report,
+    configure_ci as configure_ci,
+    sanitized_pg_environment as sanitized_pg_environment,
+)
 
 
 # Minimum collected counts pin the current parameterized business cases. Adding
 # cases is allowed; removing a required case needs an explicit ledger change.
 GROUPS = {
+    'test_identity_access_catalog': (20, ('test_catalog_authentication_and_permission_refusals', 'test_catalog_retains_order_labels_and_grantability_without_writes', 'test_direct_service_rejects_inactive_privileged_actor', 'test_direct_service_rejects_stale_deactivated_actor', 'test_direct_service_rejects_unprivileged_actor')),
+    'test_identity_access_preview': (30, ('test_direct_service_rejects_inactive_privileged_actor', 'test_direct_service_rejects_stale_deactivated_actor', 'test_direct_service_rejects_unprivileged_actor', 'test_preview_expands_wildcard_without_saving_or_enforcing_grant_rights', 'test_preview_primary_denies_secondary_grants_and_empty_factories', 'test_preview_refusal_order_and_no_writes', 'test_super_admin_subject_is_available_in_every_factory')),
+    'test_identity_admin_user_list': (20, ('test_direct_service_rejects_inactive_privileged_actor', 'test_direct_service_rejects_stale_deactivated_actor', 'test_direct_service_rejects_unprivileged_actor', 'test_list_authentication_and_permission_refusals', 'test_list_includes_inactive_other_factory_and_protected_accounts_in_id_order')),
+    'test_identity_admin_user_get': (24, ('test_direct_service_rejects_inactive_privileged_actor', 'test_direct_service_rejects_stale_deactivated_actor', 'test_direct_service_rejects_unprivileged_actor', 'test_lookup_permission_before_missing_target', 'test_lookup_retains_output_and_allows_inactive_other_factory_target')),
+    'test_identity_admin_user_update': (108, ('test_admin_password_rotates_cutoff_and_unused_reset_links_in_same_commit', 'test_cannot_remove_last_active_super_or_wildcard_admin', 'test_direct_service_rejects_inactive_privileged_actor', 'test_direct_service_rejects_stale_deactivated_actor', 'test_direct_service_rejects_unprivileged_actor', 'test_duplicate_email_failure_preserves_user_and_audit', 'test_empty_password_and_omitted_fields_keep_credentials_but_still_audit', 'test_inactive_guard_does_not_flush_pending_changes', 'test_manager_inventory_scope_cannot_be_removed_from_another_account', 'test_manager_updates_email_access_and_activation_atomically_with_audit', 'test_missing_target_after_authentication_and_permission', 'test_non_super_manager_cannot_edit_any_protected_administrator_form', 'test_password_change_rejects_old_bearer_and_accepts_new_bearer', 'test_patch_refusal_order_and_rollback', 'test_precommit_failure_rolls_back_user_credentials_links_and_audit_then_retry', 'test_super_admin_changes_factory_and_revokes_old_session')),
+    'test_identity_admin_user_delete': (80, ('test_active_wildcard_actor_cannot_delete_protected_super_admin', 'test_audit_history_blocks_deletion_without_touching_any_references', 'test_authentication_and_permission_precede_missing_target', 'test_delete_unused_user_detaches_nullable_deletes_required_refs_and_audits_once', 'test_direct_service_rejects_inactive_privileged_actor', 'test_direct_service_rejects_stale_deactivated_actor', 'test_direct_service_rejects_unprivileged_actor', 'test_explicit_super_without_wildcard_can_delete_nonfinal_protected_account', 'test_last_wildcard_admin_refusal_precedes_history_check', 'test_non_super_manager_cannot_delete_protected_forms_before_history_cleanup', 'test_precommit_failure_rolls_back_deletion_all_refs_and_audit_then_retry', 'test_self_deletion_refused_before_protection_and_audit_history')),
+    "test_batch_restore_postgres": (2, ("test_pg_batch_restore_audit_failure_rolls_back", "test_pg_batch_restore_concurrent_duplicate_serializes")),
+    "test_waste_create_receive_postgres": (2, ("test_waste_create_receive_audit_failure_rolls_back_then_retry",)),
+    "test_waste_receipt_race_characterization_postgres": (1, ("test_receipt_concurrent_observed_recorded_characterization",)),
+    "test_customer_receipt_http_postgres": (2, ()),
     'test_customer_delete_postgres': (9, ('test_pg_delete_route_success_repeat_and_missing', 'test_pg_delete_route_auth_denials_preserve_customer', 'test_pg_delete_reference_refusal_preserves_customer', 'test_pg_delete_precommit_failure_rolls_back_then_retry', 'test_pg_delete_distinct_rows_concurrently_preserves_audit_chain')),
     'test_customer_delete_extra_fk_postgres': (3, ('test_pg_existing_customer_fk_blocks_delete_then_retry',)),
     'test_customer_delete_reference_race_postgres': (2, ('test_pg_payment_commit_after_guards_before_delete_flush', 'test_pg_delete_flush_blocks_payment_until_commit')),
@@ -74,66 +89,7 @@ def required_nodes() -> list[str]:
 
 
 def check_report(report: Path) -> dict[str, int]:
-    cases = list(ET.parse(report).getroot().iter("testcase"))
-    if not cases:
-        raise ValueError("required PG gate produced no test cases")
-    identities = [(case.get("classname"), case.get("name")) for case in cases]
-    if len(set(identities)) != len(identities):
-        raise ValueError("required PG report contains duplicate case identities")
-    for case in cases:
-        if any(case.find(tag) is not None for tag in ("skipped", "failure", "error")):
-            raise ValueError(f"required PG case did not pass: {case.get('classname')}.{case.get('name')}")
-    counts = {}
-    for module, (minimum, names) in GROUPS.items():
-        selected = [case for case in cases if case.get("classname", "").split(".")[-1] == module]
-        counts[module] = len(selected)
-        if len(selected) < minimum:
-            raise ValueError(f"required PG group {module}: {len(selected)} cases, expected at least {minimum}")
-        for name in names:
-            if not any(case.get("name", "").split("[", 1)[0] == name for case in selected):
-                raise ValueError(f"required PG function missing: {module}.{name}")
-        actual_names = {case.get("name", "") for case in selected}
-        missing = set(REQUIRED_CASES[module]) - actual_names
-        if missing:
-            raise ValueError(f"required PG case identities missing in {module}: {sorted(missing)}")
-    return counts
-
-
-def configure_ci(identity_path: Path, env_path: Path) -> None:
-    """Use identity read through docker exec in the just-created CI container.
-
-    The published endpoint is fixed, loopback-only, in this ephemeral Linux job;
-    the fixture checks it matches the independently inspected container before DDL.
-    This command does not connect to a database or authorize a workstation server.
-    """
-    if os.environ.get("GITHUB_ACTIONS") != "true":
-        raise ValueError("CI bootstrap is restricted to GitHub Actions")
-    identity = json.loads(identity_path.read_text(encoding="utf-8"))
-    if (not str(identity["system_identifier"]).isdecimal()
-            or not str(identity["server_version"]).startswith("17.")
-            or not str(identity["data_directory"]).startswith("/")):
-        raise ValueError("unexpected CI container identity")
-    config = {
-        "admin_dsn": "postgresql+psycopg2://postgres@127.0.0.1:55432/postgres",
-        "host": "127.0.0.1", "port": 55432,
-        "server_version": identity["server_version"],
-        "system_identifier": str(identity["system_identifier"]),
-        "data_directory": identity["data_directory"],
-        "target_prefix": "review_ci_refactor_",
-    }
-    with env_path.open("a", encoding="utf-8") as output:
-        output.write("MILANA_REQUIRE_TEST_PG=1\n")
-        output.write("MILANA_TEST_PG_INSTANCE=" + json.dumps(config, separators=(",", ":")) + "\n")
-
-
-def sanitized_pg_environment(source: dict[str, str], scratch: Path) -> dict[str, str]:
-    """Remove inherited libpq configuration; use only empty owned config files."""
-    env = {key: value for key, value in source.items() if not key.upper().startswith("PG")}
-    for key, filename in (("PGPASSFILE", "pgpass"), ("PGSERVICEFILE", "pgservice")):
-        path = scratch / filename
-        path.write_text("", encoding="utf-8")
-        env[key] = str(path)
-    return env
+    return check_required_report(report, GROUPS, REQUIRED_CASES)
 
 
 def main() -> int:

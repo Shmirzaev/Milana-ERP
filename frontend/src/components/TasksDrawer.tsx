@@ -18,7 +18,7 @@ type Task = {
   due_date: string | null;
 };
 
-type User = { id: number; name: string; email: string };
+type User = { id: number; name: string };
 
 // Warm-palette priority colors — replace the rainbow Tailwind badges.
 const PRIORITY_COLOR: Record<Task["priority"], string> = {
@@ -46,7 +46,7 @@ export default function TasksDrawer() {
   const [scope, setScope] = useState<"mine" | "all">("mine");
   const url = `/api/tasks?scope=${isManager ? scope : "mine"}`;
   const { data: tasks, mutate } = useSWR<Task[]>(open ? url : null, fetcher);
-  const { data: users } = useSWR<User[]>(open && isManager ? "/api/users" : null, fetcher);
+  const { data: users } = useSWR<User[]>(open && isManager ? "/api/tasks/assignees" : null, fetcher);
 
   const { data: counts, mutate: mutateCount } = useSWR<{ count: number }>(
     me ? "/api/tasks/open-count" : null,

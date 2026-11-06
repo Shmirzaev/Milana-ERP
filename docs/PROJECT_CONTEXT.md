@@ -15,13 +15,24 @@ Last updated 2026-11-06. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
+## RF-004 shared infrastructure (6 November)
+
+Dilmurod/Mirshoir four-family source extraction covers audit reads, shipment-reopen
+receipt hash assignment, bounded readiness probes and reusable verification evidence.
+Prerequisites #497/#506 are merged; user authorized one green combined top-PR CI
+merge and closure of included lower PRs. Existing shipment/idempotency tests remain
+unchanged; affected owner FYIs and dual-database evidence are in
+[the operation packet](archive/RF004_SHARED_2026-11-06.md). Ports20400–20402 are the
+owned local stack; no screen/Production contract/deployment changes. Global RF-004
+ratchet and other domain legacy boundaries remain separately tracked.
+
 ## Payroll source extraction (6 November)
 
 Dilmurod / Mirshoir payroll extraction is finishing as three family PRs after the
 period/read stack: records and scans, adjustments/reversals, QR lifecycle. The user
 authorized a single top PR combined with current `clone_main`, green hosted CI,
 then merge and closure of included lower PRs. User owns one final browser check;
-local ports 20000–20002 remain available. Automated evidence and the complete
+the payroll QA servers/data/caches were removed after the user declared payroll done. Automated evidence and the complete
 operation/type retention ledger live in [the payroll record](archive/payroll-create-2026-11-06/CONTINUATION.md).
 No production deployment, visual acceptance or system-wide enum completion is claimed.
 

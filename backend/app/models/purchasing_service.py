@@ -428,7 +428,8 @@ def reject_purchase_request(db: Session, *, request_id: int, current: User) -> P
     if request.status not in REQUEST_REJECTABLE_STATUSES:
         raise HTTPException(409, f"Cannot reject purchase request in status '{request.status}'")
 
-    old_status = request.status
+    # Keep the subset check first so unknown stored values retain the 409 response.
+    old_status: PurchaseRequestStatus = PurchaseRequestStatus(request.status)
     apply_purchase_request_rejection(
         db, request, status=PurchaseRequestStatus.REJECTED
     )
@@ -438,7 +439,7 @@ def reject_purchase_request(db: Session, *, request_id: int, current: User) -> P
         "reject",
         "PurchaseRequest",
         request.id,
-        old_value={"status": old_status},
+        old_value={"status": old_status.value},
         new_value={"status": request.status, "request_no": request.request_no},
     )
     return request
