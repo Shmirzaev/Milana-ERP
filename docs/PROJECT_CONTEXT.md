@@ -108,6 +108,11 @@ Ismail reviews. The #345 baseline passes unchanged before and after on SQLite an
 isolated PostgreSQL (196 cases, zero skips). This is a candidate, not a deployed
 release or human acceptance; active/rollback records below are unchanged.
 
+CI security-gate candidate [#507](https://github.com/Shmirzaev/Milana-ERP/pull/507)
+adds dated accepted findings and exact scanned-image handoff before manual release.
+It stacks on runtime npm removal [#509](https://github.com/Shmirzaev/Milana-ERP/pull/509); technical evidence remains in the PR. The nightly schedule starts once it reaches main. Both candidates are unmerged. JWT guard/migration
+[#357](https://github.com/Shmirzaev/Milana-ERP/pull/357)/[#364](https://github.com/Shmirzaev/Milana-ERP/pull/364) remain Shavkat-dependent. No release changed.
+
 ## Active green release: older physical-pack history (2 November)
 
 PR369 merged into `clone_main` at `1ed3c5c7`; the owner authorized deployment.
@@ -167,6 +172,8 @@ copies were removed. Recovery receipts remain on the server. Cleanup disk use
 was 78.11%; staging was below 80%, while the 70% alert remains applicable.
 
 ## Active whole-ERP refactor
+
+6 November 2026: Payroll period CREATE is draft PR #511, with local characterization and extraction evidence; browser access is blocked and remaining payroll operations are pending. See [task record](archive/payroll-create-2026-11-06/README.md). No production change.
 
 PR343 merged three verified persistence operations into `clone_main` at
 `d235cf9e9a44b1de81428beb261f8fab837cbe87`; this did not deploy them. The owner
@@ -478,6 +485,10 @@ and all four health checks passed. Backup and full evidence are in
 
 ## Required checks and open risks
 
+- OPS05 isolated candidate adds the shared-store readiness probe and a shared
+  bounded flight; `/health` stays dependency-free. Automated evidence and blocked
+  visual/stress gates are in [the task record](archive/OPS05_READINESS_2026-10-26.md).
+  This candidate is not merged, deployed or human-accepted.
 - API02 candidate (re-aimed 29 October, Dilmurod; Mirshoir review): task write DTOs now
   validate state, priority, date and reference input; task creation/reassignment
   checks target visibility and holds a PostgreSQL key-share lock through commit.
