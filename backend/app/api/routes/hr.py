@@ -7,6 +7,7 @@ from app.models.audit_service import log_action
 from app.models.people.employees_service import (
     create_employee as create_employee_record,
     update_employee as update_employee_record,
+    archive_employee as archive_employee_record,
     _ensure_employee_no_available as _ensure_employee_no_available,
     _validate_employee_references as _validate_employee_references,
     _validated_employee_salary as _validated_employee_salary,
@@ -329,15 +330,4 @@ def archive_employee(eid: int, db: DbSession, current: User = Depends(require_pe
 
 
 def _archive_employee(eid: int, db: DbSession, current: User):
-    e = db.query(Employee).filter(
-        Employee.id == eid,
-        Employee.factory_code == selected_factory_code(current),
-    ).with_for_update().first()
-    if not e: raise HTTPException(404, "Employee not found")
-    if e.status == "archived":
-        return
-    old_status = e.status
-    e.status = "archived"
-    log_action(db, current, "archive", "Employee", eid,
-               old_value={"status": old_status}, new_value={"status": "archived"})
-    db.commit()
+    return archive_employee_record(db, current, eid, audit=log_action)
