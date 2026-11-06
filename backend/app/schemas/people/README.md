@@ -8,7 +8,8 @@ SQLAlchemy definitions now live under app/schemas/; Pydantic DTOs live in
 app/libs/dto/. The links below show the authoritative definitions for this group's
 records. Business services live in models/people/*_service.py; existing shared helpers
 remain directly under models/. Payroll persistence operations accompany the mapped
-definitions in payroll.py, payroll_qr_persistence.py and payroll_split_persistence.py.
+definitions in payroll.py, payroll_qr_persistence.py, payroll_record_persistence.py
+and payroll_split_persistence.py.
 
 ## Authoritative definitions
 

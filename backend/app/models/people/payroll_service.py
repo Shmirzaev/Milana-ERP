@@ -2374,3 +2374,6 @@ def _issue_order_lookup(db, rows):
             sales_order_id=row.sales_order_id,
         )
     return _PayrollOrderLookup(db, requests | snapshots, snapshots)
+
+
+MUTATION_LOCKED_PERIOD_STATUSES = {"locked", "approved", "paid", "cancelled"}
