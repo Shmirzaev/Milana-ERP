@@ -59,6 +59,7 @@ export default {
     "page.hrEmployees.bank_details": "Bank rekvizitlari",
     "page.hrEmployees.payroll_id": "Ish haqi hisob raqami",
     "page.hrEmployees.saving": "Saqlanmoqda…",
+    "page.hrEmployees.saved": "Saqlandi.",
     "page.hrEmployees.save": "Xodim kartasini saqlash",
     "hrWorkspace.dashboard": "Umumiy ko‘rinish",
     "hrWorkspace.employees": "Xodimlar",

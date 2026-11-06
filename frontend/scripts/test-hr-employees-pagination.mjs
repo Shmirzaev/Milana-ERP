@@ -77,6 +77,10 @@ new Function("require", "exports", "module", output)(name => {
     MetricGrid: props => createElement("metrics", props, ...props.items.map(item => `${item.label}: ${item.value}`)),
   };
   if (name === "@/lib/i18n") return { useT: () => ({ t: key => key }) };
+  if (name === "@/lib/employeeNumberPayload") return { employeeNumberPayload: (current, value) => {
+    const next = value.trim() || null;
+    return current === undefined || next !== current ? { employee_no: next } : {};
+  } };
   throw new Error(`Unexpected dependency: ${name}`);
 }, pageModule.exports, pageModule);
 const EmployeesPage = pageModule.exports.default;
