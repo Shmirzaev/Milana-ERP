@@ -15,7 +15,7 @@ from app.models.factory_scope_service import available_factory_codes, factory_fo
 from app.models.packaging_scope_service import normalize_packaging_department_code, require_package_access
 from app.schemas import Bundle, Invoice, Package, ProductionOrder, SalesOrder, Shipment, Task, User, WorkOrder
 from app.libs.enums.work_management import TaskPriority, TaskStatus
-from app.schemas.work_management.task_persistence import complete_task_row, apply_task_update, add_stock_shortage_task, add_created_task
+from app.schemas.work_management.task_persistence import delete_task_row, complete_task_row, apply_task_update, add_stock_shortage_task, add_created_task
 from app.schemas.core_persistence import add_notification_row
 from app.libs.dto.work_management.tasks import TaskIn, TaskUpdate
 from app.models.audit_service import log_action
@@ -352,3 +352,13 @@ def complete_task(tid: int, db: Session, current: User, *, audit=log_action):
     audit(db, current, "complete", "Task", t.id)
     db.commit(); db.refresh(t)
     return t
+
+
+def delete_task(tid: int, db: Session, current: User, *, audit=log_action):
+    t = db.get(Task, tid)
+    if not t: raise HTTPException(404, "Task not found")
+    if not (_can_manage(current) or t.created_by == current.id):
+        raise HTTPException(403, "Only managers or task creator may delete")
+    delete_task_row(db, t)
+    audit(db, current, "delete", "Task", tid)
+    db.commit()
