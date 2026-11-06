@@ -24,7 +24,7 @@ def test_setup_persists_exact_variant_sizes_and_audit(client, auth_headers):
         assert audit.new_value_json == {"sizes": ["52", "54"]}
 
 
-@pytest.mark.parametrize("sizes", [[], [" "], ["S", " s "], ["S"] * 41, ["X" * 33], ["48", ""]])
+@pytest.mark.parametrize("sizes", [[], [" "], ["S", " s "], ["Straße", " STRASSE "], ["S"] * 41, ["X" * 33], ["48", ""]])
 def test_setup_invalid_payload_is_atomic(client, auth_headers, sizes):
     mid = _model("QR-INVALID-1")
     result = client.post(f"/api/models/{mid}/process-qr-sizes", json={"sizes": sizes}, headers=auth_headers)

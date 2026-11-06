@@ -12,7 +12,12 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
-import xml.etree.ElementTree as ET
+
+from refactor_pg_evidence import (
+    check_required_report,
+    configure_ci as configure_ci,
+    sanitized_pg_environment as sanitized_pg_environment,
+)
 
 
 # Minimum collected counts pin the current parameterized business cases. Adding
@@ -64,6 +69,27 @@ GROUPS = {
         "test_pg_shipment_reopen_audit_failure_rolls_back_and_retry_commits_all",
         "test_pg_invoice_payment_and_shipment_reopen_serialize_on_invoice_row",
     )),
+    "test_purchase_receipt_concurrency": (2, ("test_postgres_receipts_serialize_line_totals_and_closed_order_no_write",)),
+    "test_purchase_receipt_idempotency": (3, ("test_postgres_concurrent_receipts_serialize_before_replay", "test_postgres_receipt_audit_finalization_failure_rolls_back_then_replays")),
+    "test_item_delete_postgres": (11, (
+        "test_pg_delete_and_archive_share_session_and_preserve_audit",
+        "test_pg_actual_audit_finalization_failure_rolls_back",
+        "test_pg_unchecked_direct_reference_rejects_delete_atomically",
+        "test_pg_reference_insert_after_link_check_rolls_back_delete",
+    )),
+    "test_process_qr_size_setup_postgres": (7, (
+        "test_postgres_setup_audit_failure_rolls_back",
+        "test_postgres_simultaneous_setup_serializes",
+        "test_postgres_setup_then_generic_writer_waits_on_parent_fk",
+        "test_postgres_http_failure_teardown_rolls_back",
+        "test_postgres_deferred_commit_failure_rolls_back_request",
+    )),
+    "test_model_image_delete_postgres": (5, (
+        "test_pg_denied_usluga_and_reverse_scope_keep_binary",
+        "test_pg_request_failure_rolls_back_binary_and_audit",
+        "test_pg_update_then_delete_waits_and_audits_loaded_url",
+        "test_pg_deferred_delete_commit_failure_rolls_back_binary_and_audit",
+    )),
     "test_modelsize_create_postgres": (2, ("test_pg_create_atomic_audit_and_failure_retry", "test_pg_concurrent_duplicate_creates")),
     "test_modelcolor_create_postgres": (27, ()),
 }
@@ -84,66 +110,7 @@ def required_nodes() -> list[str]:
 
 
 def check_report(report: Path) -> dict[str, int]:
-    cases = list(ET.parse(report).getroot().iter("testcase"))
-    if not cases:
-        raise ValueError("required PG gate produced no test cases")
-    identities = [(case.get("classname"), case.get("name")) for case in cases]
-    if len(set(identities)) != len(identities):
-        raise ValueError("required PG report contains duplicate case identities")
-    for case in cases:
-        if any(case.find(tag) is not None for tag in ("skipped", "failure", "error")):
-            raise ValueError(f"required PG case did not pass: {case.get('classname')}.{case.get('name')}")
-    counts = {}
-    for module, (minimum, names) in GROUPS.items():
-        selected = [case for case in cases if case.get("classname", "").split(".")[-1] == module]
-        counts[module] = len(selected)
-        if len(selected) < minimum:
-            raise ValueError(f"required PG group {module}: {len(selected)} cases, expected at least {minimum}")
-        for name in names:
-            if not any(case.get("name", "").split("[", 1)[0] == name for case in selected):
-                raise ValueError(f"required PG function missing: {module}.{name}")
-        actual_names = {case.get("name", "") for case in selected}
-        missing = set(REQUIRED_CASES[module]) - actual_names
-        if missing:
-            raise ValueError(f"required PG case identities missing in {module}: {sorted(missing)}")
-    return counts
-
-
-def configure_ci(identity_path: Path, env_path: Path) -> None:
-    """Use identity read through docker exec in the just-created CI container.
-
-    The published endpoint is fixed, loopback-only, in this ephemeral Linux job;
-    the fixture checks it matches the independently inspected container before DDL.
-    This command does not connect to a database or authorize a workstation server.
-    """
-    if os.environ.get("GITHUB_ACTIONS") != "true":
-        raise ValueError("CI bootstrap is restricted to GitHub Actions")
-    identity = json.loads(identity_path.read_text(encoding="utf-8"))
-    if (not str(identity["system_identifier"]).isdecimal()
-            or not str(identity["server_version"]).startswith("17.")
-            or not str(identity["data_directory"]).startswith("/")):
-        raise ValueError("unexpected CI container identity")
-    config = {
-        "admin_dsn": "postgresql+psycopg2://postgres@127.0.0.1:55432/postgres",
-        "host": "127.0.0.1", "port": 55432,
-        "server_version": identity["server_version"],
-        "system_identifier": str(identity["system_identifier"]),
-        "data_directory": identity["data_directory"],
-        "target_prefix": "review_ci_refactor_",
-    }
-    with env_path.open("a", encoding="utf-8") as output:
-        output.write("MILANA_REQUIRE_TEST_PG=1\n")
-        output.write("MILANA_TEST_PG_INSTANCE=" + json.dumps(config, separators=(",", ":")) + "\n")
-
-
-def sanitized_pg_environment(source: dict[str, str], scratch: Path) -> dict[str, str]:
-    """Remove inherited libpq configuration; use only empty owned config files."""
-    env = {key: value for key, value in source.items() if not key.upper().startswith("PG")}
-    for key, filename in (("PGPASSFILE", "pgpass"), ("PGSERVICEFILE", "pgservice")):
-        path = scratch / filename
-        path.write_text("", encoding="utf-8")
-        env[key] = str(path)
-    return env
+    return check_required_report(report, GROUPS, REQUIRED_CASES)
 
 
 def main() -> int:

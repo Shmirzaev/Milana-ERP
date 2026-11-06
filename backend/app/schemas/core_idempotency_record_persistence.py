@@ -2,7 +2,7 @@
 
 The mapped `IdempotencyRecord` class stays in `app.schemas.core`; it is
 imported, never redefined, and the mapping metadata is untouched. This module
-owns only the mapped insert.
+owns the mapped insert and request-hash assignment.
 
 Identity binding, key normalization, request fingerprints, the PostgreSQL
 advisory lock and the replay/lookup policy stay in the business service
@@ -47,3 +47,7 @@ def insert_idempotency_record(
     db.add(row)
     db.flush()
     return row
+
+
+def set_idempotency_request_hash(record: IdempotencyRecord, request_hash: str) -> None:
+    record.request_hash = request_hash
