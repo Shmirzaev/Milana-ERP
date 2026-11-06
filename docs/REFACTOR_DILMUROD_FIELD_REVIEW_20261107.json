@@ -1,0 +1,1923 @@
+{
+  "kind": "dilmurod_source_field_classification",
+  "as_of": "2026-11-07",
+  "source_revision": "d25641e8308d833ed21be0868e02df57605a1d78",
+  "status": "SOURCE_ONLY_PENDING_ACTUAL_VALUES_AND_FULL_CONSUMER_REVIEW",
+  "table_count": 23,
+  "field_count": 324,
+  "limitations": [
+    "No authorized production snapshot or real-value distinct/count review",
+    "Synthetic SQLite/PostgreSQL fixtures cannot establish legacy stored values",
+    "No operation is marked AI verified or human accepted by this source classification"
+  ],
+  "tables": [
+    {
+      "table": "attendance_devices",
+      "domain": "people",
+      "model": "AttendanceDevice",
+      "source": "backend/app/schemas/people/attendance.py",
+      "fields": {
+        "factory_code": {
+          "disposition": "needs_decision",
+          "reason": "MIL/BST/ECO in payroll CHECK or scoped factory string elsewhere; coordinate canonical Identity type and real stored values",
+          "schema_evidence": "backend/app/schemas/people/attendance.py:20",
+          "consumer_evidence": "backend/app/models/factory_scope_service.py:6"
+        },
+        "device_key": {
+          "disposition": "retain",
+          "reason": "Opaque connector device identifier; retain as text, not a business action enum.",
+          "schema_evidence": "backend/app/schemas/people/attendance.py:21"
+        },
+        "name": {
+          "disposition": "retain",
+          "reason": "attendance_devices.name is a human-entered display/name field; retain free-form text.",
+          "schema_evidence": "backend/app/schemas/people/attendance.py:22"
+        },
+        "vendor": {
+          "disposition": "needs_decision",
+          "reason": "ManagedDeviceIn restricts Hikvision/Dahua, but DeviceIn accepts any bounded vendor; real device vendors unverified",
+          "schema_evidence": "backend/app/schemas/people/attendance.py:23",
+          "consumer_evidence": "backend/app/libs/dto/people/attendance.py:10,30"
+        },
+        "model": {
+          "disposition": "retain",
+          "reason": "attendance_devices.model is a human-entered display/name field; retain free-form text.",
+          "schema_evidence": "backend/app/schemas/people/attendance.py:24"
+        },
+        "serial_no": {
+          "disposition": "retain",
+          "reason": "Manufacturer serial identifier; retain as text because formats vary by device.",
+          "schema_evidence": "backend/app/schemas/people/attendance.py:25"
+        },
+        "source_host": {
+          "disposition": "retain",
+          "reason": "URL endpoint, not finite vocabulary",
+          "schema_evidence": "backend/app/schemas/people/attendance.py:26",
+          "consumer_evidence": "backend/app/libs/dto/people/attendance.py:16,31"
+        },
+        "certificate_sha256": {
+          "disposition": "retain",
+          "reason": "SHA-256 fingerprint; retain the digest text, with format validation a separate decision.",
+          "schema_evidence": "backend/app/schemas/people/attendance.py:27"
+        },
+        "connector_token_hash": {
+          "disposition": "retain",
+          "reason": "Connector credential digest; retain opaque hash text, never expose the value.",
+          "schema_evidence": "backend/app/schemas/people/attendance.py:28"
+        },
+        "sync_enabled": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/attendance.py:29"
+        },
+        "configured_by": {
+          "disposition": "retain",
+          "reason": "foreign-key/reference scalar; value and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/attendance.py:30"
+        },
+        "read_only": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/attendance.py:31"
+        },
+        "reported_person_count": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/attendance.py:32"
+        },
+        "last_seen_at": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/attendance.py:33"
+        },
+        "last_people_sync_at": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/attendance.py:34"
+        },
+        "last_event_sync_at": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/attendance.py:35"
+        },
+        "id": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/db/base.py:16"
+        },
+        "created_at": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/db/base.py:11"
+        },
+        "updated_at": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/db/base.py:12"
+        }
+      }
+    },
+    {
+      "table": "attendance_events",
+      "domain": "people",
+      "model": "AttendanceEvent",
+      "source": "backend/app/schemas/people/attendance.py",
+      "fields": {
+        "factory_code": {
+          "disposition": "needs_decision",
+          "reason": "MIL/BST/ECO in payroll CHECK or scoped factory string elsewhere; coordinate canonical Identity type and real stored values",
+          "schema_evidence": "backend/app/schemas/people/attendance.py:75",
+          "consumer_evidence": "backend/app/models/factory_scope_service.py:6"
+        },
+        "device_id": {
+          "disposition": "retain",
+          "reason": "foreign-key/reference scalar; value and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/attendance.py:76"
+        },
+        "person_id": {
+          "disposition": "retain",
+          "reason": "foreign-key/reference scalar; value and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/attendance.py:77"
+        },
+        "event_uid": {
+          "disposition": "retain",
+          "reason": "Vendor/event idempotency identifier; retain opaque text, not a fixed vocabulary.",
+          "schema_evidence": "backend/app/schemas/people/attendance.py:78"
+        },
+        "external_person_id": {
+          "disposition": "retain",
+          "reason": "External attendance-system person identifier; retain opaque text because vendor formats vary.",
+          "schema_evidence": "backend/app/schemas/people/attendance.py:79"
+        },
+        "occurred_at": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/attendance.py:80"
+        },
+        "received_at": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/attendance.py:81"
+        },
+        "direction": {
+          "disposition": "needs_decision",
+          "reason": "EventIn normalizes non-entry/exit to unknown; typing must preserve that normalization and stored legacy variants",
+          "schema_evidence": "backend/app/schemas/people/attendance.py:82",
+          "consumer_evidence": "backend/app/libs/dto/people/attendance.py:93,105-110"
+        },
+        "verification_mode": {
+          "disposition": "needs_decision",
+          "reason": "vendor-originated code has length bound only; actual values unknown",
+          "schema_evidence": "backend/app/schemas/people/attendance.py:83",
+          "consumer_evidence": "backend/app/libs/dto/people/attendance.py:94"
+        },
+        "result": {
+          "disposition": "needs_decision",
+          "reason": "vendor-originated result has length bound only; actual values unknown",
+          "schema_evidence": "backend/app/schemas/people/attendance.py:84",
+          "consumer_evidence": "backend/app/libs/dto/people/attendance.py:95"
+        },
+        "door_no": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/attendance.py:85"
+        },
+        "reader_no": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/attendance.py:86"
+        },
+        "serial_no": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/attendance.py:87"
+        },
+        "id": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/db/base.py:16"
+        }
+      }
+    },
+    {
+      "table": "attendance_people",
+      "domain": "people",
+      "model": "AttendancePerson",
+      "source": "backend/app/schemas/people/attendance.py",
+      "fields": {
+        "factory_code": {
+          "disposition": "needs_decision",
+          "reason": "MIL/BST/ECO in payroll CHECK or scoped factory string elsewhere; coordinate canonical Identity type and real stored values",
+          "schema_evidence": "backend/app/schemas/people/attendance.py:48",
+          "consumer_evidence": "backend/app/models/factory_scope_service.py:6"
+        },
+        "device_id": {
+          "disposition": "retain",
+          "reason": "foreign-key/reference scalar; value and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/attendance.py:49"
+        },
+        "external_person_id": {
+          "disposition": "retain",
+          "reason": "External attendance-system person identifier; retain opaque text because vendor formats vary.",
+          "schema_evidence": "backend/app/schemas/people/attendance.py:50"
+        },
+        "full_name": {
+          "disposition": "retain",
+          "reason": "attendance_people.full_name is a human-entered display/name field; retain free-form text.",
+          "schema_evidence": "backend/app/schemas/people/attendance.py:51"
+        },
+        "user_type": {
+          "disposition": "needs_decision",
+          "reason": "vendor-originated person category has length bound only; users table has no matching column",
+          "schema_evidence": "backend/app/schemas/people/attendance.py:52",
+          "consumer_evidence": "backend/app/libs/dto/people/attendance.py:61;backend/app/schemas/people/attendance.py:52"
+        },
+        "valid_from": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/attendance.py:53"
+        },
+        "valid_to": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/attendance.py:54"
+        },
+        "is_valid": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/attendance.py:55"
+        },
+        "has_face": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/attendance.py:56"
+        },
+        "card_count": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/attendance.py:57"
+        },
+        "fingerprint_count": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/attendance.py:58"
+        },
+        "photo_file_name": {
+          "disposition": "retain",
+          "reason": "Uploaded photo storage filename; retain opaque text, not a domain enum.",
+          "schema_evidence": "backend/app/schemas/people/attendance.py:59"
+        },
+        "photo_sha256": {
+          "disposition": "retain",
+          "reason": "SHA-256 digest of the photo; retain digest text.",
+          "schema_evidence": "backend/app/schemas/people/attendance.py:60"
+        },
+        "present_on_device": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/attendance.py:61"
+        },
+        "last_synced_at": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/attendance.py:62"
+        },
+        "id": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/db/base.py:16"
+        },
+        "created_at": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/db/base.py:11"
+        },
+        "updated_at": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/db/base.py:12"
+        }
+      }
+    },
+    {
+      "table": "audit_logs",
+      "domain": "support",
+      "model": "AuditLog",
+      "source": "backend/app/schemas/core.py",
+      "fields": {
+        "user_id": {
+          "disposition": "retain",
+          "reason": "nullable user foreign key",
+          "schema_evidence": "backend/app/schemas/core.py:79"
+        },
+        "action": {
+          "disposition": "needs_decision",
+          "reason": "audit action strings come from many domain callers; no closed vocabulary established",
+          "schema_evidence": "backend/app/schemas/core.py:80"
+        },
+        "entity_type": {
+          "disposition": "needs_decision",
+          "reason": "polymorphic audit entity names come from many domain callers",
+          "schema_evidence": "backend/app/schemas/core.py:81"
+        },
+        "entity_id": {
+          "disposition": "retain",
+          "reason": "polymorphic entity identifier, not an enum",
+          "schema_evidence": "backend/app/schemas/core.py:82"
+        },
+        "old_value_json": {
+          "disposition": "needs_decision",
+          "reason": "arbitrary before-state audit payload from domain callers",
+          "schema_evidence": "backend/app/schemas/core.py:83"
+        },
+        "new_value_json": {
+          "disposition": "needs_decision",
+          "reason": "arbitrary after-state audit payload from domain callers",
+          "schema_evidence": "backend/app/schemas/core.py:84"
+        },
+        "prev_hash": {
+          "disposition": "retain",
+          "reason": "opaque hash-chain digest",
+          "schema_evidence": "backend/app/schemas/core.py:85"
+        },
+        "entry_hash": {
+          "disposition": "retain",
+          "reason": "opaque hash-chain digest",
+          "schema_evidence": "backend/app/schemas/core.py:86"
+        },
+        "created_at": {
+          "disposition": "retain",
+          "reason": "timestamp",
+          "schema_evidence": "backend/app/schemas/core.py:87"
+        },
+        "id": {
+          "disposition": "retain",
+          "reason": "surrogate primary key",
+          "schema_evidence": "backend/app/db/base.py:16"
+        }
+      }
+    },
+    {
+      "table": "business_order_aliases",
+      "domain": "support",
+      "model": "BusinessOrderAlias",
+      "source": "backend/app/schemas/order_reference.py",
+      "fields": {
+        "namespace": {
+          "disposition": "needs_decision",
+          "reason": "cross-domain reference namespace; current callers include BND, PO, SO, PUBLIC_PO and PUR",
+          "schema_evidence": "backend/app/schemas/order_reference.py:14"
+        },
+        "entity_id": {
+          "disposition": "retain",
+          "reason": "polymorphic referenced record ID",
+          "schema_evidence": "backend/app/schemas/order_reference.py:15"
+        },
+        "reference": {
+          "disposition": "retain",
+          "reason": "historical business identifier, not an enum",
+          "schema_evidence": "backend/app/schemas/order_reference.py:16"
+        },
+        "canonical_reference": {
+          "disposition": "retain",
+          "reason": "current business identifier, not an enum",
+          "schema_evidence": "backend/app/schemas/order_reference.py:17"
+        },
+        "id": {
+          "disposition": "retain",
+          "reason": "surrogate primary key",
+          "schema_evidence": "backend/app/db/base.py:16"
+        },
+        "created_at": {
+          "disposition": "retain",
+          "reason": "timestamp",
+          "schema_evidence": "backend/app/db/base.py:11"
+        },
+        "updated_at": {
+          "disposition": "retain",
+          "reason": "timestamp",
+          "schema_evidence": "backend/app/db/base.py:12"
+        }
+      }
+    },
+    {
+      "table": "departments",
+      "domain": "people",
+      "model": "Department",
+      "source": "backend/app/schemas/core.py",
+      "fields": {
+        "name": {
+          "disposition": "retain",
+          "reason": "departments.name is a human-entered display/name field; retain free-form text.",
+          "schema_evidence": "backend/app/schemas/core.py:18"
+        },
+        "code": {
+          "disposition": "retain",
+          "reason": "departments.code is a business identifier; retain text, with format/value audit pending.",
+          "schema_evidence": "backend/app/schemas/core.py:19"
+        },
+        "id": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/db/base.py:16"
+        },
+        "created_at": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/db/base.py:11"
+        },
+        "updated_at": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/db/base.py:12"
+        }
+      }
+    },
+    {
+      "table": "employees",
+      "domain": "people",
+      "model": "Employee",
+      "source": "backend/app/schemas/core.py",
+      "fields": {
+        "factory_code": {
+          "disposition": "needs_decision",
+          "reason": "MIL/BST/ECO in payroll CHECK or scoped factory string elsewhere; coordinate canonical Identity type and real stored values",
+          "schema_evidence": "backend/app/schemas/core.py:51",
+          "consumer_evidence": "backend/app/models/factory_scope_service.py:6"
+        },
+        "user_id": {
+          "disposition": "retain",
+          "reason": "foreign-key/reference scalar; value and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/core.py:52"
+        },
+        "employee_no": {
+          "disposition": "retain",
+          "reason": "Business employee number; retain text because existing numbers may contain non-digits.",
+          "schema_evidence": "backend/app/schemas/core.py:53"
+        },
+        "full_name": {
+          "disposition": "retain",
+          "reason": "employees.full_name is a human-entered display/name field; retain free-form text.",
+          "schema_evidence": "backend/app/schemas/core.py:54"
+        },
+        "department_id": {
+          "disposition": "retain",
+          "reason": "foreign-key/reference scalar; value and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/core.py:55"
+        },
+        "position": {
+          "disposition": "retain",
+          "reason": "employees.position is a human-entered display/name field; retain free-form text.",
+          "schema_evidence": "backend/app/schemas/core.py:56"
+        },
+        "phone": {
+          "disposition": "retain",
+          "reason": "Contact phone string; retain text to preserve formatting and international prefixes.",
+          "schema_evidence": "backend/app/schemas/core.py:57"
+        },
+        "salary": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/core.py:58"
+        },
+        "status": {
+          "disposition": "needs_decision",
+          "reason": "service recognizes active/archived, but no DB CHECK and stored legacy values unverified",
+          "schema_evidence": "backend/app/schemas/core.py:59",
+          "consumer_evidence": "backend/app/models/people/employees_service.py:278"
+        },
+        "joined_at": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/core.py:60"
+        },
+        "manager_employee_id": {
+          "disposition": "retain",
+          "reason": "foreign-key/reference scalar; value and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/core.py:63"
+        },
+        "hr_position_id": {
+          "disposition": "retain",
+          "reason": "foreign-key/reference scalar; value and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/core.py:64"
+        },
+        "hr_profile_json": {
+          "disposition": "needs_decision",
+          "reason": "editor has known strict keys; existing JSON may hold historical keys and payroll_report_group is read by reports",
+          "schema_evidence": "backend/app/schemas/core.py:74",
+          "consumer_evidence": "backend/app/libs/dto/people/employee_profile.py:5-31;backend/app/models/people/payroll_service.py:952"
+        },
+        "id": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/db/base.py:16"
+        },
+        "created_at": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/db/base.py:11"
+        },
+        "updated_at": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/db/base.py:12"
+        }
+      }
+    },
+    {
+      "table": "hr_calendar_events",
+      "domain": "people",
+      "model": "HrCalendarEvent",
+      "source": "backend/app/schemas/people/hr.py",
+      "fields": {
+        "factory_code": {
+          "disposition": "needs_decision",
+          "reason": "MIL/BST/ECO in payroll CHECK or scoped factory string elsewhere; coordinate canonical Identity type and real stored values",
+          "schema_evidence": "backend/app/schemas/people/hr.py:94",
+          "consumer_evidence": "backend/app/models/factory_scope_service.py:6"
+        },
+        "employee_id": {
+          "disposition": "retain",
+          "reason": "foreign-key/reference scalar; value and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/hr.py:95"
+        },
+        "event_type": {
+          "disposition": "needs_decision",
+          "reason": "input regex lists ten values, but no DB CHECK and historical values unverified",
+          "schema_evidence": "backend/app/schemas/people/hr.py:96",
+          "consumer_evidence": "backend/app/libs/dto/people/hr_workspace.py:112"
+        },
+        "title": {
+          "disposition": "retain",
+          "reason": "hr_calendar_events.title is a human-entered display/name field; retain free-form text.",
+          "schema_evidence": "backend/app/schemas/people/hr.py:97"
+        },
+        "starts_at": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/hr.py:98"
+        },
+        "ends_at": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/hr.py:99"
+        },
+        "notes": {
+          "disposition": "retain",
+          "reason": "Operator-entered notes; retain free-form text.",
+          "schema_evidence": "backend/app/schemas/people/hr.py:100"
+        },
+        "status": {
+          "disposition": "needs_decision",
+          "reason": "input regex lists scheduled/completed/cancelled, but no DB CHECK and historical values unverified",
+          "schema_evidence": "backend/app/schemas/people/hr.py:101",
+          "consumer_evidence": "backend/app/libs/dto/people/hr_workspace.py:117"
+        },
+        "id": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/db/base.py:16"
+        },
+        "created_at": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/db/base.py:11"
+        },
+        "updated_at": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/db/base.py:12"
+        }
+      }
+    },
+    {
+      "table": "hr_employee_documents",
+      "domain": "people",
+      "model": "HrEmployeeDocument",
+      "source": "backend/app/schemas/people/hr.py",
+      "fields": {
+        "factory_code": {
+          "disposition": "needs_decision",
+          "reason": "MIL/BST/ECO in payroll CHECK or scoped factory string elsewhere; coordinate canonical Identity type and real stored values",
+          "schema_evidence": "backend/app/schemas/people/hr.py:47",
+          "consumer_evidence": "backend/app/models/factory_scope_service.py:6"
+        },
+        "employee_id": {
+          "disposition": "retain",
+          "reason": "foreign-key/reference scalar; value and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/hr.py:48"
+        },
+        "category": {
+          "disposition": "retain",
+          "reason": "document category accepted as operator text; no closed validation",
+          "schema_evidence": "backend/app/schemas/people/hr.py:49",
+          "consumer_evidence": "backend/app/schemas/people/hr.py:49"
+        },
+        "title": {
+          "disposition": "retain",
+          "reason": "hr_employee_documents.title is a human-entered display/name field; retain free-form text.",
+          "schema_evidence": "backend/app/schemas/people/hr.py:50"
+        },
+        "original_name": {
+          "disposition": "retain",
+          "reason": "Uploaded document filename; retain user-supplied text.",
+          "schema_evidence": "backend/app/schemas/people/hr.py:51"
+        },
+        "stored_name": {
+          "disposition": "retain",
+          "reason": "Generated document storage filename; retain opaque text.",
+          "schema_evidence": "backend/app/schemas/people/hr.py:52"
+        },
+        "content_type": {
+          "disposition": "retain",
+          "reason": "MIME type is open vocabulary",
+          "schema_evidence": "backend/app/schemas/people/hr.py:53",
+          "consumer_evidence": "backend/app/schemas/people/hr.py:54"
+        },
+        "size_bytes": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/hr.py:54"
+        },
+        "expires_on": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/hr.py:55"
+        },
+        "uploaded_by": {
+          "disposition": "retain",
+          "reason": "foreign-key/reference scalar; value and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/hr.py:56"
+        },
+        "created_at": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/hr.py:57"
+        },
+        "id": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/db/base.py:16"
+        }
+      }
+    },
+    {
+      "table": "hr_org_units",
+      "domain": "people",
+      "model": "HrOrgUnit",
+      "source": "backend/app/schemas/people/hr.py",
+      "fields": {
+        "factory_code": {
+          "disposition": "needs_decision",
+          "reason": "MIL/BST/ECO in payroll CHECK or scoped factory string elsewhere; coordinate canonical Identity type and real stored values",
+          "schema_evidence": "backend/app/schemas/people/hr.py:17",
+          "consumer_evidence": "backend/app/models/factory_scope_service.py:6"
+        },
+        "parent_id": {
+          "disposition": "retain",
+          "reason": "foreign-key/reference scalar; value and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/hr.py:18"
+        },
+        "department_id": {
+          "disposition": "retain",
+          "reason": "foreign-key/reference scalar; value and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/hr.py:19"
+        },
+        "manager_employee_id": {
+          "disposition": "retain",
+          "reason": "foreign-key/reference scalar; value and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/hr.py:20"
+        },
+        "unit_type": {
+          "disposition": "needs_decision",
+          "reason": "input regex lists five values, but no DB CHECK and stored values unverified",
+          "schema_evidence": "backend/app/schemas/people/hr.py:21",
+          "consumer_evidence": "backend/app/libs/dto/people/hr_workspace.py:21"
+        },
+        "name": {
+          "disposition": "retain",
+          "reason": "hr_org_units.name is a human-entered display/name field; retain free-form text.",
+          "schema_evidence": "backend/app/schemas/people/hr.py:22"
+        },
+        "code": {
+          "disposition": "retain",
+          "reason": "hr_org_units.code is a business identifier; retain text, with format/value audit pending.",
+          "schema_evidence": "backend/app/schemas/people/hr.py:23"
+        },
+        "sort_order": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/hr.py:24"
+        },
+        "id": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/db/base.py:16"
+        },
+        "created_at": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/db/base.py:11"
+        },
+        "updated_at": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/db/base.py:12"
+        }
+      }
+    },
+    {
+      "table": "hr_positions",
+      "domain": "people",
+      "model": "HrPosition",
+      "source": "backend/app/schemas/people/hr.py",
+      "fields": {
+        "factory_code": {
+          "disposition": "needs_decision",
+          "reason": "MIL/BST/ECO in payroll CHECK or scoped factory string elsewhere; coordinate canonical Identity type and real stored values",
+          "schema_evidence": "backend/app/schemas/people/hr.py:30",
+          "consumer_evidence": "backend/app/models/factory_scope_service.py:6"
+        },
+        "org_unit_id": {
+          "disposition": "retain",
+          "reason": "foreign-key/reference scalar; value and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/hr.py:31"
+        },
+        "department_id": {
+          "disposition": "retain",
+          "reason": "foreign-key/reference scalar; value and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/hr.py:32"
+        },
+        "name": {
+          "disposition": "retain",
+          "reason": "hr_positions.name is a human-entered display/name field; retain free-form text.",
+          "schema_evidence": "backend/app/schemas/people/hr.py:33"
+        },
+        "job_description": {
+          "disposition": "retain",
+          "reason": "Free-form position description; retain text.",
+          "schema_evidence": "backend/app/schemas/people/hr.py:34"
+        },
+        "required_skills_json": {
+          "disposition": "retain",
+          "reason": "list of operator-entered skill names, not fixed keys",
+          "schema_evidence": "backend/app/schemas/people/hr.py:35",
+          "consumer_evidence": "backend/app/libs/dto/people/hr_workspace.py:42;backend/app/models/people/hr_workspace_service.py:87"
+        },
+        "qualification_level": {
+          "disposition": "retain",
+          "reason": "operator-entered qualification text; no fixed set",
+          "schema_evidence": "backend/app/schemas/people/hr.py:36",
+          "consumer_evidence": "backend/app/schemas/people/hr.py:38"
+        },
+        "grade_level": {
+          "disposition": "retain",
+          "reason": "operator-entered grade text; no fixed set",
+          "schema_evidence": "backend/app/schemas/people/hr.py:37",
+          "consumer_evidence": "backend/app/schemas/people/hr.py:39"
+        },
+        "salary_min": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/hr.py:38"
+        },
+        "salary_max": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/hr.py:39"
+        },
+        "approved_count": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/hr.py:40"
+        },
+        "is_active": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/hr.py:41"
+        },
+        "id": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/db/base.py:16"
+        },
+        "created_at": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/db/base.py:11"
+        },
+        "updated_at": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/db/base.py:12"
+        }
+      }
+    },
+    {
+      "table": "hr_recruitment_candidates",
+      "domain": "people",
+      "model": "HrRecruitmentCandidate",
+      "source": "backend/app/schemas/people/hr.py",
+      "fields": {
+        "factory_code": {
+          "disposition": "needs_decision",
+          "reason": "MIL/BST/ECO in payroll CHECK or scoped factory string elsewhere; coordinate canonical Identity type and real stored values",
+          "schema_evidence": "backend/app/schemas/people/hr.py:63",
+          "consumer_evidence": "backend/app/models/factory_scope_service.py:6"
+        },
+        "position_id": {
+          "disposition": "retain",
+          "reason": "foreign-key/reference scalar; value and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/hr.py:64"
+        },
+        "department_id": {
+          "disposition": "retain",
+          "reason": "foreign-key/reference scalar; value and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/hr.py:65"
+        },
+        "full_name": {
+          "disposition": "retain",
+          "reason": "hr_recruitment_candidates.full_name is a human-entered display/name field; retain free-form text.",
+          "schema_evidence": "backend/app/schemas/people/hr.py:66"
+        },
+        "first_name": {
+          "disposition": "retain",
+          "reason": "hr_recruitment_candidates.first_name is a human-entered display/name field; retain free-form text.",
+          "schema_evidence": "backend/app/schemas/people/hr.py:67"
+        },
+        "last_name": {
+          "disposition": "retain",
+          "reason": "hr_recruitment_candidates.last_name is a human-entered display/name field; retain free-form text.",
+          "schema_evidence": "backend/app/schemas/people/hr.py:68"
+        },
+        "middle_name": {
+          "disposition": "retain",
+          "reason": "hr_recruitment_candidates.middle_name is a human-entered display/name field; retain free-form text.",
+          "schema_evidence": "backend/app/schemas/people/hr.py:69"
+        },
+        "date_of_birth": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/hr.py:70"
+        },
+        "gender": {
+          "disposition": "needs_decision",
+          "reason": "input regex lists male/female/other, but no DB CHECK and stored values unverified",
+          "schema_evidence": "backend/app/schemas/people/hr.py:71",
+          "consumer_evidence": "backend/app/libs/dto/people/hr_workspace.py:75"
+        },
+        "nationality": {
+          "disposition": "needs_decision",
+          "reason": "Recruitment candidate nationality is currently text; real values and normalization need a separate contract decision.",
+          "schema_evidence": "backend/app/schemas/people/hr.py:72"
+        },
+        "country": {
+          "disposition": "needs_decision",
+          "reason": "Recruitment candidate country is currently text; real values and normalization need a separate contract decision.",
+          "schema_evidence": "backend/app/schemas/people/hr.py:73"
+        },
+        "region": {
+          "disposition": "needs_decision",
+          "reason": "Recruitment candidate region is currently text; real values and normalization need a separate contract decision.",
+          "schema_evidence": "backend/app/schemas/people/hr.py:74"
+        },
+        "district": {
+          "disposition": "needs_decision",
+          "reason": "Recruitment candidate district is currently text; real values and normalization need a separate contract decision.",
+          "schema_evidence": "backend/app/schemas/people/hr.py:75"
+        },
+        "address": {
+          "disposition": "retain",
+          "reason": "Postal address; retain free-form text.",
+          "schema_evidence": "backend/app/schemas/people/hr.py:76"
+        },
+        "passport_number": {
+          "disposition": "retain",
+          "reason": "Human identity document number; retain text to preserve country/format variations.",
+          "schema_evidence": "backend/app/schemas/people/hr.py:77"
+        },
+        "passport_issued_by": {
+          "disposition": "retain",
+          "reason": "Issuing authority is free-form text; retain.",
+          "schema_evidence": "backend/app/schemas/people/hr.py:78"
+        },
+        "passport_issue_date": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/hr.py:79"
+        },
+        "passport_expiry_date": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/hr.py:80"
+        },
+        "pinfl": {
+          "disposition": "retain",
+          "reason": "Personal identifier string with leading zeros; retain text; validation is a separate decision.",
+          "schema_evidence": "backend/app/schemas/people/hr.py:81"
+        },
+        "phone": {
+          "disposition": "retain",
+          "reason": "Contact phone string; retain text to preserve formatting and international prefixes.",
+          "schema_evidence": "backend/app/schemas/people/hr.py:82"
+        },
+        "email": {
+          "disposition": "retain",
+          "reason": "Contact email address; retain text, not an enum.",
+          "schema_evidence": "backend/app/schemas/people/hr.py:83"
+        },
+        "source": {
+          "disposition": "retain",
+          "reason": "recruitment source is free-form text",
+          "schema_evidence": "backend/app/schemas/people/hr.py:84",
+          "consumer_evidence": "backend/app/libs/dto/people/hr_workspace.py:88"
+        },
+        "stage": {
+          "disposition": "needs_decision",
+          "reason": "input regex lists six stages, but no DB CHECK and stored values unverified",
+          "schema_evidence": "backend/app/schemas/people/hr.py:85",
+          "consumer_evidence": "backend/app/libs/dto/people/hr_workspace.py:89"
+        },
+        "applied_on": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/hr.py:86"
+        },
+        "interview_at": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/hr.py:87"
+        },
+        "notes": {
+          "disposition": "retain",
+          "reason": "Operator-entered notes; retain free-form text.",
+          "schema_evidence": "backend/app/schemas/people/hr.py:88"
+        },
+        "id": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/db/base.py:16"
+        },
+        "created_at": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/db/base.py:11"
+        },
+        "updated_at": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/db/base.py:12"
+        }
+      }
+    },
+    {
+      "table": "idempotency_records",
+      "domain": "support",
+      "model": "IdempotencyRecord",
+      "source": "backend/app/schemas/core.py",
+      "fields": {
+        "scope": {
+          "disposition": "retain",
+          "reason": "caller-defined operation namespace with actor/factory identity",
+          "schema_evidence": "backend/app/schemas/core.py:189"
+        },
+        "key": {
+          "disposition": "retain",
+          "reason": "client idempotency key checked by regex, not an enum",
+          "schema_evidence": "backend/app/schemas/core.py:190"
+        },
+        "request_hash": {
+          "disposition": "retain",
+          "reason": "opaque request digest",
+          "schema_evidence": "backend/app/schemas/core.py:191"
+        },
+        "response_json": {
+          "disposition": "needs_decision",
+          "reason": "stored response shape follows each caller operation",
+          "schema_evidence": "backend/app/schemas/core.py:192"
+        },
+        "status_code": {
+          "disposition": "retain",
+          "reason": "HTTP response code scalar",
+          "schema_evidence": "backend/app/schemas/core.py:193"
+        },
+        "user_id": {
+          "disposition": "retain",
+          "reason": "nullable user foreign key",
+          "schema_evidence": "backend/app/schemas/core.py:194"
+        },
+        "created_at": {
+          "disposition": "retain",
+          "reason": "timestamp",
+          "schema_evidence": "backend/app/schemas/core.py:195"
+        },
+        "id": {
+          "disposition": "retain",
+          "reason": "surrogate primary key",
+          "schema_evidence": "backend/app/db/base.py:16"
+        }
+      }
+    },
+    {
+      "table": "notifications",
+      "domain": "work_management",
+      "model": "Notification",
+      "source": "backend/app/schemas/core.py",
+      "fields": {
+        "user_id": {
+          "disposition": "retain",
+          "reason": "Foreign key to users.id; recipient identity is configurable, not a vocabulary.",
+          "schema_evidence": "backend/app/schemas/core.py:92"
+        },
+        "title": {
+          "disposition": "retain",
+          "reason": "Free-form notification text written by several domain callers.",
+          "schema_evidence": "backend/app/schemas/core.py:93"
+        },
+        "message": {
+          "disposition": "retain",
+          "reason": "Optional free-form notification text written by domain callers.",
+          "schema_evidence": "backend/app/schemas/core.py:94"
+        },
+        "link": {
+          "disposition": "retain",
+          "reason": "Optional relative ERP path; validation belongs to the send operation, not an enum.",
+          "schema_evidence": "backend/app/schemas/core.py:96"
+        },
+        "is_read": {
+          "disposition": "retain",
+          "reason": "Boolean read state, not a vocabulary.",
+          "schema_evidence": "backend/app/schemas/core.py:97"
+        },
+        "created_at": {
+          "disposition": "retain",
+          "reason": "Timestamp scalar.",
+          "schema_evidence": "backend/app/schemas/core.py:98"
+        },
+        "id": {
+          "disposition": "retain",
+          "reason": "Generated primary key scalar.",
+          "schema_evidence": "backend/app/db/base.py:16"
+        }
+      }
+    },
+    {
+      "table": "password_reset_tokens",
+      "domain": "identity",
+      "model": "PasswordResetToken",
+      "source": "backend/app/schemas/core.py",
+      "fields": {
+        "user_id": {
+          "disposition": "retain",
+          "reason": "foreign key to configurable user row",
+          "schema_evidence": "backend/app/schemas/core.py:103"
+        },
+        "token_hash": {
+          "disposition": "retain",
+          "reason": "opaque security digest; do not enumerate or expose actual tokens",
+          "schema_evidence": "backend/app/schemas/core.py:104"
+        },
+        "expires_at": {
+          "disposition": "retain",
+          "reason": "expiry timestamp, not a vocabulary",
+          "schema_evidence": "backend/app/schemas/core.py:105"
+        },
+        "used_at": {
+          "disposition": "retain",
+          "reason": "nullable use timestamp, not a vocabulary",
+          "schema_evidence": "backend/app/schemas/core.py:106"
+        },
+        "created_at": {
+          "disposition": "retain",
+          "reason": "creation timestamp, not a vocabulary",
+          "schema_evidence": "backend/app/schemas/core.py:107"
+        },
+        "id": {
+          "disposition": "retain",
+          "reason": "surrogate numeric key, not a vocabulary",
+          "schema_evidence": "backend/app/db/base.py:16"
+        }
+      }
+    },
+    {
+      "table": "payroll_adjustments",
+      "domain": "people",
+      "model": "PayrollAdjustment",
+      "source": "backend/app/schemas/people/payroll.py",
+      "fields": {
+        "factory_code": {
+          "disposition": "retain",
+          "reason": "MIL/BST/ECO in payroll CHECK or scoped factory string elsewhere; coordinate canonical Identity type and real stored values",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:151",
+          "consumer_evidence": "backend/app/models/factory_scope_service.py:6",
+          "partial_code": "Payroll output DTO typed in #545; ORM/input remains str"
+        },
+        "payroll_period_id": {
+          "disposition": "retain",
+          "reason": "foreign-key/reference scalar; value and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:152"
+        },
+        "source_payroll_record_id": {
+          "disposition": "retain",
+          "reason": "foreign-key/reference scalar; value and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:153"
+        },
+        "employee_id": {
+          "disposition": "retain",
+          "reason": "foreign-key/reference scalar; value and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:154"
+        },
+        "adjustment_type": {
+          "disposition": "output_typed_in_#545",
+          "reason": "DB CHECK fixes values; output Enum in People candidate, input/internal contracts remain; CHECK-backed output DTO now uses canonical Enum in #545; ORM/input contracts remain unchanged",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:155",
+          "consumer_evidence": "backend/app/libs/dto/people/payroll.py:40-50,121-155,236-270,496-509"
+        },
+        "amount": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:156"
+        },
+        "currency": {
+          "disposition": "retain",
+          "reason": "monetary currency code with UZS default, not a closed business vocabulary",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:157",
+          "consumer_evidence": "backend/app/libs/dto/people/payroll.py:473"
+        },
+        "reason": {
+          "disposition": "retain",
+          "reason": "Operator-entered adjustment explanation; retain free-form text.",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:158"
+        },
+        "created_by": {
+          "disposition": "retain",
+          "reason": "foreign-key/reference scalar; value and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:159"
+        },
+        "created_at": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:160"
+        },
+        "id": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/db/base.py:16"
+        }
+      }
+    },
+    {
+      "table": "payroll_periods",
+      "domain": "people",
+      "model": "PayrollPeriod",
+      "source": "backend/app/schemas/people/payroll.py",
+      "fields": {
+        "factory_code": {
+          "disposition": "retain",
+          "reason": "MIL/BST/ECO in payroll CHECK or scoped factory string elsewhere; coordinate canonical Identity type and real stored values",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:22",
+          "consumer_evidence": "backend/app/models/factory_scope_service.py:6",
+          "partial_code": "Payroll output DTO typed in #545; ORM/input remains str"
+        },
+        "period_no": {
+          "disposition": "retain",
+          "reason": "factory-scoped generated or supplied business identifier, not a vocabulary",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:23",
+          "consumer_evidence": "backend/app/models/people/payroll_service.py:71-94,121-144"
+        },
+        "name": {
+          "disposition": "retain",
+          "reason": "payroll_periods.name is a human-entered display/name field; retain free-form text.",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:24"
+        },
+        "start_date": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:25"
+        },
+        "end_date": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:26"
+        },
+        "status": {
+          "disposition": "output_typed_in_#545",
+          "reason": "DB CHECK fixes values; output Enum in People candidate, input/internal contracts remain; CHECK-backed output DTO now uses canonical Enum in #545; ORM/input contracts remain unchanged",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:27",
+          "consumer_evidence": "backend/app/libs/dto/people/payroll.py:40-50,121-155,236-270,496-509"
+        },
+        "created_by": {
+          "disposition": "retain",
+          "reason": "foreign-key/reference scalar; value and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:28"
+        },
+        "approved_by": {
+          "disposition": "retain",
+          "reason": "foreign-key/reference scalar; value and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:29"
+        },
+        "approved_at": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:30"
+        },
+        "notes": {
+          "disposition": "retain",
+          "reason": "Operator-entered notes; retain free-form text.",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:31"
+        },
+        "id": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/db/base.py:16"
+        },
+        "created_at": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/db/base.py:11"
+        },
+        "updated_at": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/db/base.py:12"
+        }
+      }
+    },
+    {
+      "table": "payroll_qr_labels",
+      "domain": "people",
+      "model": "PayrollQrLabel",
+      "source": "backend/app/schemas/people/payroll.py",
+      "fields": {
+        "factory_code": {
+          "disposition": "retain",
+          "reason": "MIL/BST/ECO in payroll CHECK or scoped factory string elsewhere; coordinate canonical Identity type and real stored values",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:100",
+          "consumer_evidence": "backend/app/models/factory_scope_service.py:6",
+          "partial_code": "Payroll output DTO typed in #545; ORM/input remains str"
+        },
+        "label_uid": {
+          "disposition": "retain",
+          "reason": "Opaque QR label identifier; retain text.",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:101"
+        },
+        "payload": {
+          "disposition": "retain",
+          "reason": "opaque QR payload, not a vocabulary",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:102",
+          "consumer_evidence": "backend/app/schemas/people/payroll.py:100"
+        },
+        "production_order_id": {
+          "disposition": "retain",
+          "reason": "foreign-key/reference scalar; value and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:103"
+        },
+        "sales_order_id": {
+          "disposition": "retain",
+          "reason": "foreign-key/reference scalar; value and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:104"
+        },
+        "work_order_id": {
+          "disposition": "retain",
+          "reason": "foreign-key/reference scalar; value and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:105"
+        },
+        "production_batch_id": {
+          "disposition": "retain",
+          "reason": "foreign-key/reference scalar; value and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:106"
+        },
+        "model_id": {
+          "disposition": "retain",
+          "reason": "foreign-key/reference scalar; value and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:107"
+        },
+        "production_no": {
+          "disposition": "retain",
+          "reason": "Copied production-order business number; retain text.",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:108"
+        },
+        "sales_order_no": {
+          "disposition": "retain",
+          "reason": "Copied sales-order business number; retain text.",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:109"
+        },
+        "batch_no": {
+          "disposition": "retain",
+          "reason": "Copied batch business number; retain text.",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:110"
+        },
+        "model_code": {
+          "disposition": "retain",
+          "reason": "Copied model business code; retain text.",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:111"
+        },
+        "operation_section": {
+          "disposition": "needs_decision",
+          "reason": "cross-domain operation section; values and owner need reconciliation",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:112",
+          "consumer_evidence": "backend/app/schemas/people/payroll.py:111"
+        },
+        "operation_code": {
+          "disposition": "retain",
+          "reason": "Operation code copied from production/work context; retain identifier text, not an action enum.",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:113"
+        },
+        "operation_name": {
+          "disposition": "retain",
+          "reason": "Human-readable operation name copied from production/work context; retain free-form text.",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:114"
+        },
+        "sewing_flow_id": {
+          "disposition": "retain",
+          "reason": "foreign-key/reference scalar; value and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:115"
+        },
+        "sewing_line_code": {
+          "disposition": "retain",
+          "reason": "Copied sewing-line code; retain text.",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:116"
+        },
+        "sewing_line_name": {
+          "disposition": "retain",
+          "reason": "Copied sewing-line display name; retain free-form text.",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:117"
+        },
+        "cutting_passport_id": {
+          "disposition": "retain",
+          "reason": "foreign-key/reference scalar; value and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:118"
+        },
+        "cutting_passport_no": {
+          "disposition": "retain",
+          "reason": "Copied cutting passport business number; retain text.",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:119"
+        },
+        "size": {
+          "disposition": "needs_decision",
+          "reason": "Garment size label is product-specific; known stored vocabulary is unresolved, so retain text pending value audit.",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:120"
+        },
+        "copy_index": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:121"
+        },
+        "quantity": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:122"
+        },
+        "rate_per_piece": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:123"
+        },
+        "currency": {
+          "disposition": "retain",
+          "reason": "monetary currency code with UZS default, not a closed business vocabulary",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:124",
+          "consumer_evidence": "backend/app/libs/dto/people/payroll.py:216"
+        },
+        "status": {
+          "disposition": "output_typed_in_#545",
+          "reason": "DB CHECK fixes values; output Enum in People candidate, input/internal contracts remain; CHECK-backed output DTO now uses canonical Enum in #545; ORM/input contracts remain unchanged",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:125",
+          "consumer_evidence": "backend/app/libs/dto/people/payroll.py:40-50,121-155,236-270,496-509"
+        },
+        "closure_details": {
+          "disposition": "needs_decision",
+          "reason": "control-confirm audit object includes closed_label_ids; historical shapes unknown",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:126",
+          "consumer_evidence": "backend/app/models/people/payroll_records_service.py:1143-1156"
+        },
+        "payroll_record_id": {
+          "disposition": "retain",
+          "reason": "foreign-key/reference scalar; value and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:127"
+        },
+        "issued_by": {
+          "disposition": "retain",
+          "reason": "foreign-key/reference scalar; value and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:128"
+        },
+        "issued_at": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:129"
+        },
+        "last_scanned_at": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:130"
+        },
+        "returned_at": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:131"
+        },
+        "returned_by": {
+          "disposition": "retain",
+          "reason": "foreign-key/reference scalar; value and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:132"
+        },
+        "return_count": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:133"
+        },
+        "superseded_at": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:134"
+        },
+        "superseded_by": {
+          "disposition": "retain",
+          "reason": "foreign-key/reference scalar; value and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:135"
+        },
+        "split_from_label_id": {
+          "disposition": "retain",
+          "reason": "foreign-key/reference scalar; value and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:136"
+        },
+        "id": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/db/base.py:16"
+        },
+        "created_at": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/db/base.py:11"
+        },
+        "updated_at": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/db/base.py:12"
+        }
+      }
+    },
+    {
+      "table": "payroll_records",
+      "domain": "people",
+      "model": "PayrollRecord",
+      "source": "backend/app/schemas/people/payroll.py",
+      "fields": {
+        "factory_code": {
+          "disposition": "retain",
+          "reason": "MIL/BST/ECO in payroll CHECK or scoped factory string elsewhere; coordinate canonical Identity type and real stored values",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:51",
+          "consumer_evidence": "backend/app/models/factory_scope_service.py:6",
+          "partial_code": "Payroll output DTO typed in #545; ORM/input remains str"
+        },
+        "payroll_period_id": {
+          "disposition": "retain",
+          "reason": "foreign-key/reference scalar; value and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:52"
+        },
+        "scan_uid": {
+          "disposition": "retain",
+          "reason": "scan identity, not a vocabulary",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:53",
+          "consumer_evidence": "backend/app/schemas/people/payroll.py:49"
+        },
+        "original_scan_uid": {
+          "disposition": "retain",
+          "reason": "historical scan identity, not a vocabulary",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:54",
+          "consumer_evidence": "backend/app/schemas/people/payroll.py:50"
+        },
+        "dedupe_key": {
+          "disposition": "retain",
+          "reason": "idempotency fingerprint, not a vocabulary; preserve replay identity",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:55",
+          "consumer_evidence": "backend/app/schemas/people/payroll.py:52"
+        },
+        "employee_id": {
+          "disposition": "retain",
+          "reason": "foreign-key/reference scalar; value and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:57"
+        },
+        "employee_user_id": {
+          "disposition": "retain",
+          "reason": "foreign-key/reference scalar; value and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:58"
+        },
+        "production_order_id": {
+          "disposition": "retain",
+          "reason": "foreign-key/reference scalar; value and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:59"
+        },
+        "sales_order_id": {
+          "disposition": "retain",
+          "reason": "foreign-key/reference scalar; value and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:60"
+        },
+        "work_order_id": {
+          "disposition": "retain",
+          "reason": "foreign-key/reference scalar; value and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:61"
+        },
+        "production_batch_id": {
+          "disposition": "retain",
+          "reason": "foreign-key/reference scalar; value and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:62"
+        },
+        "model_id": {
+          "disposition": "retain",
+          "reason": "foreign-key/reference scalar; value and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:63"
+        },
+        "production_no": {
+          "disposition": "retain",
+          "reason": "Copied production-order business number; retain text.",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:65"
+        },
+        "sales_order_no": {
+          "disposition": "retain",
+          "reason": "Copied sales-order business number; retain text.",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:66"
+        },
+        "batch_no": {
+          "disposition": "retain",
+          "reason": "Copied batch business number; retain text.",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:67"
+        },
+        "model_code": {
+          "disposition": "retain",
+          "reason": "Copied model business code; retain text.",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:68"
+        },
+        "operation_section": {
+          "disposition": "needs_decision",
+          "reason": "cross-domain operation section; values and owner need reconciliation",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:69",
+          "consumer_evidence": "backend/app/schemas/people/payroll.py:67"
+        },
+        "operation_code": {
+          "disposition": "retain",
+          "reason": "Operation code copied from production/work context; retain identifier text, not an action enum.",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:70"
+        },
+        "operation_name": {
+          "disposition": "retain",
+          "reason": "Human-readable operation name copied from production/work context; retain free-form text.",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:71"
+        },
+        "quantity": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:73"
+        },
+        "rate_per_piece": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:74"
+        },
+        "currency": {
+          "disposition": "retain",
+          "reason": "monetary currency code with UZS default, not a closed business vocabulary",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:75",
+          "consumer_evidence": "backend/app/libs/dto/people/payroll.py:61"
+        },
+        "total_amount": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:76"
+        },
+        "scanned_by": {
+          "disposition": "retain",
+          "reason": "foreign-key/reference scalar; value and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:78"
+        },
+        "scanned_at": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:79"
+        },
+        "source": {
+          "disposition": "needs_decision",
+          "reason": "several producers/legacy values; CHECK absent",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:80",
+          "consumer_evidence": "backend/app/schemas/people/payroll.py:80"
+        },
+        "raw_employee_json": {
+          "disposition": "needs_decision",
+          "reason": "bounded raw input snapshot retained for replay; key/data variations must be checked against fingerprints",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:81",
+          "consumer_evidence": "backend/app/models/people/payroll_records_service.py:325,605"
+        },
+        "raw_work_json": {
+          "disposition": "needs_decision",
+          "reason": "bounded raw work snapshot retained for replay/report size projection; key/data variations unresolved",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:82",
+          "consumer_evidence": "backend/app/models/people/payroll_records_service.py:326,606;backend/app/models/people/payroll_service.py:1330"
+        },
+        "status": {
+          "disposition": "output_typed_in_#545",
+          "reason": "DB CHECK fixes values; output Enum in People candidate, input/internal contracts remain; CHECK-backed output DTO now uses canonical Enum in #545; ORM/input contracts remain unchanged",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:83",
+          "consumer_evidence": "backend/app/libs/dto/people/payroll.py:40-50,121-155,236-270,496-509"
+        },
+        "notes": {
+          "disposition": "retain",
+          "reason": "Operator-entered notes; retain free-form text.",
+          "schema_evidence": "backend/app/schemas/people/payroll.py:84"
+        },
+        "id": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/db/base.py:16"
+        },
+        "created_at": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/db/base.py:11"
+        },
+        "updated_at": {
+          "disposition": "retain",
+          "reason": "existing scalar type; database and consumer reconciliation still pending",
+          "schema_evidence": "backend/app/db/base.py:12"
+        }
+      }
+    },
+    {
+      "table": "roles",
+      "domain": "identity",
+      "model": "Role",
+      "source": "backend/app/schemas/core.py",
+      "fields": {
+        "name": {
+          "disposition": "retain",
+          "reason": "configurable role name; protected Super Admin semantics do not make all names an enum",
+          "schema_evidence": "backend/app/schemas/core.py:12"
+        },
+        "permissions": {
+          "disposition": "needs_decision",
+          "reason": "structured JSON list of catalog permission tokens and factory-prefixed grants; existing values and all consumers need reconciliation",
+          "schema_evidence": "backend/app/schemas/core.py:13"
+        },
+        "id": {
+          "disposition": "retain",
+          "reason": "surrogate numeric key, not a vocabulary",
+          "schema_evidence": "backend/app/db/base.py:16"
+        },
+        "created_at": {
+          "disposition": "retain",
+          "reason": "creation timestamp, not a vocabulary",
+          "schema_evidence": "backend/app/db/base.py:11"
+        },
+        "updated_at": {
+          "disposition": "retain",
+          "reason": "update timestamp, not a vocabulary",
+          "schema_evidence": "backend/app/db/base.py:12"
+        }
+      }
+    },
+    {
+      "table": "system_settings",
+      "domain": "support",
+      "model": "SystemSetting",
+      "source": "backend/app/schemas/core.py",
+      "fields": {
+        "key": {
+          "disposition": "needs_decision",
+          "reason": "section/numbering/attendance/employee-alias keys are mixed and extensible",
+          "schema_evidence": "backend/app/schemas/core.py:116"
+        },
+        "value_json": {
+          "disposition": "needs_decision",
+          "reason": "per-key JSON shape differs across settings and domain callers",
+          "schema_evidence": "backend/app/schemas/core.py:117"
+        },
+        "id": {
+          "disposition": "retain",
+          "reason": "surrogate primary key",
+          "schema_evidence": "backend/app/db/base.py:16"
+        },
+        "created_at": {
+          "disposition": "retain",
+          "reason": "timestamp",
+          "schema_evidence": "backend/app/db/base.py:11"
+        },
+        "updated_at": {
+          "disposition": "retain",
+          "reason": "timestamp",
+          "schema_evidence": "backend/app/db/base.py:12"
+        }
+      }
+    },
+    {
+      "table": "tasks",
+      "domain": "work_management",
+      "model": "Task",
+      "source": "backend/app/schemas/work_management/tasks.py",
+      "fields": {
+        "title": {
+          "disposition": "retain",
+          "reason": "Free-form task title with existing length/blank checks.",
+          "schema_evidence": "backend/app/schemas/work_management/tasks.py:12"
+        },
+        "description": {
+          "disposition": "retain",
+          "reason": "Optional free-form task description.",
+          "schema_evidence": "backend/app/schemas/work_management/tasks.py:13"
+        },
+        "assigned_to": {
+          "disposition": "retain",
+          "reason": "Optional user reference; manager assignment/broadcast rules live in service.",
+          "schema_evidence": "backend/app/schemas/work_management/tasks.py:14"
+        },
+        "created_by": {
+          "disposition": "retain",
+          "reason": "Optional user reference; actor identity is not an enum.",
+          "schema_evidence": "backend/app/schemas/work_management/tasks.py:15"
+        },
+        "status": {
+          "disposition": "needs_decision",
+          "reason": "Fixed TaskStatus pending/in_progress/completed/cancelled is used by input/update, query and writer; TaskOut still serializes raw strings, including unknown legacy rows. Full output typing may reject existing data.",
+          "schema_evidence": "backend/app/schemas/work_management/tasks.py:16",
+          "partial_code": "Completion writer uses canonical TaskStatus in #544; TaskOut remains str for legacy rows"
+        },
+        "priority": {
+          "disposition": "needs_decision",
+          "reason": "Fixed TaskPriority low/medium/high/urgent is used by input/update and writer; initial ledger calls this text, but TaskOut still serializes raw strings, including unknown legacy rows.",
+          "schema_evidence": "backend/app/schemas/work_management/tasks.py:18"
+        },
+        "due_date": {
+          "disposition": "retain",
+          "reason": "Optional datetime scalar; numeric-date refusal belongs to input DTO.",
+          "schema_evidence": "backend/app/schemas/work_management/tasks.py:20"
+        },
+        "entity_type": {
+          "disposition": "needs_decision",
+          "reason": "Fixed canonical target map with accepted spelling/plural aliases; stored raw string and legacy partial references remain tolerated. Input Enum would narrow accepted values.",
+          "schema_evidence": "backend/app/schemas/work_management/tasks.py:21"
+        },
+        "entity_id": {
+          "disposition": "retain",
+          "reason": "Polymorphic task-target identifier paired with entity_type; not a vocabulary or direct foreign key.",
+          "schema_evidence": "backend/app/schemas/work_management/tasks.py:22"
+        },
+        "completed_at": {
+          "disposition": "retain",
+          "reason": "Optional datetime scalar written on completion/update.",
+          "schema_evidence": "backend/app/schemas/work_management/tasks.py:23"
+        },
+        "id": {
+          "disposition": "retain",
+          "reason": "Generated primary key scalar.",
+          "schema_evidence": "backend/app/db/base.py:16"
+        },
+        "created_at": {
+          "disposition": "retain",
+          "reason": "Timestamp scalar.",
+          "schema_evidence": "backend/app/db/base.py:11"
+        },
+        "updated_at": {
+          "disposition": "retain",
+          "reason": "Timestamp scalar.",
+          "schema_evidence": "backend/app/db/base.py:12"
+        }
+      }
+    },
+    {
+      "table": "users",
+      "domain": "identity",
+      "model": "User",
+      "source": "backend/app/schemas/core.py",
+      "fields": {
+        "name": {
+          "disposition": "retain",
+          "reason": "person display name, free text",
+          "schema_evidence": "backend/app/schemas/core.py:24"
+        },
+        "email": {
+          "disposition": "retain",
+          "reason": "sign-in address, not a vocabulary",
+          "schema_evidence": "backend/app/schemas/core.py:25"
+        },
+        "password_hash": {
+          "disposition": "retain",
+          "reason": "opaque password digest; do not inspect as business values",
+          "schema_evidence": "backend/app/schemas/core.py:26"
+        },
+        "role_id": {
+          "disposition": "retain",
+          "reason": "foreign key to configurable role row",
+          "schema_evidence": "backend/app/schemas/core.py:27"
+        },
+        "department_id": {
+          "disposition": "retain",
+          "reason": "foreign key to configurable department row",
+          "schema_evidence": "backend/app/schemas/core.py:28"
+        },
+        "factory_code": {
+          "disposition": "needs_decision",
+          "reason": "fixed MIL/BST/ECO operational code; normalized session output is typed in #546, raw storage/admin output retained until actual values and error compatibility are reviewed",
+          "schema_evidence": "backend/app/schemas/core.py:29",
+          "partial_code": "UserMe and session helpers typed in #546; ORM/admin input remains str"
+        },
+        "extra_permissions": {
+          "disposition": "needs_decision",
+          "reason": "structured JSON grant tokens, including factory-prefixed forms; catalog membership and legacy tokens need real-value/consumer review",
+          "schema_evidence": "backend/app/schemas/core.py:30"
+        },
+        "access_policy": {
+          "disposition": "needs_decision",
+          "reason": "structured JSON with factory keys and allow/deny lists; unknown legacy keys and policy semantics need real-value/consumer review",
+          "schema_evidence": "backend/app/schemas/core.py:31"
+        },
+        "sewing_band_id": {
+          "disposition": "retain",
+          "reason": "nullable foreign key to sewing flow",
+          "schema_evidence": "backend/app/schemas/core.py:32"
+        },
+        "is_active": {
+          "disposition": "retain",
+          "reason": "boolean activation state, not an enum",
+          "schema_evidence": "backend/app/schemas/core.py:33"
+        },
+        "last_login_at": {
+          "disposition": "retain",
+          "reason": "nullable login timestamp, not a vocabulary",
+          "schema_evidence": "backend/app/schemas/core.py:34"
+        },
+        "last_seen_at": {
+          "disposition": "retain",
+          "reason": "nullable activity timestamp, not a vocabulary",
+          "schema_evidence": "backend/app/schemas/core.py:35"
+        },
+        "tokens_valid_from": {
+          "disposition": "retain",
+          "reason": "nullable credential-cutoff timestamp, not a vocabulary",
+          "schema_evidence": "backend/app/schemas/core.py:38"
+        },
+        "id": {
+          "disposition": "retain",
+          "reason": "surrogate numeric key, not a vocabulary",
+          "schema_evidence": "backend/app/db/base.py:16"
+        },
+        "created_at": {
+          "disposition": "retain",
+          "reason": "creation timestamp, not a vocabulary",
+          "schema_evidence": "backend/app/db/base.py:11"
+        },
+        "updated_at": {
+          "disposition": "retain",
+          "reason": "update timestamp, not a vocabulary",
+          "schema_evidence": "backend/app/db/base.py:12"
+        }
+      }
+    }
+  ],
+  "non_persisted_contracts": {
+    "identity": {
+      "input_dtos": "NEEDS_DECISION: login/switch/admin factory inputs preserve current trim/case and 400/422 refusal order; direct Enum typing would change errors",
+      "update_dtos": "NEEDS_DECISION: admin user update factory/access inputs need stored-value and refusal-order reconciliation",
+      "output_dtos": "PARTIAL: #546 types UserMe factory fields; raw admin UserOut remains pending actual-value review",
+      "query_parameters": "PENDING: no full current-consumer audit",
+      "action_parameters": "PARTIAL: #546 types normalized session helpers; public action inputs remain strings for current refusals",
+      "internal_commands": "PARTIAL: #546 factory scope returns canonical FactoryCode; configurable role/grant data remains structured",
+      "internal_results": "PARTIAL: #546 selected/assigned factory typed; caller graph and token claims need final value audit",
+      "json_discriminators": "NEEDS_DECISION: access_policy/extra_permissions keys and grants are configurable with factory prefixes"
+    },
+    "people": {
+      "input_dtos": "NEEDS_DECISION: payroll status inputs currently use service 400/409; Enum would move refusal to 422",
+      "update_dtos": "NEEDS_DECISION: HR status/type regex and vendor user_type require legacy-value/validation review",
+      "output_dtos": "PARTIAL: #545 types CHECK-backed payroll status/adjustment and factory outputs; unchecked HR/attendance values remain raw",
+      "query_parameters": "PENDING: no full current-consumer audit",
+      "action_parameters": "PENDING: payroll/attendance per-action subsets and historical values need review",
+      "internal_commands": "PENDING: payroll scan/report and attendance vendor commands need full producer/consumer review",
+      "internal_results": "PENDING: HR/payroll/attendance projections need full consumer review",
+      "json_discriminators": "NEEDS_DECISION: HR profile, required skills, QR closure and raw payroll payload keys may include historical values"
+    },
+    "support": {
+      "input_dtos": "PARTIAL: section settings DTOs exist; mixed per-key settings JSON and unknown-field behavior remain current contracts",
+      "update_dtos": "NEEDS_DECISION: narrowing mixed settings/reference JSON would affect existing unknown keys",
+      "output_dtos": "PENDING: audit/idempotency/notification responses vary by caller",
+      "query_parameters": "PENDING: no full current-consumer audit",
+      "action_parameters": "PENDING: audit action/entity and reference namespaces are caller-defined",
+      "internal_commands": "PARTIAL: #547 moves residual mapped writes to schema operations without changing shared service orchestration",
+      "internal_results": "PENDING: per-caller audit/idempotency/notification payloads require review",
+      "json_discriminators": "NEEDS_DECISION: audit before/after, idempotency response and system setting key/value shapes differ by operation"
+    },
+    "work_management": {
+      "input_dtos": "PARTIAL: TaskIn status/priority already use canonical enums; NotificationSendIn literals retain current 422 details",
+      "update_dtos": "PARTIAL: TaskUpdate status/priority already typed; legacy entity reference strings retain aliases",
+      "output_dtos": "NEEDS_DECISION: TaskOut status/priority remain strings to serialize historical unknown values",
+      "query_parameters": "PENDING: task/notification read route query contract and consumers need review",
+      "action_parameters": "NEEDS_DECISION: task entity_type aliases and notification target groups require value/error reconciliation",
+      "internal_commands": "PARTIAL: #544 types resolved TaskReferenceKind; raw input aliases remain accepted",
+      "internal_results": "PARTIAL: #544 keeps output JSON and completion storage values unchanged",
+      "json_discriminators": "PENDING: task entity_type and polymorphic entity_id require real-value review"
+    }
+  },
+  "code_prs": {
+    "identity": "#546",
+    "people": "#545",
+    "support": "#547",
+    "work_management": "#544"
+  }
+}
