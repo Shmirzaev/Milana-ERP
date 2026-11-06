@@ -101,5 +101,5 @@ def insert_waste_sale(
     return sale
 
 
-def set_waste_sale_status(record: WasteRecord, status: str) -> None:
-    record.status = status
+def mark_waste_sold(record: WasteRecord) -> None:
+    record.status = WasteStatus.SOLD.value

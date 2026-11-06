@@ -162,3 +162,42 @@ def test_sale_and_status_roll_back_when_audit_fails(monkeypatch):
     with SessionLocal() as db:
         assert db.get(WasteRecord, account["wid"]).status == "received_by_waste_department"
         assert db.query(WasteSale).filter(WasteSale.waste_record_id == account["wid"]).count() == 0
+
+
+def test_list_remaining_partial_exhaustion_and_stale_refusal(client):
+    account = _waste(quantity=10)
+    path = f"/api/waste/{account['wid']}/sell"
+    headers = account["headers"]
+
+    def listing():
+        response = client.get("/api/waste", headers=headers)
+        assert response.status_code == 200
+        return next(row for row in response.json() if row["id"] == account["wid"])
+
+    first = listing()
+    assert first["quantity"] == 10 and first["remaining_quantity"] == 10
+    assert client.post(path, headers=headers, json={"buyer_name": "Buyer", "quantity": 4, "unit_price": 2}).status_code == 200
+    partial = listing()
+    assert partial["quantity"] == 10 and partial["remaining_quantity"] == 6
+    stale = client.post(path, headers=headers, json={"buyer_name": "Buyer", "quantity": first["remaining_quantity"], "unit_price": 2})
+    assert stale.status_code == 400
+    assert client.post(path, headers=headers, json={"buyer_name": "Buyer", "quantity": partial["remaining_quantity"], "unit_price": 2}).status_code == 200
+    final = listing()
+    assert final["quantity"] == 10 and final["remaining_quantity"] == 0 and final["status"] == "sold"
+
+
+def test_list_invalid_historical_sales_remain_readable_without_writes(client):
+    account = _waste(quantity=10)
+    with SessionLocal() as db:
+        db.add(WasteSale(waste_record_id=account["wid"], buyer_name="Historical", quantity=-1, unit_price=1, total_amount=-1))
+        db.commit()
+    with SessionLocal() as db:
+        from app.models.inventory.waste_service import list_waste
+        rows = list_waste(db)
+        row = next(row for row in rows if row.id == account["wid"])
+        assert row.quantity == 10 and row.remaining_quantity is None
+        assert not db.new and not db.dirty and not db.deleted
+    response = client.get("/api/waste", headers=account["headers"])
+    assert response.status_code == 200
+    row = next(row for row in response.json() if row["id"] == account["wid"])
+    assert row["quantity"] == 10 and row["remaining_quantity"] is None

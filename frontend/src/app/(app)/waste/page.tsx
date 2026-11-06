@@ -37,7 +37,9 @@ export default function WastePage() {
   }
   async function act(id: number, action: string, body?: any) {
     if (["sell", "request-disposal"].includes(action) && !(await dialogs.ask({ message: t("common.confirmAction") }))) return;
-    await api.post(`/api/waste/${id}/${action}`, body); mutate();
+    setMsg("");
+    try { await api.post(`/api/waste/${id}/${action}`, body); mutate(); }
+    catch (e: any) { setMsg(e.message); }
   }
 
   return (
@@ -65,7 +67,7 @@ export default function WastePage() {
         <table className="table">
           <thead>
             <tr>
-              <th>{t("field.wasteType")}</th><th>{t("field.qty")}</th><th>{t("field.sellable")}</th>
+              <th>{t("field.wasteType")}</th><th>{t("field.qty")}</th><th>{t("field.remaining")}</th><th>{t("field.sellable")}</th>
               <th>{t("field.status")}</th><th>{t("field.value")}</th><th></th>
             </tr>
           </thead>
@@ -74,12 +76,13 @@ export default function WastePage() {
               <tr key={w.id}>
                 <td>{w.waste_type}</td>
                 <td>{Number(w.quantity).toFixed(2)} {w.unit}</td>
+                <td>{w.remaining_quantity == null ? "—" : Number(w.remaining_quantity).toFixed(2)} {w.unit}</td>
                 <td>{w.sellable ? t("field.yes") : t("field.no")}</td>
                 <td><span className="badge">{statusLabel(w.status, t)}</span></td>
                 <td>${Number(w.estimated_value).toFixed(2)}</td>
                 <td className="flex gap-2 flex-wrap">
                   {w.status === "recorded" && <button className="text-brand-600 hover:underline" onClick={() => act(w.id, "receive")}>{t("btn.receive")}</button>}
-                  {w.status === "received_by_waste_department" && w.sellable && <button className="text-green-700 hover:underline" onClick={() => act(w.id, "sell", { buyer_name: "Buyer", quantity: w.quantity, unit_price: 0.1 })}>{t("page.waste.sellPrice")}</button>}
+                  {w.status === "received_by_waste_department" && w.sellable && w.remaining_quantity != null && w.remaining_quantity > 0 && <button className="text-green-700 hover:underline" onClick={() => act(w.id, "sell", { buyer_name: "Buyer", quantity: w.remaining_quantity, unit_price: 0.1 })}>{t("page.waste.sellPrice")}</button>}
                   {w.status === "received_by_waste_department" && !w.sellable && <button className="text-yellow-700 hover:underline" onClick={() => act(w.id, "request-disposal", { reason: "Standard disposal" })}>{t("btn.requestDisposal")}</button>}
                 </td>
               </tr>
