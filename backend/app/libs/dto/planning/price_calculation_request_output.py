@@ -2,6 +2,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.libs.enums.planning import PriceCalculationStatus
+
 
 class PriceCalculationAccessoryOut(BaseModel):
     name: str | None = None
@@ -43,9 +45,9 @@ class PriceCalculationRequestOut(BaseModel):
     binding_price: float | None = None
     cost_price: float | None = None
     difference: float | None = None
-    purchasing_status: str
-    cutting_status: str
-    accessories_status: str
-    overall_status: str
+    purchasing_status: PriceCalculationStatus
+    cutting_status: PriceCalculationStatus
+    accessories_status: PriceCalculationStatus
+    overall_status: PriceCalculationStatus
     created_at: datetime
     updated_at: datetime

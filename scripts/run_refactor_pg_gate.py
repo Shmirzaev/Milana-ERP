@@ -23,6 +23,9 @@ from refactor_pg_evidence import (
 # Minimum collected counts pin the current parameterized business cases. Adding
 # cases is allowed; removing a required case needs an explicit ledger change.
 GROUPS = {
+    'test_price_calculation_status_postgres': (1, ('test_pg_signed_status_transitions_finance_gate_and_notifications',)),
+    'test_price_calculation_purchasing_postgres': (2, ('test_pg_purchasing_completion_transition_recipients_and_audit_actor', 'test_pg_purchasing_request_audit_and_notification_rollback_then_retry')),
+
     'test_model_create_commit_postgres': (7, ('test_pg_signed_create_auth_scope_and_retained_readback', 'test_pg_variant_inherits_approval_without_changing_family_or_other_scope', 'test_pg_create_finalization_and_deferred_commit_rollback_retry', 'test_pg_create_serializes_on_numbering_and_family_lock')),
     'test_waste_race_rollback_postgres': (2, ('test_waste_sale_postgres_contending_http_requests', 'test_waste_sale_postgres_audit_finalization_rollback')),
     'test_waste_sale_commit_postgres': (3, ('test_pg_sale_deferred_commit_failure_rolls_back_replay_then_retry', 'test_pg_sale_auth_partial_then_exhaust_and_replay', 'test_pg_sale_same_key_service_race_serializes_and_replays')),

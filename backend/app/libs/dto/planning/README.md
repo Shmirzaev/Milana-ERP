@@ -46,3 +46,11 @@ the required visual and release acceptance checks.
 See [DTO rules](../README.md), [business services](../../../models/README.md),
 [database definitions](../../../schemas/README.md) and
 [ownership](../../../../../docs/TEAM_OWNERSHIP.md).
+
+Price calculation request status fields are computed projections, not stored
+columns. `PriceCalculationStatus` types all four output fields and the stage and
+overall producers; JSON values remain `new`, `in_progress`, and `complete`.
+Their OpenAPI properties intentionally reference the enum schema instead of an
+unconstrained string. The frontend `PriceRequestStatus` union mirrors these values.
+Finance's completion gate and the completion-transition notification policy remain
+unchanged. No migration is involved.

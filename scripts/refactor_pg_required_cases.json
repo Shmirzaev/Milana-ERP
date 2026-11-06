@@ -531,6 +531,21 @@
         "test_pg_create_finalization_and_deferred_commit_rollback_retry",
         "test_pg_create_serializes_on_numbering_and_family_lock"
       ]
+    },
+    "test_price_calculation_status_postgres": {
+      "revision": "ef48960c7879fc9cfd26c30ae63df42d8bf05fac",
+      "git_blob_sha256": "fa5f6245518a1f5c719c189d6806dcb8d6de023247ac21e5dcfca7e41176a1db",
+      "selected_functions": [
+        "test_pg_signed_status_transitions_finance_gate_and_notifications"
+      ]
+    },
+    "test_price_calculation_purchasing_postgres": {
+      "revision": "ef48960c7879fc9cfd26c30ae63df42d8bf05fac",
+      "git_blob_sha256": "fed846f056dc11e63a31856ec86e858925c4fb734fe394e001d3cf55cb581e86",
+      "selected_functions": [
+        "test_pg_purchasing_completion_transition_recipients_and_audit_actor",
+        "test_pg_purchasing_request_audit_and_notification_rollback_then_retry"
+      ]
     }
   },
   "cases": {
@@ -1224,6 +1239,13 @@
       "test_pg_create_finalization_and_deferred_commit_rollback_retry[commit]",
       "test_pg_create_serializes_on_numbering_and_family_lock[numbering]",
       "test_pg_create_serializes_on_numbering_and_family_lock[family]"
+    ],
+    "test_price_calculation_status_postgres": [
+      "test_pg_signed_status_transitions_finance_gate_and_notifications"
+    ],
+    "test_price_calculation_purchasing_postgres": [
+      "test_pg_purchasing_completion_transition_recipients_and_audit_actor",
+      "test_pg_purchasing_request_audit_and_notification_rollback_then_retry"
     ]
   },
   "isolated_supplemental_cases": [
