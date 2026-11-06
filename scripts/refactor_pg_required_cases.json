@@ -575,6 +575,15 @@
         "test_signed_failure_rollback_and_retry",
         "test_concurrent_unlocked_updates_characterize_stale_completion"
       ]
+    },
+    "test_price_calculation_cutting_postgres": {
+      "revision": "58403a79d3f7f0cbc46b8faebd176b13463fc394",
+      "git_blob_sha256": "f76fbb563e968c9bb51a646c21f6cf5d58d8ff647d98385a0479c11b52821c07",
+      "selected_functions": [
+        "test_signed_failure_rollback_and_retry",
+        "test_signed_passport_manual_refusals_and_readback",
+        "test_concurrent_passport_update_uses_visible_committed_snapshot"
+      ]
     }
   },
   "cases": {
@@ -1306,6 +1315,11 @@
       "test_signed_accessory_transitions_and_retained_readback",
       "test_signed_failure_rollback_and_retry",
       "test_concurrent_unlocked_updates_characterize_stale_completion"
+    ],
+    "test_price_calculation_cutting_postgres": [
+      "test_signed_failure_rollback_and_retry",
+      "test_signed_passport_manual_refusals_and_readback",
+      "test_concurrent_passport_update_uses_visible_committed_snapshot"
     ]
   },
   "isolated_supplemental_cases": [
