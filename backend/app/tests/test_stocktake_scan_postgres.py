@@ -232,3 +232,39 @@ def test_pg_duplicate_package_scan_waits_on_first_parent_lock(pg_sessions, pg_ca
         ("scan_duplicate", pg_case["actors"]["eco"],
          {"row_id": row[0], "code": expected[1], "package_id": expected[0], "category": "expected"}),
     ]
+
+
+def test_pg_scan_deferred_commit_abort_preserves_evidence_then_retry(pg_sessions, pg_case, pg_app):
+    count_id = prepare(pg_sessions, pg_case, pg_app)
+    code = f"commit-{uuid4()}"
+    url = f"/api/warehouse-stocktakes/{count_id}/scan"
+    before = state(pg_sessions, count_id)
+    engine = pg_sessions.kw["bind"]
+    observed = []
+    with engine.begin() as conn:
+        conn.exec_driver_sql("""CREATE FUNCTION pr413_scan_commit_abort() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+            RAISE EXCEPTION 'fixture scan commit failure' USING ERRCODE = '23514', CONSTRAINT = 'pr413_scan_commit_guard'; END; $$""")
+        conn.exec_driver_sql(f"""CREATE CONSTRAINT TRIGGER pr413_scan_commit_guard AFTER INSERT ON warehouse_stocktake_rows
+            DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN (NEW.stocktake_id = {count_id})
+            EXECUTE FUNCTION pr413_scan_commit_abort()""")
+    def capture(context):
+        exc = context.original_exception
+        if getattr(exc, "pgcode", None) == "23514":
+            observed.append((context.statement, exc.diag.constraint_name))
+    event.listen(engine, "handle_error", capture)
+    try:
+        with TestClient(pg_app, raise_server_exceptions=False) as client:
+            failed = client.post(url, json={"code": code})
+        assert failed.status_code == 500 and observed == [(None, "pr413_scan_commit_guard")]
+        assert state(pg_sessions, count_id) == before
+    finally:
+        event.remove(engine, "handle_error", capture)
+        with engine.begin() as conn:
+            conn.exec_driver_sql("DROP TRIGGER pr413_scan_commit_guard ON warehouse_stocktake_rows")
+            conn.exec_driver_sql("DROP FUNCTION pr413_scan_commit_abort()")
+    with TestClient(pg_app, raise_server_exceptions=False) as client:
+        retry = client.post(url, json={"code": code})
+    assert retry.status_code == 200 and retry.json()["duplicate"] is False
+    rows, audits = state(pg_sessions, count_id)
+    assert len(rows) == 1 and rows[0][7] == code
+    assert len(audits) == 1 and audits[0][0] == "scan" and audits[0][2]["row_id"] == rows[0][0]
