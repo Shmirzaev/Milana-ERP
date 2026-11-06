@@ -22,7 +22,7 @@ _CASES = count()
 def payroll_case(request):
     sessions = TestSessionLocal if request.param == 'sqlite' else request.getfixturevalue('payroll_postgres_sessions')[0]
     suffix = uuid4().hex
-    stamp = datetime(2020, 1, 1, tzinfo=timezone.utc) + timedelta(days=20 * next(_CASES))
+    stamp = datetime(2000, 1, 1, tzinfo=timezone.utc) + timedelta(days=20 * (next(_CASES) % 300))
     with sessions() as db:
         role = Role(name='Payroll '+suffix, permissions=['payroll.view', 'payroll.manage', 'payroll.approve', 'payroll.pay'])
         denied_role = Role(name='Denied '+suffix, permissions=[])

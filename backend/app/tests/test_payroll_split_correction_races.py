@@ -115,6 +115,8 @@ def _correct(seed, payload=None):
 
 
 def _pause(monkeypatch, module, action):
+    if module is payroll and action in {"create", "return_qr", "split_scanned_qr"}:
+        module = payroll.payroll_records_service
     ready, release = Event(), Event()
     original = module.log_action
 
@@ -267,7 +269,7 @@ def test_postgres_correction_and_period_schedule_or_lock_serialize(split_postgre
         other = lambda db, actor: payroll.lock_period(seed["period_id"], db, actor)
         action = "lock"
     before = _snapshot(sessions)
-    audit_owner = payroll.payroll_service if operation in {"create", "expand"} else payroll
+    audit_owner = payroll.payroll_service
     ready, release = _pause(monkeypatch, correction if correction_first else audit_owner,
                             "correct_split_allocation" if correction_first else action)
     first, second = _race(sessions, seed, _correct(seed) if correction_first else other,

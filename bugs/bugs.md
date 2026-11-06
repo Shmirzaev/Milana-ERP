@@ -1,8 +1,8 @@
 # Team bug tracker — clone_main
 
-## PEO-PAY-CREATE-20261106 — period creation extraction awaiting visual evidence
+## PEO-PAY-CREATE-20261106 — payroll extraction awaiting user browser acceptance
 
-- **BLOCKED · People · Owner: Dilmurod; lead: Mirshoir (review delegated).** Draft PR #511; automated parity and independent AI review recorded in [task evidence](../docs/archive/payroll-create-2026-11-06/README.md). Browser tool unavailable; human acceptance and hosted CI pending. Other payroll operations remain pending. No production change.
+- **USER BROWSER PENDING · People · Owner: Dilmurod; lead: Mirshoir (review delegated).** Payroll period/read stack and final three families are tracked in [task evidence](../docs/archive/payroll-create-2026-11-06/CONTINUATION.md). User explicitly owns browser checks and authorized one combined top-PR CI merge. Normal-routed QR44/adjustments24/records70 checks passed with zero skips; full combined payroll and hosted CI gates remain pending at this commit. Production acceptance remains unrecorded; no deployment.
 
 ## IDN-ROLES-NO-SCREEN-20261105 — role creation has no screen
 

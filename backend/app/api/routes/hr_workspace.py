@@ -1,15 +1,12 @@
 from __future__ import annotations
 
-import re
-import secrets
 from datetime import date, datetime, time, timedelta, timezone
-from functools import partial
 from math import isfinite
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
+from pydantic import ValidationError
 from sqlalchemy import func
 
 from app.core.config import settings
@@ -27,11 +24,15 @@ from app.schemas import (
 )
 from app.models.audit_service import log_action
 from app.models.people import attendance_reconciliation_service, hr_workspace_service
-from app.libs.dto.people.hr_workspace import OrgUnitIn as OrgUnitIn, PositionIn as PositionIn, _required_text as _required_text
+from app.libs.dto.people.hr_workspace import OrgUnitIn as OrgUnitIn, PositionIn as PositionIn, CandidateIn as CandidateIn, CalendarEventIn as CalendarEventIn, HrSettingsIn as HrSettingsIn, _required_text as _required_text
 from app.models.people.hr_workspace_service import (
     _factory as _factory, _employee as _employee, _department as _department,
     _org_unit as _org_unit,
     _validate_position_links as _validate_position_links,
+    _validate_candidate_links as _validate_candidate_links,
+    _document_dict as _document_dict, _write_new_hr_document as _write_new_hr_document,
+    _require_hr_upload_employee as _require_hr_upload_employee,
+    _create_hr_upload_document as _create_hr_upload_document, _settings_key as _settings_key,
 )
 from app.models.attendance_reports_service import TASHKENT
 
@@ -39,92 +40,6 @@ from app.models.attendance_reports_service import TASHKENT
 router = APIRouter(prefix="/hr", tags=["hr-workspace"])
 HrUser = Depends(require_permissions("hr.employees", "*"))
 MAX_INT4 = 2_147_483_647
-
-
-class CandidateIn(BaseModel):
-    position_id: int | None = Field(default=None, gt=0, le=MAX_INT4)
-    department_id: int | None = Field(default=None, gt=0, le=MAX_INT4)
-    full_name: str = Field(min_length=1, max_length=255)
-    first_name: str | None = Field(default=None, max_length=100)
-    last_name: str | None = Field(default=None, max_length=100)
-    middle_name: str | None = Field(default=None, max_length=100)
-    date_of_birth: date | None = None
-    gender: str | None = Field(default=None, pattern="^(male|female|other)$")
-    nationality: str | None = Field(default=None, max_length=80)
-    country: str | None = Field(default=None, max_length=80)
-    region: str | None = Field(default=None, max_length=120)
-    district: str | None = Field(default=None, max_length=120)
-    address: str | None = Field(default=None, max_length=255)
-    passport_number: str | None = Field(default=None, max_length=32)
-    passport_issued_by: str | None = Field(default=None, max_length=255)
-    passport_issue_date: date | None = None
-    passport_expiry_date: date | None = None
-    pinfl: str | None = Field(default=None, pattern="^[0-9]{14}$")
-    phone: str | None = Field(default=None, max_length=64)
-    email: str | None = None
-    source: str | None = None
-    stage: str = Field(default="applied", pattern="^(applied|screening|interview|offer|hired|rejected)$")
-    applied_on: date | None = None
-    interview_at: datetime | None = None
-    notes: str | None = None
-
-    @field_validator("full_name")
-    @classmethod
-    def validate_full_name(cls, value: str) -> str:
-        return _required_text(value, "Candidate name")
-
-    @model_validator(mode="after")
-    def validate_passport_dates(self):
-        if (
-            self.passport_issue_date is not None
-            and self.passport_expiry_date is not None
-            and self.passport_expiry_date < self.passport_issue_date
-        ):
-            raise ValueError("Passport expiry date cannot precede its issue date")
-        return self
-
-
-class CalendarEventIn(BaseModel):
-    employee_id: int | None = Field(default=None, gt=0, le=MAX_INT4)
-    event_type: str = Field(pattern="^(birthday|contract_expiry|probation_end|leave|training|interview|medical_check|certification|performance_review|other)$")
-    title: str = Field(min_length=1, max_length=255)
-    starts_at: datetime
-    ends_at: datetime | None = None
-    notes: str | None = None
-    status: str = Field(default="scheduled", pattern="^(scheduled|completed|cancelled)$")
-
-    @field_validator("title")
-    @classmethod
-    def validate_title(cls, value: str) -> str:
-        return _required_text(value, "Calendar event title")
-
-    @model_validator(mode="after")
-    def validate_date_range(self):
-        if self.ends_at is None:
-            return self
-        starts_aware = self.starts_at.tzinfo is not None and self.starts_at.utcoffset() is not None
-        ends_aware = self.ends_at.tzinfo is not None and self.ends_at.utcoffset() is not None
-        if starts_aware != ends_aware:
-            raise ValueError("Calendar start and end must use matching timezone formats")
-        if self.ends_at < self.starts_at:
-            raise ValueError("Calendar end cannot precede its start")
-        return self
-
-
-class HrSettingsIn(BaseModel):
-    company_name: str = "Milana Premium"
-    default_workday_hours: float = Field(default=8, gt=0, le=24, allow_inf_nan=False)
-    default_monthly_hours: float = Field(default=176, ge=0, le=744, allow_inf_nan=False)
-    probation_days: int = Field(default=90, ge=0, le=730)
-    contract_warning_days: int = Field(default=30, ge=0, le=365)
-    weekend_days: list[int] = Field(default_factory=lambda: [6, 7])
-
-    @field_validator("default_workday_hours", "default_monthly_hours", mode="before")
-    @classmethod
-    def validate_finite_hours(cls, value):
-        if isinstance(value, float) and not isfinite(value):
-            raise HTTPException(422, "Scheduled hours must be finite")
-        return value
 
 
 def _attendance_day_bounds(day: date) -> tuple[datetime, datetime]:
@@ -254,14 +169,7 @@ def create_position(payload: PositionIn, db: DbSession, current: User = HrUser):
 
 @router.patch("/positions/{position_id}")
 def update_position(position_id: int, payload: PositionIn, db: DbSession, current: User = HrUser):
-    factory = _factory(current)
-    row = db.query(HrPosition).filter(HrPosition.id == position_id, HrPosition.factory_code == factory).first()
-    if not row: raise HTTPException(404, "Position not found")
-    _validate_position_links(payload, db, factory)
-    values = payload.model_dump(); values["required_skills_json"] = values.pop("required_skills")
-    for key, value in values.items(): setattr(row, key, value)
-    log_action(db, current, "update", "HrPosition", row.id, new_value=values); db.commit(); db.refresh(row)
-    return _position_dict(row)
+    return _position_dict(hr_workspace_service.update_position(position_id, payload, db, current, audit=log_action))
 
 
 @router.get("/recruitment")
@@ -276,52 +184,14 @@ def list_candidates(db: DbSession, current: User = HrUser):
     return [{key: getattr(row, key) for key in fields} for row in rows]
 
 
-def _validate_candidate_links(payload: CandidateIn, db: DbSession, factory: str, candidate_id: int | None = None) -> None:
-    if payload.position_id is not None and not db.query(HrPosition).filter(
-        HrPosition.id == payload.position_id, HrPosition.factory_code == factory,
-    ).first():
-        raise HTTPException(404, "Staffing position not found")
-    if payload.department_id is not None:
-        _department(db, factory, payload.department_id)
-    if payload.pinfl:
-        duplicate = db.query(HrRecruitmentCandidate).filter(
-            HrRecruitmentCandidate.factory_code == factory,
-            HrRecruitmentCandidate.pinfl == payload.pinfl,
-        )
-        if candidate_id is not None:
-            duplicate = duplicate.filter(HrRecruitmentCandidate.id != candidate_id)
-        if duplicate.first():
-            raise HTTPException(409, "A candidate with this PINFL already exists")
-
-
 @router.post("/recruitment", status_code=201)
 def create_candidate(payload: CandidateIn, db: DbSession, current: User = HrUser):
-    factory = _factory(current)
-    _validate_candidate_links(payload, db, factory)
-    row = HrRecruitmentCandidate(factory_code=factory, **payload.model_dump())
-    db.add(row); db.flush(); log_action(db, current, "create", "HrRecruitmentCandidate", row.id, new_value={"full_name": row.full_name}); db.commit(); db.refresh(row)
-    return {"id": row.id}
+    return hr_workspace_service.create_candidate(payload, db, current, audit=log_action)
 
 
 @router.patch("/recruitment/{candidate_id}")
 def update_candidate(candidate_id: int, payload: CandidateIn, db: DbSession, current: User = HrUser):
-    factory = _factory(current)
-    row = db.query(HrRecruitmentCandidate).filter(HrRecruitmentCandidate.id == candidate_id, HrRecruitmentCandidate.factory_code == factory).first()
-    if not row: raise HTTPException(404, "Candidate not found")
-    _validate_candidate_links(payload, db, factory, candidate_id)
-    for key, value in payload.model_dump().items(): setattr(row, key, value)
-    log_action(db, current, "update", "HrRecruitmentCandidate", row.id, new_value={"stage": row.stage}); db.commit()
-    return {"id": row.id}
-
-
-def _document_dict(row: HrEmployeeDocument, employee_name: str | None = None) -> dict:
-    return {
-        "id": row.id, "employee_id": row.employee_id, "employee_name": employee_name,
-        "category": row.category, "title": row.title, "original_name": row.original_name,
-        "content_type": row.content_type, "size_bytes": row.size_bytes,
-        "expires_on": row.expires_on, "created_at": row.created_at,
-        "download_url": f"/api/hr/documents/{row.id}/download",
-    }
+    return hr_workspace_service.update_candidate(candidate_id, payload, db, current, audit=log_action)
 
 
 @router.get("/documents")
@@ -330,61 +200,6 @@ def list_documents(db: DbSession, current: User = HrUser):
     names = {row.id: row.full_name for row in db.query(Employee).filter(Employee.factory_code == factory).all()}
     rows = db.query(HrEmployeeDocument).filter(HrEmployeeDocument.factory_code == factory).order_by(HrEmployeeDocument.id.desc()).all()
     return [_document_dict(row, names.get(row.employee_id)) for row in rows]
-
-
-def _write_new_hr_document(target: Path, content: bytes) -> None:
-    target.parent.mkdir(parents=True, exist_ok=True)
-    with target.open("xb") as stream:
-        stream.write(content)
-
-
-def _require_hr_upload_employee(db, factory: str, employee_id: int) -> None:
-    """Re-verify the employee and its factory on the session that writes."""
-    _employee(db, factory, employee_id)
-
-
-def _create_hr_upload_document(
-    db,
-    *,
-    factory: str,
-    employee_id: int,
-    category: str,
-    title: str,
-    original_name: str,
-    stored_name: str,
-    content_type: str | None,
-    size_bytes: int,
-    expires_on: date | None,
-    actor_id: int,
-) -> dict:
-    _require_hr_upload_employee(db, factory, employee_id)
-    actor = db.get(User, actor_id)
-    if not actor:
-        raise HTTPException(401, "Inactive or unknown user")
-    row = HrEmployeeDocument(
-        factory_code=factory,
-        employee_id=employee_id,
-        category=category,
-        title=title,
-        original_name=original_name,
-        stored_name=stored_name,
-        content_type=content_type,
-        size_bytes=size_bytes,
-        expires_on=expires_on,
-        uploaded_by=actor_id,
-    )
-    db.add(row)
-    db.flush()
-    log_action(
-        db,
-        actor,
-        "create",
-        "HrEmployeeDocument",
-        row.id,
-        new_value={"employee_id": employee_id, "category": category, "title": title},
-    )
-    db.refresh(row)
-    return _document_dict(row)
 
 
 @router.post("/documents", status_code=201)
@@ -397,66 +212,10 @@ async def upload_document(
     expires_on: date | None = Form(default=None),
     file: UploadFile = File(...),
 ):
-    from app.models.image_storage_service import (
-        UploadCommitState,
-        UploadFileWriteState,
-        run_blocking_to_completion,
-        run_upload_db_work,
-        run_upload_file_write,
-        upload_processing_slot,
-        upload_session_factory,
+    return await hr_workspace_service.upload_document(
+        db, current, employee_id, category, title, expires_on, file,
+        audit=log_action, write_document=_write_new_hr_document,
     )
-
-    factory = _factory(current)
-    actor_id = int(current.id)
-    worker_sessions = upload_session_factory(db)
-    # Pre-flight: an employee outside this factory must fail before a body is
-    # buffered or written.
-    await run_upload_db_work(
-        worker_sessions,
-        partial(_require_hr_upload_employee, factory=factory, employee_id=employee_id),
-    )
-    allowed_categories = {"employment_contract", "passport_id", "diploma", "certificate", "employment_order", "salary_amendment", "leave", "disciplinary", "training", "resignation", "other"}
-    if category not in allowed_categories: raise HTTPException(422, "Unsupported HR document category")
-    title = title.strip()
-    if not title: raise HTTPException(422, "Document title is required")
-    if len(title) > 255: raise HTTPException(422, "Document title is too long")
-    safe_original = re.sub(r"[^A-Za-z0-9._ -]", "_", Path(file.filename or "document").name)[:255]
-    stored = f"{factory.lower()}_{employee_id}_{secrets.token_hex(16)}{Path(safe_original).suffix.lower()[:12]}"
-    target = Path(settings.HR_DOCUMENTS_DIR) / stored
-    write_state = UploadFileWriteState()
-    commit_state = UploadCommitState()
-    try:
-        async with upload_processing_slot():
-            content = await file.read(settings.HR_DOCUMENT_MAX_BYTES + 1)
-            if not content or len(content) > settings.HR_DOCUMENT_MAX_BYTES:
-                raise HTTPException(413, "Document is empty or too large")
-            await run_upload_file_write(partial(_write_new_hr_document, target, content), write_state)
-        # The write re-checks the employee on the worker's own session, so an
-        # employee moved to another factory mid-upload cannot receive a file.
-        document = await run_upload_db_work(
-            worker_sessions,
-            partial(
-                _create_hr_upload_document,
-                factory=factory,
-                employee_id=employee_id,
-                category=category,
-                title=title,
-                original_name=safe_original,
-                stored_name=stored,
-                content_type=file.content_type,
-                size_bytes=len(content),
-                expires_on=expires_on,
-                actor_id=actor_id,
-            ),
-            commit=True,
-            commit_state=commit_state,
-        )
-    except BaseException:
-        if write_state.created and not commit_state.committed:
-            await run_blocking_to_completion(partial(target.unlink, True))
-        raise
-    return document
 
 
 @router.get("/documents/{document_id}/download")
@@ -470,12 +229,7 @@ def download_document(document_id: int, db: DbSession, current: User = HrUser):
 
 @router.delete("/documents/{document_id}", status_code=204)
 def delete_document(document_id: int, db: DbSession, current: User = HrUser):
-    row = db.query(HrEmployeeDocument).filter(HrEmployeeDocument.id == document_id, HrEmployeeDocument.factory_code == _factory(current)).first()
-    if not row: raise HTTPException(404, "Document not found")
-    path = Path(settings.HR_DOCUMENTS_DIR) / row.stored_name
-    db.delete(row); log_action(db, current, "delete", "HrEmployeeDocument", document_id); db.commit()
-    try: path.unlink(missing_ok=True)
-    except OSError: pass
+    return hr_workspace_service.delete_document(document_id, db, current, audit=log_action)
 
 
 @router.get("/attendance")
@@ -513,15 +267,7 @@ def list_calendar(db: DbSession, current: User = HrUser):
 
 @router.post("/calendar", status_code=201)
 def create_calendar_event(payload: CalendarEventIn, db: DbSession, current: User = HrUser):
-    factory = _factory(current)
-    if payload.employee_id is not None: _employee(db, factory, payload.employee_id)
-    row = HrCalendarEvent(factory_code=factory, **payload.model_dump())
-    db.add(row); db.flush(); log_action(db, current, "create", "HrCalendarEvent", row.id, new_value={"title": row.title, "event_type": row.event_type}); db.commit(); db.refresh(row)
-    return {"id": row.id}
-
-
-def _settings_key(factory: str) -> str:
-    return f"hr.settings.{factory.lower()}"
+    return hr_workspace_service.create_calendar_event(payload, db, current, audit=log_action)
 
 
 @router.get("/settings")
@@ -531,7 +277,4 @@ def get_hr_settings(db: DbSession, current: User = HrUser):
 
 @router.put("/settings")
 def put_hr_settings(payload: HrSettingsIn, db: DbSession, current: User = HrUser):
-    key = _settings_key(_factory(current)); row = db.query(SystemSetting).filter(SystemSetting.key == key).first()
-    if not row: row = SystemSetting(key=key, value_json={}); db.add(row)
-    row.value_json = payload.model_dump(); log_action(db, current, "update", "HrSettings", row.id, new_value=row.value_json); db.commit()
-    return row.value_json
+    return hr_workspace_service.put_hr_settings(payload, db, current, audit=log_action)
