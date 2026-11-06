@@ -49,3 +49,34 @@ def test_pg_manual_create_commit_abort_rolls_back_then_retry(pg_sessions):
         record = db.get(WasteRecord, retry.json()['id'])
         assert record.reason == marker and float(record.estimated_value) == 13.0
         assert db.query(AuditLog).filter_by(entity_type='WasteRecord', entity_id=record.id, action='create').count() == 1
+
+
+def test_pg_unicode_create_and_all_typed_status_filters_round_trip(pg_sessions):
+    from app.libs.enums.inventory import WasteStatus
+    from app.schemas import AuditLog, WasteRecord
+
+    actor, _, item_id, batch_id = _seed(pg_sessions)
+    marker = f"unicode-{uuid4().hex}"
+    payload = {"item_id": item_id, "batch_id": batch_id, "waste_type": "布🧵 chiqindi",
+               "unit": "公斤 кг", "quantity": 4, "reason": marker}
+    headers = {"Authorization": f"Bearer {create_access_token(actor)}"}
+    with TestClient(_app(pg_sessions)) as client:
+        created = client.post("/waste", headers=headers, json=payload)
+        assert created.status_code == 201
+        result = created.json()
+        assert (result["waste_type"], result["unit"], result["status"]) == (payload["waste_type"], payload["unit"], "recorded")
+        record_id = result["id"]
+        with pg_sessions() as db:
+            row = db.get(WasteRecord, record_id)
+            assert (row.waste_type, row.unit, row.status, float(row.estimated_value)) == (payload["waste_type"], payload["unit"], "recorded", 13.0)
+            assert db.query(AuditLog).filter_by(entity_type="WasteRecord", entity_id=record_id, action="create").count() == 1
+        for status in WasteStatus:
+            # Fixture-only state seeding qualifies read/serialization, not transitions.
+            with pg_sessions.begin() as db:
+                db.get(WasteRecord, record_id).status = status.value
+            response = client.get("/waste", headers=headers, params={"status": status.value})
+            assert response.status_code == 200
+            rows = [row for row in response.json() if row["id"] == record_id]
+            assert len(rows) == 1 and rows[0]["status"] == status.value
+            assert (rows[0]["waste_type"], rows[0]["unit"]) == (payload["waste_type"], payload["unit"])
+        assert client.get("/waste", headers=headers, params={"status": "legacy_unknown"}).status_code == 422
