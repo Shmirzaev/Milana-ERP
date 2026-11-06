@@ -4,7 +4,6 @@ from datetime import datetime, time
 from decimal import Decimal, InvalidOperation
 import hashlib
 import json
-from types import SimpleNamespace
 from typing import Annotated, Any, Callable, Literal
 from uuid import uuid4
 from zoneinfo import ZoneInfo
@@ -12,14 +11,13 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import Response
-from sqlalchemy import String, and_, case, cast, func, or_
+from sqlalchemy import String, and_, cast, func, or_
 from sqlalchemy.orm import load_only
 
 from app.core.deps import DbSession, require_permissions, is_admin, user_permissions
 from app.core.dt import as_utc, utcnow
-from app.core.model_search import normalized_model_code_column, normalized_model_code_pattern
 from app.core.order_reference import (
-    canonical_order_reference, order_reference_variants, resolve_order_id,
+    order_reference_variants, resolve_order_id,
 )
 from app.schemas import (
     Department,
@@ -71,7 +69,6 @@ from app.libs.dto.people.payroll import (
     SewingProductionReportOut,
     SewingProductionReportOptions,
 )
-from app.schemas.order_reference import BusinessOrderAlias
 from app.models.process_qr_export_service import ProcessQrExportIn
 from app.models.audit_service import log_action
 from app.models.factory_scope_service import selected_factory_code
@@ -141,6 +138,12 @@ from app.models.people.payroll_service import (
     _qr_label_scan_payload as _qr_label_scan_payload,
 )
 
+from app.models.people.payroll_service import (
+    _PayrollOrderLookup as _PayrollOrderLookup,
+    _qr_label_order_lookup as _qr_label_order_lookup,
+    _work_label_id_from_token as _work_label_id_from_token,
+)
+
 router = APIRouter(prefix="/payroll", tags=["payroll"])
 
 # Payroll raw snapshots are retained and returned as open JSON objects. Keep
@@ -186,13 +189,6 @@ def _validated_record_total_amount(quantity: Decimal, rate: Decimal) -> Decimal:
 
 
 
-def _work_label_id_from_token(token: str) -> int | None:
-    normalized = token.strip()
-    if len(normalized) != PAYROLL_QR_TOKEN_LENGTH or not normalized.isdigit():
-        return None
-    if not normalized.startswith(PAYROLL_WORK_TOKEN_PREFIX):
-        return None
-    return int(normalized[1:])
 
 
 def _to_money_decimal(value: Any) -> Decimal:
@@ -1740,25 +1736,6 @@ def resolve_qr_token(
 
 
 
-def _qr_label_order_lookup(db, count_rows, labels):
-    requests, snapshots = set(), set()
-
-    def collect(namespace, reference, *, entity_id=None, production_order_id=None):
-        # Match the payroll wrapper's early return for empty, unlinked references.
-        if reference or entity_id is not None:
-            snapshots.add((namespace, reference, entity_id, production_order_id))
-        return reference
-
-    for row in count_rows:
-        sales_no, production_no, sales_id, production_id = row[:4]
-        requests.add(("SO", sales_no, sales_id, production_id))
-        requests.add(("PO", production_no, production_id, None))
-    for label in labels:
-        requests.add(("SO", label.sales_order_no, label.sales_order_id, label.production_order_id))
-        requests.add(("PO", label.production_no, label.production_order_id, None))
-        _map_payroll_snapshot_references(label.payload, collect, production_order_id=label.production_order_id,
-                                        sales_order_id=label.sales_order_id)
-    return _PayrollOrderLookup(db, requests | snapshots, snapshots)
 
 
 @router.get("/qr-labels", response_model=PayrollQrControlOut)
@@ -1773,86 +1750,7 @@ def list_qr_labels(
     limit: int = 100,
     offset: int = 0,
 ):
-    if status and status not in {"available", "scanned", "superseded", "closed"}:
-        raise HTTPException(400, "Invalid payroll QR status")
-    qry = (
-        db.query(PayrollQrLabel)
-        .outerjoin(PayrollRecord, PayrollRecord.id == PayrollQrLabel.payroll_record_id)
-        .outerjoin(Employee, Employee.id == PayrollRecord.employee_id)
-        .filter(PayrollQrLabel.factory_code == selected_factory_code(current))
-    )
-    text_query = (search or "").strip()
-    if text_query:
-        pattern = f"%{text_query}%"
-        model_code_pattern = normalized_model_code_pattern(text_query)
-        search_filters = [
-            PayrollQrLabel.label_uid.ilike(pattern),
-            _payroll_order_reference_match(db, PayrollQrLabel.sales_order_no, "SO", pattern),
-            _payroll_order_reference_match(db, PayrollQrLabel.production_no, "PO", pattern),
-            PayrollQrLabel.batch_no.ilike(pattern),
-            normalized_model_code_column(PayrollQrLabel.model_code).ilike(model_code_pattern),
-            PayrollQrLabel.operation_code.ilike(pattern),
-            PayrollQrLabel.operation_name.ilike(pattern),
-            PayrollQrLabel.sewing_line_code.ilike(pattern),
-            PayrollQrLabel.sewing_line_name.ilike(pattern),
-            PayrollQrLabel.cutting_passport_no.ilike(pattern),
-            Employee.full_name.ilike(pattern),
-        ]
-        token_label_id = _work_label_id_from_token(text_query)
-        if token_label_id is not None:
-            search_filters.append(PayrollQrLabel.id == token_label_id)
-        qry = qry.filter(or_(*search_filters))
-    exact_order = (order_no or "").strip()
-    if exact_order:
-        variants = _payroll_order_reference_variants(db, exact_order)
-        qry = qry.filter(or_(
-            PayrollQrLabel.sales_order_no.in_(variants),
-            PayrollQrLabel.production_no.in_(variants),
-        ))
-    if production_order_id is not None:
-        qry = qry.filter(PayrollQrLabel.production_order_id == production_order_id)
-    available_count = qry.filter(PayrollQrLabel.status == "available").count()
-    scanned_count = qry.filter(PayrollQrLabel.status == "scanned").count()
-    closed_count = qry.filter(PayrollQrLabel.status == "closed").count()
-    if status:
-        qry = qry.filter(PayrollQrLabel.status == status)
-    elif not include_superseded:
-        qry = qry.filter(PayrollQrLabel.status.notin_(["superseded", "closed"]))
-    total = qry.count()
-    labels = (
-        qry.order_by(PayrollQrLabel.issued_at.desc(), PayrollQrLabel.id.desc())
-        .offset(max(0, offset))
-        .limit(max(1, min(limit, 5000)))
-        .all()
-    )
-    records, employees, departments = _qr_label_maps(db, labels)
-    # Aggregate the complete selected-factory ledger, independently of filters/page.
-    count_columns = (PayrollQrLabel.sales_order_no, PayrollQrLabel.production_no,
-                     PayrollQrLabel.sales_order_id, PayrollQrLabel.production_order_id)
-    count_rows = db.query(*count_columns, func.count(PayrollQrLabel.id),
-                         func.sum(case((PayrollQrLabel.status == "scanned", 1), else_=0))).filter(
-        PayrollQrLabel.factory_code == selected_factory_code(current),
-        PayrollQrLabel.status.in_(["available", "scanned"]),
-    ).group_by(*count_columns).all()
-    order_lookup = _qr_label_order_lookup(db, count_rows, labels)
-    counts = {}
-    for sales_no, production_no, sales_id, production_id, count, scanned in count_rows:
-        key = (_canonical_payroll_reference(db, "SO", sales_no, entity_id=sales_id, production_order_id=production_id, lookup=order_lookup)
-               or _canonical_payroll_reference(db, "PO", production_no, entity_id=production_id, lookup=order_lookup) or "No order")
-        entry = counts.setdefault(key, {"order_no": key, "total": 0, "scanned": 0})
-        entry["total"] += count
-        entry["scanned"] += scanned
-    return {
-        "order_counts": list(counts.values()),
-        "items": [
-            _serialize_qr_label(label, records=records, employees=employees, departments=departments, order_lookup=order_lookup)
-            for label in labels
-        ],
-        "total": total,
-        "available_count": available_count,
-        "scanned_count": scanned_count,
-        "closed_count": closed_count,
-    }
+    return payroll_service.list_qr_labels(db, current, search, status, order_no, production_order_id, include_superseded, limit, offset)
 
 
 def _assert_qr_label_never_scanned(db: DbSession, label: PayrollQrLabel) -> None:
@@ -3282,126 +3180,6 @@ def list_payroll_employee_options(
 
 
 
-class _PayrollOrderLookup:
-    """Targeted scalar lookups; shared order_reference code owns resolution rules.
-
-    Bound IN lists to 400 values and never load unrelated order/alias history.
-    Preparing original and canonical snapshot references takes two batch passes;
-    subsequent canonical/variant resolution is entirely in memory.
-    """
-
-    def __init__(self, db, requests, snapshot_requests=()):
-        self.orders = {"PO": {}, "SO": {}}
-        self.references = {"PO": {}, "SO": {}}
-        self.aliases_by_reference = {}
-        self.aliases_by_entity = {}
-        self.loaded_references = set()
-        self.loaded_ids = {"PO": set(), "SO": set()}
-        self._load(db, requests)
-        variants = set()
-        for namespace, reference, entity_id, production_id in snapshot_requests:
-            try:
-                canonical = canonical_order_reference(db, namespace, reference, entity_id=entity_id,
-                                                      production_order_id=production_id, lookup=self)
-            except HTTPException:
-                # Defer errors to the original counts/serializer evaluation order.
-                continue
-            if canonical != reference:
-                variants.add((namespace, canonical, entity_id, production_id))
-        if variants:
-            self._load(db, variants)
-            variant_entities = {}
-
-            def collect_alias_entities(namespaces, entity_id):
-                variant_entities.setdefault(tuple(namespaces), set()).add(entity_id)
-                return ()
-
-            # Let the shared resolver choose the alias namespace/entity. Only
-            # page snapshots need complete variants, not every global group.
-            probe = SimpleNamespace(by_id=self.by_id, by_reference=self.by_reference,
-                                    aliases=self.aliases, alias_references=collect_alias_entities)
-            for namespace, reference, entity_id, production_id in variants:
-                try:
-                    order_reference_variants(db, namespace, reference, entity_id=entity_id,
-                                             production_order_id=production_id, lookup=probe)
-                except HTTPException:
-                    continue  # Preserve the original point at which this fails.
-            for namespaces, identities in variant_entities.items():
-                for ids in self._chunks(identities):
-                    self._add_aliases(db.query(BusinessOrderAlias).filter(
-                        BusinessOrderAlias.namespace.in_(namespaces), BusinessOrderAlias.entity_id.in_(ids),
-                    ).all())
-
-    @staticmethod
-    def _chunks(values):
-        ordered = sorted(values)
-        for start in range(0, len(ordered), 400):
-            yield ordered[start:start + 400]
-
-    def _add_aliases(self, rows):
-        for row in rows:
-            self.aliases_by_reference.setdefault((row.namespace, row.reference), {})[row.entity_id] = row
-            self.aliases_by_entity.setdefault((row.namespace, row.entity_id), set()).add(row.reference)
-
-    def _load(self, db, requests):
-        references, production_ids, sales_ids = set(), set(), set()
-        for namespace, reference, entity_id, production_id in requests:
-            if reference:
-                references.update((reference, reference.strip()))
-            if entity_id is not None:
-                (sales_ids if namespace == "SO" else production_ids).add(entity_id)
-            if production_id is not None:
-                production_ids.add(production_id)
-        references -= self.loaded_references
-        for chunk in self._chunks(references):
-            aliases = db.query(BusinessOrderAlias).filter(
-                BusinessOrderAlias.namespace.in_(["PO", "USL", "PUBLIC_PO", "SO"]),
-                BusinessOrderAlias.reference.in_(chunk),
-            ).all()
-            self._add_aliases(aliases)
-            for alias in aliases:
-                (sales_ids if alias.namespace == "SO" else production_ids).add(alias.entity_id)
-
-        self._load_orders(db, "PO", production_ids, references)
-        sales_ids.update(row.sales_order_id for row in self.orders["PO"].values() if row.sales_order_id is not None)
-        self._load_orders(db, "SO", sales_ids, references)
-        for row in self.orders["PO"].values():
-            row.sales_order = self.orders["SO"].get(row.sales_order_id)
-            row.sales_order_no = row.sales_order.order_no if row.sales_order is not None else None
-            row.order_no = ProductionOrder.order_no.fget(row)
-        self.loaded_references.update(references)
-
-    def _load_orders(self, db, namespace, ids, references):
-        model = SalesOrder if namespace == "SO" else ProductionOrder
-        column = model.order_no if namespace == "SO" else model.production_no
-        columns = [model.id, column] if namespace == "SO" else [model.id, column, model.sales_order_id, model.source_type]
-        missing_ids = ids - self.loaded_ids[namespace]
-        id_chunks, reference_chunks = list(self._chunks(missing_ids)), list(self._chunks(references))
-        for index in range(max(len(id_chunks), len(reference_chunks))):
-            filters = []
-            if index < len(id_chunks):
-                filters.append(model.id.in_(id_chunks[index]))
-            if index < len(reference_chunks):
-                filters.append(column.in_(reference_chunks[index]))
-            for result in db.query(*columns).filter(or_(*filters)).all():
-                row = SimpleNamespace(**result._mapping)
-                self.orders[namespace][row.id] = row
-                self.references[namespace][getattr(row, column.key)] = row
-        self.loaded_ids[namespace].update(missing_ids | self.orders[namespace].keys())
-
-    def by_id(self, namespace, entity_id):
-        row = self.orders["SO" if namespace == "SO" else "PO"].get(entity_id)
-        return None if namespace == "USL" and row is not None and row.source_type != "usluga" else row
-
-    def by_reference(self, namespace, reference):
-        row = self.references["SO" if namespace == "SO" else "PO"].get(reference)
-        return None if namespace == "USL" and row is not None and row.source_type != "usluga" else row
-
-    def aliases(self, namespaces, reference):
-        return [row for namespace in namespaces for row in self.aliases_by_reference.get((namespace, reference), {}).values()]
-
-    def alias_references(self, namespaces, entity_id):
-        return {reference for namespace in namespaces for reference in self.aliases_by_entity.get((namespace, entity_id), ())}
 
 
 
