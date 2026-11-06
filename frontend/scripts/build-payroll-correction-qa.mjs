@@ -3,7 +3,7 @@
 import { build } from "esbuild";
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { execFileSync } from "node:child_process";
+import { compileAppCss } from "./lib/compile-app-css.mjs";
 
 const root = process.cwd();
 const output = process.env.LABEL_CORRECTION_QA_OUTPUT;
@@ -23,7 +23,6 @@ await build({
   outfile: resolve(output, "payroll-app.js"), format: "iife", jsx: "automatic",
   define: { "process.env.NODE_ENV": '"production"' },
 });
-execFileSync(process.execPath, [resolve(root, "node_modules/tailwindcss/lib/cli.js"),
-  "-i", "src/app/globals.css", "-o", resolve(output, "payroll-app.css"), "--minify"], { cwd: root, stdio: "pipe" });
+await writeFile(resolve(output, "payroll-app.css"), await compileAppCss());
 await writeFile(resolve(output, "payroll-app.html"), `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Disposable payroll correction QA</title><link rel="stylesheet" href="/qa-assets/payroll-app.css"></head><body><main id="root" class="p-4"></main><script src="/qa-assets/payroll-app.js"></script></body></html>`);
 console.log(`Actual QR Control page bundled with real API/auth; output ${output}`);

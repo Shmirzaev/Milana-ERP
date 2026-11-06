@@ -71,7 +71,7 @@ function FormField({ label, value, disabled, text = false, integer = false, onCh
         disabled={disabled}
         onChange={(event) => onChange(event.target.value)}
         onBlur={onBlur}
-        className="h-8 w-full rounded-md border border-[var(--erp-border-strong)] bg-white px-2 text-sm text-[var(--erp-text)] outline-none transition focus:border-[var(--erp-accent)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--erp-accent)_20%,transparent)] disabled:cursor-default disabled:bg-white/70"
+        className="h-8 w-full rounded-md border border-[var(--erp-border-strong)] bg-white px-2 text-sm text-[var(--erp-text)] outline-hidden transition focus:border-[var(--erp-accent)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--erp-accent)_20%,transparent)] disabled:cursor-default disabled:bg-white/70"
       />
     </label>
   );

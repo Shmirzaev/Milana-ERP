@@ -103,7 +103,7 @@ function PriceCalculationField({ column, row, calculated, formatter, label, onCh
   return (
     <label className="min-w-0">
       <span className={`${compact ? "mb-0.5 text-[11px] leading-3.5" : "mb-1.5 text-xs leading-4"} block font-medium text-[var(--erp-text-muted)]`}>{label}</span>
-      <input type={column.inputType} inputMode={column.inputType === "number" ? "decimal" : undefined} step={column.inputType === "number" ? "any" : undefined} value={row[column.field]} onChange={(event) => onChange(column.field, event.target.value)} readOnly={locked} aria-label={label} className={`${compact ? "h-8 px-2" : "h-9 px-2.5"} w-full min-w-0 rounded-md border border-[var(--erp-border-strong)] text-sm text-[var(--erp-text)] outline-none transition ${locked ? "cursor-default bg-white/70 tabular-nums" : "bg-white focus:border-[var(--erp-accent)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--erp-accent)_20%,transparent)]"}`} />
+      <input type={column.inputType} inputMode={column.inputType === "number" ? "decimal" : undefined} step={column.inputType === "number" ? "any" : undefined} value={row[column.field]} onChange={(event) => onChange(column.field, event.target.value)} readOnly={locked} aria-label={label} className={`${compact ? "h-8 px-2" : "h-9 px-2.5"} w-full min-w-0 rounded-md border border-[var(--erp-border-strong)] text-sm text-[var(--erp-text)] outline-hidden transition ${locked ? "cursor-default bg-white/70 tabular-nums" : "bg-white focus:border-[var(--erp-accent)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--erp-accent)_20%,transparent)]"}`} />
     </label>
   );
 }
@@ -196,7 +196,7 @@ export default function PriceCalculationPage() {
                   const canEdit = isEditing && FINANCE_FIELDS.has(column.field as EditableField) && (column.field !== "sellingPrice" || request.cost_price !== null);
                   return <PriceCalculationField key={column.field} column={column} row={row} calculated={calculated} formatter={formatter} label={t(column.labelKey)} readOnly={!canEdit} onChange={(field, value) => updateFinanceDraft(request.id, field, value)} compact />;
                 })}
-                <button type="button" className="inline-flex h-8 w-8 self-end justify-self-end items-center justify-center rounded-md border border-[var(--erp-border-strong)] bg-white/60 text-[var(--erp-text-soft)] transition hover:bg-white hover:text-[var(--erp-text)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color-mix(in_srgb,var(--erp-accent)_25%,transparent)]" onClick={() => toggleDetails(row.id)} aria-label={detailsOpen ? t("page.priceCalculation.hideDetails") : t("page.priceCalculation.showDetails")} aria-expanded={detailsOpen} aria-controls={`${row.id}-details`}>
+                <button type="button" className="inline-flex h-8 w-8 self-end justify-self-end items-center justify-center rounded-md border border-[var(--erp-border-strong)] bg-white/60 text-[var(--erp-text-soft)] transition hover:bg-white hover:text-[var(--erp-text)] focus:outline-hidden focus-visible:ring-2 focus-visible:ring-[color-mix(in_srgb,var(--erp-accent)_25%,transparent)]" onClick={() => toggleDetails(row.id)} aria-label={detailsOpen ? t("page.priceCalculation.hideDetails") : t("page.priceCalculation.showDetails")} aria-expanded={detailsOpen} aria-controls={`${row.id}-details`}>
                   {detailsOpen ? <ChevronUp className="h-4 w-4" aria-hidden="true" /> : <ChevronDown className="h-4 w-4" aria-hidden="true" />}
                 </button>
               </div>

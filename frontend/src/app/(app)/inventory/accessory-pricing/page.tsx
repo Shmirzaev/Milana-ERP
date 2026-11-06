@@ -137,11 +137,11 @@ export default function AccessoryPricingPage() {
                   <div key={index} className="grid grid-cols-1 items-end gap-2 sm:grid-cols-[minmax(12rem,1.5fr)_minmax(9rem,1fr)_2.25rem]">
                     <label className="block min-w-0">
                       <span className="mb-0.5 block text-[11px] font-medium leading-3.5 text-[var(--erp-text-muted)]">{t("page.priceWorkflow.accessoryName")}</span>
-                      <input value={row.name} disabled={!isEditing} onChange={(event) => updateRow(request, index, "name", event.target.value)} className="h-9 w-full rounded-md border border-[var(--erp-border-strong)] bg-white px-2.5 text-sm outline-none focus:border-[var(--erp-accent)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--erp-accent)_20%,transparent)] disabled:cursor-default disabled:bg-white/70" />
+                      <input value={row.name} disabled={!isEditing} onChange={(event) => updateRow(request, index, "name", event.target.value)} className="h-9 w-full rounded-md border border-[var(--erp-border-strong)] bg-white px-2.5 text-sm outline-hidden focus:border-[var(--erp-accent)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--erp-accent)_20%,transparent)] disabled:cursor-default disabled:bg-white/70" />
                     </label>
                     <label className="block min-w-0">
                       <span className="mb-0.5 block text-[11px] font-medium leading-3.5 text-[var(--erp-text-muted)]">{t("page.priceWorkflow.accessoryPrice")}</span>
-                      <input type="number" inputMode="decimal" step="any" value={row.price} disabled={!isEditing} onChange={(event) => updateRow(request, index, "price", event.target.value)} className="h-9 w-full rounded-md border border-[var(--erp-border-strong)] bg-white px-2.5 text-sm outline-none focus:border-[var(--erp-accent)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--erp-accent)_20%,transparent)] disabled:cursor-default disabled:bg-white/70" />
+                      <input type="number" inputMode="decimal" step="any" value={row.price} disabled={!isEditing} onChange={(event) => updateRow(request, index, "price", event.target.value)} className="h-9 w-full rounded-md border border-[var(--erp-border-strong)] bg-white px-2.5 text-sm outline-hidden focus:border-[var(--erp-accent)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--erp-accent)_20%,transparent)] disabled:cursor-default disabled:bg-white/70" />
                     </label>
                     <button type="button" className="icon-btn h-9 w-9" disabled={!isEditing || rows.length === 1} onClick={() => removeRow(request, index)} aria-label={t("page.priceWorkflow.removeAccessory")}>
                       <Trash2 className="h-4 w-4" aria-hidden="true" />

@@ -104,7 +104,7 @@ export default function SewingWorkPicker({
     <div>
       <button
         type="button"
-        className="flex w-full items-center gap-3 rounded-md border border-[#ded9ca] bg-white px-2.5 py-2 text-left shadow-sm transition-colors hover:border-[#c9c1ae] focus:outline-none focus:ring-2 focus:ring-[#c2410c]/20"
+        className="flex w-full items-center gap-3 rounded-md border border-[#ded9ca] bg-white px-2.5 py-2 text-left shadow-sm transition-colors hover:border-[#c9c1ae] focus:outline-hidden focus:ring-2 focus:ring-[#c2410c]/20"
         aria-expanded={open}
         onClick={() => setOpen((current) => !current)}
       >
