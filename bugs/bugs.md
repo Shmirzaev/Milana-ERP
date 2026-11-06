@@ -1,5 +1,13 @@
 # Team bug tracker — clone_main
 
+## UX-KEEP-DECISIONS-20261106 — behavior retained by Dilmurod
+
+- **Decision (Dilmurod, 6 Nov) · Keep · Work/Tasks.** “Everyone” assigns to all users, with no recipient limit.
+- **Decision (Dilmurod, 6 Nov) · Keep · Support/Settings.** Concurrent Settings edits use last save wins.
+- **Decision (Dilmurod, 6 Nov) · Keep · UI.** Native date picker remains in use.
+- **Decision (Dilmurod, 6 Nov) · Keep · Identity/Roles.** No Roles screen; role creation stays API-only for Super Admin.
+- **Decision (Dilmurod, 6 Nov) · Keep · Identity/Roles.** Any signed-in user may read the role list.
+
 ## PERF37-CI-TIMING-20261106 — rate-store isolation timing test intermittently fails in hosted CI
 
 - **P3 · Flaky timing test, root cause unknown · Shared backend infrastructure · Owner: Dilmurod.** On [#485](https://github.com/Shmirzaev/Milana-ERP/pull/485), one hosted backend run measured a health p95 increase of 0.948 s over the 0.25 s limit under SQLite rate-store contention; its one rerun passed. The test passed 3/3 on current `clone_main` and 3/3 on #485 locally (about 11–12 s per run). #485 moves `/api/auth/me`'s existing last-seen update and single commit into the Identity service without adding a query or lock; the failing test exercises `/health` and OPTIONS, not `/api/auth/me`. Investigate hosted runner timing before changing the budget or runtime behavior. No production failure claimed.
@@ -14,17 +22,17 @@
 
 ## IDN-ROLES-NO-SCREEN-20261105 — role creation has no screen
 
-- **P3 · Open · Identity/Roles · Owner: Dilmurod. Decision pending Dilmurod.** No Roles screen; roles can only be created via the API by a Super Admin.
+- **P3 · Keep (Dilmurod, 6 Nov) · Identity/Roles · Owner: Dilmurod.** No Roles screen; roles can only be created via the API by a Super Admin.
 - Source: `W5_BROWSER_RESULTS_2026-11-05.md`, isolated #505 stack at localhost:19850, 5 November 2026. `/admin/roles` returned 404; roles appeared in the Admin → Users role dropdown. Existing behavior recorded for triage; no production occurrence or policy change claimed.
 
 ## IDN-ROLE-LIST-ALL-SIGNED-IN-20261105 — full role permissions visible to signed-in users
 
-- **P3 · Open · Identity/Roles · Owner: Dilmurod. Decision pending Dilmurod.** Any signed-in user can read the full role list with permissions (GET /api/roles).
+- **P3 · Keep (Dilmurod, 6 Nov) · Identity/Roles · Owner: Dilmurod.** Any signed-in user can read the full role list with permissions (GET /api/roles).
 - Source: `W5_BROWSER_RESULTS_2026-11-05.md`, isolated #505 stack at localhost:19850, 5 November 2026. Restricted account received 200 and the full list. Existing behavior retained; no production occurrence or authorization-policy change claimed.
 
 ## IDN-PASSWORD-CHANGE-STALE-PROFILE-20261105 — Profile stays visible after password change
 
-- **P3 · Open · Identity/Profile UI · Owner: Dilmurod.** After a successful
+- **P3 · Fix candidate in this UX PR, awaiting browser and human acceptance · Identity/Profile UI · Owner: Dilmurod.** After a successful
   password change, the session ends, but Profile stays on screen with “Password
   updated.” until the next click or reload. It should say “Please sign in again”
   and go to sign-in immediately. Observed in the isolated W1 connected-browser
@@ -35,7 +43,7 @@
 
 ## SUP-SETTINGS-NONADMIN-SILENT-403-20261105 — non-admin Settings controls and silent refusal
 
-- **P3 · Watch · Support/Settings UI · Owner: Dilmurod. Decision pending Dilmurod.**
+- **P3 · Fix candidate in this UX PR, awaiting browser and human acceptance · Support/Settings UI · Owner: Dilmurod.**
   Non-admins see Settings Save buttons and the logo picker; a refused save shows
   no error (API correctly returns 403). Observed in the 5 November W6 connected-
   browser report, `W6_BROWSER_RESULTS_2026-11-05.md`, on the isolated #472/#477 copy.
@@ -44,7 +52,7 @@
 
 ## PEO-ORG-MANAGER-ARCHIVED-20261105 — org-unit Manager dropdown lists archived employees
 
-- **P3 · Watch · People/Organization UI · Owner: Dilmurod.** The 5 November
+- **P3 · Fix candidate in this UX PR, awaiting browser and human acceptance · People/Organization UI · Owner: Dilmurod.** The 5 November
   W3 connected-browser check found archived “People archive target” in the
   organization-unit Manager dropdown. Source: `W3_BROWSER_RESULTS_2026-11-05.md`,
   isolated People copy; no production occurrence is claimed. Record as a separate
@@ -52,12 +60,12 @@
 
 ## WRK-TASK-ASSIGNEE-PICKER-20261105 — task assignee picker omits individual users
 
-- **P3 · Open · Work/Tasks UI · Owner: Dilmurod. Decision pending Dilmurod.** Tasks drawer says managers can assign to anyone, but the picker offers only Myself and Everyone; Management gets 403 on /api/users.
+- **P3 · Fix candidate in #536, awaiting browser and human acceptance · Work/Tasks UI · Owner: Dilmurod.** Tasks drawer says managers can assign to anyone, but the picker offers only Myself and Everyone; Management gets 403 on /api/users.
 - Reported in the isolated connected-browser W4 results dated 2026-11-05 on the [#467 stack](https://github.com/Shmirzaev/Milana-ERP/pull/467), localhost:19750. Existing behavior retained; no permission or application change, production occurrence, or fix acceptance is claimed.
 
 ## PEO01-EMPLOYEE-SAVE-CONFIRMATION-20261105 — successful save has no confirmation
 
-- **P3 · Watch · People/Employees UI · Dilmurod; reviewer Mirshoir.** In the
+- **P3 · Fix candidate in this UX PR, awaiting browser and human acceptance · People/Employees UI · Dilmurod; reviewer Mirshoir.** In the
   isolated connected-browser check for [#447](https://github.com/Shmirzaev/Milana-ERP/pull/447),
   saving employee 74002 closed the form and showed the new row, but no success
   message. Reload and profile readback confirmed the record and salary persisted.

@@ -23,6 +23,7 @@ import { api, fetcher } from "@/lib/api";
 import { can, useMe } from "@/lib/auth";
 import { useDialogs } from "@/components/DialogProvider";
 import { useT } from "@/lib/i18n";
+import { factoryPeriodIso, monthStart, monthEnd } from "@/lib/payrollPeriodDates";
 
 type PayrollPeriod = {
   id: number;
@@ -150,20 +151,6 @@ type Department = {
   name: string;
   code?: string | null;
 };
-
-function dateInput(value: Date): string {
-  return value.toISOString().slice(0, 10);
-}
-
-function monthStart(): string {
-  const now = new Date();
-  return dateInput(new Date(now.getFullYear(), now.getMonth(), 1));
-}
-
-function monthEnd(): string {
-  const now = new Date();
-  return dateInput(new Date(now.getFullYear(), now.getMonth() + 1, 0));
-}
 
 function toStartIso(value: string): string {
   return new Date(`${value}T00:00:00`).toISOString();
@@ -427,8 +414,8 @@ export default function PayrollPage() {
     try {
       await api.post("/api/payroll/periods", {
         name: periodForm.name,
-        start_date: toStartIso(periodForm.start_date),
-        end_date: toEndIso(periodForm.end_date),
+        start_date: factoryPeriodIso(periodForm.start_date),
+        end_date: factoryPeriodIso(periodForm.end_date, true),
         status: periodForm.status,
         notes: periodForm.notes || null,
       });
@@ -636,7 +623,7 @@ export default function PayrollPage() {
                     <td>{period.approved_at ? new Date(period.approved_at).toLocaleString(lang) : "-"}</td>
                     <td>
                       <div className="flex flex-wrap gap-2">
-                        {canManage && period.status !== "open" && period.status !== "paid" && period.status !== "cancelled" && (
+                        {canManage && period.status === "locked" && (
                           <button type="button" className="btn h-8 px-2 text-[11px]" onClick={() => patchPeriod(period, { status: "open" })}>
                             <Unlock />
                             <span>{t("statusValue.open")}</span>

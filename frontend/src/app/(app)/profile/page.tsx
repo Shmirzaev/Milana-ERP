@@ -48,8 +48,7 @@ export default function ProfilePage() {
     setErrors({});
     try {
       await api.post("/api/auth/change-password", password);
-      setPassword({ current_password: "", new_password: "", confirm_new_password: "" });
-      setPasswordMsg(t("page.profile.passwordUpdated"));
+      window.location.assign("/login?password_changed=1");
     } catch (err: any) {
       setPasswordMsg(err.message);
     }
