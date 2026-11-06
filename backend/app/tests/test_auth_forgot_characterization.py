@@ -13,7 +13,7 @@ from app.db.session import get_db
 from app.main import app
 from app.models.password_reset_service import password_reset_hash
 from app.schemas import Notification, PasswordResetToken, Role, User
-from app.tests.test_auth_login_characterization import login_database
+from app.tests.test_auth_login_characterization import login_database  # noqa: F401 - pytest fixture, used by name
 
 
 @pytest.fixture
