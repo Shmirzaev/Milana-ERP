@@ -9,7 +9,6 @@ from fastapi.testclient import TestClient
 from sqlalchemy import event, select, text
 
 from app.api.routes import stocktake
-from app.core.deps import get_db
 from app.libs.dto.inventory.warehouse_stocktake_input import DeleteCounts
 from app.models import audit_service, stocktake_service
 from app.schemas import AuditLog, User
