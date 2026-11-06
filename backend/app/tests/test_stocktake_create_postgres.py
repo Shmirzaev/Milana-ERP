@@ -8,6 +8,7 @@ from sqlalchemy import event, select
 
 from app.api.routes import stocktake
 from app.libs.dto.inventory.warehouse_stocktake_input import CreateCount
+from app.libs.enums.packaging import PackageStatus
 from app.models import audit_service, stocktake_service
 from app.schemas import AuditLog, LegacyStockReceipt, Package, User
 from app.schemas.inventory.stocktake import WarehouseStocktake, WarehouseStocktakeRow
@@ -21,7 +22,9 @@ def prepare(sessions, case, app):
     with sessions.begin() as db:
         db.get(User, case["actors"]["standard"]).role.permissions = ["storage.packages"]
         ids = []
-        for status in ("received_in_storage", "packed"):
+        statuses = ["received_in_storage", "packed", *(status.value for status in PackageStatus
+                    if status.value not in {"received_in_storage", "packed"})]
+        for status in statuses:
             receipt = LegacyStockReceipt(source_system="COUNT_TEST", source_warehouse_id="1",
                                          source_record_id=f"{marker}-{status}", source_checksum="0" * 64,
                                          source_payload={})
@@ -59,6 +62,7 @@ def assert_created(sessions, key, actor, package_ids, expected, count_id):
     snapshot = next(r[4] for r in rows if r[1] == package_ids[0])
     assert snapshot["quantity"] == 10 and snapshot["status"] == "received_in_storage"
     assert package_ids[1] not in {r[1] for r in rows}
+    assert set(package_ids).intersection(expected) == {package_ids[0], package_ids[4], package_ids[7]}
     assert audits == [(count_id, actor, {"title": "Count"})]
 
 

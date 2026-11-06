@@ -57,6 +57,31 @@ def delete_stocktake(db: Session, count: WarehouseStocktake, rows: Query) -> Non
     db.delete(count)
 
 
+def add_scan_row(
+    db: Session, *, stocktake_id: int, identity: str, package_id: int | None,
+    category: StocktakeCategory, snapshot: StocktakeSnapshot,
+) -> WarehouseStocktakeRow:
+    """Add a scan-created row to the caller's transaction."""
+    row = WarehouseStocktakeRow(
+        stocktake_id=stocktake_id, identity=identity, package_id=package_id,
+        expected=False, category=category, snapshot=snapshot,
+    )
+    db.add(row)
+    return row
+
+
+def record_first_scan(
+    db: Session, row: WarehouseStocktakeRow, *, snapshot: StocktakeSnapshot | None,
+    code: str, scanned_at: datetime, scanned_by: int,
+) -> None:
+    """Persist first-scan evidence and expose the row ID before audit."""
+    row.scan_snapshot = snapshot
+    row.scan_code = code
+    row.scanned_at = scanned_at
+    row.scanned_by = scanned_by
+    db.flush()
+
+
 def freeze_stocktake_completion(
     db: Session, count: WarehouseStocktake, rows: list[WarehouseStocktakeRow],
     snapshots: dict, completed_at: datetime,
@@ -65,3 +90,12 @@ def freeze_stocktake_completion(
     for row in rows:
         row.final_snapshot = snapshots.get(row.package_id, {})
     count.completed_at = completed_at
+
+
+def remove_recorded_scan(db, row: WarehouseStocktakeRow) -> None:
+    """Apply an already-authorized undo in the caller's transaction."""
+    if row.expected:
+        row.scan_code = row.scanned_at = row.scanned_by = None
+        row.scan_snapshot = None
+    else:
+        db.delete(row)

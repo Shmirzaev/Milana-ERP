@@ -23,6 +23,20 @@ from refactor_pg_evidence import (
 # Minimum collected counts pin the current parameterized business cases. Adding
 # cases is allowed; removing a required case needs an explicit ledger change.
 GROUPS = {
+    "test_stocktake_scan_postgres": (4, ('test_pg_scan_auth_duplicate_first_evidence_and_completed_refusal', 'test_pg_scan_request_audit_finalization_failure_then_retry', 'test_pg_scan_expected_unexpected_package_and_refusals', 'test_pg_duplicate_package_scan_waits_on_first_parent_lock')),
+    "test_stocktake_undo_postgres": (6, (
+        'test_pg_undo_auth_and_selection_refusal_before_mutation',
+        'test_pg_undo_request_audit_finalization_failure_then_retry',
+        'test_pg_undo_duplicate_and_foreign_selection_and_single_success',
+        'test_pg_undo_completed_count_refuses_without_mutation',
+        'test_pg_undo_waits_for_completion_with_preloaded_count',
+    )),
+    "test_stocktake_create_postgres": (4, (
+        "test_pg_http_create_auth_and_request_key_replay",
+        "test_pg_same_key_concurrent_create_replays_unique_winner",
+        "test_pg_request_audit_finalization_failure_rolls_back_then_retry",
+        "test_pg_deferred_create_commit_abort_rolls_back_then_retry",
+    )),
     "test_stocktake_delete_postgres": (5, (
         'test_pg_request_audit_flush_failure_rolls_back_bulk',
         'test_pg_overlapping_bulk_deletes_serialize',

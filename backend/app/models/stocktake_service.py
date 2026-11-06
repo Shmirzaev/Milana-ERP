@@ -20,8 +20,9 @@ from app.libs.types.stocktake import StocktakeSnapshot
 from app.models.audit_service import log_action
 from app.schemas import FinishedGoodsStock, Model, Package, PackageItem, User
 from app.schemas.inventory.stocktake import (
-    WarehouseStocktake, WarehouseStocktakeRow, add_expected_stocktake_row, add_stocktake,
-    delete_stocktake, freeze_stocktake_completion,
+    WarehouseStocktake, WarehouseStocktakeRow, add_expected_stocktake_row, add_stocktake, add_scan_row,
+    delete_stocktake, freeze_stocktake_completion, record_first_scan,
+    remove_recorded_scan as persist_scan_undo,
 )
 from app.models.package_identity_service import resolve_warehouse_package
 
@@ -157,7 +158,7 @@ def row_payload(row, current):
 def get_count(db, count_id, *, lock=False):
     query = db.query(WarehouseStocktake).filter(WarehouseStocktake.id == count_id)
     if lock:
-        query = query.with_for_update()
+        query = query.populate_existing().with_for_update()
     count = query.first()
     if not count:
         raise HTTPException(404, "Inventory count not found")
@@ -460,21 +461,16 @@ def scan_count(db, count_id: int, body: ScanCount, current: User) -> dict:
     observed = package_snapshots(db, [pid], include_items=True).get(pid, {}) if pid else {}
     if not row:
         snapshot = {key: value for key, value in observed.items() if key != "items"}
-        row = WarehouseStocktakeRow(
-            stocktake_id=count_id,
-            identity=identity,
-            package_id=pid,
-            expected=False,
-            category=(StocktakeCategory.AMBIGUOUS.value if ambiguous else StocktakeCategory.UNEXPECTED.value if pid else StocktakeCategory.UNKNOWN.value),
+        row = add_scan_row(
+            db, stocktake_id=count_id, identity=identity, package_id=pid,
+            category=(StocktakeCategory.AMBIGUOUS if ambiguous else StocktakeCategory.UNEXPECTED if pid else StocktakeCategory.UNKNOWN),
             snapshot=snapshot,
         )
-        db.add(row)
     if not duplicate:
-        row.scan_snapshot = observed if pid else None
-        row.scan_code = code
-        row.scanned_at = datetime.now(timezone.utc)
-        row.scanned_by = current.id
-        db.flush()
+        record_first_scan(
+            db, row, snapshot=observed if pid else None, code=code,
+            scanned_at=datetime.now(timezone.utc), scanned_by=current.id,
+        )
         log_action(
             db,
             current,
@@ -501,11 +497,7 @@ def remove_recorded_scan(db, current, count_id, row):
         count_id,
         old_value={"row_id": row.id, "code": row.scan_code, "package_id": row.package_id},
     )
-    if row.expected:
-        row.scan_code = row.scanned_at = row.scanned_by = None
-        row.scan_snapshot = None
-    else:
-        db.delete(row)
+    persist_scan_undo(db, row)
 
 
 def delete_scans(db, count_id: int, body: DeleteScans, current: User) -> dict:
