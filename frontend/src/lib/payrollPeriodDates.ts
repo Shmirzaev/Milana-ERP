@@ -9,8 +9,8 @@ export function monthStart(now = new Date()): string {
 }
 
 export function monthEnd(now = new Date()): string {
-  const [year, month] = factoryMonth(now).split("-").map(Number);
-  return new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10);
+  const month = factoryMonth(now);
+  return new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).toISOString().slice(0, 10);
 }
 
 export function factoryPeriodIso(value: string, end = false): string {
