@@ -11,9 +11,17 @@ this checkout, a new combined candidate or deployed production. Inspect current
 code and the operation ledger before advancing a gate. Schema-owned writers,
 system-wide enum/type adoption and human acceptance remain incomplete.
 
-Last updated 2026-11-06. Keep this file short: current decisions, release pointers and
+Last updated 2026-11-07. Keep this file short: current decisions, release pointers and
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
+
+## Dilmurod source classification (7 November)
+
+Behavior-preserving Identity #546, People #545, Support #547 and Work #544 code
+landed on `clone_main`. The [coverage ledger](REFACTOR_COVERAGE.md#dilmurods-source-classification-slice--7-november-2026)
+classifies 23 mapped tables / 324 fields from source and fixtures. Actual stored
+values, remaining route/bootstrap boundaries, contract decisions and human
+acceptance remain open. No deployment is implied by these merges.
 
 ## RF-004 shared infrastructure (6 November)
 
