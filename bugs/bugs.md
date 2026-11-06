@@ -32,7 +32,7 @@
 
 ## IDN-PASSWORD-CHANGE-STALE-PROFILE-20261105 — Profile stays visible after password change
 
-- **P3 · Fix candidate in this UX PR, awaiting browser and human acceptance · Identity/Profile UI · Owner: Dilmurod.** After a successful
+- **P3 · Fix candidate in #537, awaiting browser and human acceptance · Identity/Profile UI · Owner: Dilmurod.** After a successful
   password change, the session ends, but Profile stays on screen with “Password
   updated.” until the next click or reload. It should say “Please sign in again”
   and go to sign-in immediately. Observed in the isolated W1 connected-browser
@@ -43,7 +43,7 @@
 
 ## SUP-SETTINGS-NONADMIN-SILENT-403-20261105 — non-admin Settings controls and silent refusal
 
-- **P3 · Fix candidate in this UX PR, awaiting browser and human acceptance · Support/Settings UI · Owner: Dilmurod.**
+- **P3 · Fix candidate in #537, awaiting browser and human acceptance · Support/Settings UI · Owner: Dilmurod.**
   Non-admins see Settings Save buttons and the logo picker; a refused save shows
   no error (API correctly returns 403). Observed in the 5 November W6 connected-
   browser report, `W6_BROWSER_RESULTS_2026-11-05.md`, on the isolated #472/#477 copy.
@@ -52,7 +52,7 @@
 
 ## PEO-ORG-MANAGER-ARCHIVED-20261105 — org-unit Manager dropdown lists archived employees
 
-- **P3 · Fix candidate in this UX PR, awaiting browser and human acceptance · People/Organization UI · Owner: Dilmurod.** The 5 November
+- **P3 · Fix candidate in #537, awaiting browser and human acceptance · People/Organization UI · Owner: Dilmurod.** The 5 November
   W3 connected-browser check found archived “People archive target” in the
   organization-unit Manager dropdown. Source: `W3_BROWSER_RESULTS_2026-11-05.md`,
   isolated People copy; no production occurrence is claimed. Record as a separate
@@ -65,7 +65,7 @@
 
 ## PEO01-EMPLOYEE-SAVE-CONFIRMATION-20261105 — successful save has no confirmation
 
-- **P3 · Fix candidate in this UX PR, awaiting browser and human acceptance · People/Employees UI · Dilmurod; reviewer Mirshoir.** In the
+- **P3 · Fix candidate in #537, awaiting browser and human acceptance · People/Employees UI · Dilmurod; reviewer Mirshoir.** In the
   isolated connected-browser check for [#447](https://github.com/Shmirzaev/Milana-ERP/pull/447),
   saving employee 74002 closed the form and showed the new row, but no success
   message. Reload and profile readback confirmed the record and salary persisted.
