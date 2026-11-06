@@ -33,9 +33,10 @@ function roundUsage(value: DecimalInput) {
   return Number(quotient + (increment ? 1n : 0n)) / 1000;
 }
 export const passportUsageQuantity = (row: PassportUsageInputs) => {
-  const values = [row.layer_weight_kg, row.total_layers, row.scrap_kg, row.planned_kg, row.beka_per_piece_kg, row.pieces].map(decimalInput);
-  if (values.some(value => value === null)) return NaN;
-  const [layer, layers, scrap, planned, binding, pieces] = values as DecimalInput[];
+  const layer = decimalInput(row.layer_weight_kg), layers = decimalInput(row.total_layers);
+  const scrap = decimalInput(row.scrap_kg), planned = decimalInput(row.planned_kg);
+  const binding = decimalInput(row.beka_per_piece_kg), pieces = decimalInput(row.pieces);
+  if (!layer || !layers || !scrap || !planned || !binding || !pieces) return NaN;
   // Mirrors the existing stock-ledger formula, including meter-mode binding.
   if (layer.coefficient > 0n && layers.coefficient > 0n) {
     const amount = addDecimal(multiplyDecimal(layer, layers), scrap);
@@ -61,12 +62,12 @@ export function passportSplitProblem(row: PassportUsageInputs & { stock_batch_id
   if (!sources.length) return null;
   const quantities = sources.map(source => source.quantity === "" ? NaN : Number(source.quantity));
   if (quantities.some(q => !Number.isFinite(q) || q <= 0 || q > 9_999_999_999.999 || Math.abs(q * 1000 - Math.round(q * 1000)) > 0.0001)) return "amount";
-  if (new Set(sources.map(source => source.stock_batch_id)).size !== sources.length || sources[0].stock_batch_id !== row.stock_batch_id) return "duplicate";
+  if (new Set(sources.map(source => source.stock_batch_id)).size !== sources.length || sources[0]?.stock_batch_id !== row.stock_batch_id) return "duplicate";
   if (sources.some(source => String(batches[source.stock_batch_id]?.unit || "").trim().toLowerCase() !== (row.meter_mode ? "m" : "kg"))) return "incompatible";
   if (!compatiblePassportGroup(sources.map(source => batches[source.stock_batch_id]))) return "incompatible";
-  if (checkStock && sources.some((source, index) => {
+  if (checkStock && sources.some(source => {
     const available = batches[source.stock_batch_id]?.available_quantity;
-    return available != null && quantities[index] > available;
+    return available != null && Number(source.quantity) > available;
   })) return "stock";
   const total = quantities.reduce((sum, q) => sum + Math.round(q * 1000), 0);
   if (total !== Math.round(passportUsageQuantity(row) * 1000)) return "mismatch";
