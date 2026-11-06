@@ -1249,10 +1249,7 @@ def list_periods(
     current: User = Depends(require_permissions("payroll.view", "payroll.manage", "payroll.approve", "payroll.pay", "*")),
     status: str | None = None,
 ):
-    qry = db.query(PayrollPeriod).filter(PayrollPeriod.factory_code == selected_factory_code(current))
-    if status:
-        qry = qry.filter(PayrollPeriod.status == status)
-    return qry.order_by(PayrollPeriod.start_date.desc(), PayrollPeriod.id.desc()).all()
+    return payroll_service.list_periods(db, current, status)
 
 
 @router.post("/periods", response_model=PayrollPeriodOut, status_code=201)

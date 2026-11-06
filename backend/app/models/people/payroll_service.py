@@ -1,3 +1,4 @@
+
 """Payroll period creation owns validation, schedule locking, audit and commit."""
 from datetime import datetime
 
@@ -87,3 +88,10 @@ def create_period(payload: PayrollPeriodIn, db: Session, current: User) -> Payro
     db.commit()
     db.refresh(period)
     return period
+
+
+def list_periods(db: Session, current: User=None, status: str | None=None):
+    qry = db.query(PayrollPeriod).filter(PayrollPeriod.factory_code == selected_factory_code(current))
+    if status:
+        qry = qry.filter(PayrollPeriod.status == status)
+    return qry.order_by(PayrollPeriod.start_date.desc(), PayrollPeriod.id.desc()).all()
