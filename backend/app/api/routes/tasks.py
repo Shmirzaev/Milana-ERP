@@ -3,17 +3,23 @@ from sqlalchemy import func
 
 from app.core.deps import DbSession, CurrentUser
 from app.schemas import Task
-from app.libs.dto.work_management.tasks import TaskIn, TaskUpdate, TaskOut
+from app.libs.dto.work_management.tasks import TaskAssigneeOption, TaskIn, TaskUpdate, TaskOut
 from app.models.audit_service import log_action
 from app.models.work_management.tasks_service import (
     delete_task as delete_task_operation,
     complete_task as complete_task_operation,
     _can_manage, create_task as create_task_operation,
+    list_task_assignees as list_task_assignees_operation,
     update_task as update_task_operation,
 )
 from app.libs.enums.work_management import TaskStatus
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
+
+
+@router.get("/assignees", response_model=list[TaskAssigneeOption])
+def list_task_assignees(db: DbSession, current: CurrentUser):
+    return list_task_assignees_operation(db, current)
 
 
 @router.get("", response_model=list[TaskOut])
