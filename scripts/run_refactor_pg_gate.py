@@ -23,6 +23,7 @@ from refactor_pg_evidence import (
 # Minimum collected counts pin the current parameterized business cases. Adding
 # cases is allowed; removing a required case needs an explicit ledger change.
 GROUPS = {
+    'test_waste_approve_postgres': (16, ('test_pg_approve_refuses_request_before_invalid_parent', 'test_pg_approve_refuses_invalid_parent', 'test_pg_approve_refuses_invalid_waste', 'test_pg_approve_auth_refusal_audit_failure_retry', 'test_pg_approve_deferred_commit_failure_retry', 'test_pg_approval_race_serializes_on_parent')),
     'test_waste_mark_disposed_postgres': (15, ('test_pg_mark_refuses_request_before_invalid_parent', 'test_pg_mark_refuses_nonapproved_parent', 'test_pg_mark_refuses_invalid_waste', 'test_pg_mark_disposed_auth_refusal_audit_failure_retry', 'test_pg_mark_disposed_deferred_commit_failure_retry', 'test_pg_mark_disposed_race_serializes_on_parent')),
     'test_waste_disposal_integrity': (4, ('test_postgres_concurrent_disposal_has_one_effect_and_refreshes_cached_state',)),
     "test_waste_request_postgres": (3, ('test_pg_disposal_http_refusal_and_audit_failure_retry', 'test_pg_disposal_deferred_commit_failure_retry', 'test_pg_disposal_request_race_serializes_on_parent')),

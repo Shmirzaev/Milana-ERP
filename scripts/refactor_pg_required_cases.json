@@ -464,10 +464,22 @@
       ]
     },
     "test_waste_disposal_integrity": {
-      "revision": "7074bc0536f8f5aefba361d693d82b034f20f4a7",
-      "git_blob_sha256": "d25a647575509fe6b7f6e6163fe046636f4510366330d14bdff08968c2508ace",
+      "revision": "9d25728f99a6a4cd24b3ed2a5e3686322d7ff8d8",
+      "git_blob_sha256": "40a8509e8a04eadc95e5a9e79fbec57773b948ce8aa957a6e14494e75052a094",
       "selected_functions": [
         "test_postgres_concurrent_disposal_has_one_effect_and_refreshes_cached_state"
+      ]
+    },
+    "test_waste_approve_postgres": {
+      "revision": "9d25728f99a6a4cd24b3ed2a5e3686322d7ff8d8",
+      "git_blob_sha256": "ffaf7a74cc733c43567a677a1c4e495c9687043d389f10a94ead16ea2e89d87a",
+      "selected_functions": [
+        "test_pg_approve_refuses_request_before_invalid_parent",
+        "test_pg_approve_refuses_invalid_parent",
+        "test_pg_approve_refuses_invalid_waste",
+        "test_pg_approve_auth_refusal_audit_failure_retry",
+        "test_pg_approve_deferred_commit_failure_retry",
+        "test_pg_approval_race_serializes_on_parent"
       ]
     }
   },
@@ -1101,6 +1113,24 @@
       "test_postgres_concurrent_disposal_has_one_effect_and_refreshes_cached_state[actions1]",
       "test_postgres_concurrent_disposal_has_one_effect_and_refreshes_cached_state[actions2]",
       "test_postgres_concurrent_disposal_has_one_effect_and_refreshes_cached_state[actions3]"
+    ],
+    "test_waste_approve_postgres": [
+      "test_pg_approve_refuses_request_before_invalid_parent[approved]",
+      "test_pg_approve_refuses_request_before_invalid_parent[rejected]",
+      "test_pg_approve_refuses_request_before_invalid_parent[disposed]",
+      "test_pg_approve_refuses_invalid_parent[recorded]",
+      "test_pg_approve_refuses_invalid_parent[received_by_waste_department]",
+      "test_pg_approve_refuses_invalid_parent[sold]",
+      "test_pg_approve_refuses_invalid_parent[disposal_approved]",
+      "test_pg_approve_refuses_invalid_parent[disposed]",
+      "test_pg_approve_refuses_invalid_waste[sellable]",
+      "test_pg_approve_refuses_invalid_waste[zero]",
+      "test_pg_approve_refuses_invalid_waste[negative]",
+      "test_pg_approve_refuses_invalid_waste[nan]",
+      "test_pg_approve_auth_refusal_audit_failure_retry",
+      "test_pg_approve_deferred_commit_failure_retry",
+      "test_pg_approval_race_serializes_on_parent[approve]",
+      "test_pg_approval_race_serializes_on_parent[reject]"
     ]
   },
   "isolated_supplemental_cases": [

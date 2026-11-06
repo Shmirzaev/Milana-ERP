@@ -63,3 +63,14 @@ def mark_waste_disposed(db: Session, request: WasteDisposalRequest, waste: Waste
     """Apply the already-authorized disposal using the caller's transaction."""
     request.status = WasteDisposalRequestStatus.DISPOSED.value
     waste.status = WasteStatus.DISPOSED.value
+
+
+def apply_disposal_approval(
+    db: Session, request: WasteDisposalRequest, waste: WasteRecord, *,
+    approved_by: int, approved_at: datetime,
+) -> None:
+    """Apply a validated approval in the caller's existing transaction."""
+    request.status = WasteDisposalRequestStatus.APPROVED.value
+    request.approved_by = approved_by
+    request.approved_at = approved_at
+    waste.status = WasteStatus.DISPOSAL_APPROVED.value
