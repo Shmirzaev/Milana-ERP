@@ -1,8 +1,9 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
+import { localizeError } from "@/lib/errorMessages";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
 import { useMe, can } from "@/lib/auth";
@@ -18,15 +19,29 @@ export default function BrandsPage() {
   const isAdmin = can(me, "*");
   const { data, mutate } = useSWR<Brand[]>("/api/brands", fetcher);
   const [form, setForm] = useState({ name: "", description: "" });
+  const [createError, setCreateError] = useState("");
+  const [creating, setCreating] = useState(false);
+  const createInFlight = useRef(false);
   const [editing, setEditing] = useState<Brand | null>(null);
   const [edit, setEdit] = useState({ name: "", description: "", is_active: true });
   const [editMsg, setEditMsg] = useState("");
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    await api.post("/api/brands", form);
-    setForm({ name: "", description: "" });
-    mutate();
+    if (createInFlight.current) return;
+    createInFlight.current = true;
+    setCreating(true);
+    setCreateError("");
+    try {
+      await api.post("/api/brands", form);
+      setForm({ name: "", description: "" });
+      mutate();
+    } catch (error: unknown) {
+      setCreateError(error instanceof Error ? error.message : localizeError("Could not create brand."));
+    } finally {
+      createInFlight.current = false;
+      setCreating(false);
+    }
   }
   function openEdit(b: Brand) {
     setEditing(b);
@@ -55,9 +70,10 @@ export default function BrandsPage() {
     <div>
       <PageHeader title={t("page.brands.title")} />
       <form onSubmit={submit} className="card p-4 mb-6 grid grid-cols-1 md:grid-cols-3 gap-3">
-        <input className="input" placeholder={t("page.brands.title")} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
-        <input className="input" placeholder={t("field.description")} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
-        <button className="btn btn-primary">{t("btn.create")}</button>
+        <input className="input" disabled={creating} placeholder={t("page.brands.title")} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
+        <input className="input" disabled={creating} placeholder={t("field.description")} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+        <button className="btn btn-primary" disabled={creating}>{t("btn.create")}</button>
+        {createError && <div role="alert" className="text-sm text-red-600 md:col-span-3">{createError}</div>}
       </form>
       <div className="card overflow-x-auto">
         <table className="table">

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Milana Refactor"
+  short_description: "Factory-safe monolith refactoring discipline"
+  default_prompt: "Use $milana-refactor to study the assigned operation, propose its service interface, and carry out only the approved phase."

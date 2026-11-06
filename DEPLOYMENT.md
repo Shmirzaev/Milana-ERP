@@ -36,6 +36,11 @@ Nginx Proxy Manager continues routing the public domain to stable ports. It does
 
 The deployable branch must descend from the latest clean production baseline recorded in `deploy/production-base.json`.
 
+The owner-confirmed production/integration branch is `clone_main`. Its current head
+can contain work not yet deployed; verify the exact reviewed candidate and active
+release separately. Use the shared-branch coordination rule in `AGENTS.md`. Never
+release unreviewed pending changes merely because they are on this branch.
+
 Before work, verify both application VMs:
 
 ```sh
@@ -49,14 +54,13 @@ Both VMs must name the same release and manifest. If either differs from `deploy
 
 ## Make a change
 
-1. Fetch and create a clean worktree from the latest production baseline:
-
-   ```sh
-   git fetch origin
-   git worktree add ../milana-change -b codex/<short-name> <production-baseline-commit>
-   cd ../milana-change
-   git status --short
-   ```
+1. Fetch and use a separate clean working directory for the exact reviewed
+   `clone_main` lineage, reconciled with the production baseline. Never share one
+   writable checkout between engineers/agents. The team currently uses one shared
+   integration line with serialized landing; a short-lived task branch/worktree is
+   an alternative only when accepted by the team. Continue an existing isolated
+   task worktree when appropriate. Reconcile the full candidate diff with active
+   production before preparing a release.
 
 2. Read `AGENTS.md` and relevant `docs/PROJECT_CONTEXT.md` sections.
 3. Make one scoped change with workflow and authorization regression tests.
@@ -76,7 +80,14 @@ Both VMs must name the same release and manifest. If either differs from `deploy
    ```
 
 5. Review `git diff --check`, the complete baseline diff, and all previously deployed performance contracts.
-6. Commit, push a change branch, and merge only after CI passes. Never copy uncommitted files directly to production.
+6. Review and test the exact change, then land into `clone_main` through the single
+   integration queue when authorized. Re-fetch and rerun affected checks if another
+   change landed first. Require passing CI for the exact release candidate before
+   promotion; never copy uncommitted files directly to production. At inspected
+   source `5c45531d`, direct `clone_main` pushes are not included in the CI push
+   trigger, so do not infer a pass from a push. RF-004 in `docs/REFACTOR_PLAN.md`
+   tracks that separately approved tooling correction; until then use the existing
+   explicit candidate validation/artifact workflow and verify its source SHA.
 
 ## Build immutable artifacts
 
@@ -95,6 +106,12 @@ disables cache reuse, so every release compiles the checked-out application even
 when its dependency layer is reused. Both builds still pull base images, and all
 local/CI validation and production gates remain required. The first cache export
 may add time; later releases can reuse those layers.
+
+The frontend Dockerfile uses the repository root as its build context
+(`docker build -f frontend/Dockerfile .`). Its builder includes backend application
+source for cross-layer contract checks in `npm run build`; the runtime stage
+contains only the frontend standalone output and assets. Do not narrow the build
+context to `frontend/` or skip these contract checks.
 
 The workflow summary reports **Artifacts ready**, the exact source commit and
 manifest, and both image digests. This means the candidate is built, not live.
@@ -128,6 +145,59 @@ Create a unique PostgreSQL custom-format backup without printing `DATABASE_URL`.
 - more than 100 restore objects;
 - recorded dump/restore-list sizes and SHA-256 values.
 
+Uploaded files are on the backend host's `/app/storage` bind mount, outside the
+database dump. For an approved coordinated recovery point, quiesce database and
+upload writes, take the dump and a snapshot/copy of the entire mount, then run
+this on an isolated host with `pg_restore` and both copied artifacts. Create a
+pairing manifest **outside** both artifacts:
+
+```sh
+python scripts/storage_recovery_manifest.py create \
+  --database-dump <path-to-custom-format.dump> \
+  --storage-root <path-to-storage-snapshot> \
+  --output <path-to-pairing-manifest.json>
+python scripts/storage_recovery_manifest.py verify \
+  --manifest <path-to-pairing-manifest.json> \
+  --database-dump <path-to-custom-format.dump> \
+  --storage-root <path-to-storage-snapshot>
+```
+
+The verifier reads the supplied artifacts only. It checks the dump hash,
+every storage file hash, missing/extra files, and known database upload URLs
+and stored filenames using local `pg_restore`; it does not connect to a
+database. A nonzero result blocks use of the pair (1 is a mismatch; 2 is
+invalid input or an unreadable artifact). Keep the mode-`0600` manifest
+with the artifacts. A manifest cannot prove the dump and file snapshot were
+captured at the same instant; record the quiesce interval and backup identities.
+It does not replace an isolated restore drill or establish the zero-RPO target.
+
+Before applying a new revision, prove the retained rollback backend can start
+on the target schema with its actual image command and strict production settings.
+Inspect the effective environment of every candidate and rollback backend: startup
+seeding and schema bootstrap must be disabled. Updating the shared environment file
+does not change an existing container's environment; recreate only the inactive slot.
+Startup seeding can reset configured credentials or permissions even when no business
+form is submitted. An omitted Docker image entrypoint is equivalent to a null default;
+still verify the actual command and refuse overrides.
+An additive table alone does not establish compatibility: the exact-head startup
+verifier also runs on worker replacement. In isolated owned infrastructure, verify
+two fresh workers, child replacement, full container restart, health and readiness.
+If the old image rejects the new head, first build and test an immutable compatibility
+image containing the exact old application plus the reviewed migration metadata.
+Do not downgrade/stamp production or bypass startup/security checks to make it boot.
+
+After the feature cutover and closing gates, a compatible previous application may
+replace the inactive rollback slot. Hold owned deployment locks on both hosts,
+retain the original state/resource evidence, and verify source manifests, exact
+image digests/revisions, real default command, strict schema head, workers, zero
+OOM/restarts and unchanged business ledger. Confirm actual proxy routing agrees
+with active state before replacing any inactive container. Register the compatible
+release through an atomic compare-and-set of only rollback fields using the
+installed controller; leave active routing, source and container IDs unchanged.
+Record each host's phase because cross-host writes are not globally atomic. Recovery
+attempts each host independently, preserves all data and uses its inactive color;
+never replace an active slot or relabel an old image as a different source commit.
+
 Run candidate migrations before traffic switch:
 
 ```sh
@@ -147,6 +217,14 @@ docker run --rm \
 Prefer forward-compatible migrations. Application rollback does not downgrade the database.
 
 ## Stage inactive slots
+
+On the backend VM, install the reviewed slot manager from the extracted release
+before staging. The shared copy is not updated by extracting source:
+
+```sh
+sudo install -m 0644 /opt/milana-erp/releases/<release_id>/deploy/slotctl.py /opt/milana-erp/shared/deploy/slotctl.py
+cmp /opt/milana-erp/releases/<release_id>/deploy/slotctl.py /opt/milana-erp/shared/deploy/slotctl.py
+```
 
 Read slot state:
 
@@ -171,6 +249,7 @@ sudo python /opt/milana-erp/shared/deploy/slotctl.py stage \
 ```
 
 The manager binds loopback-only candidates, refuses to replace the active slot, waits for health, and warms routes. Backend slots use two workers and an 8+4 pool per worker, keeping overlap below the 100-connection PostgreSQL ceiling.
+For the backend, `slotctl.py` also passes the staged release ID to the container as `RELEASE_ID`; `/health` and `/ready` report it as `release`. Use the ID from the reviewed release manifest when staging, and compare the stable endpoint's reported value after switching traffic. A backend started without this variable reports `unknown`.
 
 ## Performance and functional gate
 
@@ -266,8 +345,8 @@ python scripts/observe_release.py \
 For high or uncertain risk, use `--risk high` (the default); record the affected
 area in `--reason`. There is no arbitrary duration override. Before starting,
 verify that the supplied identity matches both active slot states and the reviewed
-artifact. The observer records this identity; HTTP health checks alone do not
-independently prove which release is serving traffic.
+artifact. Compare the `release` field from internal and public `/health` with that
+identity: the observer records the supplied ID but checks HTTP status only.
 
 The observer automatically checks all four required endpoints every 30 seconds
 using GET/HEAD only, records evidence, and reports start, failures and finish.

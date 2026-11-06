@@ -9,7 +9,7 @@ const javascript = ts.transpileModule(source, {
 const { materializeLegacyPaidOperations, paidOperationsFromDetails, serializePaidOperations } =
   await import(`data:text/javascript;base64,${Buffer.from(javascript).toString("base64")}`);
 const page = fs.readFileSync("src/app/(app)/process-qr/page.tsx", "utf8");
-const calls = [...page.matchAll(/materializeLegacyPaidOperations\(paidOperationsFromDetails\(selectedModel.details_json\), \[accountPaidOperationFactory\]\)/g)];
+const calls = [...page.matchAll(/materializeLegacyPaidOperations\(paidOperationsFromDetails\(selectedModel.details_json, !isUslugaModel\), \[accountPaidOperationFactory\]\)/g)];
 assert.equal(calls.length, 3, "automatic load, explicit reload and inference must use the session factory");
 assert.ok(page.includes('<th scope="col" className="w-12">№</th>'));
 assert.ok(page.includes('<td className="tabular-nums">{operationIndex + 1}</td>'));
@@ -38,3 +38,9 @@ for (const factory of ["milana", "besttex", "eco_cotton"]) {
   assert.equal(load({ paid_operations: allFactories }).length, 3, "admin reads must retain configured hidden factories for the full-list save endpoint");
 }
 console.log("Process QR factory loading, save round-trip, and row numbering checks passed.");
+
+for (const details of [{}, { paid_operations: null }, { paidOperations: null }, { paid_operations: [] }]) {
+  assert.deepEqual(paidOperationsFromDetails(details, false), [], "Usluga never adds default processes");
+}
+const savedUsluga = { paid_operations: [{ id: "custom", code: "UOP-0001", name: "Custom service", rate: "123" }] };
+assert.equal(paidOperationsFromDetails(savedUsluga, false)[0].rate, "123", "saved Usluga work remains intact");

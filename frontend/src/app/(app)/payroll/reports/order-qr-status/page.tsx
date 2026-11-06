@@ -1,8 +1,10 @@
 "use client";
+import { formatModelVariantCode } from "@/lib/variantDisplay";
 import { formatOrderReference } from "@/lib/orderRef";
 
 import { useMemo, useState } from "react";
 import useSWR from "swr";
+import useLoadMore from "@/lib/useLoadMore";
 import { CheckCircle2, Clock3, FileSearch, QrCode, Search } from "lucide-react";
 
 import PageHeader from "@/components/PageHeader";
@@ -16,7 +18,7 @@ import type {
   OrderQrStatusResponse,
 } from "@/lib/orderQrStatus";
 
-const DEFAULT_PAGE_SIZE = 100;
+const DEFAULT_PAGE_SIZE = 50;
 
 function number(value: number | string | null | undefined, lang: string) {
   return Number(value || 0).toLocaleString(lang, { maximumFractionDigits: 2 });
@@ -89,7 +91,8 @@ export default function OrderQrStatusPage() {
     if (status) params.set("status", status);
     return `/api/payroll/reports/order-qr-status?${params.toString()}`;
   }, [page, pageSize, selectedOrder, status]);
-  const { data, error, isLoading } = useSWR<OrderQrStatusResponse>(reportUrl, fetcher);
+  const listPager = useLoadMore<OrderQrStatusResponse>(reportUrl, fetcher);
+  const { data, error, isLoading } = listPager;
 
   function chooseOrder(event: React.FormEvent) {
     event.preventDefault();
@@ -132,7 +135,7 @@ export default function OrderQrStatusPage() {
               <datalist id="order-qr-options">
                 {orderOptions.map((option) => (
                   <option key={option.order_no} value={option.order_no}>
-                    {[...option.production_nos.map(value => formatOrderReference(value)), ...option.model_codes].join(" · ")}
+                    {[...option.production_nos.map(value => formatOrderReference(value)), ...option.model_codes.map(formatModelVariantCode)].join(" · ")}
                   </option>
                 ))}
               </datalist>
@@ -169,7 +172,7 @@ export default function OrderQrStatusPage() {
               </div>
               <div className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-3">
                 <div><span className="text-[#817966]">{t("page.orderQr.productionOrder")}:</span> {compactList(data.production_nos.map(value => formatOrderReference(value)))}</div>
-                <div><span className="text-[#817966]">{t("page.orderQr.model")}:</span> {compactList(data.model_codes)}</div>
+                <div><span className="text-[#817966]">{t("page.orderQr.model")}:</span> {compactList(data.model_codes.map(formatModelVariantCode))}</div>
                 <div><span className="text-[#817966]">{t("page.orderQr.batch")}:</span> {compactList(data.batch_nos)}</div>
               </div>
             </div>
@@ -304,12 +307,11 @@ export default function OrderQrStatusPage() {
                 </tbody>
               </table>
             </div>
-            <PaginationControls
+            <PaginationControls loading={listPager.isValidating} error={listPager.error} onRetry={() => void listPager.mutate()}
               page={page}
               pageSize={pageSize}
               total={data.total}
               count={data.items.length}
-              pageSizeOptions={[50, 100, 200, 500]}
               onPageChange={setPage}
               onPageSizeChange={(next) => {
                 setPageSize(next);

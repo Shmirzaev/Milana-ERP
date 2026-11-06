@@ -1,4 +1,7 @@
 "use client";
+import { SalesOrderType, salesOrderCreateType, type SalesOrderCreateType } from "@/lib/salesOrderEnums";
+import type { SalesOrderCreateInput, SalesOrderSummary } from "@/lib/salesOrderContracts";
+import { localizeError } from "@/lib/errorMessages";
 import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import { ArrowLeft, Plus, Trash2 } from "lucide-react";
@@ -7,6 +10,7 @@ import { modelOptionsByIdsFetcher, modelOptionsByIdsKey } from "@/lib/useModelOp
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
 import ModelAsyncSelect from "@/components/ModelAsyncSelect";
+import SalesLineThumbnails from "@/components/SalesLineThumbnails";
 import SearchableSelect from "@/components/SearchableSelect";
 import { can, useMe } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
@@ -97,7 +101,7 @@ export default function NewSalesOrderPage() {
   const [customerSaving, setCustomerSaving] = useState(false);
   const [customerError, setCustomerError] = useState("");
   const [brandId, setBrandId] = useState<number | "">("");
-  const [orderType, setOrderType] = useState("client_order");
+  const [orderType, setOrderType] = useState<SalesOrderCreateType>(SalesOrderType.CLIENT_ORDER);
   const [deadline, setDeadline] = useState("");
   const [printingInstructions, setPrintingInstructions] = useState("");
   const [printingAttachments, setPrintingAttachments] = useState<PrintingAttachment[]>([]);
@@ -115,7 +119,7 @@ export default function NewSalesOrderPage() {
   ]);
   const { data: models } = useSWR<any[]>(salesModelOptionsKey, modelOptionsByIdsFetcher);
 
-  const isBrandedOrder = orderType === "branded_stock_sale";
+  const isBrandedOrder = orderType === SalesOrderType.BRANDED_STOCK_SALE;
   const canCreateCustomer = can(me, "sales.customers");
   const brandedPackSize = BRANDED_PACK_SIZE;
   const modelMap = useMemo(() => new Map((models ?? []).map((m) => [Number(m.id), m])), [models]);
@@ -240,7 +244,7 @@ export default function NewSalesOrderPage() {
           : line
       )));
     } catch (error) {
-      setErr(error instanceof Error ? error.message : "Unable to load the variant price");
+      setErr(error instanceof Error ? error.message : localizeError("Unable to load the variant price"));
     }
   }
   function addLine() {
@@ -322,7 +326,7 @@ export default function NewSalesOrderPage() {
       }
       setPrintingAttachments((prev) => [...prev, ...uploaded]);
     } catch (e: any) {
-      setErr(e.message || "Failed to upload file");
+      setErr(e.message || localizeError("Failed to upload file"));
     } finally {
       setUploadingPrintFile(false);
     }
@@ -401,7 +405,7 @@ export default function NewSalesOrderPage() {
         }
       }
 
-      const payload: any = {
+      const payload: SalesOrderCreateInput = {
         customer_id: customerId || null,
         order_type: orderType,
         deadline: deadline || null,
@@ -418,7 +422,7 @@ export default function NewSalesOrderPage() {
           brand_id: brandId || null,
         })),
       };
-      const so = await api.post("/api/sales-orders", payload);
+      const so = await api.post<SalesOrderSummary>("/api/sales-orders", payload);
       window.location.href = `/sales-orders/${so.id}`;
     } catch (e: any) {
       setErr(e.message);
@@ -449,9 +453,12 @@ export default function NewSalesOrderPage() {
             <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
               <div>
                 <label className="label">{t("sales.orderType")}</label>
-                <select className="input" value={orderType} onChange={(e) => setOrderType(e.target.value)}>
-                  <option value="client_order">{t("orderType.client")}</option>
-                  <option value="branded_stock_sale">{t("orderType.branded")}</option>
+                <select className="input" value={orderType} onChange={(e) => {
+                  const next = salesOrderCreateType(e.target.value);
+                  if (next !== null) setOrderType(next);
+                }}>
+                  <option value={SalesOrderType.CLIENT_ORDER}>{t("orderType.client")}</option>
+                  <option value={SalesOrderType.BRANDED_STOCK_SALE}>{t("orderType.branded")}</option>
                 </select>
               </div>
               <div>
@@ -591,6 +598,7 @@ export default function NewSalesOrderPage() {
                               />
                             </div>
                           )}
+                          <SalesLineThumbnails key={l.model_id} modelId={l.model_id} />
                         </td>
                         {!isBrandedOrder && <>
                           <td className="align-top"><input className="input min-w-28" value={l.color} onChange={(e) => updateLine(i, "color", e.target.value)} /></td>

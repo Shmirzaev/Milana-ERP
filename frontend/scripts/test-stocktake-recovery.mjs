@@ -70,7 +70,7 @@ function visit(node) {
 visit(ast);
 assert(drainSource);
 const js = ts.transpile(drainSource, { target: ts.ScriptTarget.ES2020 });
-async function runDrain({ reject = false, unmount = false, completed = false } = {}) {
+async function runDrain({ reject = false, unmount = false, completed = false, busy = false } = {}) {
   const store = new MemoryStorage();
   addStocktakePending(store, prefix, scan("first", "PACK-FIRST"));
   const queue = { current: readStocktakePending(store, prefix) };
@@ -79,14 +79,14 @@ async function runDrain({ reject = false, unmount = false, completed = false } =
   let release;
   const response = new Promise((resolve, rejectPromise) => { release = reject ? () => rejectPromise(new Error("offline")) : () => resolve({ duplicate: false, row: { id: 1, scan_snapshot: { model_code: "XJ5614", quantity: 24 }, scanned_pieces: 24 } }); });
   const env = {
-    queue, mounted, saving, failed, completed, localStorage: store, storageKey: prefix, base: "/api/warehouse-stocktakes/11",
+    queue, mounted, saving, failed, completed, busy, localStorage: store, storageKey: prefix, base: "/api/warehouse-stocktakes/11",
     removeStocktakePending, refreshQueue: () => { queue.current = readStocktakePending(store, prefix); },
     api: { post: (path, body) => { calls.push({ path, body }); return calls.length === 1 ? response : Promise.resolve({ duplicate: false, row: { id: 2 } }); } },
     setFeedback: value => feedback.push(value), setPending() {}, setUnsaved() {}, setFailure: value => failures.push(value), mutate() {},
   };
   const drain = new Function(...Object.keys(env), `${js}; return drain;`)(...Object.values(env));
   const running = drain();
-  if (!completed) {
+  if (!completed && !busy) {
     if (!reject) removeStocktakePending(store, prefix, "first");
     addStocktakePending(store, prefix, scan("second", "PACK-SECOND", 2));
     queue.current = readStocktakePending(store, prefix);
@@ -111,4 +111,5 @@ assert.equal(gone.calls.length, 1, "unmounted/user-switched session must stop dr
 assert.deepEqual(gone.feedback, []);
 assert.deepEqual(gone.remaining.map(row => row.code), ["PACK-SECOND"]);
 assert.equal((await runDrain({ completed: true })).calls.length, 0);
+assert.equal((await runDrain({ busy: true })).calls.length, 0, "scan retry must wait while deletion is in progress");
 console.log("PASS: stocktake durable user/count recovery, cross-tab acknowledgements, interrupted migration, saved selection, immediate scan evidence and async unmount/failure guards.");

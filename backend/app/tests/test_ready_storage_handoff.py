@@ -3,7 +3,7 @@
 from uuid import uuid4
 
 from app.db.session import SessionLocal
-from app.models import Customer, FinishedGoodsStock, Invoice, Model, Package, PackageItem
+from app.schemas import Customer, FinishedGoodsStock, Invoice, Model, Package, PackageItem
 
 
 def test_manual_packs_count_sales_review_dispatch_and_reprint(client, auth_headers):

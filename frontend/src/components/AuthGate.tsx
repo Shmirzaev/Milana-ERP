@@ -1,7 +1,8 @@
 "use client";
-import { hasInventoryPathAccess } from "@/lib/access";
+import { factoryWorkspaceHome, hasInventoryPathAccess, packagingDepartmentForSession } from "@/lib/access";
 import { useEffect, useState } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { SWRConfig } from "swr";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { can, useMe } from "@/lib/auth";
 import { api } from "@/lib/api";
 import { isSewingRole, isSewingWorkspacePath, sewingWorkspaceHome } from "@/lib/access";
@@ -9,6 +10,7 @@ import { useT } from "@/lib/i18n";
 import { isAbbosbekPricingUser, isAccessoryPricingUser } from "@/lib/priceCalculationRequests";
 
 const SUPER_ADMIN_PERMISSION = "admin.super";
+const FACTORY_PAYROLL_CACHE = { provider: () => new Map() };
 
 type RouteGuard = {
   prefix: string;
@@ -19,13 +21,19 @@ type RouteGuard = {
 };
 
 const ROUTE_GUARDS: RouteGuard[] = [
+  { prefix: "/besttex/cutting-orders", perms: ["besttex.cutting_sheets"] },
+  { prefix: "/dashboards/cutting", perms: ["cutting.records", "cutting.bundles", "planning.production", "*"] },
+  { prefix: "/dashboards/printing", perms: ["printing.records", "printing.bundles", "planning.production", "*"] },
+  { prefix: "/dashboards/warehouse", perms: ["storage.packages", "storage.shipment", "*"] },
+  { prefix: "/eco-fabric-transfers", perms: ["inventory.eco_transfers"] },
   { prefix: "/fabric-scans", perms: ["cutting.records", "cutting.bundles", "storage.receive", "storage.items", "planning.production", "management.view"] },
   { prefix: "/admin/data", superOnly: true },
   { prefix: "/admin/mcp", superOnly: true },
   { prefix: "/admin/users", perms: ["admin.users", "*"] },
   { prefix: "/admin/departments", perms: ["*"] },
   { prefix: "/admin/audit-logs", perms: ["admin.audit", "*"] },
-  { prefix: "/admin/employees", perms: ["hr.employees", "*"] },
+  { prefix: "/admin/employees", perms: ["hr.employees", "payroll.manage", "*"] },
+  { prefix: "/hr/employees", perms: ["hr.employees", "payroll.manage", "*"] },
   { prefix: "/hr", perms: ["hr.employees", "*"] },
   { prefix: "/customers", perms: ["sales.customers", "sales.orders", "finance.view", "*"] },
   { prefix: "/sales/price-requests", perms: ["sales.orders", "*"] },
@@ -50,8 +58,10 @@ const ROUTE_GUARDS: RouteGuard[] = [
   { prefix: "/warehouse-stock", perms: ["storage.packages", "storage.shipment", "*"] },
   { prefix: "/warehouse-map", perms: ["storage.packages", "storage.shipment", "*"] },
   { prefix: "/shipments", perms: ["storage.shipment", "*"] },
+  { prefix: "/packages/print-runs", perms: ["storage.packages", "*"] },
   { prefix: "/packages/scan", perms: ["packaging.packages", "storage.packages", "*"] },
   { prefix: "/packaging/reports", perms: ["packaging.records", "packaging.packages", "planning.production", "*"] },
+  { prefix: "/packaging/partial", perms: ["packaging.records", "packaging.packages", "planning.production", "*"] },
   { prefix: "/packages", perms: ["packaging.packages", "storage.packages", "storage.shipment", "*"] },
   { prefix: "/bundles/scan/cutting", perms: ["cutting.bundles", "cutting.records", "*"] },
   { prefix: "/bundles/scan/printing", perms: ["printing.bundles", "printing.records", "*"] },
@@ -75,6 +85,7 @@ const ROUTE_GUARDS: RouteGuard[] = [
   { prefix: "/payroll/reports/order-qr-status", perms: ["payroll.view", "payroll.manage", "payroll.pay", "*"] },
   { prefix: "/payroll/reports/sewing-production", perms: ["payroll.view", "payroll.manage", "payroll.pay", "*"] },
   { prefix: "/payroll/scan", perms: ["payroll.scan", "payroll.manage", "*"] },
+  { prefix: "/payroll/employees", perms: ["payroll.manage", "*"] },
   { prefix: "/payroll", perms: ["payroll.view", "payroll.manage", "payroll.pay", "*"] },
   { prefix: "/attendance", perms: ["attendance.view", "attendance.manage", "*"] },
   { prefix: "/usluga", perms: ["usluga.view", "usluga.manage", "usluga.handover", "*"] },
@@ -85,7 +96,7 @@ const ROUTE_GUARDS: RouteGuard[] = [
 function isSuperAdmin(me: ReturnType<typeof useMe>["me"]) {
   return Boolean(
     me?.permissions.includes(SUPER_ADMIN_PERMISSION) ||
-    (me?.role ?? "").trim().toLowerCase() === "super admin",
+    (!me?.access_configured && (me?.role ?? "").trim().toLowerCase() === "super admin"),
   );
 }
 
@@ -94,6 +105,7 @@ function routeMatches(pathname: string, guard: RouteGuard) {
 }
 
 function hasRouteAccess(me: ReturnType<typeof useMe>["me"], pathname: string) {
+  if (pathname === "/besttex/cutting-orders") return can(me, "besttex.cutting_sheets") && (me?.factory_code === "BST" || can(me, "*"));
   if (isSewingRole(me)) return isSewingWorkspacePath(pathname);
   const guard = ROUTE_GUARDS.find((entry) => routeMatches(pathname, entry));
   if (!guard) return true;
@@ -106,20 +118,23 @@ function hasRouteAccess(me: ReturnType<typeof useMe>["me"], pathname: string) {
 export default function AuthGate({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname() || "/";
-  const searchParams = new URLSearchParams(typeof window === "undefined" ? "" : window.location.search);
+  const searchParams = useSearchParams();
   const { me, error, loading, hasToken, refresh } = useMe();
   const { t } = useT();
   const [factorySwitchError, setFactorySwitchError] = useState("");
-  const redirectRestrictedSewingRole = Boolean(me && isSewingRole(me) && !isSewingWorkspacePath(pathname));
+  const redirectRestrictedSewingRole = Boolean(me && isSewingRole(me) && !isSewingWorkspacePath(pathname)
+    && !(pathname === "/besttex/cutting-orders" && hasRouteAccess(me, pathname)));
   const restrictedSewingHome = sewingWorkspaceHome(me);
   const factoryHome = isSewingRole(me)
     ? restrictedSewingHome
-    : me?.factory_code === "BST"
-      ? "/departments/BST"
-      : me?.factory_code === "ECO"
-        ? "/departments/ECT"
-        : "/";
-  const redirectNonMilanaHome = Boolean(me && pathname === "/" && me.factory_code !== "MIL");
+    : factoryWorkspaceHome(me);
+  // Recover sessions/bookmarks sent to the old factory-wide login destination.
+  const deniedFactoryLanding = Boolean(me && !hasRouteAccess(me, pathname) && (
+    (me.factory_code === "BST" && pathname === "/departments/BST")
+    || (me.factory_code === "ECO" && pathname === "/departments/ECT")
+  ));
+  const redirectNonMilanaHome = Boolean(me && me.factory_code !== "MIL"
+    && pathname !== factoryHome && (pathname === "/" || deniedFactoryLanding));
   const operationalFactory = (() => {
     if (pathname === "/usluga" || pathname.startsWith("/usluga/")) return "ECO";
     const department = pathname.match(/^\/departments\/(CUT|PRT|SEW|MIL|PKG|BST|BPK|ECT|ECO|ECP)(?:\/|$)/)?.[1];
@@ -133,13 +148,13 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     }
     if (pathname === "/packages/scan") return null;
     if (pathname === "/packages" || pathname.startsWith("/packaging/")) {
-      const code = (searchParams.get("packaging_department") || "PKG").toUpperCase();
-      return code === "BPK" ? "BST" : code === "ECP" ? "ECO" : "MIL";
+      const code = packagingDepartmentForSession(me, searchParams.get("packaging_department"));
+      return code === "BPK" ? "BST" : code === "ECP" ? "ECO" : code === "PKG" ? "MIL" : "INVALID";
     }
-    if (pathname === "/bundles" || pathname.startsWith("/cutting-") || pathname.startsWith("/bundles/scan/cutting")) {
+    if (pathname === "/dashboards/cutting" || pathname === "/bundles" || pathname.startsWith("/cutting-") || pathname.startsWith("/bundles/scan/cutting")) {
       return (searchParams.get("cutting_department") || "CUT").toUpperCase() === "ECT" ? "ECO" : "MIL";
     }
-    if (pathname.startsWith("/bundles/scan/printing")) return "MIL";
+    if (pathname === "/dashboards/printing" || pathname.startsWith("/bundles/scan/printing")) return "MIL";
     return null;
   })();
   const canSwitchOperationalFactory = Boolean(
@@ -166,11 +181,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     // Only redirect once /me definitively rejects the auth cookie.
     if (hasToken === false) router.replace("/login");
-    if (error) {
-      // Session rejected by the API (expired/invalid) -> clear it and bounce to login.
-      api.logout().finally(() => router.replace("/login"));
-    }
-  }, [hasToken, error, router]);
+  }, [hasToken, router]);
 
   useEffect(() => {
     if (redirectRestrictedSewingRole) router.replace(restrictedSewingHome);
@@ -180,6 +191,12 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     if (redirectNonMilanaHome) router.replace(factoryHome);
   }, [factoryHome, redirectNonMilanaHome, router]);
 
+  if (error && hasToken === undefined && !loading) {
+    return <div className="p-6 text-slate-600" role="alert">
+      <p>{t("auth.connectionFailed")}</p>
+      <button className="btn mt-3" onClick={() => { void refresh().catch(() => {}); }}>{t("common.retry")}</button>
+    </div>;
+  }
   // Still detecting the cookie-backed session, or /me hasn't responded yet -> spinner.
   if (hasToken === undefined || (hasToken && (loading || !me))) {
     return <div className="p-6 text-slate-500">{t("common.loading")}</div>;
@@ -192,6 +209,11 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   }
   if (!hasInventoryPathAccess(me, `${pathname}?${searchParams}`) || !hasRouteAccess(me, pathname) || (operationalFactory && operationalFactory !== me?.factory_code)) {
     return <div className="p-6 text-slate-600">{t("auth.accessDenied")}</div>;
+  }
+  if ((me?.factory_code === "ECO" || me?.factory_code === "BST") && (pathname === "/process-qr" || pathname === "/payroll" || pathname.startsWith("/payroll/"))) {
+    // Shared URLs must never reuse another factory's cached salaries, labels,
+    // employees or model data after switching into the factory workspace.
+    return <SWRConfig key={`${me.factory_code}:${me.id}`} value={FACTORY_PAYROLL_CACHE}>{children}</SWRConfig>;
   }
   return <>{children}</>;
 }

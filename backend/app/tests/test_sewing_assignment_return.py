@@ -4,7 +4,7 @@ from uuid import uuid4
 import pytest
 
 from app.db.session import SessionLocal
-from app.models import Department, ProductionOrder, SewingAssignment, SewingDailyReport, SewingFlow, WorkOrder
+from app.schemas import Department, ProductionOrder, SewingAssignment, SewingDailyReport, SewingFlow, WorkOrder
 
 
 def make_assignment(*, factory="MIL", completed=0, report=False):

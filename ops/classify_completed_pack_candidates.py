@@ -16,7 +16,7 @@ from sqlalchemy import func, or_, text
 
 from app.core.config import settings
 from app.db.session import SessionLocal
-from app.models import LegacyStockReceipt, Model, Package, PackageBarcodeAlias
+from app.schemas import LegacyStockReceipt, Model, Package, PackageBarcodeAlias
 
 
 SOURCE_SYSTEM = "UZERP_STICKER_PHOTO"

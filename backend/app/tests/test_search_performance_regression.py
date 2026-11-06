@@ -5,7 +5,7 @@ from sqlalchemy import event
 
 def test_inventory_search_uses_windowed_totals_and_bulk_reservations(client, auth_headers):
     from app.db import session as session_module
-    from app.models import StockBatch
+    from app.schemas import StockBatch
 
     marker = f"SEARCH-PERF-{uuid4().hex[:10]}"
     db = session_module.SessionLocal()

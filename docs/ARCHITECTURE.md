@@ -1,6 +1,14 @@
 # Milana ERP Architecture
 
-This document captures the current production shape of the system. Update it whenever deployment topology, authentication, storage, or trust boundaries change.
+This document describes system topology and trust boundaries, not proof that every
+legacy route already follows the target layering. Use [the backend guide](../backend/app/README.md)
+and [shared skills](AGENT_SKILLS.md) for implementation discipline. Update it whenever deployment topology, authentication, storage, or trust boundaries change.
+
+The required application write path is route -> dedicated business service ->
+schema-model persistence operation -> database, using one supplied Session and
+an outer service transaction. See [the engineering workflow](ENGINEERING_WORKFLOW.md)
+for layer ownership, typed contracts and verification. This target remains under
+migration; the diagram below does not certify current route/service compliance.
 
 ## System Context
 
@@ -13,7 +21,6 @@ flowchart LR
     db["PostgreSQL VM · 172.16.10.3"]
     storage["Backend local file storage"]
     email["Email provider or SMTP"]
-    onec["1C integration client"]
 
     user --> browser
     browser --> frontend
@@ -21,7 +28,6 @@ flowchart LR
     api --> db
     api --> storage
     api --> email
-    onec -->|X-1C-Token| api
 ```
 
 ## Authentication Flow
@@ -45,6 +51,10 @@ sequenceDiagram
 
 Machine clients use `POST /api/auth/token` and send `Authorization: Bearer <token>`. Browser login does not expose the bearer token to JavaScript.
 
+Finance uses the manual invoice and payment workflows. The unused 1C connector
+has been retired: its sync API and credential configuration are removed.
+Historical invoice/payment import identifiers remain stored for traceability.
+
 ## Request Trust Boundaries
 
 ```mermaid
@@ -55,6 +65,7 @@ flowchart TB
     middleware["FastAPI middleware"]
     route["Permissioned route"]
     service["Domain service"]
+    schema["Schema-owned persistence"]
     database["Database"]
 
     internet --> browser
@@ -62,7 +73,9 @@ flowchart TB
     proxy --> middleware
     middleware -->|rate limit, CORS, CSRF origin, headers| route
     route -->|CurrentUser + require_permissions| service
-    service --> database
+    service -->|rules checked; same Session| schema
+    schema -->|insert / update / delete| database
+    service -->|read queries within ownership| database
 ```
 
 ## Sensitive File Access
@@ -107,8 +120,8 @@ Audit rows store `prev_hash` and `entry_hash`. This provides tamper evidence for
 - Frontend: Next.js App Router on the production frontend VM.
 - Backend: FastAPI, SQLAlchemy, Alembic, deployed as a release-tagged Docker service on the production backend VM.
 - The canonical topology and release procedure are defined in `DEPLOYMENT.md`.
-- Database: PostgreSQL in production, SQLite only for tests.
+- Database: PostgreSQL in production and isolated database-specific tests; SQLite in the default backend test fixtures.
 - Auth: HttpOnly cookie for browser sessions; bearer token endpoint for machine clients.
 - Authorization: role permissions stored as JSON strings with `*` as superadmin wildcard.
 - Files: generated barcodes/model files/sales-order attachments in backend storage paths.
-- CI: backend tests, Bandit, pip-audit, Ruff, frontend npm audit, lint, typecheck, and build.
+- CI: backend tests, Ruff and compilation; frontend lint, typecheck, browser regressions, and build. Bandit, pip-audit, and npm audit do not currently run in CI.

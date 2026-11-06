@@ -1,10 +1,11 @@
-FROM node:20-alpine AS dependencies
+# Build from the repository root: docker build -f frontend/Dockerfile .
+FROM node:24-alpine AS dependencies
 
 WORKDIR /app
-COPY package.json package-lock.json ./
+COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci --legacy-peer-deps
 
-FROM node:20-alpine AS builder
+FROM node:24-alpine AS builder
 
 WORKDIR /app
 ARG NEXT_PUBLIC_API_URL
@@ -13,10 +14,12 @@ ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL} \
     API_URL=${API_URL} \
     NEXT_TELEMETRY_DISABLED=1
 COPY --from=dependencies /app/node_modules ./node_modules
-COPY . .
+COPY frontend/ ./
+# Cross-layer build contracts read ../backend. This source stays in the builder.
+COPY backend/app/ /backend/app/
 RUN npm run build
 
-FROM node:20-alpine AS runtime
+FROM node:24-alpine AS runtime
 
 WORKDIR /app
 ENV NODE_ENV=production \
@@ -24,7 +27,9 @@ ENV NODE_ENV=production \
     HOSTNAME=0.0.0.0 \
     PORT=3000
 
-RUN addgroup --system --gid 1001 nodejs \
+# Standalone startup uses node directly; npm is needed only while building.
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx \
+ && addgroup --system --gid 1001 nodejs \
  && adduser --system --uid 1001 nextjs
 
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public

@@ -14,6 +14,7 @@ const files = [
   'lib/i18n/locales/en-base.ts', 'lib/i18n/locales/en-supplemental.ts',
   'lib/orderRef.ts', 'components/payroll/ControlScanReview.tsx', 'lib/numberInput.ts', 'lib/batchSerial.ts', 'lib/payrollScanStorage.ts', 'lib/modelCode.ts',
   'components/SearchableSelect.tsx', 'components/PayrollEmployeeSearch.tsx',
+  'lib/variantDisplay.ts', 'components/Modal.tsx', 'components/payroll/ScanSplit.tsx',
   'app/(app)/payroll/scan/page.tsx',
 ];
 const code = files.map(file => {
@@ -50,9 +51,10 @@ const modules = {
     },
     post: async (p,b)=>{
       window.calls.push({p,b});
+      if(p.endsWith('/split')) return b.parts.map((part,i)=>({id:300+i,scan_uid:'split-'+i,employee_id:part.employee_id,employee_name:'Durdona Azamova',department_name:'MIL Sewing',quantity:String(part.quantity),rate_per_piece:'100',total_amount:String(part.quantity*100),scanned_at:'2026-09-30T07:00:00Z',status:'recorded',raw_work_json:{operation_name:'Sewing',operation_code:'S1'}}));
       if(p!=='/api/payroll/scan/numeric-work')throw new Error('Unexpected payroll write');
       if(b.token==='200000002')await new Promise(resolve=>window.release.work=resolve);
-      return {record:{id:Number(b.token),status:'accrued'}, work:{type:'process_payroll',label_id:b.token,quantity:10,rate_per_piece:100,currency:'UZS',operation_name:'Sewing',operation_code:'S1'}};
+      return {record:{id:Number(b.token),status:'recorded',scanned_at:'2026-09-30T07:00:00Z',total_amount:'1000'}, work:{type:'process_payroll',label_id:b.token,quantity:10,rate_per_piece:100,currency:'UZS',operation_name:'Sewing',operation_code:'S1'}};
     }
   }}
 };
@@ -60,7 +62,7 @@ function load(name,code){const exports={};new Function('exports','require',code)
 ${code}
 ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(modules['@/app/(app)/payroll/scan/page'].default));
 `;
-const cssDir = path.join(root, '.next/static/chunks');
+const cssDir = path.join(root, '.next/static/css');
 const css = fs.existsSync(cssDir) ? fs.readdirSync(cssDir).filter(f=>f.endsWith('.css')).map(f=>fs.readFileSync(path.join(cssDir,f),'utf8')).join('\n') : '';
 const server = http.createServer((req,res)=>{
   if(['/react.js','/react-dom.js'].includes(req.url)) {
@@ -91,10 +93,12 @@ const server = http.createServer((req,res)=>{
     await search.press('ArrowDown');await search.press('Enter');
     await page.waitForFunction(()=>document.activeElement?.classList.contains('font-mono'));
     assert.equal(await page.evaluate(()=>window.calls.length),0,'Selecting employee must not post payroll');
+    await page.getByLabel('Work date',{exact:true}).fill('2026-09-30');
     await scanner.fill('200000001');
     await page.waitForFunction(()=>window.calls.length===1);
     assert.equal(await page.evaluate(()=>window.calls[0].b.employee_id),2);
     await page.getByText('Automatically saved 10 pcs for Durdona Azamova.').waitFor();
+    assert.equal(await page.evaluate(()=>window.calls[0].b.work_date),'2026-09-30');
     // A late payroll completion must not steal focus while the operator searches.
     await scanner.fill('200000002');
     await page.waitForFunction(()=>!!window.release.work);
@@ -132,6 +136,28 @@ const server = http.createServer((req,res)=>{
         await page.screenshot({path:path.join(process.env.PAYROLL_SEARCH_QA_OUTPUT,'employee-search-desktop.png'),fullPage:true});
       }
     }
+    // Split a saved scan directly, including another employee and no reprint.
+    await page.goto(url); await search.fill('Durdona'); await page.getByRole('option').first().click();
+    await scanner.fill('200000004'); await page.getByRole('button',{name:'Split pieces',exact:true}).first().waitFor();
+    await page.getByRole('button',{name:'Split pieces',exact:true}).first().click();
+    const heading=page.getByRole('heading',{name:'Split pieces',exact:true});
+    const dialog=heading.locator('..').locator('..');
+    const pieces=dialog.getByLabel('Pieces',{exact:true});
+    await pieces.nth(0).fill('4'); await pieces.nth(1).fill('6');
+    await dialog.getByRole('combobox').nth(1).fill('Durdona');
+    await page.getByRole('option').nth(1).click();
+    if(process.env.PAYROLL_SEARCH_QA_OUTPUT){
+      fs.mkdirSync(process.env.PAYROLL_SEARCH_QA_OUTPUT,{recursive:true});
+      await page.setViewportSize({width:1280,height:900});
+      await page.screenshot({path:path.join(process.env.PAYROLL_SEARCH_QA_OUTPUT,'payroll-split-desktop.png'),fullPage:true});
+      await page.setViewportSize({width:390,height:844});
+      await page.screenshot({path:path.join(process.env.PAYROLL_SEARCH_QA_OUTPUT,'payroll-split-phone.png'),fullPage:true});
+      const bounds=await dialog.boundingBox();assert(bounds.x>=0 && bounds.x+bounds.width<=390);
+    }
+    await dialog.getByRole('button',{name:'Split and credit employees',exact:true}).click();
+    await heading.waitFor({state:'hidden'});
+    const allocation=await page.evaluate(()=>window.calls.find(call=>call.p.endsWith('/split')));
+    assert.deepEqual(allocation.b.parts,[{employee_id:1,quantity:4},{employee_id:2,quantity:6}]);
     await page.goto(url+'?readonly=1');
     assert.equal(await page.getByRole('combobox').count(),0);
     assert.deepEqual(errors,[]);

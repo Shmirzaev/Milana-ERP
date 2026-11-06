@@ -1,7 +1,8 @@
 "use client";
-import { formatOrderReference } from "@/lib/orderRef";
 
+import { localizeError } from "@/lib/errorMessages";
 import Link from "next/link";
+import ShipmentAddClient from "@/components/ShipmentAddClient";
 import SearchableSelect from "@/components/SearchableSelect";
 import { packageWorkflowCopy, pendingPackageWorkflow, postPackageWorkflow } from "@/lib/packageWorkflow";
 import { manualShipmentText } from "@/lib/manualShipmentText";
@@ -9,19 +10,19 @@ import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
 
+import ShipmentWorkspaceTable, { type ShipmentWorkspaceRow } from "@/components/ShipmentWorkspaceTable";
 import PageHeader from "@/components/PageHeader";
 import ShipmentPreparationWorkspace, {
   type ShipmentPreparation,
   type ShipmentSummary,
 } from "@/components/ShipmentPreparationWorkspace";
-import { statusLabel } from "@/components/StagePipeline";
 import { useDialogs } from "@/components/DialogProvider";
 import { api, fetcher } from "@/lib/api";
 import { can, useMe } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
-import { shipmentReviewText } from "@/lib/shipmentReviewText";
-import ShipmentTransportDetails, { ShipmentTransportFields, normalizeTransportDetails, type TransportDetails } from "@/components/ShipmentTransportDetails";
+import { ShipmentTransportFields, normalizeTransportDetails, type TransportDetails } from "@/components/ShipmentTransportDetails";
 import { shipmentTransportText } from "@/lib/shipmentTransportText";
+import { previousShipmentScanMessage, successfulShipmentScanMessage, type ShipmentScanResult } from "@/lib/shipmentScan";
 
 type ShipmentRow = ShipmentSummary & {
   shipment_type?: "sales_order" | "warehouse_exit" | "manual";
@@ -50,7 +51,7 @@ type ShipmentOrder = EligibleOrder & {
 
 function errorMessage(error: unknown): string {
   if (error instanceof Error && error.message) return error.message;
-  return "Action failed.";
+  return localizeError("Action failed.");
 }
 
 function ShipmentOrderWorkspace({
@@ -72,6 +73,7 @@ function ShipmentOrderWorkspace({
   const [scanCode, setScanCode] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [scanWarning, setScanWarning] = useState("");
   const [isCreating, setIsCreating] = useState(false);
 
   async function refresh() {
@@ -81,6 +83,7 @@ function ShipmentOrderWorkspace({
   async function createShipment(transportDetails: TransportDetails | null) {
     if (shipmentId || isCreating) return;
     setError("");
+    setScanWarning("");
     setMessage("");
     setIsCreating(true);
     try {
@@ -100,6 +103,7 @@ function ShipmentOrderWorkspace({
   async function addAllReady() {
     if (!shipmentId) return;
     setError("");
+    setScanWarning("");
     setMessage("");
     try {
       await api.post(`/api/shipments/${shipmentId}/add-ready-packages`);
@@ -113,15 +117,20 @@ function ShipmentOrderWorkspace({
   async function scanPackage() {
     if (!shipmentId || !scanCode.trim()) return;
     setError("");
+    setScanWarning("");
     setMessage("");
     try {
-      const result = await api.post<Record<string, unknown>>(`/api/shipments/${shipmentId}/scan-package`, {
+      const result = await api.post<ShipmentScanResult>(`/api/shipments/${shipmentId}/scan-package`, {
         code: scanCode.trim(),
       });
-      if (String(result.sign || "") === "error") {
-        setError(String(result.message || t("page.shipments.scanMismatch")));
+      const previousScan = previousShipmentScanMessage(result, lang);
+      if (result.sign === "error") {
+        const reason = result.message ? localizeError(result.message, 400) : t("page.shipments.scanMismatch");
+        setError(previousScan ? `${reason} ${previousScan}` : reason);
+      } else if (result.sign === "warning") {
+        setScanWarning(previousScan || localizeError(result.message || "", 400) || t("page.shipments.scanMismatch"));
       } else {
-        setMessage(String(result.message || t("page.shipments.scanProcessed")));
+        setMessage(successfulShipmentScanMessage(result, lang) || t("page.shipments.scanProcessed"));
       }
       setScanCode("");
       await refresh();
@@ -133,6 +142,7 @@ function ShipmentOrderWorkspace({
   async function ship() {
     if (!shipmentId || !(await dialogs.ask({ message: order.shipment?.shipment_type === "manual" ? manualShipmentText[lang].confirm : t("page.shipments.confirmMarkShipped") }))) return;
     setError("");
+    setScanWarning("");
     setMessage("");
     try {
       await api.post(`/api/shipments/${shipmentId}/ship`);
@@ -146,6 +156,7 @@ function ShipmentOrderWorkspace({
   async function deliver() {
     if (!shipmentId || !(await dialogs.ask({ message: t("page.shipments.confirmMarkDelivered") }))) return;
     setError("");
+    setScanWarning("");
     setMessage("");
     try {
       await api.post(`/api/shipments/${shipmentId}/deliver`);
@@ -158,8 +169,9 @@ function ShipmentOrderWorkspace({
 
   return (
     <article id={order.id ? `shipment-order-${order.id}` : `shipment-${shipmentId}`} className="scroll-mt-4">
-      {message ? <div className="border-x border-t border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800">{message}</div> : null}
+      {message ? <div role="status" className="border-x border-t border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800">{message}</div> : null}
       {error ? <div className="border-x border-t border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-800">{error}</div> : null}
+      {scanWarning ? <div role="status" className="border-x border-t border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800">{scanWarning}</div> : null}
       <ShipmentPreparationWorkspace
         preparation={preparation}
         isLoading={isLoading}
@@ -186,8 +198,9 @@ export default function ShipmentsPage() {
   const { data, mutate } = useSWR<ShipmentRow[]>("/api/shipments", fetcher);
   const { data: orders, mutate: mutateOrders } = useSWR<EligibleOrder[]>("/api/shipments/eligible-orders", fetcher);
   const [orderQuery, setOrderQuery] = useState("");
+  const [createdShipmentId, setCreatedShipmentId] = useState<number | null>(null);
   const manualText = manualShipmentText[lang];
-  const { data: customers } = useSWR<Array<{ id: number; name: string }>>(can(me, "storage.shipment") ? "/api/shipments/customers" : null, fetcher);
+  const { data: customers, mutate: mutateCustomers } = useSWR<Array<{ id: number; name: string }>>(can(me, "storage.shipment") ? "/api/shipments/customers" : null, fetcher);
   const [customerId, setCustomerId] = useState<number | null>(null);
   const [pendingManual, setPendingManual] = useState<Record<string, any> | null>(null);
   useEffect(() => {
@@ -199,8 +212,6 @@ export default function ShipmentsPage() {
   const [warehouseCreating, setWarehouseCreating] = useState(false);
   const [warehouseMessage, setWarehouseMessage] = useState("");
   const [warehouseError, setWarehouseError] = useState("");
-  const [historyQuery, setHistoryQuery] = useState("");
-  const [historyStatus, setHistoryStatus] = useState("all");
 
   const shipmentOrders = useMemo<ShipmentOrder[]>(() => {
     const byOrder = new Map<number, ShipmentOrder>();
@@ -231,15 +242,6 @@ export default function ShipmentsPage() {
       .some((value) => String(value || "").toLocaleLowerCase().includes(query)));
   }, [orderQuery, shipmentOrders]);
 
-  const filteredHistory = useMemo(() => {
-    const query = historyQuery.trim().toLocaleLowerCase();
-    return (data || []).filter((shipment) => {
-      if (historyStatus !== "all" && String(shipment.status || "") !== historyStatus) return false;
-      if (!query) return true;
-      return [shipment.shipment_no, shipment.sales_order_no, shipment.customer_name, shipment.notes]
-        .some((value) => String(value || "").toLocaleLowerCase().includes(query));
-    });
-  }, [data, historyQuery, historyStatus]);
 
   async function refreshOrders() {
     await Promise.all([mutate(), mutateOrders()]);
@@ -252,6 +254,7 @@ export default function ShipmentsPage() {
     setWarehouseCreating(true);
     try {
       const shipment = await postPackageWorkflow<ShipmentRow>("/api/shipments", pendingManual || { manual: true, customer_id: customerId, transport_details: normalizeTransportDetails(warehouseTransport) }, me!.id);
+      setCreatedShipmentId(shipment.id);
       setPendingManual(null);
       setCustomerId(null);
       setWarehouseTransport({});
@@ -265,22 +268,39 @@ export default function ShipmentsPage() {
     }
   }
 
-  useEffect(() => {
-    if (!shipmentOrders.length) return;
-    const requestedOrderId = Number(searchParams.get("so_id") || 0);
-    const requestedShipmentId = Number(searchParams.get("shipment_id") || 0);
-    const requestedOrder = requestedOrderId
-      ? shipmentOrders.find((order) => order.id === requestedOrderId)
-      : shipmentOrders.find((order) => Number(order.shipment?.id || 0) === requestedShipmentId);
-    if (!requestedOrder) return;
-    window.requestAnimationFrame(() => {
-      document.getElementById(`shipment-order-${requestedOrder.id}`)?.scrollIntoView({ block: "start" });
-    });
-  }, [searchParams, shipmentOrders]);
+  const requestedShipmentId = createdShipmentId || Number(searchParams.get("shipment_id") || 0);
+  const requestedOrderId = Number(searchParams.get("so_id") || 0);
+  const standalone = (data || []).filter(shipment =>
+    !shipmentOrders.some(order => order.shipment?.id === shipment.id) && (
+      (!shipment.sales_order_id && ["draft", "created"].includes(shipment.status)) ||
+      (shipment.shipment_type === "manual" && shipment.status === "shipped") ||
+      (shipment.id === requestedShipmentId && shipment.status !== "cancelled")
+    )).filter(shipment => !orderQuery.trim() || [shipment.shipment_no, shipment.sales_order_no, shipment.customer_name]
+      .some(value => String(value || "").toLocaleLowerCase().includes(orderQuery.trim().toLocaleLowerCase())));
+  function workspaceRow(order: ShipmentOrder): ShipmentWorkspaceRow {
+    const shipment = order.shipment;
+    return {
+      key: shipment ? `shipment-${shipment.id}` : `order-${order.id}`,
+      reference: shipment?.shipment_no || order.order_no,
+      order: order.order_no || shipment?.sales_order_no || "",
+      customer: order.customer_name || shipment?.customer_name || "",
+      status: shipment?.status || "draft",
+      packages: Number(shipment?.packages_count || 0),
+      quantity: Number(shipment?.total_qty || order.ready_qty || 0),
+      workspace: <ShipmentOrderWorkspace order={order} canTraceability={canTraceability} onChanged={refreshOrders} />,
+    };
+  }
+  const workspaceRows = [
+    ...filteredOrders.map(workspaceRow),
+    ...standalone.map(shipment => workspaceRow({ id: 0, order_no: "", status: shipment.status, shipment, is_scanned: !!shipment.is_complete })),
+  ];
+  const requestedOrder = shipmentOrders.find(order => order.id === requestedOrderId);
+  const requestedKey = requestedShipmentId ? `shipment-${requestedShipmentId}` : requestedOrder
+    ? requestedOrder.shipment ? `shipment-${requestedOrder.shipment.id}` : `order-${requestedOrder.id}` : undefined;
 
   return (
     <div>
-      <PageHeader title={t("page.shipments.title")} />
+      <PageHeader title={t("page.shipments.title")} actions={<Link className="btn" href="/shipments/history">{t("page.shipments.history")}</Link>} />
       <div className="max-w-[1440px] space-y-4">
         <section className="card overflow-hidden">
           <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-5">
@@ -298,11 +318,7 @@ export default function ShipmentsPage() {
           </div>
         </section>
 
-        {filteredOrders.length ? (
-          <div className="space-y-4">
-            {filteredOrders.map((order) => <ShipmentOrderWorkspace key={order.id} order={order} canTraceability={canTraceability} onChanged={refreshOrders} />)}
-          </div>
-        ) : <section className="card px-4 py-10 text-center text-sm text-[#6f6a5b]">{t("page.shipments.noOrderMatches")}</section>}
+        <ShipmentWorkspaceTable rows={workspaceRows} requestedKey={requestedKey} />
 
         {can(me, "storage.shipment") && <section id="warehouse-exit" className="card p-4 sm:p-5">
           <div className="mb-3"><h2 className="app-card-title">{manualText.title}</h2><p className="mt-1 text-xs text-[#6f6a5b]">{manualText.hint}</p></div>
@@ -311,6 +327,7 @@ export default function ShipmentsPage() {
           {warehouseError ? <div className="mb-3 border-l-2 border-rose-600 bg-rose-50 px-3 py-2 text-sm text-rose-800">{warehouseError}</div> : null}
           <div className="flex flex-col gap-2 sm:flex-row">
             <div className="min-w-0 flex-1"><SearchableSelect value={customerId} options={(customers || []).map(customer => ({ value: customer.id, label: customer.name }))} onChange={value => setCustomerId(Number(value))} placeholder={manualText.choose} noResultsText={manualText.none} disabled={warehouseCreating || !!pendingManual} /></div>
+            <ShipmentAddClient disabled={warehouseCreating || !!pendingManual} onCreated={client => { void mutateCustomers([...(customers || []), client], false); setCustomerId(client.id); }} />
             <button type="button" className="btn btn-primary" onClick={createWarehouseExit} disabled={warehouseCreating || !customerId}>{manualText.title}</button>
           </div>
           {can(me, "storage.shipment") && <details className="mt-3">
@@ -319,43 +336,9 @@ export default function ShipmentsPage() {
           </details>}
         </section>}
 
-        {(data || []).filter(shipment => !shipment.sales_order_id && ["draft", "created"].includes(shipment.status)).map(shipment => (
-          <ShipmentOrderWorkspace key={shipment.id} order={{ id: 0, order_no: "", status: shipment.status, shipment, is_scanned: !!shipment.is_complete }} canTraceability={canTraceability} onChanged={refreshOrders} />
-        ))}
 
-        <section className="card overflow-hidden">
-          <div className="flex flex-wrap items-end justify-between gap-3 border-b border-[#ded9ca] px-4 py-3 sm:px-5">
-            <div><h2 className="app-card-title">{t("page.shipments.history")}</h2><p className="mt-1 text-xs text-[#6f6a5b]">{t("page.shipments.historyHint")}</p></div>
-            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
-              <input className="input w-full sm:w-72" value={historyQuery} onChange={(event) => setHistoryQuery(event.target.value)} placeholder={t("page.shipments.historySearch")} aria-label={t("page.shipments.historySearch")} />
-              <select className="input w-full sm:w-44" value={historyStatus} onChange={(event) => setHistoryStatus(event.target.value)} aria-label={t("field.status")}>
-                <option value="all">{t("page.shipments.allStatuses")}</option>
-                {["created", "shipped", "delivered", "cancelled"].map((status) => <option key={status} value={status}>{statusLabel(status, t)}</option>)}
-              </select>
-            </div>
-          </div>
-          <div className="divide-y divide-[#ded9ca] md:hidden">
-            {filteredHistory.map((shipment) => (
-              <article key={shipment.id} className="p-4">
-                <div className="flex items-start justify-between gap-3"><div className="mono font-semibold text-[#14110b]">{shipment.shipment_no}</div><span className="badge">{statusLabel(shipment.status, t)}</span></div>
-                <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-[#56503f]"><span>{shipment.shipment_type === "manual" ? manualText.type : shipment.sales_order_id ? t("page.shipments.fromSalesOrder") : t("page.shipments.warehouseExit")}</span><span className="text-right mono">{formatOrderReference(shipment.sales_order_no || "-")}</span><span>{shipment.customer_name || "-"}</span><span className="text-right tabular-nums">{Number(shipment.packages_count || 0)} {t("field.packages")} · {Number(shipment.total_qty || 0).toLocaleString()} {t("page.shipments.pieces")}</span></div>
-                {["shipped", "delivered"].includes(shipment.status) && <a className="btn mt-3" href={`/api/shipments/${shipment.id}/invoice/print?lang=${lang}`} target="_blank" rel="noreferrer" title={shipmentReviewText[lang].reference}>{shipmentReviewText[lang].print}</a>}
-                {(!shipment.sales_order_id || !["draft", "created"].includes(shipment.status)) && <ShipmentTransportDetails shipment={shipment} onChanged={mutate} />}
-                {canTraceability ? <Link className="btn mt-3 h-8 px-2.5 text-[11px]" href={`/traceability?shipment=${encodeURIComponent(shipment.shipment_no || shipment.id)}`}>{t("page.shipments.traceability")}</Link> : null}
-              </article>
-            ))}
-            {!filteredHistory.length ? <div className="p-8 text-center text-sm text-[#6f6a5b]">{t("page.shipments.noHistoryMatches")}</div> : null}
-          </div>
-          <div className="hidden overflow-x-auto md:block">
-            <table className="table min-w-[1180px]">
-              <thead><tr><th>{t("field.shipmentNo")}</th><th>{t("page.shipments.type")}</th><th>{t("page.shipments.salesOrder")}</th><th>{t("field.customer")}</th><th>{t("page.shipments.reference")}</th><th>{t("field.packages")}</th><th>{t("field.totalQty")}</th><th>{t("field.status")}</th><th>{t("field.shipped")}</th><th>{t("field.delivered")}</th><th>{t("field.actions")}</th></tr></thead>
-              <tbody>
-                {filteredHistory.map((shipment) => <tr key={shipment.id}><td className="mono whitespace-nowrap font-semibold text-[#14110b]">{shipment.shipment_no}</td><td>{shipment.shipment_type === "manual" ? manualText.type : shipment.sales_order_id ? t("page.shipments.fromSalesOrder") : t("page.shipments.warehouseExit")}</td><td className="mono whitespace-nowrap">{formatOrderReference(shipment.sales_order_no || "-")}</td><td>{shipment.customer_name || "-"}</td><td className="max-w-56 whitespace-normal">{shipment.notes || "-"}{(!shipment.sales_order_id || !["draft", "created"].includes(shipment.status)) && <ShipmentTransportDetails shipment={shipment} onChanged={mutate} />}</td><td className="tabular-nums">{Number(shipment.packages_count || 0)}</td><td className="tabular-nums">{Number(shipment.total_qty || 0).toLocaleString()}</td><td><span className="badge">{statusLabel(shipment.status, t)}</span></td><td className="whitespace-nowrap">{shipment.shipped_at ? new Date(shipment.shipped_at).toLocaleString() : "-"}</td><td className="whitespace-nowrap">{shipment.delivered_at ? new Date(shipment.delivered_at).toLocaleString() : "-"}</td><td>{["shipped", "delivered"].includes(shipment.status) && <a className="btn h-8 px-2.5 text-[11px]" href={`/api/shipments/${shipment.id}/invoice/print?lang=${lang}`} target="_blank" rel="noreferrer" title={shipmentReviewText[lang].reference}>{shipmentReviewText[lang].print}</a>}{canTraceability ? <Link className="btn h-8 px-2.5 text-[11px]" href={`/traceability?shipment=${encodeURIComponent(shipment.shipment_no || shipment.id)}`}>{t("page.shipments.traceability")}</Link> : "-"}</td></tr>)}
-                {!filteredHistory.length ? <tr><td colSpan={11} className="py-8 text-center text-sm text-[#6f6a5b]">{t("page.shipments.noHistoryMatches")}</td></tr> : null}
-              </tbody>
-            </table>
-          </div>
-        </section>
+
+
       </div>
     </div>
   );

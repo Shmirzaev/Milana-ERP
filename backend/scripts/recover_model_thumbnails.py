@@ -19,7 +19,7 @@ from sqlalchemy import text
 
 from app.core.config import settings
 from app.db.session import SessionLocal
-from app.services.image_storage import prebuild_webp_thumbnails
+from app.models.image_storage_service import prebuild_webp_thumbnails
 
 
 def main() -> int:

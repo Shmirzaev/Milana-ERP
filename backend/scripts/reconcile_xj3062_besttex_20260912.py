@@ -11,10 +11,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from sqlalchemy import text
 
-from app.api.routes.catalog import _model_code_parts, _model_group_payload
+from app.models.catalog.models_service import _model_code_parts, _model_group_payload
 from app.db.session import SessionLocal
-from app.models import Model, SewingAssignment, SewingFlow, WorkOrder
-from app.services.audit import log_action
+from app.schemas import Model, SewingAssignment, SewingFlow, WorkOrder
+from app.models.audit_service import log_action
 
 SOURCE_IDS = {7385, 7386, 7387, 7388, 7418, 7644, 7645, 7646, 7647, 7648,
               7649, 7650, 7651, 7652, 7653, 8054, 8110}

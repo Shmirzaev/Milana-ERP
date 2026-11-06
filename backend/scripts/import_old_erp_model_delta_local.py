@@ -42,7 +42,7 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.db.session import SessionLocal
-from app.models import Model, ModelColor, ModelImage, ModelSize
+from app.schemas import Model, ModelColor, ModelImage, ModelSize
 from scripts import correct_old_erp_models_local as correction
 from scripts import import_old_erp_models_local as original
 

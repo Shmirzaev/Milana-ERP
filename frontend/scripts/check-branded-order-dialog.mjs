@@ -47,7 +47,10 @@ function descendants(node) {
   if (Array.isArray(node)) return node.flatMap(descendants);
   return [node, ...descendants(node.props?.children)];
 }
+const variantDisplay = {};
+vm.runInNewContext(ts.transpile(fs.readFileSync("src/lib/variantDisplay.ts", "utf8"), { module: ts.ModuleKind.CommonJS }), { exports: variantDisplay });
 const dependencies = {
+  "@/lib/variantDisplay": variantDisplay,
   react: hooks, "react/jsx-runtime": { jsx, jsxs: jsx },
   "@/lib/i18n": { useT: () => ({ t: (key) => key }) },
   "@/lib/modelCode": { modelCodeParts: () => ({ modelNo: "PJ1236" }), normalizeModelSearch: (value) => value.toLowerCase() },
@@ -94,7 +97,7 @@ const ModelsPage = component("src/app/(app)/models/page.tsx", {
   "@/components/DialogProvider": { useDialogs: () => ({ notify() {} }) },
   "@/lib/modelComposition": { formatModelComposition: () => "" },
   "@/lib/auth": { useMe: () => ({ me: { permissions } }), can: (me, ...wanted) => me.permissions.includes("*") || wanted.some((permission) => me.permissions.includes(permission)) },
-  swr: { default: () => ({ data: { rows: [{ id: 1, code: "MODEL1", name: "Model", status: familyStatus }] } }) },
+  "@/lib/useLoadMore": { default: () => ({ data: { rows: [{ id: 1, code: "MODEL1", name: "Model", status: familyStatus }] } }) },
 });
 for (const [path, allowed] of [["/models", "modeling.approve"], ["/usluga/models", "usluga.manage"]]) {
   pagePath = path;
@@ -106,3 +109,6 @@ for (const [path, allowed] of [["/models", "modeling.approve"], ["/usluga/models
   }
 }
 console.log("Model-family approval visibility and permissions passed.");
+
+// Keep the used history vocabulary/render contract in the existing build gate.
+await import("./test-branded-planning-contracts.mjs");

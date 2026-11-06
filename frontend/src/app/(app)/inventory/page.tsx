@@ -1,11 +1,14 @@
 "use client";
+import { formatModelVariantCode } from "@/lib/variantDisplay";
+import { ApiError } from "@/lib/errorMessages";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Archive, Download, Edit3, PackageCheck, Plus, QrCode, Search, Trash2, X } from "lucide-react";
 import useSWR from "swr";
+import useLoadMore from "@/lib/useLoadMore";
 import Modal from "@/components/Modal";
-import { api, fetcher } from "@/lib/api";
+import { api, fetcher, fetchResponse } from "@/lib/api";
 import { modelOptionsByIdsFetcher, modelOptionsByIdsKey } from "@/lib/useModelOptions";
 import { can, useMe } from "@/lib/auth";
 import PageHeader from "@/components/PageHeader";
@@ -14,11 +17,12 @@ import { useT } from "@/lib/i18n";
 import { compositionTotal, type MaterialComposition } from "@/lib/materialComposition";
 import { imagePreviewHref, storageThumbnailUrl } from "@/lib/modelImages";
 import { orderReference } from "@/lib/orderRef";
+import { INVENTORY_QC_STATUSES, InventoryQcStatus } from "@/lib/inventoryQcStatus";
 import { useDialogs } from "@/components/DialogProvider";
 import MaterialQrStickerModal, { type MaterialQrStickerData } from "@/components/MaterialQrStickerModal";
 
 type InventoryGroup = "materials" | "accessories";
-const INVENTORY_RENDER_PAGE_SIZE = 80;
+const INVENTORY_RENDER_PAGE_SIZE = 50;
 
 type AccessoryIssueRow = {
   production_order_id: number;
@@ -126,6 +130,8 @@ type StockBatch = {
   gsm?: number | string | null;
   quantity: number;
   piece_count?: number | null;
+  available_piece_count?: number | null;
+  offsite_roll_numbers?: number[];
   roll_weights_kg?: number[] | null;
   processes?: string | null;
   unit: string;
@@ -134,7 +140,7 @@ type StockBatch = {
   received_date?: string | null;
   warehouse_id?: number | null;
   warehouse_name?: string | null;
-  qc_status: string;
+  qc_status: InventoryQcStatus;
   reserved_quantity?: number;
   available_quantity?: number;
 };
@@ -158,7 +164,7 @@ type BatchForm = {
   image_url: string;
   received_date: string;
   warehouse_id: string;
-  qc_status: string;
+  qc_status: InventoryQcStatus;
 };
 
 type ItemForm = {
@@ -220,7 +226,7 @@ const EMPTY_BATCH_FORM: BatchForm = {
   image_url: "",
   received_date: "",
   warehouse_id: "",
-  qc_status: "pending",
+  qc_status: InventoryQcStatus.PENDING,
 };
 
 function dateTimeLocalValue(value: string | null | undefined) {
@@ -251,7 +257,7 @@ function batchToForm(batch: StockBatch): BatchForm {
     image_url: batch.image_url || "",
     received_date: dateTimeLocalValue(batch.received_date),
     warehouse_id: batch.warehouse_id ? String(batch.warehouse_id) : "",
-    qc_status: batch.qc_status || "pending",
+    qc_status: batch.qc_status || InventoryQcStatus.PENDING,
   };
 }
 
@@ -417,7 +423,8 @@ export default function InventoryPage() {
   if (createdTo) stockParams.set("created_to", createdTo);
   if (group === "materials" && supplierFilter) stockParams.set("supplier_id", String(supplierFilter));
   const stockUrl = `/api/inventory/stock?${stockParams.toString()}`;
-  const { data: stockPage, mutate: refreshStock } = useSWR<any>(stockUrl, fetcher);
+  const stockPager = useLoadMore<any>(stockUrl, fetcher);
+  const { data: stockPage, mutate: refreshStock } = stockPager;
   const stock = useMemo<any[]>(() => stockPage?.rows || [], [stockPage]);
   const { data: allAccessoryStock } = useSWR<any[]>(
     group === "accessories" ? "/api/inventory/stock?group=accessories&page_size=500" : null,
@@ -458,14 +465,16 @@ export default function InventoryPage() {
     if (issueModelFilter) params.set("model_id", String(issueModelFilter));
     return params.toString();
   }, [issueModelFilter, issuePoFilter, q, requestPage, requestPageSize]);
-  const { data: requestData, mutate: refreshRequests } = useSWR<any>(
+  const requestPager = useLoadMore<any>(
     group === "accessories" ? `/api/inventory/accessory-issue-requests?${requestParams}` : null,
     fetcher,
   );
-  const { data: issueData, mutate: refreshIssues } = useSWR<any>(
+  const { data: requestData, mutate: refreshRequests } = requestPager;
+  const issuePager = useLoadMore<any>(
     group === "accessories" ? `/api/inventory/accessory-issues?${issueParams}` : null,
     fetcher,
   );
+  const { data: issueData, mutate: refreshIssues } = issuePager;
   const { data: issuePlan, mutate: refreshIssuePlan } = useSWR<AccessoryIssuePlan>(
     group === "accessories" && issueModalOpen && issuingProductionOrderId
       ? `/api/inventory/accessory-issue-plan?production_order_id=${issuingProductionOrderId}`
@@ -769,7 +778,7 @@ export default function InventoryPage() {
     return [
       { label: t("field.orderNo"), value: batch.order_no },
       { label: t("field.gramaj"), value: fmtDecimal(batch.gsm, 6) },
-      { label: t("field.pieceCount"), value: batch.piece_count },
+      { label: t("field.pieceCount"), value: batch.available_piece_count ?? batch.piece_count },
       { label: t("field.processes"), value: batch.processes },
       { label: t("page.receiveStock.qcStatus"), value: qcLabel(batch.qc_status) },
       { label: t("field.received"), value: receivedDateLabel(batch.received_date) },
@@ -787,6 +796,8 @@ export default function InventoryPage() {
       batchNo,
       color: String(batch?.color || "").trim(),
       batchQuantity: Number(batch.quantity || 0),
+      rollWeights: batch.roll_weights_kg,
+      offsiteRollNumbers: batch.offsite_roll_numbers,
       pieceCount: Math.max(1, Math.floor(Number(batch?.piece_count) || 1)),
       supplier: String(batch?.supplier_name || "").trim(),
       searchValue: batchNo || sku || materialName,
@@ -918,7 +929,7 @@ export default function InventoryPage() {
     return date.toLocaleDateString();
   }
 
-  function qcLabel(status: string | null | undefined) {
+  function qcLabel(status: InventoryQcStatus | null | undefined) {
     const value = String(status || "").trim();
     if (!value) return "-";
     const key = `qc.${value}`;
@@ -1092,7 +1103,7 @@ export default function InventoryPage() {
       if (supplierFilter) reportParams.set("supplier_id", String(supplierFilter));
       if (createdFrom) reportParams.set("created_from", createdFrom);
       if (createdTo) reportParams.set("created_to", createdTo);
-      const response = await fetch(`/api/inventory/reports/material-stock.${format}?${reportParams.toString()}`, {
+      const response = await fetchResponse(`/api/inventory/reports/material-stock.${format}?${reportParams.toString()}`, {
         credentials: "same-origin",
       });
       if (!response.ok) {
@@ -1101,7 +1112,7 @@ export default function InventoryPage() {
           const body = await response.json();
           detail = body.detail || detail;
         } catch {}
-        throw new Error(`${response.status}: ${detail}`);
+        throw new ApiError(response.status, detail);
       }
       const blob = await response.blob();
       const disposition = response.headers.get("content-disposition") || "";
@@ -1476,11 +1487,11 @@ export default function InventoryPage() {
             </button>
           </div>
         )}
-        <PaginationControls
+        <PaginationControls loading={stockPager.isValidating} error={stockPager.error} onRetry={() => void stockPager.mutate()}
           page={page}
           pageSize={pageSize}
           total={totalLines || rows.length}
-          count={inventoryRows.length}
+          count={rows.length}
           onPageChange={setPage}
           onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
         />
@@ -1666,8 +1677,15 @@ export default function InventoryPage() {
                 </div>
                 <div>
                   <label className="label">{t("page.receiveStock.qcStatus")}</label>
-                  <select className="input" value={batchForm.qc_status} onChange={(event) => setBatchForm({ ...batchForm, qc_status: event.target.value })}>
-                    {['pending', 'passed', 'failed', 'rejected', 'hold'].map((status) => <option key={status} value={status}>{qcLabel(status)}</option>)}
+                  <select
+                    className="input"
+                    value={batchForm.qc_status}
+                    onChange={(event) => {
+                      const next = INVENTORY_QC_STATUSES.find((status) => String(status) === event.target.value);
+                      if (next) setBatchForm({ ...batchForm, qc_status: next });
+                    }}
+                  >
+                    {INVENTORY_QC_STATUSES.map((status) => <option key={status} value={status}>{qcLabel(status)}</option>)}
                   </select>
                 </div>
                 <div>
@@ -2010,7 +2028,7 @@ export default function InventoryPage() {
                     <tr key={`${row.production_order_id}-${row.item_id || row.item_sku || row.item_name}-${row.unit}`}>
                       <td className="mono font-semibold text-[#14110b]">{orderReference(row, row.production_no)}</td>
                       <td>
-                        <div className="mono font-semibold text-[#14110b]">{row.model_code || model?.code || row.model_id}</div>
+                        <div className="mono font-semibold text-[#14110b]">{formatModelVariantCode(row.model_code) || model?.code || row.model_id}</div>
                         <div className="max-w-[220px] truncate text-xs text-[#8a8472]">{modelLabel}</div>
                       </td>
                       <td>{itemPicture(row.item_image_url, row.item_name || t("field.picture"))}</td>
@@ -2037,7 +2055,7 @@ export default function InventoryPage() {
               </tbody>
             </table>
           </div>
-          <PaginationControls
+          <PaginationControls loading={requestPager.isValidating} error={requestPager.error} onRetry={() => void requestPager.mutate()}
             page={requestPage}
             pageSize={requestPageSize}
             total={requestTotal}
@@ -2077,7 +2095,7 @@ export default function InventoryPage() {
                     <tr key={`${row.production_order_id}-${row.item_id || row.item_sku || row.item_name}-${row.unit}`}>
                       <td className="mono font-semibold text-[#14110b]">{orderReference(row, row.production_no)}</td>
                       <td>
-                        <div className="mono font-semibold text-[#14110b]">{row.model_code || model?.code || row.model_id}</div>
+                        <div className="mono font-semibold text-[#14110b]">{formatModelVariantCode(row.model_code) || model?.code || row.model_id}</div>
                         <div className="max-w-[220px] truncate text-xs text-[#8a8472]">{modelLabel}</div>
                       </td>
                       <td>{itemPicture(row.item_image_url, row.item_name || t("field.picture"))}</td>
@@ -2097,7 +2115,7 @@ export default function InventoryPage() {
               </tbody>
             </table>
           </div>
-          <PaginationControls
+          <PaginationControls loading={issuePager.isValidating} error={issuePager.error} onRetry={() => void issuePager.mutate()}
             page={issuePage}
             pageSize={issuePageSize}
             total={issueTotal}

@@ -1,9 +1,9 @@
 import pytest
 
 from app.db.session import SessionLocal
-from app.models import IdempotencyRecord, Item, ProductionOrder, PurchaseOrder, StockBatch, Warehouse
-from app.models.cutting_passport import CuttingPassport
-from app.models.order_reference import BusinessOrderAlias
+from app.schemas import IdempotencyRecord, Item, ProductionOrder, PurchaseOrder, StockBatch, Warehouse
+from app.schemas.production.cutting_passport import CuttingPassport
+from app.schemas.order_reference import BusinessOrderAlias
 from app.tests.test_production_flow import _create_bundle_for_scan
 from app.tests.test_purchasing import _create_approved_purchase_order
 

@@ -87,8 +87,8 @@ requireSource(
   "Main Usluga batch rows with bundles must expose an Edit action.",
 );
 requireSource(
-  'sizeCountEditTotal !== requiredSizeCountTotal',
-  "The UI must keep the batch total unchanged while size counts are redistributed.",
+  'sizeCountEditTotal < requiredSizeCountTotal',
+  "The UI must allow total increases while preventing total reductions.",
 );
 requireSource(
   't("usluga.sizeCountEditHint")',

@@ -1,13 +1,14 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import { runtimeMessages } from "./runtime-locales.mjs";
 
 const page = fs.readFileSync("src/app/(app)/payroll/reports/sewing-production/page.tsx", "utf8");
 const table = fs.readFileSync("src/components/payroll/SewingProductionReportTable.tsx", "utf8");
-const translations = fs.readFileSync("src/lib/i18n/supplemental.ts", "utf8");
+const translations = ["en", "ru", "uz"].map(runtimeMessages);
 const printTable = table.slice(table.indexOf('className="sewing-report-print-table'));
 
 assert.match(table, /sewing-report-print-table/, "The report needs a dedicated compact print table");
-assert.match(printTable, /model_code, row\.size/, "The compact report must retain model and size context");
+assert.match(printTable, /formatModelVariantCode\(row\.model_code\), row\.size/, "The compact report must retain the formatted variant and size context");
 assert.doesNotMatch(
   printTable,
   /row\.sewing_line|row\.cutting_reference|row\.product_name|row\.operation_code &&/,
@@ -26,7 +27,7 @@ for (const key of [
   "page.sewingReport.totalCompletedPieces",
   "page.sewingReport.totalRate",
 ]) {
-  assert.equal((translations.match(new RegExp(`"${key.replaceAll(".", "\\.")}"`, "g")) || []).length, 3, `${key} must exist in all languages`);
+  assert.ok(translations.every(messages => messages.has(key)), `${key} must exist in all runtime languages`);
 }
 
 console.log("Sewing production print contract passed.");

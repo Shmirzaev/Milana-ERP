@@ -1,4 +1,5 @@
 "use client";
+import { ApiError } from "@/lib/errorMessages";
 import { useId, useRef, useState } from "react";
 import { GARMENT_SIZE_OPTIONS } from "@/lib/garmentSizes";
 import { useT } from "@/lib/i18n";
@@ -51,7 +52,7 @@ export default function ProductionOrderSizePlan({ items, canEdit, onSave }: {
       setDraft(null);
       setSaved(true);
     } catch (reason) {
-      const message = reason instanceof Error ? reason.message : "";
+      const message = reason instanceof ApiError ? reason.rawDetail : reason instanceof Error ? reason.message : "";
       const code = ["locked", "stale", "required", "duplicate"].find((code) => message.includes(`production_sizes_${code}`));
       setError(t(code ? `productionSizes.${code}` : "productionSizes.failed"));
     } finally {
