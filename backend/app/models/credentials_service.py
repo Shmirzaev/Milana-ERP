@@ -3,7 +3,8 @@ from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
 from app.core.security import hash_password
-from app.schemas import PasswordResetToken, User
+from app.schemas import User
+from app.schemas.identity.user_persistence import set_password_and_invalidate_reset_tokens
 
 
 def lock_user_for_credential_change(
@@ -32,10 +33,5 @@ def apply_password_credential_change(
     cannot revive one another's stale credential state.
     """
     now = changed_at or datetime.now(timezone.utc)
-    user.password_hash = hash_password(new_password)
-    user.tokens_valid_from = now
-    db.query(PasswordResetToken).filter(
-        PasswordResetToken.user_id == user.id,
-        PasswordResetToken.used_at.is_(None),
-    ).update({PasswordResetToken.used_at: now}, synchronize_session="fetch")
+    set_password_and_invalidate_reset_tokens(db, user, hash_password(new_password), now)
     return now

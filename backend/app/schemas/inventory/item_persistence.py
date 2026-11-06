@@ -23,3 +23,8 @@ def insert_item(db: Session, command: ItemInsertCommand) -> Item:
     db.add(item)
     db.flush()
     return item
+
+
+def set_item_image(db: Session, item: Item, image_url: str | None) -> None:
+    """Assign the normalized image using the caller's transaction."""
+    item.image_url = image_url

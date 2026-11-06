@@ -15,4 +15,4 @@ async def create_photo(employee_id: int, file: UploadFile = File(...), *, db: Db
 
 @router.get("/photos/{asset_id}")
 def get_photo(asset_id: int, *, db: DbSession, actor: CurrentUser):
-    return FileResponse(read_photo(db, actor, asset_id), media_type="image/jpeg", headers={"Cache-Control": "private, no-store"})
+    return FileResponse(read_photo(db, actor, asset_id), media_type="image/jpeg", headers={"Cache-Control": "no-store"})
