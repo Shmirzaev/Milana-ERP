@@ -237,13 +237,13 @@
       ]
     },
     "test_purchase_receipt_concurrency": {
-      "revision": "eb8584504008fb3b1e843e328b580cec57d9006c",
-      "git_blob_sha256": "70f943f8630f564ac8cf899a34b48df3e436d3d400812abaff3a9da1064af8dc",
+      "revision": "92c10c302c03e5dbfc408880f95243acc5ad7d6e",
+      "git_blob_sha256": "52dd32e377e54267593318888a0e48f852d8a84da071019ace1459d8d012febd",
       "selected_functions": ["test_postgres_receipts_serialize_line_totals_and_closed_order_no_write"]
     },
     "test_purchase_receipt_idempotency": {
-      "revision": "e919a4dfffbe57f1d376fc9c6f6547d59990c38d",
-      "git_blob_sha256": "881f848dd704ee34f2f1005adb297e626f3d9836727e4efabda192560b669e1e",
+      "revision": "92c10c302c03e5dbfc408880f95243acc5ad7d6e",
+      "git_blob_sha256": "3fdb9b25bc66da56a2d0cce0e82d3b82810d026405ef0349ab58a340dcfa7e21",
       "selected_functions": ["test_postgres_concurrent_receipts_serialize_before_replay", "test_postgres_receipt_audit_finalization_failure_rolls_back_then_replays"]
     },
     "test_shipment_reopen_invoice_postgres": {
