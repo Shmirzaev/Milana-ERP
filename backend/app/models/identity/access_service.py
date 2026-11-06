@@ -5,9 +5,10 @@ from fastapi import HTTPException
 
 from app.core.deps import (
     SUPER_ADMIN_PERMISSION, SUPER_ADMIN_ROLE_NAME, DbSession, is_super_admin,
-    normalize_permissions, user_permissions,
+    normalize_permissions, user_permissions, require_permissions,
 )
 from app.models.factory_scope_service import FACTORY_CODES, normalize_factory_code, selected_factory_code
+from app.core.permission_catalog import PERMISSION_CATALOG
 from app.schemas import Department, Role, User
 
 
@@ -149,3 +150,10 @@ def _effective_permissions_for(db: DbSession, role_id: int | None, extra_permiss
         permissions.extend(role.permissions or [])
     permissions.extend(extra_permissions or [])
     return normalize_permissions(permissions)
+
+
+def get_access_catalog(actor: User) -> list[dict]:
+    require_permissions("admin.users", "*")(actor)
+    own = set(user_permissions(actor))
+    return [{**row, "grantable": is_super_admin(actor) if row["key"] in {"*", SUPER_ADMIN_PERMISSION}
+             else "*" in own or row["key"] in own} for row in PERMISSION_CATALOG]
