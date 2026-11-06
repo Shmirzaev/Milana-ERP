@@ -14,7 +14,7 @@ from app.schemas import (
 )
 
 MODEL_VARIANT_START = 6455
-MODEL_VARIANT_SETTING_KEY = "model_variant_numbering"
+MODEL_VARIANT_SETTING_KEY = SystemSetting.MODEL_VARIANT_NUMBERING_KEY
 MODEL_NUMBER_SETTING_KEY = SystemSetting.MODEL_NUMBERING_KEY
 CATALOG_NUMBERING_BASE = json.loads(
     (Path(__file__).resolve().parents[2] / "data" / "catalog-numbering-20260930.json").read_text(encoding="utf-8")
@@ -176,11 +176,7 @@ def next_model_variant_no(db: Session, *, reserve: bool = False) -> str:
 
     if reserve:
         next_value = {"last_assigned": candidate}
-        if setting:
-            setting.value_json = next_value
-        else:
-            db.add(SystemSetting(key=MODEL_VARIANT_SETTING_KEY, value_json=next_value))
-        db.flush()
+        SystemSetting.write_model_variant_numbering(db, setting=setting, value_json=next_value)
     return f"V-{candidate}"
 
 
