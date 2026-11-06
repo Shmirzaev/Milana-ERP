@@ -50,3 +50,25 @@ def apply_accessory_contribution(
     request.accessories_json = rows
     request.accessories_updated_by_id = updated_by_id
     db.flush()
+
+
+def set_cutting_passport_reference(request: PriceCalculationRequest, kroy_no: str, passport_id: int | None) -> None:
+    """Set the reference before the service resolves passport sizes."""
+    request.kroy_no = kroy_no
+    request.cutting_passport_id = passport_id
+
+
+def set_cutting_dimensions(request: PriceCalculationRequest, *, fabric_width_m: Decimal | float | None, lay_length_m: Decimal | float | None) -> None:
+    request.fabric_width_m = fabric_width_m
+    request.lay_length_m = lay_length_m
+
+
+def apply_cutting_contribution(
+    db: Session, request: PriceCalculationRequest, *,
+    size_count: int | None, gramage: Decimal | float | None, binding_kg_per_piece: Decimal | float | None,
+) -> None:
+    """Apply resolved values and flush in the caller's transaction."""
+    request.size_count = size_count
+    request.gramage = gramage
+    request.binding_kg_per_piece = binding_kg_per_piece
+    db.flush()
