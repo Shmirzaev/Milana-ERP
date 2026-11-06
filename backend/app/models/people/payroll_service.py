@@ -34,6 +34,7 @@ from app.models.process_qr_export_service import ProcessQrExportIn
 from app.models.audit_service import log_action
 from app.models.factory_scope_service import selected_factory_code
 from app.models.payroll_reports_service import ReportLanguage
+from app.models.employee_aliases_service import merged_employee
 from app.models.process_qr_export_service import build_process_qr_xlsx
 from app.models.factory_scope_service import require_factory_access
 from app.models.payroll_reports_service import build_sewing_production_report_xlsx, build_sewing_salary_summary_xlsx
@@ -1516,3 +1517,44 @@ def search_payroll_employees(db: Session, q: str=Query(min_length=2, max_length=
         ],
         "has_more": len(rows) > 20,
     }
+
+
+def resolve_employee_number(employee_no: str, db: Session, current: User=None):
+    normalized = employee_no.strip()
+    if not normalized or len(normalized) > 32:
+        raise HTTPException(400, "Employee number must contain between 1 and 32 characters")
+
+    employee = (
+        db.query(Employee)
+        .filter(
+            Employee.factory_code == selected_factory_code(current),
+            func.lower(func.trim(Employee.employee_no)) == normalized.lower(),
+        )
+        .one_or_none()
+    )
+    if normalized.isascii() and normalized.isdigit() and 0 < int(normalized) <= 2147483647:
+        fallback = db.query(Employee).filter(
+            Employee.id == int(normalized),
+            Employee.factory_code == selected_factory_code(current),
+            or_(Employee.employee_no.is_(None), func.trim(Employee.employee_no) == ""),
+        ).first()
+        if employee and fallback and employee.id != fallback.id:
+            raise HTTPException(409, "Employee number is ambiguous; select the employee by name or scan their badge QR")
+        employee = employee or fallback
+    if not employee and normalized.upper().startswith("EMP-") and normalized[4:].isdigit():
+        employee = db.query(Employee).filter(
+            Employee.id == int(normalized[4:]),
+            Employee.factory_code == selected_factory_code(current),
+        ).first()
+    if not employee:
+        employee = merged_employee(db, selected_factory_code(current), employee_no=normalized)
+    if not employee and normalized.upper().startswith("EMP-") and normalized[4:].isdigit():
+        employee = merged_employee(db, selected_factory_code(current), employee_id=int(normalized[4:]))
+    if not employee:
+        raise HTTPException(404, "Payroll employee number was not found")
+    return _employee_scan_payload(
+        employee,
+        badge_id=normalized,
+        source="milana_erp_employee_no",
+        db=db,
+    )

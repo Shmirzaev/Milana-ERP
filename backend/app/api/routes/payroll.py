@@ -1492,44 +1492,7 @@ def resolve_employee_number(
     db: DbSession,
     current: User = Depends(require_permissions("payroll.scan", "payroll.manage", "*")),
 ):
-    normalized = employee_no.strip()
-    if not normalized or len(normalized) > 32:
-        raise HTTPException(400, "Employee number must contain between 1 and 32 characters")
-
-    employee = (
-        db.query(Employee)
-        .filter(
-            Employee.factory_code == selected_factory_code(current),
-            func.lower(func.trim(Employee.employee_no)) == normalized.lower(),
-        )
-        .one_or_none()
-    )
-    if normalized.isascii() and normalized.isdigit() and 0 < int(normalized) <= 2147483647:
-        fallback = db.query(Employee).filter(
-            Employee.id == int(normalized),
-            Employee.factory_code == selected_factory_code(current),
-            or_(Employee.employee_no.is_(None), func.trim(Employee.employee_no) == ""),
-        ).first()
-        if employee and fallback and employee.id != fallback.id:
-            raise HTTPException(409, "Employee number is ambiguous; select the employee by name or scan their badge QR")
-        employee = employee or fallback
-    if not employee and normalized.upper().startswith("EMP-") and normalized[4:].isdigit():
-        employee = db.query(Employee).filter(
-            Employee.id == int(normalized[4:]),
-            Employee.factory_code == selected_factory_code(current),
-        ).first()
-    if not employee:
-        employee = merged_employee(db, selected_factory_code(current), employee_no=normalized)
-    if not employee and normalized.upper().startswith("EMP-") and normalized[4:].isdigit():
-        employee = merged_employee(db, selected_factory_code(current), employee_id=int(normalized[4:]))
-    if not employee:
-        raise HTTPException(404, "Payroll employee number was not found")
-    return _employee_scan_payload(
-        employee,
-        badge_id=normalized,
-        source="milana_erp_employee_no",
-        db=db,
-    )
+    return payroll_service.resolve_employee_number(employee_no, db, current)
 
 
 def _qr_label_scan_payload(label: PayrollQrLabel) -> dict[str, Any]:
