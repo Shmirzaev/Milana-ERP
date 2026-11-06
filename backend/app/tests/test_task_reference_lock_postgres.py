@@ -11,6 +11,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
 from app.api.routes import tasks
+from app.models.work_management import tasks_service
 from app.db.base import Base
 from app.libs.dto.work_management.tasks import TaskIn, TaskUpdate
 from app.schemas import AuditLog, Notification, SalesOrder, Task, User
@@ -99,7 +100,7 @@ def test_patch_after_concurrent_delete_matches_missing_task(pg_sessions, monkeyp
 
     payload = TaskUpdate(assigned_to=recipient_id) if reassign else TaskUpdate(status="completed")
     read, deleted = Event(), Event()
-    original_validate = tasks.validate_task_reference_update
+    original_validate = tasks_service.validate_task_reference_update
 
     def pause_after_read(*args, **kwargs):
         reference = original_validate(*args, **kwargs)
@@ -107,7 +108,7 @@ def test_patch_after_concurrent_delete_matches_missing_task(pg_sessions, monkeyp
         assert deleted.wait(5), "Concurrent deletion did not finish"
         return reference
 
-    monkeypatch.setattr(tasks, "validate_task_reference_update", pause_after_read)
+    monkeypatch.setattr(tasks_service, "validate_task_reference_update", pause_after_read)
 
     def patch():
         with pg_sessions() as db:
