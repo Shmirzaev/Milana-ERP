@@ -79,4 +79,9 @@ def test_pg_unicode_create_and_all_typed_status_filters_round_trip(pg_sessions):
             rows = [row for row in response.json() if row["id"] == record_id]
             assert len(rows) == 1 and rows[0]["status"] == status.value
             assert (rows[0]["waste_type"], rows[0]["unit"]) == (payload["waste_type"], payload["unit"])
+            other = next(value for value in WasteStatus if value != status)
+            excluded = client.get("/waste", headers=headers, params={"status": other.value})
+            assert excluded.status_code == 200 and all(row["id"] != record_id for row in excluded.json())
+        unfiltered = client.get("/waste", headers=headers, params={"status": ""})
+        assert unfiltered.status_code == 200 and any(row["id"] == record_id for row in unfiltered.json())
         assert client.get("/waste", headers=headers, params={"status": "legacy_unknown"}).status_code == 422

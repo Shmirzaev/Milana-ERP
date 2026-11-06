@@ -37,6 +37,7 @@ def test_status_filter_openapi_and_http_validation(client, auth_headers):
     assert set(schema["components"]["schemas"][ref.rsplit("/", 1)[-1]]["enum"]) == set(STATUSES)
     for status in STATUSES:
         assert client.get("/api/waste", params={"status": status}, headers=auth_headers).status_code == 200
+    assert client.get("/api/waste", params={"status": ""}, headers=auth_headers).status_code == 200
     assert client.get("/api/waste", params={"status": "legacy_unknown"}, headers=auth_headers).status_code == 422
 
 
