@@ -1234,4 +1234,5 @@ export default {
     "departmentDashboard.printing": "Printing dashboard",
     "departmentDashboard.warehouse": "Warehouse dashboard",
     "departmentDashboard.unassigned": "Unassigned",
+    "page.admin.users.personName": "Name",
   } as Record<string, string>;
