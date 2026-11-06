@@ -6,7 +6,7 @@ from openpyxl import load_workbook
 from sqlalchemy.dialects import postgresql
 
 from app.api.routes.cutting_passports import _compute, _size_count_from_range
-from app.api.routes.inventory import (
+from app.models.inventory.stock_service import (
     _delete_stock_batch_receipt_movements,
     _locked_active_batch_reservations_statement,
     _locked_stock_batch_statement,
@@ -375,6 +375,7 @@ def test_material_inventory_batch_details_include_receive_fields_and_search(clie
         "order_no": f"ORDER-VISIBLE-{suffix}",
         "quantity": 123.45,
         "gsm": 0.145678,
+        "length_m": 234.567,
         "piece_count": 17,
         "processes": f"Wash, print, inspect {suffix}",
         "unit": "kg",
@@ -427,6 +428,7 @@ def test_material_inventory_batch_details_include_receive_fields_and_search(clie
         "used_quantity",
     }.isdisjoint(batch)
     assert round(float(batch["quantity"]), 2) == 123.45
+    assert batch["length_m"] == 234.567
     assert round(float(batch["gsm"]), 6) == 0.145678
     assert batch["piece_count"] == receive_payload["piece_count"]
     assert batch["processes"] == receive_payload["processes"]
@@ -1087,7 +1089,7 @@ def test_stock_batch_editor_reassigns_an_unused_batch_to_an_existing_material(cl
 
 def test_reserved_batch_delete_releases_reservation_and_archives_inventory(client, auth_headers):
     from app.db import session as session_module
-    from app.models import MaterialReservation, Model, ProductionOrder, StockBatch, StockMovement
+    from app.schemas import MaterialReservation, Model, ProductionOrder, StockBatch, StockMovement
 
     suffix = uuid4().hex[:8].upper()
     materials = []
@@ -1408,7 +1410,7 @@ def test_material_inventory_report_exports_grouped_counts_kg_and_grand_total(cli
 
 def test_admin_archives_unused_fabric_receipt_batch(client, auth_headers):
     from app.db import session as session_module
-    from app.models import StockBatch, StockMovement
+    from app.schemas import StockBatch, StockMovement
 
     suffix = uuid4().hex[:8].upper()
     item_response = client.post(
@@ -1477,8 +1479,8 @@ def test_admin_archives_unused_fabric_receipt_batch(client, auth_headers):
 
 def test_fully_consumed_fabric_batch_moves_to_archive(client, auth_headers):
     from app.db import session as session_module
-    from app.models import StockBatch, User
-    from app.services.workflow import consume_stock_batch
+    from app.schemas import StockBatch, User
+    from app.models.workflow_service import consume_stock_batch
 
     suffix = uuid4().hex[:8].upper()
     item_response = client.post(
@@ -1601,7 +1603,7 @@ def test_stock_batch_delete_flushes_receipts_before_parent_batch():
 
 def test_stock_batch_delete_archives_used_batch_and_reduces_remaining_inventory(client, auth_headers):
     from app.db import session as session_module
-    from app.models import StockBatch, StockMovement
+    from app.schemas import StockBatch, StockMovement
 
     suffix = uuid4().hex[:8].upper()
     item_response = client.post(

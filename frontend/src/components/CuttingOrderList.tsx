@@ -1,7 +1,10 @@
 "use client";
 
+import { formatVariantNumber } from "@/lib/variantDisplay";
 import Link from "next/link";
-import { useMemo } from "react";
+import { Check } from "lucide-react";
+import { useMe, can } from "@/lib/auth";
+import { useMemo, useState } from "react";
 
 import ImageThumbnail from "@/components/ImageThumbnail";
 import { statusLabel } from "@/components/StagePipeline";
@@ -10,12 +13,14 @@ import { orderReference } from "@/lib/orderRef";
 
 type CuttingOrder = {
   id: number;
+  cutting_passport_id?: number | null;
   production_order_id: number;
   planning_order_id?: number | null;
   planning_order_no?: string | null;
   planning_order_name?: string | null;
   order_no?: string | null;
   production_no?: string | null;
+  sewing_factory_code?: string | null;
   sales_order_no?: string | null;
   model_no?: string | null;
   variant_no?: string | null;
@@ -63,19 +68,39 @@ function displayValue(...values: Array<string | null | undefined>) {
   return values.map((value) => String(value || "").trim()).filter(Boolean).join(" - ") || "-";
 }
 
+function sewingFactoryLabel(code: string | null | undefined, t: CtxT) {
+  if (code === "MIL") return t("factory.milana");
+  if (code === "BST") return t("factory.besttex");
+  if (code === "ECO") return t("factory.ecoCotton");
+  return "-";
+}
+
 export default function CuttingOrderList({
   rows,
-  startingWorkOrderId,
-  startError,
-  onMoveToInProgress,
+  cuttingDepartment,
+  total,
+  onSearch,
   t,
 }: {
   rows: CuttingOrder[];
-  startingWorkOrderId: number | null;
-  startError: string;
-  onMoveToInProgress: (workOrderId: number) => void;
+  cuttingDepartment: string;
+  total?: number;
+  onSearch?: (query: string) => void;
   t: CtxT;
 }) {
+  const { me } = useMe();
+  const [query, setQuery] = useState("");
+  const [search, setSearch] = useState("");
+  const filteredRows = useMemo(() => {
+    if (onSearch) return rows;
+    const words = search.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
+    return rows.filter(row => {
+      const text = [row.order_no, row.sales_order_no, row.production_no, row.planning_order_no,
+        row.planning_order_name, row.model_no, row.variant_no, formatVariantNumber(row.variant_no), row.model_name,
+        row.material_item_sku, row.material_item_name].filter(Boolean).join(" ").toLocaleLowerCase();
+      return words.every(word => text.includes(word));
+    });
+  }, [rows, search, onSearch]);
   const groups = useMemo(() => {
     const grouped = new Map<string, {
       key: string;
@@ -84,7 +109,7 @@ export default function CuttingOrderList({
       rows: CuttingOrder[];
     }>();
 
-    for (const row of rows) {
+    for (const row of filteredRows) {
       const planningOrderId = Number(row.planning_order_id || 0);
       const key = planningOrderId > 0 ? `bso-${planningOrderId}` : `order-${row.production_order_id}`;
       const existing = grouped.get(key) || {
@@ -98,12 +123,12 @@ export default function CuttingOrderList({
     }
 
     return Array.from(grouped.values());
-  }, [rows]);
+  }, [filteredRows]);
 
   return (
     <section className="card">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#e3dfd3] px-4 py-3">
-        <h2 className="app-card-title">{t("cuttingInbox.orders", { count: rows.length })}</h2>
+        <h2 className="app-card-title">{t("cuttingInbox.orders", { count: onSearch ? total ?? rows.length : filteredRows.length })}</h2>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-[#56503f]" aria-label={t("cuttingInbox.colorMeaning")}>
           <span className="inline-flex items-center gap-1.5"><span className="h-3 w-3 border border-[#ded9ca] bg-white" />{t("cuttingInbox.untouched")}</span>
           <span className="inline-flex items-center gap-1.5"><span className="h-3 w-3 border border-amber-200 bg-yellow-50" />{t("cuttingInbox.cutWaitingShort")}</span>
@@ -111,7 +136,11 @@ export default function CuttingOrderList({
         </div>
       </div>
 
-      {startError ? <div className="border-b border-[#e3dfd3] px-4 py-2 text-sm text-red-700">{startError}</div> : null}
+      <form role="search" className="flex gap-2 border-b border-[#e3dfd3] px-4 py-3" onSubmit={event => { event.preventDefault(); setSearch(query); onSearch?.(query); }}>
+        <input type="search" className="input min-w-0 flex-1" aria-label={t("common.search")} placeholder={t("common.search")} value={query} onChange={event => { setQuery(event.target.value); if (!event.target.value) { setSearch(""); onSearch?.(""); } }} />
+        <button className="btn" type="submit">{t("common.search")}</button>
+      </form>
+
 
       {groups.length ? (
         <div className="divide-y divide-[#d8d2c2]">
@@ -138,6 +167,7 @@ export default function CuttingOrderList({
                         <th className="w-16">{t("page.workOrder.modelPicture")}</th>
                         <th className="w-16">{t("cuttingInbox.variantPicture")}</th>
                         <th>{t("field.production")}</th>
+                        <th>{t("field.sewingFactory")}</th>
                         <th>{t("field.modelNo")}</th>
                         <th>{t("field.variantNo")}</th>
                         <th>{t("field.size")}</th>
@@ -153,7 +183,6 @@ export default function CuttingOrderList({
                         const state = cuttingStateFor(row);
                         const modelLabel = displayValue(row.model_no, row.model_name);
                         const materialLabel = displayValue(row.material_item_sku, row.material_item_name);
-                        const canStart = !["in_progress", "completed"].includes(String(row.status || ""));
                         return (
                           <tr key={row.id} className={rowTone(state)}>
                             <td>
@@ -167,14 +196,15 @@ export default function CuttingOrderList({
                             <td>
                               <ImageThumbnail
                                 imageUrl={row.material_image_url}
-                                label={displayValue(row.variant_no, materialLabel)}
+                                label={displayValue(formatVariantNumber(row.variant_no), materialLabel)}
                                 title={t("cuttingInbox.variantPicture")}
                                 emptyLabel={t("page.workOrder.noImage")}
                               />
                             </td>
                             <td className="mono whitespace-nowrap font-semibold text-[#14110b]">{orderReference(row, `#${row.production_order_id}`)}</td>
+                            <td className="whitespace-nowrap">{sewingFactoryLabel(row.sewing_factory_code, t)}</td>
                             <td className="whitespace-nowrap">{row.model_no || row.model_name || "-"}</td>
-                            <td className="whitespace-nowrap">{row.variant_no || "-"}</td>
+                            <td className="whitespace-nowrap">{formatVariantNumber(row.variant_no) || "-"}</td>
                             <td className="whitespace-nowrap">{row.size_summary || "-"}</td>
                             <td className="max-w-72 whitespace-nowrap" title={materialLabel}><span className="block max-w-72 truncate">{materialLabel}</span></td>
                             <td className="whitespace-nowrap">
@@ -184,15 +214,14 @@ export default function CuttingOrderList({
                             <td className="whitespace-nowrap font-medium">{stateLabel(state, row, t)}</td>
                             <td>
                               <div className="flex items-center justify-end gap-2 whitespace-nowrap">
-                                {canStart ? (
-                                  <button
-                                    type="button"
-                                    className="btn h-8 px-2.5 text-[11px]"
-                                    onClick={() => onMoveToInProgress(Number(row.id))}
-                                    disabled={startingWorkOrderId === Number(row.id)}
-                                  >
-                                    {startingWorkOrderId === Number(row.id) ? t("common.loading") : t("btn.moveToInProgress")}
-                                  </button>
+                                {row.cutting_passport_id ? (
+                                  <Link className="btn btn-ghost h-8 px-2" title={t("floor.passportCreated")} aria-label={t("floor.passportCreated")} href={`/cutting-passports?cutting_department=${cuttingDepartment}&passport_id=${row.cutting_passport_id}`}>
+                                    <Check className="h-5 w-5" />
+                                  </Link>
+                                ) : can(me, "cutting.records") ? (
+                                  <Link className="btn h-8 px-2.5 text-[11px]" href={`/cutting-passports?cutting_department=${cuttingDepartment}&production_order_id=${row.production_order_id}`}>
+                                    {t("floor.addPassport")}
+                                  </Link>
                                 ) : null}
                                 <Link className="btn btn-primary h-8 px-3 text-[11px]" href={`/work-orders/${row.id}/cutting`}>
                                   {t("btn.open")}

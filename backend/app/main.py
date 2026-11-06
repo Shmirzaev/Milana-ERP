@@ -1,5 +1,6 @@
 import os
 import logging
+from threading import Event, Lock, Thread
 from time import perf_counter
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -8,19 +9,23 @@ from urllib.parse import urlsplit
 from alembic.config import Config as AlembicConfig
 from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security.utils import get_authorization_scheme_param
 from starlette.middleware.gzip import GZipMiddleware
+from starlette.concurrency import run_in_threadpool
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse, Response
+from sqlalchemy import text
 
 from app.core.config import settings
-from app.core.deps import DbSession
+from app.core.proxy_trust import client_ip, effective_request_scheme, validate_proxy_runtime_configuration
+from app.core.deps import CurrentUser, DbSession
 from app.core.security import decode_token
 from app.core.shared_store import get_shared_counter_store
 from app.api.router import api_router
 from app.db.session import SessionLocal, engine
-import app.models  # noqa: F401 — register models with metadata
+import app.schemas  # noqa: F401 — register models with metadata
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("milana")
@@ -67,6 +72,7 @@ def _run_local_schema_sync() -> None:
 def _run_startup() -> None:
     """Validate runtime settings and database readiness before serving."""
     settings.validate_runtime_security()
+    validate_proxy_runtime_configuration(strict_security_required=settings.strict_security_required)
     # In production validate_runtime_security() hard-fails on insecure defaults.
     # Outside production we don't block local dev, but we still surface them
     # loudly so a misconfigured deploy (e.g. ENV left at "development") can't run
@@ -109,29 +115,74 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(title=settings.APP_NAME, version="0.1.0", lifespan=lifespan)
 
 _UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
-_RATE_LIMIT_EXEMPT_PATHS = {"/health"}
+_RATE_LIMIT_EXEMPT_PATHS = {"/health", "/ready"}
+_RATE_LIMIT_IP_ONLY_PATHS = {
+    "/api/auth/forgot-password",
+    "/api/auth/login",
+    "/api/auth/login-json",
+    "/api/auth/login-panel",
+    "/api/auth/reset-password",
+    "/api/auth/token",
+    "/api/session/forgot-password",
+    "/api/session/login",
+    "/api/session/login-json",
+    "/api/session/login-panel",
+    "/api/session/reset-password",
+}
+_READINESS_TIMEOUT_SECONDS = 2.0
+_READINESS_CHECK_SLOT = Lock()
+_READINESS_PROBE: tuple[Event, dict[str, str], float] | None = None
+
+
+def _probe_postgresql() -> None:
+    with engine.connect() as connection:
+        connection.execute(text("SELECT 1")).scalar_one()
+
+
+def _probe_shared_store() -> None:
+    get_shared_counter_store().ttl("readiness")
+
+
+def _readiness_checks_within(timeout_seconds: float) -> dict[str, str]:
+    """Share one probe and deadline; a stuck dependency cannot spawn more threads."""
+    global _READINESS_PROBE
+    slot = _READINESS_CHECK_SLOT
+    with slot:
+        if _READINESS_PROBE is None or _READINESS_PROBE[0].is_set():
+            completed = Event()
+            checks = {"postgresql": "unavailable", "shared_store": "unavailable"}
+            deadline = perf_counter() + max(timeout_seconds, 0.001)
+            _READINESS_PROBE = (completed, checks, deadline)
+
+            def run_probe() -> None:
+                try:
+                    for name, probe in (("postgresql", _probe_postgresql), ("shared_store", _probe_shared_store)):
+                        if perf_counter() >= deadline:
+                            break
+                        try:
+                            probe()
+                        except Exception:
+                            pass
+                        else:
+                            with slot:
+                                if perf_counter() < deadline:
+                                    checks[name] = "ok"
+                finally:
+                    completed.set()
+
+            try:
+                Thread(target=run_probe, name="dependency-readiness", daemon=True).start()
+            except Exception:
+                completed.set()
+        completed, checks, deadline = _READINESS_PROBE
+
+    completed.wait(timeout=max(0.0, deadline - perf_counter()))
+    with slot:
+        return checks.copy()
 
 
 def _rate_limit_client_key(request: Request) -> str:
-    peer = request.client.host if request.client else "unknown"
-    forwarded = request.headers.get("x-forwarded-for")
-    # In supported deployments the app sits behind a trusted proxy. This keeps
-    # direct clients from picking arbitrary buckets in normal operation while
-    # still separating users behind Vercel/HF proxies and local TestClient.
-    trusted_peer = peer in {"testclient", "127.0.0.1", "::1", "localhost"}
-    if not trusted_peer:
-        try:
-            import ipaddress
-            peer_ip = ipaddress.ip_address(peer)
-            trusted_peer = peer_ip.is_private or peer_ip.is_loopback
-        except ValueError:
-            trusted_peer = False
-    if trusted_peer and forwarded:
-        first = forwarded.split(",")[0].strip()
-        if first:
-            return first
-    return peer
-
+    return client_ip(request)
 
 def _rate_limit_allowed(key: str) -> tuple[bool, int | None]:
     if not settings.GLOBAL_RATE_LIMIT_ENABLED:
@@ -141,11 +192,15 @@ def _rate_limit_allowed(key: str) -> tuple[bool, int | None]:
     if limit <= 0 or window <= 0:
         return False, window if window > 0 else 60
 
-    store = get_shared_counter_store()
-    store_key = f"global-rate:{key}"
-    count = store.increment(store_key, window)
-    if count > limit:
-        return False, store.ttl(store_key) or window
+    try:
+        store = get_shared_counter_store()
+        store_key = f"global-rate:{key}"
+        count = store.increment(store_key, window)
+        if count > limit:
+            return False, store.ttl(store_key) or window
+    except Exception:
+        # Route authentication and permissions still run; auth counters fail closed.
+        log.warning("Shared counter store unavailable; global rate limiting skipped")
     return True, None
 
 
@@ -168,10 +223,7 @@ def _trusted_csrf_origins(request: Request) -> set[str]:
     })
     host = request.headers.get("host", "").strip().lower()
     if host:
-        configured.add(f"{request.url.scheme}://{host}")
-        proto = request.headers.get("x-forwarded-proto", "").split(",")[0].strip().lower()
-        if proto in {"http", "https"}:
-            configured.add(f"{proto}://{host}")
+        configured.add(f"{effective_request_scheme(request)}://{host}")
     return configured
 
 
@@ -190,7 +242,10 @@ def _request_origin_allowed(request: Request) -> bool:
 @app.middleware("http")
 async def _global_rate_limit(request: Request, call_next):
     if request.method.upper() != "OPTIONS" and request.url.path not in _RATE_LIMIT_EXEMPT_PATHS:
-        allowed, retry_after = _rate_limit_allowed(_rate_limit_client_key(request))
+        # Counter I/O and SQLite contention belong in Starlette's bounded pool.
+        allowed, retry_after = await run_in_threadpool(
+            _rate_limit_allowed, _rate_limit_identity_key(request)
+        )
         if not allowed:
             return JSONResponse(
                 status_code=429,
@@ -217,16 +272,14 @@ async def _security_headers(request: Request, call_next):
         "Content-Security-Policy",
         "default-src 'self'; img-src 'self' data: blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
     )
-    if request.url.scheme == "https":
+    if effective_request_scheme(request) == "https":
         response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
-    # Uploaded files under /storage are served unauthenticated (so <img> tags can
-    # render them with bearer-token auth). They have unguessable UUID names; keep
-    # them out of shared caches and search indexes to limit URL-leak exposure.
+    # Model-file auth must run on every request, including cached images.
     if request.url.path.startswith("/storage/"):
-        if request.url.path.startswith("/storage/model-files/thumb/"):
-            response.headers.setdefault("Cache-Control", "private, max-age=604800")
+        if response.status_code >= 400:
+            response.headers["Cache-Control"] = "private, no-store"
         elif request.url.path.startswith("/storage/model-files/"):
-            response.headers.setdefault("Cache-Control", "private, max-age=86400")
+            response.headers.setdefault("Cache-Control", "private, no-cache, must-revalidate")
         else:
             response.headers.setdefault("Cache-Control", "private, no-store")
         response.headers.setdefault("X-Robots-Tag", "noindex, nofollow")
@@ -258,6 +311,8 @@ async def _unhandled_exception(request: Request, exc: Exception):
     return JSONResponse(
         status_code=500,
         content={"detail": "Internal server error"},
+        # Uvicorn closes after an unhandled error; proxies must not pool this socket.
+        headers={"Connection": "close"},
     )
 
 
@@ -300,6 +355,17 @@ app.mount("/storage/barcodes", StaticFiles(directory=settings.BARCODE_STORAGE_DI
 os.makedirs(settings.MODEL_FILES_DIR, exist_ok=True)
 _MODEL_FILES_ROOT = os.path.realpath(settings.MODEL_FILES_DIR)
 _MODEL_THUMBS_ROOT = os.path.realpath(os.path.join(settings.MODEL_FILES_DIR, "_thumbs"))
+_MODEL_FILES_CONDITIONAL = StaticFiles(directory=settings.MODEL_FILES_DIR)
+
+
+def _conditional_model_file_response(path: str, request: Request, media_type: str | None = None):
+    from fastapi.responses import FileResponse
+    from starlette.staticfiles import NotModifiedResponse
+
+    response = FileResponse(path, stat_result=os.stat(path), media_type=media_type)
+    if _MODEL_FILES_CONDITIONAL.is_not_modified(response.headers, request.headers):
+        return NotModifiedResponse(response.headers)
+    return response
 
 
 def _model_file_path_if_exists(name: str):
@@ -323,7 +389,7 @@ def _safe_model_file_path(name: str):
 
 
 def _model_image_record(name: str, db: DbSession):
-    from app.models import ModelImage
+    from app.schemas import ModelImage
 
     file_url = f"/storage/model-files/{name}"
     return (
@@ -334,37 +400,24 @@ def _model_image_record(name: str, db: DbSession):
     )
 
 
-def _require_model_file_token(request: Request) -> None:
-    """Validate image access without checking out a database connection.
+def _require_model_file_token(_user: CurrentUser, db: DbSession) -> None:
+    """Check current session access, then release the authentication connection.
 
-    A model list can render hundreds of thumbnails at once. Using CurrentUser
-    here made every image reserve a database connection merely to re-check the
-    same signed JWT, which could exhaust the pool and block login/API requests.
+    CurrentUser rejects disabled/deleted accounts and revoked credentials. A
+    model list can render hundreds of thumbnails at once, so do not hold that
+    database connection during filesystem reads, image generation or streaming.
+    These routes use separate short-lived sessions for database image fallback.
     """
-    from fastapi import HTTPException, status
-
-    authorization = request.headers.get("authorization", "").strip()
-    token = authorization[7:].strip() if authorization.lower().startswith("bearer ") else ""
-    if not token:
-        token = request.cookies.get(settings.AUTH_COOKIE_NAME, "").strip()
-    try:
-        payload = decode_token(token) if token else None
-        user_id = int((payload or {}).get("sub") or 0)
-        if user_id <= 0:
-            raise ValueError("missing subject")
-    except Exception:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+    db.close()
 
 
-@app.get("/storage/model-files/{name}")
+@app.get("/storage/model-files/{name}", dependencies=[Depends(_require_model_file_token)])
 def serve_model_file(name: str, request: Request):
     from fastapi import HTTPException
-    from fastapi.responses import FileResponse
 
-    _require_model_file_token(request)
     abs_path = _model_file_path_if_exists(name)
     if abs_path:
-        return FileResponse(abs_path)
+        return _conditional_model_file_response(abs_path, request)
 
     with SessionLocal() as db:
         img = _model_image_record(name, db)
@@ -375,17 +428,15 @@ def serve_model_file(name: str, request: Request):
     return Response(
         content=file_data,
         media_type=content_type or "application/octet-stream",
-        headers={"Cache-Control": "private, max-age=604800"},
+        headers={"Cache-Control": "private, no-store"},
     )
 
 
-@app.get("/storage/model-files/thumb/{name}")
+@app.get("/storage/model-files/thumb/{name}", dependencies=[Depends(_require_model_file_token)])
 def serve_model_thumbnail(name: str, request: Request, size: int = 320):
     from fastapi import HTTPException
-    from fastapi.responses import FileResponse
     from PIL import UnidentifiedImageError
 
-    _require_model_file_token(request)
     source_path = _model_file_path_if_exists(name)
     image_data = b""
     if not source_path:
@@ -405,7 +456,7 @@ def serve_model_thumbnail(name: str, request: Request, size: int = 320):
     source_mtime = os.path.getmtime(source_path) if source_path else 0
     if not os.path.isfile(thumb_path) or os.path.getmtime(thumb_path) < source_mtime:
         try:
-            from app.services.image_storage import ensure_webp_thumbnail
+            from app.models.image_storage_service import ensure_webp_thumbnail
 
             ensure_webp_thumbnail(
                 destination_path=thumb_path,
@@ -416,11 +467,7 @@ def serve_model_thumbnail(name: str, request: Request, size: int = 320):
         except (UnidentifiedImageError, OSError, HTTPException):
             raise HTTPException(status_code=415, detail="File is not a previewable image")
 
-    return FileResponse(
-        thumb_path,
-        media_type="image/webp",
-        headers={"Cache-Control": "private, max-age=604800"},
-    )
+    return _conditional_model_file_response(thumb_path, request, media_type="image/webp")
 
 # Sales-order printing attachments may contain customer-supplied design files, so
 # they are NOT served from a public static mount. Access requires a short-lived
@@ -451,4 +498,47 @@ def serve_sales_order_file(name: str, exp: str | None = None, sig: str | None = 
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "app": settings.APP_NAME}
+    return {"status": "ok", "app": settings.APP_NAME, "release": settings.RELEASE_ID}
+
+
+@app.get("/ready", response_model=None)
+def readiness() -> dict[str, object] | JSONResponse:
+    checks = _readiness_checks_within(_READINESS_TIMEOUT_SECONDS)
+    if all(result == "ok" for result in checks.values()):
+        return {"status": "ready", "checks": checks, "release": settings.RELEASE_ID}
+    return JSONResponse(
+        status_code=503,
+        content={"status": "not_ready", "checks": checks, "release": settings.RELEASE_ID},
+    )
+
+
+def _rate_limit_identity_key(request: Request) -> str:
+    """Choose a rate-limit identity without changing route authentication.
+
+    Public authentication entry points always remain IP-scoped, even when a
+    caller supplies a valid session. Other requests with a cryptographically
+    valid, unexpired access token use its canonical user id so office users do
+    not consume one shared NAT budget. Invalid credentials fall back to the IP
+    bucket and are still rejected independently by the route dependency.
+    """
+    client_key = f"ip:{_rate_limit_client_key(request)}"
+    path = request.url.path.rstrip("/") or "/"
+    if path in _RATE_LIMIT_IP_ONLY_PATHS:
+        return client_key
+
+    authorization = request.headers.get("authorization")
+    scheme, parameter = get_authorization_scheme_param(authorization)
+    token = parameter if scheme.lower() == "bearer" else None
+    if not token:
+        token = request.cookies.get(settings.AUTH_COOKIE_NAME)
+    if not token:
+        return client_key
+
+    try:
+        payload = decode_token(token)
+        user_id = int(payload["sub"])
+        if user_id <= 0:
+            raise ValueError("invalid user id")
+    except (KeyError, OverflowError, TypeError, ValueError):
+        return client_key
+    return f"user:{user_id}"

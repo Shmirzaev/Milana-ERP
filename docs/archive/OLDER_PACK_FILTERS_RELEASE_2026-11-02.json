@@ -1,0 +1,1409 @@
+{
+  "release": "20261102_063110",
+  "commit": "42078704df340558c8a21bf1ef14bf74cc87b222",
+  "observation_minutes": 0,
+  "owner_waiver": "deploy without 30 minute monitoring",
+  "initial": {
+    "backend": {
+      "state": {
+        "active_release": "20261031_092951",
+        "active_slot": "blue",
+        "role": "backend",
+        "rollback_release": "20261029_111113",
+        "rollback_slot": "green",
+        "updated_at": "2026-10-31T10:23:58.458148+00:00"
+      },
+      "blue": {
+        "id": "d8bee831dfe66451c7f1b193748c1c07fb9d79d61df4985f00557340c9a75b77",
+        "image": "sha256:2fbb47402f1efa1853b0cd315d174debe0ed28779d52f587a06ebdd6be80cc3c",
+        "labels": {
+          "milana.release": "20261031_092951",
+          "milana.role": "backend",
+          "milana.slot": "blue",
+          "org.opencontainers.image.revision": "337ff3c01bb4778232dad9973d7c996396717e14"
+        },
+        "running": true,
+        "oom": false,
+        "restarts": 0,
+        "started_at": "2026-11-01T07:07:56.572918264Z",
+        "ports": {
+          "10000/tcp": [
+            {
+              "HostIp": "127.0.0.1",
+              "HostPort": "18001"
+            }
+          ]
+        }
+      },
+      "green": {
+        "id": "cfbdd0f0288e2ea088b59b2744ec7aed85142027e75553fb74402305eb48e2c3",
+        "image": "sha256:8e34ba5727ac67e3730192b358f97615f52a175fb27c4679e1720df6f65e5566",
+        "labels": {
+          "milana.release": "20261029_111113",
+          "milana.role": "backend",
+          "milana.slot": "green",
+          "org.opencontainers.image.revision": "1344b572f8bff6f458892d3c2c8022560f306dbb"
+        },
+        "running": true,
+        "oom": false,
+        "restarts": 0,
+        "started_at": "2026-11-01T07:07:56.589978358Z",
+        "ports": {
+          "10000/tcp": [
+            {
+              "HostIp": "127.0.0.1",
+              "HostPort": "18002"
+            }
+          ]
+        }
+      },
+      "disk": {
+        "used": 154428751872,
+        "available": 45911441408,
+        "used_fraction": 0.7708325990090609
+      },
+      "database": {
+        "revision": "0149_besttex_cutting_access",
+        "connections": 31,
+        "maximum": 100,
+        "invalid_indexes": 0
+      }
+    },
+    "frontend": {
+      "state": {
+        "active_release": "20261031_092951",
+        "active_slot": "blue",
+        "role": "frontend",
+        "rollback_release": "20261029_111113",
+        "rollback_slot": "green",
+        "updated_at": "2026-10-31T10:24:00.122815+00:00"
+      },
+      "blue": {
+        "id": "c612d1bb9f7e3d55716100112296a1be2eb67f2dbbb06c4025adfbcb2c50a6a9",
+        "image": "sha256:21ad5f760ba01a884c71526f58631bdb816fe259fbc2f1ba05a1bb429e4160e0",
+        "labels": {
+          "milana.release": "20261031_092951",
+          "milana.role": "frontend",
+          "milana.slot": "blue",
+          "org.opencontainers.image.revision": "337ff3c01bb4778232dad9973d7c996396717e14"
+        },
+        "running": true,
+        "oom": false,
+        "restarts": 0,
+        "started_at": "2026-11-01T07:07:59.495391162Z",
+        "ports": {
+          "3000/tcp": [
+            {
+              "HostIp": "127.0.0.1",
+              "HostPort": "13001"
+            }
+          ]
+        }
+      },
+      "green": {
+        "id": "f17e66c42b0a22ce474469a2942e0f455a45ff34a7c89c6f165399a387824c27",
+        "image": "sha256:77c1d42f7fcfac22103c0bba36547914d10519fcd80a60e88fea6a23aee6a9c4",
+        "labels": {
+          "milana.release": "20261029_111113",
+          "milana.role": "frontend",
+          "milana.slot": "green",
+          "org.opencontainers.image.revision": "1344b572f8bff6f458892d3c2c8022560f306dbb"
+        },
+        "running": true,
+        "oom": false,
+        "restarts": 0,
+        "started_at": "2026-11-01T07:07:59.493722817Z",
+        "ports": {
+          "3000/tcp": [
+            {
+              "HostIp": "127.0.0.1",
+              "HostPort": "13002"
+            }
+          ]
+        }
+      },
+      "disk": {
+        "used": 61179793408,
+        "available": 17494765568,
+        "used_fraction": 0.7776312216337069
+      }
+    }
+  },
+  "updated_at": "2026-11-02T07:19:20.517393+00:00",
+  "performance_queries": {
+    "global_search": "/api/search?q=BJ5039-V-6795",
+    "model_options": "/api/model-options?search=BJ5039-V-6795&page=1&page_size=30",
+    "model_groups": "/api/models/variant-groups?q=BJ5039-V-6795&compact=true&include_total=true&page=1&page_size=20",
+    "inventory_batches": "/api/inventory/batches?q=kg&include_total=true&page=1&page_size=50",
+    "inventory_stock": "/api/inventory/stock?q=kg&include_total=true&page=1&page_size=50",
+    "process_qr": "/api/process-tracking?sewing_completed_only=true&q=PO-0495&page_size=100",
+    "print_runs": "/api/packages/print-runs?page=1&page_size=50"
+  },
+  "baseline_history_readback": {
+    "total": 376,
+    "old_run": "PRN-2026-000012",
+    "old_pack": "PKG-2026-000159",
+    "created_at": "2026-10-12T05:45:25.496657+00:00",
+    "model_codes": [
+      "BM8010-V-6451"
+    ]
+  },
+  "independent_review": {
+    "reviewer": "/root/review_merge",
+    "release_runtime": "passed; byte-identical to reviewed filters; unrelated integration excluded",
+    "backend_cases": 50,
+    "controller_cases": 11,
+    "controller_and_pool_contracts": "passed",
+    "operational_helpers": "passed after readiness mapping and controller resume corrections",
+    "rollback": "compatible; schema0149 unchanged; blue retained",
+    "human_authorization": "deploy old-pack filters without 30-minute monitoring"
+  },
+  "ci_provenance": {
+    "run": 41400415478,
+    "commit": "42078704df340558c8a21bf1ef14bf74cc87b222",
+    "conclusion": "success",
+    "url": "https://github.com/Shmirzaev/Milana-ERP/actions/runs/41400415478",
+    "images": {
+      "backend": "ghcr.io/shmirzaev/milana-erp-backend@sha256:8f849363a05a630fafd7a195bbc4be931f89aae44702b08175ffaca45d817011",
+      "frontend": "ghcr.io/shmirzaev/milana-erp-frontend@sha256:68a33dbbd280b294ea138d288d3d1f642ac8efc86161fdbd3858c4873aa1b223"
+    },
+    "backend_test_summaries": [
+      "4886 passed, 544 skipped, 15 warnings in 1090.76s (0:18:10)",
+      "7 passed, 1 warning in 1.85s",
+      "165 passed, 5 warnings in 135.38s (0:02:15)",
+      "11 passed, 5 warnings in 12.19s",
+      "20 passed, 5 warnings in 16.05s",
+      "176 passed, 5 warnings in 108.74s (0:01:48)"
+    ]
+  },
+  "artifacts": {
+    "metadata": {
+      "archive_bytes": 4552767,
+      "archive_sha256": "071ec8447fa902fa8d7407e9ed7a38eee68363b06d12abac6142051fa40cf643",
+      "git_commit": "42078704df340558c8a21bf1ef14bf74cc87b222",
+      "release": "20261102_063110",
+      "source_files": 1829,
+      "source_manifest_sha256": "becda671a332afe6fe86857ab948be2d686c984e81d02e6e68053ba83cb7a079"
+    },
+    "images": {
+      "backend": {
+        "image": "sha256:8f849363a05a630fafd7a195bbc4be931f89aae44702b08175ffaca45d817011",
+        "digests": [
+          "ghcr.io/shmirzaev/milana-erp-backend@sha256:8f849363a05a630fafd7a195bbc4be931f89aae44702b08175ffaca45d817011"
+        ],
+        "source": "42078704df340558c8a21bf1ef14bf74cc87b222",
+        "reference": "ghcr.io/shmirzaev/milana-erp-backend@sha256:8f849363a05a630fafd7a195bbc4be931f89aae44702b08175ffaca45d817011"
+      },
+      "frontend": {
+        "image": "sha256:68a33dbbd280b294ea138d288d3d1f642ac8efc86161fdbd3858c4873aa1b223",
+        "digests": [
+          "ghcr.io/shmirzaev/milana-erp-frontend@sha256:68a33dbbd280b294ea138d288d3d1f642ac8efc86161fdbd3858c4873aa1b223"
+        ],
+        "source": "42078704df340558c8a21bf1ef14bf74cc87b222",
+        "reference": "ghcr.io/shmirzaev/milana-erp-frontend@sha256:68a33dbbd280b294ea138d288d3d1f642ac8efc86161fdbd3858c4873aa1b223"
+      }
+    },
+    "ci_run": 41400415478
+  },
+  "controllers": {
+    "backend": {
+      "sha256": "13a9e19d5b266c87d138cb2866a185fedf45a089b85534d26fb28667eb95c3f3",
+      "backup": "/opt/milana-erp/shared/deploy/controller-backups/slotctl-before-20261102_063110.py",
+      "backup_sha256": "d422ff74b96c92115c3c657a02a1732925df5a3565f81b3f3a00bf0e9a5394a1"
+    },
+    "frontend": {
+      "sha256": "13a9e19d5b266c87d138cb2866a185fedf45a089b85534d26fb28667eb95c3f3",
+      "backup": "/opt/milana-erp/shared/deploy/controller-backups/slotctl-before-20261102_063110.py",
+      "backup_sha256": "d422ff74b96c92115c3c657a02a1732925df5a3565f81b3f3a00bf0e9a5394a1"
+    }
+  },
+  "backup": {
+    "path": "/opt/milana-erp/shared/backups/milana_erp_pre_20261102_063110_20261102_071501.dump",
+    "restore_objects": 1246,
+    "restore_list_bytes": 89402,
+    "restore_list_sha256": "27169bbadf1d0383f87cb50b6a9d78f8483d7c62cfb83e3c4e36d85ae3f5f4e4",
+    "bytes": 107604136,
+    "mode": "0o600",
+    "sha256": "2b4f8046bd1a014902f20e817c84e4729b672a9370b9e6388737110b92280b24"
+  },
+  "database": {
+    "revision": "0149_besttex_cutting_access",
+    "connections": 40,
+    "maximum": 100,
+    "invalid_indexes": 0
+  },
+  "staged": {
+    "backend": {
+      "id": "ea7315ce6600948d478f5370521914cc6768bd157479918933b4e2928ca14e2c",
+      "image": "sha256:8f849363a05a630fafd7a195bbc4be931f89aae44702b08175ffaca45d817011",
+      "labels": {
+        "milana.release": "20261102_063110",
+        "milana.role": "backend",
+        "milana.slot": "green",
+        "org.opencontainers.image.revision": "42078704df340558c8a21bf1ef14bf74cc87b222"
+      },
+      "running": true,
+      "oom": false,
+      "restarts": 0,
+      "started_at": "2026-11-02T07:02:59.13896062Z",
+      "ports": {
+        "10000/tcp": [
+          {
+            "HostIp": "127.0.0.1",
+            "HostPort": "18002"
+          }
+        ]
+      },
+      "disk_fraction_before_stage": 0.7734655757640687
+    },
+    "frontend": {
+      "id": "73564cb68cd8a9b864dfca59f08dfd39bde79c79557cf0b6e62683f678b39915",
+      "image": "sha256:68a33dbbd280b294ea138d288d3d1f642ac8efc86161fdbd3858c4873aa1b223",
+      "labels": {
+        "milana.release": "20261102_063110",
+        "milana.role": "frontend",
+        "milana.slot": "green",
+        "org.opencontainers.image.revision": "42078704df340558c8a21bf1ef14bf74cc87b222"
+      },
+      "running": true,
+      "oom": false,
+      "restarts": 0,
+      "started_at": "2026-11-02T07:03:15.969697206Z",
+      "ports": {
+        "3000/tcp": [
+          {
+            "HostIp": "127.0.0.1",
+            "HostPort": "13002"
+          }
+        ]
+      },
+      "disk_fraction_before_stage": 0.7791981489047909
+    }
+  },
+  "candidate_api_readback": {
+    "passed": true,
+    "total": 377,
+    "page_size": 50,
+    "all_rows_sha256": "1cf811b91c0704414743a616d257db2f607054d80e19780961ff1abf962fd3c0",
+    "old_run": "PRN-2026-000012",
+    "old_pack": "PKG-2026-000159",
+    "day": "2026-10-12",
+    "receipt": "received",
+    "checks": [
+      {
+        "filters": {
+          "q": "PRN-2026-000012"
+        },
+        "total": 1
+      },
+      {
+        "filters": {
+          "q": "PKG-2026-000159"
+        },
+        "total": 1
+      },
+      {
+        "filters": {
+          "q": "BM8010-V-6451"
+        },
+        "total": 2
+      },
+      {
+        "filters": {
+          "created_from": "2026-10-12",
+          "created_to": "2026-10-12",
+          "receipt_status": "received"
+        },
+        "total": 2
+      }
+    ],
+    "scope": {
+      "denied": 403,
+      "PKG": {
+        "status": 200,
+        "total": 216
+      },
+      "BPK": {
+        "status": 200,
+        "total": 161
+      }
+    },
+    "http_methods": [
+      "GET"
+    ]
+  },
+  "paired_performance": {
+    "passed": true,
+    "comparison": {
+      "failures": [],
+      "report": {
+        "global_search": {
+          "baseline_median_ms": 98.83,
+          "candidate_median_ms": 99.33,
+          "median_change_pct": 0.51,
+          "p95_change_pct": -1.72,
+          "payload_change_pct": 0.0
+        },
+        "inventory_batches": {
+          "baseline_median_ms": 36.82,
+          "candidate_median_ms": 36.83,
+          "median_change_pct": 0.03,
+          "p95_change_pct": -2.89,
+          "payload_change_pct": 0.0
+        },
+        "inventory_stock": {
+          "baseline_median_ms": 24.68,
+          "candidate_median_ms": 24.8,
+          "median_change_pct": 0.49,
+          "p95_change_pct": -5.32,
+          "payload_change_pct": 0.0
+        },
+        "model_groups": {
+          "baseline_median_ms": 73.4,
+          "candidate_median_ms": 72.09,
+          "median_change_pct": -1.78,
+          "p95_change_pct": -32.01,
+          "payload_change_pct": 0.0
+        },
+        "model_options": {
+          "baseline_median_ms": 38.96,
+          "candidate_median_ms": 37.24,
+          "median_change_pct": -4.41,
+          "p95_change_pct": -43.37,
+          "payload_change_pct": 0.0
+        },
+        "print_runs": {
+          "baseline_median_ms": 56.05,
+          "candidate_median_ms": 54.9,
+          "median_change_pct": -2.05,
+          "p95_change_pct": -24.73,
+          "payload_change_pct": 0.0
+        },
+        "process_qr": {
+          "baseline_median_ms": 302.96,
+          "candidate_median_ms": 306.32,
+          "median_change_pct": 1.11,
+          "p95_change_pct": 1.91,
+          "payload_change_pct": 0.0
+        }
+      }
+    },
+    "samples_per_endpoint": 120,
+    "fixed_queries": true,
+    "client": "unchanged blue backend container"
+  },
+  "candidate_browser_passed": true,
+  "candidate_browser": {
+    "passed": true,
+    "connected_chrome": true,
+    "pagination": "101-150 of 377",
+    "old_pack": "PKG-2026-000159",
+    "old_run": "PRN-2026-000012",
+    "day": "2026-10-12",
+    "received_results": 2,
+    "reversed_date_rejected": true,
+    "console_errors": 0,
+    "console_warnings": 0,
+    "screenshot": "outputs/deployment/candidate-old-pack.jpg",
+    "business_writes": 0
+  },
+  "activation": {
+    "passed": true,
+    "time": "2026-11-02T07:15:43.318775+00:00",
+    "slot": "green",
+    "rollback": "20261031_092951"
+  },
+  "postflight": {
+    "passed": true,
+    "roles": {
+      "backend": {
+        "state": {
+          "active_release": "20261102_063110",
+          "active_slot": "green",
+          "role": "backend",
+          "rollback_release": "20261031_092951",
+          "rollback_slot": "blue",
+          "updated_at": "2026-11-02T07:09:32.138783+00:00"
+        },
+        "active": {
+          "id": "ea7315ce6600948d478f5370521914cc6768bd157479918933b4e2928ca14e2c",
+          "image": "sha256:8f849363a05a630fafd7a195bbc4be931f89aae44702b08175ffaca45d817011",
+          "labels": {
+            "milana.release": "20261102_063110",
+            "milana.role": "backend",
+            "milana.slot": "green",
+            "org.opencontainers.image.revision": "42078704df340558c8a21bf1ef14bf74cc87b222"
+          },
+          "running": true,
+          "oom": false,
+          "restarts": 0,
+          "started_at": "2026-11-02T07:02:59.13896062Z",
+          "ports": {
+            "10000/tcp": [
+              {
+                "HostIp": "127.0.0.1",
+                "HostPort": "18002"
+              }
+            ]
+          }
+        },
+        "rollback": {
+          "id": "d8bee831dfe66451c7f1b193748c1c07fb9d79d61df4985f00557340c9a75b77",
+          "image": "sha256:2fbb47402f1efa1853b0cd315d174debe0ed28779d52f587a06ebdd6be80cc3c",
+          "labels": {
+            "milana.release": "20261031_092951",
+            "milana.role": "backend",
+            "milana.slot": "blue",
+            "org.opencontainers.image.revision": "337ff3c01bb4778232dad9973d7c996396717e14"
+          },
+          "running": true,
+          "oom": false,
+          "restarts": 0,
+          "started_at": "2026-11-01T07:07:56.572918264Z",
+          "ports": {
+            "10000/tcp": [
+              {
+                "HostIp": "127.0.0.1",
+                "HostPort": "18001"
+              }
+            ]
+          }
+        },
+        "logs": {
+          "error_markers": 0,
+          "workers": 2
+        },
+        "database": {
+          "revision": "0149_besttex_cutting_access",
+          "connections": 31,
+          "maximum": 100,
+          "invalid_indexes": 0
+        }
+      },
+      "frontend": {
+        "state": {
+          "active_release": "20261102_063110",
+          "active_slot": "green",
+          "role": "frontend",
+          "rollback_release": "20261031_092951",
+          "rollback_slot": "blue",
+          "updated_at": "2026-11-02T07:09:33.585738+00:00"
+        },
+        "active": {
+          "id": "73564cb68cd8a9b864dfca59f08dfd39bde79c79557cf0b6e62683f678b39915",
+          "image": "sha256:68a33dbbd280b294ea138d288d3d1f642ac8efc86161fdbd3858c4873aa1b223",
+          "labels": {
+            "milana.release": "20261102_063110",
+            "milana.role": "frontend",
+            "milana.slot": "green",
+            "org.opencontainers.image.revision": "42078704df340558c8a21bf1ef14bf74cc87b222"
+          },
+          "running": true,
+          "oom": false,
+          "restarts": 0,
+          "started_at": "2026-11-02T07:03:15.969697206Z",
+          "ports": {
+            "3000/tcp": [
+              {
+                "HostIp": "127.0.0.1",
+                "HostPort": "13002"
+              }
+            ]
+          }
+        },
+        "rollback": {
+          "id": "c612d1bb9f7e3d55716100112296a1be2eb67f2dbbb06c4025adfbcb2c50a6a9",
+          "image": "sha256:21ad5f760ba01a884c71526f58631bdb816fe259fbc2f1ba05a1bb429e4160e0",
+          "labels": {
+            "milana.release": "20261031_092951",
+            "milana.role": "frontend",
+            "milana.slot": "blue",
+            "org.opencontainers.image.revision": "337ff3c01bb4778232dad9973d7c996396717e14"
+          },
+          "running": true,
+          "oom": false,
+          "restarts": 0,
+          "started_at": "2026-11-01T07:07:59.495391162Z",
+          "ports": {
+            "3000/tcp": [
+              {
+                "HostIp": "127.0.0.1",
+                "HostPort": "13001"
+              }
+            ]
+          }
+        },
+        "logs": {
+          "error_markers": 0,
+          "workers": 0
+        }
+      }
+    },
+    "four_health_checks": "200",
+    "observation": "waived by owner; not run"
+  },
+  "public_api_readback": {
+    "passed": true,
+    "total": 377,
+    "page_size": 50,
+    "all_rows_sha256": "1cf811b91c0704414743a616d257db2f607054d80e19780961ff1abf962fd3c0",
+    "old_run": "PRN-2026-000012",
+    "old_pack": "PKG-2026-000159",
+    "day": "2026-10-12",
+    "receipt": "received",
+    "checks": [
+      {
+        "filters": {
+          "q": "PRN-2026-000012"
+        },
+        "total": 1
+      },
+      {
+        "filters": {
+          "q": "PKG-2026-000159"
+        },
+        "total": 1
+      },
+      {
+        "filters": {
+          "q": "BM8010-V-6451"
+        },
+        "total": 2
+      },
+      {
+        "filters": {
+          "created_from": "2026-10-12",
+          "created_to": "2026-10-12",
+          "receipt_status": "received"
+        },
+        "total": 2
+      }
+    ],
+    "scope": {
+      "denied": 403,
+      "PKG": {
+        "status": 200,
+        "total": 216
+      },
+      "BPK": {
+        "status": 200,
+        "total": 161
+      }
+    },
+    "http_methods": [
+      "GET"
+    ]
+  },
+  "public_browser": {
+    "passed": true,
+    "connected_chrome": true,
+    "locale": "uz",
+    "old_pack": "PKG-2026-000159",
+    "old_run": "PRN-2026-000012",
+    "day": "2026-10-12",
+    "received_results": 2,
+    "console_errors": 0,
+    "console_warnings": 0,
+    "screenshot": "outputs/deployment/public-old-pack.jpg",
+    "business_writes": 0
+  },
+  "closing_performance": {
+    "passed": false,
+    "phase": "remote benchmark execution",
+    "error": "closing-get-only-performance exited 1 before producing comparison JSON",
+    "measurements_available": false,
+    "observation": "No resampling; source failure output suppressed by existing remote helper",
+    "action": "restore previous blue release"
+  },
+  "rollback": {
+    "passed": true,
+    "restored": "20261031_092951",
+    "roles": {
+      "backend": {
+        "state": {
+          "active_release": "20261031_092951",
+          "active_slot": "blue",
+          "role": "backend",
+          "rollback_release": "20261102_063110",
+          "rollback_slot": "green",
+          "updated_at": "2026-11-02T07:12:12.733774+00:00"
+        },
+        "container": {
+          "id": "d8bee831dfe66451c7f1b193748c1c07fb9d79d61df4985f00557340c9a75b77",
+          "image": "sha256:2fbb47402f1efa1853b0cd315d174debe0ed28779d52f587a06ebdd6be80cc3c",
+          "labels": {
+            "milana.release": "20261031_092951",
+            "milana.role": "backend",
+            "milana.slot": "blue",
+            "org.opencontainers.image.revision": "337ff3c01bb4778232dad9973d7c996396717e14"
+          },
+          "running": true,
+          "oom": false,
+          "restarts": 0,
+          "started_at": "2026-11-01T07:07:56.572918264Z",
+          "ports": {
+            "10000/tcp": [
+              {
+                "HostIp": "127.0.0.1",
+                "HostPort": "18001"
+              }
+            ]
+          }
+        }
+      },
+      "frontend": {
+        "state": {
+          "active_release": "20261031_092951",
+          "active_slot": "blue",
+          "role": "frontend",
+          "rollback_release": "20261102_063110",
+          "rollback_slot": "green",
+          "updated_at": "2026-11-02T07:12:15.226198+00:00"
+        },
+        "container": {
+          "id": "c612d1bb9f7e3d55716100112296a1be2eb67f2dbbb06c4025adfbcb2c50a6a9",
+          "image": "sha256:21ad5f760ba01a884c71526f58631bdb816fe259fbc2f1ba05a1bb429e4160e0",
+          "labels": {
+            "milana.release": "20261031_092951",
+            "milana.role": "frontend",
+            "milana.slot": "blue",
+            "org.opencontainers.image.revision": "337ff3c01bb4778232dad9973d7c996396717e14"
+          },
+          "running": true,
+          "oom": false,
+          "restarts": 0,
+          "started_at": "2026-11-01T07:07:59.495391162Z",
+          "ports": {
+            "3000/tcp": [
+              {
+                "HostIp": "127.0.0.1",
+                "HostPort": "13001"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "four_health_checks": "200"
+  },
+  "closing_failure_readback": {
+    "global_search": [
+      200,
+      1,
+      101
+    ],
+    "model_options": [
+      200,
+      1,
+      210
+    ],
+    "model_groups": [
+      200,
+      1,
+      2536
+    ],
+    "inventory_batches": [
+      200,
+      50,
+      45409
+    ],
+    "inventory_stock": [
+      200,
+      50,
+      10986
+    ],
+    "process_qr": [
+      200,
+      1,
+      5606
+    ],
+    "print_runs": [
+      200,
+      50,
+      155693
+    ]
+  },
+  "candidate_failure_logs": {
+    "tracebacks": 0,
+    "exceptions": 0,
+    "http_5xx": []
+  },
+  "attempt_1": {
+    "backup": {
+      "path": "/opt/milana-erp/shared/backups/milana_erp_pre_20261102_063110_20261102_070229.dump",
+      "restore_objects": 1246,
+      "restore_list_bytes": 89402,
+      "restore_list_sha256": "5ce73898e3baa09144e5e7b0249ccc1a3be56bb17c2b6634737f759b681ac954",
+      "bytes": 107532007,
+      "mode": "0o600",
+      "sha256": "53ab8d27686ddefab8eef2e9d5df46c04531ad5c362376a276dc7ccd9ef1626f"
+    },
+    "activation": {
+      "passed": true,
+      "time": "2026-11-02T07:09:35.213730+00:00",
+      "slot": "green",
+      "rollback": "20261031_092951"
+    },
+    "postflight": {
+      "passed": true,
+      "roles": {
+        "backend": {
+          "state": {
+            "active_release": "20261102_063110",
+            "active_slot": "green",
+            "role": "backend",
+            "rollback_release": "20261031_092951",
+            "rollback_slot": "blue",
+            "updated_at": "2026-11-02T07:09:32.138783+00:00"
+          },
+          "active": {
+            "id": "ea7315ce6600948d478f5370521914cc6768bd157479918933b4e2928ca14e2c",
+            "image": "sha256:8f849363a05a630fafd7a195bbc4be931f89aae44702b08175ffaca45d817011",
+            "labels": {
+              "milana.release": "20261102_063110",
+              "milana.role": "backend",
+              "milana.slot": "green",
+              "org.opencontainers.image.revision": "42078704df340558c8a21bf1ef14bf74cc87b222"
+            },
+            "running": true,
+            "oom": false,
+            "restarts": 0,
+            "started_at": "2026-11-02T07:02:59.13896062Z",
+            "ports": {
+              "10000/tcp": [
+                {
+                  "HostIp": "127.0.0.1",
+                  "HostPort": "18002"
+                }
+              ]
+            }
+          },
+          "rollback": {
+            "id": "d8bee831dfe66451c7f1b193748c1c07fb9d79d61df4985f00557340c9a75b77",
+            "image": "sha256:2fbb47402f1efa1853b0cd315d174debe0ed28779d52f587a06ebdd6be80cc3c",
+            "labels": {
+              "milana.release": "20261031_092951",
+              "milana.role": "backend",
+              "milana.slot": "blue",
+              "org.opencontainers.image.revision": "337ff3c01bb4778232dad9973d7c996396717e14"
+            },
+            "running": true,
+            "oom": false,
+            "restarts": 0,
+            "started_at": "2026-11-01T07:07:56.572918264Z",
+            "ports": {
+              "10000/tcp": [
+                {
+                  "HostIp": "127.0.0.1",
+                  "HostPort": "18001"
+                }
+              ]
+            }
+          },
+          "logs": {
+            "error_markers": 0,
+            "workers": 2
+          },
+          "database": {
+            "revision": "0149_besttex_cutting_access",
+            "connections": 31,
+            "maximum": 100,
+            "invalid_indexes": 0
+          }
+        },
+        "frontend": {
+          "state": {
+            "active_release": "20261102_063110",
+            "active_slot": "green",
+            "role": "frontend",
+            "rollback_release": "20261031_092951",
+            "rollback_slot": "blue",
+            "updated_at": "2026-11-02T07:09:33.585738+00:00"
+          },
+          "active": {
+            "id": "73564cb68cd8a9b864dfca59f08dfd39bde79c79557cf0b6e62683f678b39915",
+            "image": "sha256:68a33dbbd280b294ea138d288d3d1f642ac8efc86161fdbd3858c4873aa1b223",
+            "labels": {
+              "milana.release": "20261102_063110",
+              "milana.role": "frontend",
+              "milana.slot": "green",
+              "org.opencontainers.image.revision": "42078704df340558c8a21bf1ef14bf74cc87b222"
+            },
+            "running": true,
+            "oom": false,
+            "restarts": 0,
+            "started_at": "2026-11-02T07:03:15.969697206Z",
+            "ports": {
+              "3000/tcp": [
+                {
+                  "HostIp": "127.0.0.1",
+                  "HostPort": "13002"
+                }
+              ]
+            }
+          },
+          "rollback": {
+            "id": "c612d1bb9f7e3d55716100112296a1be2eb67f2dbbb06c4025adfbcb2c50a6a9",
+            "image": "sha256:21ad5f760ba01a884c71526f58631bdb816fe259fbc2f1ba05a1bb429e4160e0",
+            "labels": {
+              "milana.release": "20261031_092951",
+              "milana.role": "frontend",
+              "milana.slot": "blue",
+              "org.opencontainers.image.revision": "337ff3c01bb4778232dad9973d7c996396717e14"
+            },
+            "running": true,
+            "oom": false,
+            "restarts": 0,
+            "started_at": "2026-11-01T07:07:59.495391162Z",
+            "ports": {
+              "3000/tcp": [
+                {
+                  "HostIp": "127.0.0.1",
+                  "HostPort": "13001"
+                }
+              ]
+            }
+          },
+          "logs": {
+            "error_markers": 0,
+            "workers": 0
+          }
+        }
+      },
+      "four_health_checks": "200",
+      "observation": "waived by owner; not run"
+    },
+    "closing_performance": {
+      "passed": false,
+      "phase": "remote benchmark execution",
+      "error": "closing-get-only-performance exited 1 before producing comparison JSON",
+      "measurements_available": false,
+      "observation": "No resampling; source failure output suppressed by existing remote helper",
+      "action": "restore previous blue release"
+    },
+    "rollback": {
+      "passed": true,
+      "restored": "20261031_092951",
+      "roles": {
+        "backend": {
+          "state": {
+            "active_release": "20261031_092951",
+            "active_slot": "blue",
+            "role": "backend",
+            "rollback_release": "20261102_063110",
+            "rollback_slot": "green",
+            "updated_at": "2026-11-02T07:12:12.733774+00:00"
+          },
+          "container": {
+            "id": "d8bee831dfe66451c7f1b193748c1c07fb9d79d61df4985f00557340c9a75b77",
+            "image": "sha256:2fbb47402f1efa1853b0cd315d174debe0ed28779d52f587a06ebdd6be80cc3c",
+            "labels": {
+              "milana.release": "20261031_092951",
+              "milana.role": "backend",
+              "milana.slot": "blue",
+              "org.opencontainers.image.revision": "337ff3c01bb4778232dad9973d7c996396717e14"
+            },
+            "running": true,
+            "oom": false,
+            "restarts": 0,
+            "started_at": "2026-11-01T07:07:56.572918264Z",
+            "ports": {
+              "10000/tcp": [
+                {
+                  "HostIp": "127.0.0.1",
+                  "HostPort": "18001"
+                }
+              ]
+            }
+          }
+        },
+        "frontend": {
+          "state": {
+            "active_release": "20261031_092951",
+            "active_slot": "blue",
+            "role": "frontend",
+            "rollback_release": "20261102_063110",
+            "rollback_slot": "green",
+            "updated_at": "2026-11-02T07:12:15.226198+00:00"
+          },
+          "container": {
+            "id": "c612d1bb9f7e3d55716100112296a1be2eb67f2dbbb06c4025adfbcb2c50a6a9",
+            "image": "sha256:21ad5f760ba01a884c71526f58631bdb816fe259fbc2f1ba05a1bb429e4160e0",
+            "labels": {
+              "milana.release": "20261031_092951",
+              "milana.role": "frontend",
+              "milana.slot": "blue",
+              "org.opencontainers.image.revision": "337ff3c01bb4778232dad9973d7c996396717e14"
+            },
+            "running": true,
+            "oom": false,
+            "restarts": 0,
+            "started_at": "2026-11-01T07:07:59.495391162Z",
+            "ports": {
+              "3000/tcp": [
+                {
+                  "HostIp": "127.0.0.1",
+                  "HostPort": "13001"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "four_health_checks": "200"
+    }
+  },
+  "instrumentation_review": {
+    "passed": true,
+    "reviewer": "/root/review_merge",
+    "checks": "Synthetic changing payload, changed row counts, HTTP failure; same120 samples, original baseline and thresholds",
+    "original_abort_cause": "unknown",
+    "bounded_retry": 1
+  },
+  "closing_postflight": {
+    "passed": true,
+    "roles": {
+      "backend": {
+        "state": {
+          "active_release": "20261102_063110",
+          "active_slot": "green",
+          "role": "backend",
+          "rollback_release": "20261031_092951",
+          "rollback_slot": "blue",
+          "updated_at": "2026-11-02T07:15:40.344760+00:00"
+        },
+        "active": {
+          "id": "ea7315ce6600948d478f5370521914cc6768bd157479918933b4e2928ca14e2c",
+          "image": "sha256:8f849363a05a630fafd7a195bbc4be931f89aae44702b08175ffaca45d817011",
+          "labels": {
+            "milana.release": "20261102_063110",
+            "milana.role": "backend",
+            "milana.slot": "green",
+            "org.opencontainers.image.revision": "42078704df340558c8a21bf1ef14bf74cc87b222"
+          },
+          "running": true,
+          "oom": false,
+          "restarts": 0,
+          "started_at": "2026-11-02T07:02:59.13896062Z",
+          "ports": {
+            "10000/tcp": [
+              {
+                "HostIp": "127.0.0.1",
+                "HostPort": "18002"
+              }
+            ]
+          }
+        },
+        "rollback": {
+          "id": "d8bee831dfe66451c7f1b193748c1c07fb9d79d61df4985f00557340c9a75b77",
+          "image": "sha256:2fbb47402f1efa1853b0cd315d174debe0ed28779d52f587a06ebdd6be80cc3c",
+          "labels": {
+            "milana.release": "20261031_092951",
+            "milana.role": "backend",
+            "milana.slot": "blue",
+            "org.opencontainers.image.revision": "337ff3c01bb4778232dad9973d7c996396717e14"
+          },
+          "running": true,
+          "oom": false,
+          "restarts": 0,
+          "started_at": "2026-11-01T07:07:56.572918264Z",
+          "ports": {
+            "10000/tcp": [
+              {
+                "HostIp": "127.0.0.1",
+                "HostPort": "18001"
+              }
+            ]
+          }
+        },
+        "logs": {
+          "error_markers": 0,
+          "workers": 2
+        },
+        "database": {
+          "revision": "0149_besttex_cutting_access",
+          "connections": 38,
+          "maximum": 100,
+          "invalid_indexes": 0
+        }
+      },
+      "frontend": {
+        "state": {
+          "active_release": "20261102_063110",
+          "active_slot": "green",
+          "role": "frontend",
+          "rollback_release": "20261031_092951",
+          "rollback_slot": "blue",
+          "updated_at": "2026-11-02T07:15:41.726929+00:00"
+        },
+        "active": {
+          "id": "73564cb68cd8a9b864dfca59f08dfd39bde79c79557cf0b6e62683f678b39915",
+          "image": "sha256:68a33dbbd280b294ea138d288d3d1f642ac8efc86161fdbd3858c4873aa1b223",
+          "labels": {
+            "milana.release": "20261102_063110",
+            "milana.role": "frontend",
+            "milana.slot": "green",
+            "org.opencontainers.image.revision": "42078704df340558c8a21bf1ef14bf74cc87b222"
+          },
+          "running": true,
+          "oom": false,
+          "restarts": 0,
+          "started_at": "2026-11-02T07:03:15.969697206Z",
+          "ports": {
+            "3000/tcp": [
+              {
+                "HostIp": "127.0.0.1",
+                "HostPort": "13002"
+              }
+            ]
+          }
+        },
+        "rollback": {
+          "id": "c612d1bb9f7e3d55716100112296a1be2eb67f2dbbb06c4025adfbcb2c50a6a9",
+          "image": "sha256:21ad5f760ba01a884c71526f58631bdb816fe259fbc2f1ba05a1bb429e4160e0",
+          "labels": {
+            "milana.release": "20261031_092951",
+            "milana.role": "frontend",
+            "milana.slot": "blue",
+            "org.opencontainers.image.revision": "337ff3c01bb4778232dad9973d7c996396717e14"
+          },
+          "running": true,
+          "oom": false,
+          "restarts": 0,
+          "started_at": "2026-11-01T07:07:59.495391162Z",
+          "ports": {
+            "3000/tcp": [
+              {
+                "HostIp": "127.0.0.1",
+                "HostPort": "13001"
+              }
+            ]
+          }
+        },
+        "logs": {
+          "error_markers": 0,
+          "workers": 0
+        }
+      }
+    },
+    "four_health_checks": "200",
+    "observation": "waived by owner; not run"
+  },
+  "attempt_2_immediate_postflight": {
+    "passed": true,
+    "roles": {
+      "backend": {
+        "state": {
+          "active_release": "20261102_063110",
+          "active_slot": "green",
+          "role": "backend",
+          "rollback_release": "20261031_092951",
+          "rollback_slot": "blue",
+          "updated_at": "2026-11-02T07:15:40.344760+00:00"
+        },
+        "active": {
+          "id": "ea7315ce6600948d478f5370521914cc6768bd157479918933b4e2928ca14e2c",
+          "image": "sha256:8f849363a05a630fafd7a195bbc4be931f89aae44702b08175ffaca45d817011",
+          "labels": {
+            "milana.release": "20261102_063110",
+            "milana.role": "backend",
+            "milana.slot": "green",
+            "org.opencontainers.image.revision": "42078704df340558c8a21bf1ef14bf74cc87b222"
+          },
+          "running": true,
+          "oom": false,
+          "restarts": 0,
+          "started_at": "2026-11-02T07:02:59.13896062Z",
+          "ports": {
+            "10000/tcp": [
+              {
+                "HostIp": "127.0.0.1",
+                "HostPort": "18002"
+              }
+            ]
+          }
+        },
+        "rollback": {
+          "id": "d8bee831dfe66451c7f1b193748c1c07fb9d79d61df4985f00557340c9a75b77",
+          "image": "sha256:2fbb47402f1efa1853b0cd315d174debe0ed28779d52f587a06ebdd6be80cc3c",
+          "labels": {
+            "milana.release": "20261031_092951",
+            "milana.role": "backend",
+            "milana.slot": "blue",
+            "org.opencontainers.image.revision": "337ff3c01bb4778232dad9973d7c996396717e14"
+          },
+          "running": true,
+          "oom": false,
+          "restarts": 0,
+          "started_at": "2026-11-01T07:07:56.572918264Z",
+          "ports": {
+            "10000/tcp": [
+              {
+                "HostIp": "127.0.0.1",
+                "HostPort": "18001"
+              }
+            ]
+          }
+        },
+        "logs": {
+          "error_markers": 0,
+          "workers": 2
+        },
+        "database": {
+          "revision": "0149_besttex_cutting_access",
+          "connections": 40,
+          "maximum": 100,
+          "invalid_indexes": 0
+        }
+      },
+      "frontend": {
+        "state": {
+          "active_release": "20261102_063110",
+          "active_slot": "green",
+          "role": "frontend",
+          "rollback_release": "20261031_092951",
+          "rollback_slot": "blue",
+          "updated_at": "2026-11-02T07:15:41.726929+00:00"
+        },
+        "active": {
+          "id": "73564cb68cd8a9b864dfca59f08dfd39bde79c79557cf0b6e62683f678b39915",
+          "image": "sha256:68a33dbbd280b294ea138d288d3d1f642ac8efc86161fdbd3858c4873aa1b223",
+          "labels": {
+            "milana.release": "20261102_063110",
+            "milana.role": "frontend",
+            "milana.slot": "green",
+            "org.opencontainers.image.revision": "42078704df340558c8a21bf1ef14bf74cc87b222"
+          },
+          "running": true,
+          "oom": false,
+          "restarts": 0,
+          "started_at": "2026-11-02T07:03:15.969697206Z",
+          "ports": {
+            "3000/tcp": [
+              {
+                "HostIp": "127.0.0.1",
+                "HostPort": "13002"
+              }
+            ]
+          }
+        },
+        "rollback": {
+          "id": "c612d1bb9f7e3d55716100112296a1be2eb67f2dbbb06c4025adfbcb2c50a6a9",
+          "image": "sha256:21ad5f760ba01a884c71526f58631bdb816fe259fbc2f1ba05a1bb429e4160e0",
+          "labels": {
+            "milana.release": "20261031_092951",
+            "milana.role": "frontend",
+            "milana.slot": "blue",
+            "org.opencontainers.image.revision": "337ff3c01bb4778232dad9973d7c996396717e14"
+          },
+          "running": true,
+          "oom": false,
+          "restarts": 0,
+          "started_at": "2026-11-01T07:07:59.495391162Z",
+          "ports": {
+            "3000/tcp": [
+              {
+                "HostIp": "127.0.0.1",
+                "HostPort": "13001"
+              }
+            ]
+          }
+        },
+        "logs": {
+          "error_markers": 0,
+          "workers": 0
+        }
+      }
+    },
+    "four_health_checks": "200",
+    "observation": "waived by owner; not run"
+  },
+  "public_browser_attempt_2": {
+    "passed": true,
+    "connected_chrome": true,
+    "locale": "uz",
+    "old_pack": "PKG-2026-000159",
+    "old_run": "PRN-2026-000012",
+    "day": "2026-10-12",
+    "receipt": "received",
+    "combined_results": 1,
+    "console_errors": 0,
+    "console_warnings": 0,
+    "screenshot": "outputs/deployment/public-old-pack-final.jpg",
+    "business_writes": 0
+  },
+  "closing_performance_attempt_2": {
+    "passed": true,
+    "comparison": {
+      "failures": [],
+      "report": {
+        "global_search": {
+          "baseline_median_ms": 212.24,
+          "candidate_median_ms": 210.65,
+          "median_change_pct": -0.75,
+          "p95_change_pct": -12.76,
+          "payload_change_pct": 0.0
+        },
+        "inventory_batches": {
+          "baseline_median_ms": 150.71,
+          "candidate_median_ms": 148.26,
+          "median_change_pct": -1.63,
+          "p95_change_pct": -2.69,
+          "payload_change_pct": 0.07
+        },
+        "inventory_stock": {
+          "baseline_median_ms": 137.42,
+          "candidate_median_ms": 136.59,
+          "median_change_pct": -0.6,
+          "p95_change_pct": 1.71,
+          "payload_change_pct": -0.02
+        },
+        "model_groups": {
+          "baseline_median_ms": 181.84,
+          "candidate_median_ms": 179.69,
+          "median_change_pct": -1.18,
+          "p95_change_pct": -0.44,
+          "payload_change_pct": 0.0
+        },
+        "model_options": {
+          "baseline_median_ms": 152.7,
+          "candidate_median_ms": 152.03,
+          "median_change_pct": -0.44,
+          "p95_change_pct": -0.31,
+          "payload_change_pct": 0.0
+        },
+        "print_runs": {
+          "baseline_median_ms": 171.19,
+          "candidate_median_ms": 168.12,
+          "median_change_pct": -1.79,
+          "p95_change_pct": -13.41,
+          "payload_change_pct": 1.82
+        },
+        "process_qr": {
+          "baseline_median_ms": 427.92,
+          "candidate_median_ms": 397.42,
+          "median_change_pct": -7.13,
+          "p95_change_pct": -59.47,
+          "payload_change_pct": 0.0
+        }
+      }
+    },
+    "samples_per_endpoint": 120,
+    "original_baseline_preserved": true,
+    "first_attempt_retained": true,
+    "payload_measurement": "maximum across all samples; constant row counts required"
+  },
+  "final_release_gates": {
+    "passed": true,
+    "performance": "closing_performance_attempt_2",
+    "first_attempt": "FAIL retained, unknown abort cause",
+    "source": "42078704df340558c8a21bf1ef14bf74cc87b222",
+    "release": "20261102_063110",
+    "slot": "green",
+    "rollback": "20261031_092951",
+    "monitoring": "waived; not run"
+  },
+  "final_state": {
+    "active_release": "20261102_063110",
+    "slot": "green",
+    "rollback_release": "20261031_092951",
+    "timed_observer": "waived; not run",
+    "business_mutations": 0,
+    "acceptance": "AI_VERIFIED_AWAITING_HUMAN"
+  },
+  "performance_baseline": {
+    "global_search": {
+      "median_ms": 212.24,
+      "p95_ms": 257.78,
+      "rows": 1,
+      "response_bytes": 101
+    },
+    "model_options": {
+      "median_ms": 152.7,
+      "p95_ms": 158.22,
+      "rows": 1,
+      "response_bytes": 210
+    },
+    "model_groups": {
+      "median_ms": 181.84,
+      "p95_ms": 191.53,
+      "rows": 1,
+      "response_bytes": 2536
+    },
+    "inventory_batches": {
+      "median_ms": 150.71,
+      "p95_ms": 158.46,
+      "rows": 50,
+      "response_bytes": 45377
+    },
+    "inventory_stock": {
+      "median_ms": 137.42,
+      "p95_ms": 143.55,
+      "rows": 50,
+      "response_bytes": 10988
+    },
+    "process_qr": {
+      "median_ms": 427.92,
+      "p95_ms": 1057.74,
+      "rows": 1,
+      "response_bytes": 5606
+    },
+    "print_runs": {
+      "median_ms": 171.19,
+      "p95_ms": 209.17,
+      "rows": 50,
+      "response_bytes": 152903
+    }
+  },
+  "performance_final": {
+    "global_search": {
+      "median_ms": 210.65,
+      "p95_ms": 224.88,
+      "rows": 1,
+      "response_bytes": 101,
+      "minimum_response_bytes": 101
+    },
+    "model_options": {
+      "median_ms": 152.03,
+      "p95_ms": 157.73,
+      "rows": 1,
+      "response_bytes": 210,
+      "minimum_response_bytes": 210
+    },
+    "model_groups": {
+      "median_ms": 179.69,
+      "p95_ms": 190.69,
+      "rows": 1,
+      "response_bytes": 2536,
+      "minimum_response_bytes": 2536
+    },
+    "inventory_batches": {
+      "median_ms": 148.26,
+      "p95_ms": 154.19,
+      "rows": 50,
+      "response_bytes": 45409,
+      "minimum_response_bytes": 45409
+    },
+    "inventory_stock": {
+      "median_ms": 136.59,
+      "p95_ms": 146.0,
+      "rows": 50,
+      "response_bytes": 10986,
+      "minimum_response_bytes": 10986
+    },
+    "process_qr": {
+      "median_ms": 397.42,
+      "p95_ms": 428.65,
+      "rows": 1,
+      "response_bytes": 5606,
+      "minimum_response_bytes": 5606
+    },
+    "print_runs": {
+      "median_ms": 168.12,
+      "p95_ms": 181.13,
+      "rows": 50,
+      "response_bytes": 155693,
+      "minimum_response_bytes": 155693
+    }
+  }
+}

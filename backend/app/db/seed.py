@@ -16,8 +16,8 @@ from app.core.security import (
 )
 from app.db.session import SessionLocal, engine
 from app.db.base import Base
-import app.models  # noqa
-from app.models import (
+import app.schemas  # noqa
+from app.schemas import (
     Role, Department, User, Customer, Supplier, Warehouse, Item,
     Brand, Collection, Model, ModelSize, ModelColor, ModelBOM,
     CollectionModel, SalesOrder, SalesOrderItem, StockBatch, SewingFlow,
@@ -40,6 +40,7 @@ PAYROLL_ROLE_NAME = "Payroll"
 PAYROLL_SCAN_PERMISSION = "payroll.scan"
 PAYROLL_WORKSPACE_PERMISSIONS = ["payroll.view", "payroll.manage", PAYROLL_SCAN_PERMISSION]
 PAYROLL_DAILY_SEWING_REPORT_PERMISSION = "sewing.daily_reports.view"
+PAYROLL_SEWING_PERMISSIONS = ["sewing.flows", "sewing.records", "sewing.bundles"]
 PAYROLL_PERMISSION_PREFIX = "payroll."
 ADMIN_ROLE_NAMES = {"Admin", "Super Admin"}
 AI_MONITOR_ROLE_NAME = "AI Monitor"
@@ -82,6 +83,7 @@ ROLES = {
     ],
     "Modeling": ["modeling.models", "modeling.bom", "modeling.brands", "modeling.collections", "modeling.approve"],
     "Storage": [
+        "sales.customers",
         "storage.receive", "storage.transfer", "storage.items", "storage.suppliers", "storage.packages", "storage.shipment",
         "inventory.reservations.view", "inventory.reservations.create", "inventory.reservations.release", "inventory.reservations.consume",
         "purchasing.view", "purchasing.receive", "traceability.view", "traceability.export",
@@ -90,9 +92,9 @@ ROLES = {
     "Printing": ["printing.records", "printing.bundles", "traceability.view"],
     "Sewing": ["sewing.workspace", "sewing.records", "sewing.bundles", "sewing.flows", "traceability.view"],
     "Packaging": ["packaging.records", "packaging.packages", "traceability.view"],
-    "ReadyStorage": ["storage.packages", "storage.shipment", "traceability.view", "traceability.export"],
+    "ReadyStorage": ["sales.customers", "storage.packages", "storage.shipment", "traceability.view", "traceability.export"],
     "Waste": ["waste.receive", "waste.sell", "waste.disposal"],
-    PAYROLL_ROLE_NAME: [*PAYROLL_WORKSPACE_PERMISSIONS, PAYROLL_DAILY_SEWING_REPORT_PERMISSION],
+    PAYROLL_ROLE_NAME: [*PAYROLL_WORKSPACE_PERMISSIONS, PAYROLL_DAILY_SEWING_REPORT_PERMISSION, *PAYROLL_SEWING_PERMISSIONS],
     "Finance": ["finance.view", "finance.invoice", "finance.payment", "inventory.reservations.view", "purchasing.view", "forecasting.view"],
     "HR": ["hr.employees"],
     AI_MONITOR_ROLE_NAME: AI_MONITOR_PERMISSIONS,

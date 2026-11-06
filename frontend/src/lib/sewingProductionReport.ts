@@ -30,6 +30,7 @@ export type SewingProductionReportRow = {
 };
 
 export type SewingProductionReportOptions = {
+  salary_masters?: ReportOption[];
   employees: ReportOption[];
   operations: ReportOption[];
   sewing_lines: ReportOption[];
@@ -39,12 +40,28 @@ export type SewingProductionReportOptions = {
   sizes: ReportOption[];
 };
 
+export type SewingSalarySummaryRow = {
+  master_id?: number | null;
+  master_name?: string | null;
+  daily_amounts: Record<string, number | string>;
+  employee_id: number;
+  employee_no?: string | null;
+  employee_name: string;
+  record_count: number;
+  quantity: number | string;
+  total_amount: number | string;
+  currency: string;
+};
+
 export type SewingProductionReportResponse = {
+  salary_summary: SewingSalarySummaryRow[];
+  salary_days: string[];
   items: SewingProductionReportRow[];
   total: number;
   offset: number;
   limit: number;
   total_quantity: number | string;
+  total_product_quantity?: number | string;
   total_amount: number | string;
   currency: string;
   options: SewingProductionReportOptions;

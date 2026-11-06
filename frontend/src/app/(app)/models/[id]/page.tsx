@@ -1,4 +1,6 @@
 "use client";
+import { formatVariantNumber } from "@/lib/variantDisplay";
+import { errorDetail, localizeError } from "@/lib/errorMessages";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -17,10 +19,17 @@ import { formatModelComposition } from "@/lib/modelComposition";
 import { oldErpModelInfoFromDetails } from "@/lib/oldErpModelInfo";
 import { imagePreviewHref, storageThumbnailUrl } from "@/lib/modelImages";
 import { prepareModelImageUpload } from "@/lib/imageUpload";
-import { MATERIAL_COLOR_OPTIONS } from "@/lib/materialColors";
 import { GARMENT_SIZE_OPTIONS, garmentSizeRange, garmentSizeRangeEndOptions } from "@/lib/garmentSizes";
 import { parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
+import {
+  BOM_MATERIAL_ROLE_MAIN,
+  BOM_MATERIAL_ROLE_SECONDARY,
+  type BomCreatePayload,
+  type BomCreateResult,
+  type BomMaterialRole,
+} from "@/lib/modelBom";
 import VerticalModelPhoto from "@/components/VerticalModelPhoto";
+import VariantColorSelect from "@/components/VariantColorSelect";
 import PaidOperationsEditor from "@/components/PaidOperationsEditor";
 import { useMe } from "@/lib/auth";
 import {
@@ -85,7 +94,7 @@ type BomSection = "material" | "accessory";
 type BomFormState = {
   item_id: number;
   material_name: string;
-  material_role: "main" | "secondary";
+  material_role: BomMaterialRole;
   stock_batch_id: number;
   size: string;
   color: string;
@@ -117,6 +126,7 @@ type FabricVariant = {
   variant_no?: string | null;
   fabric?: string | null;
   picture_url?: string | null;
+  print_picture_url?: string | null;
   fabric_item_id?: number | null;
   color?: string | null;
   selling_price?: number | null;
@@ -164,7 +174,7 @@ function normalizeSizeToken(value: unknown): string {
 }
 
 function emptyBomRow(): BomFormState {
-  return { item_id: 0, material_name: "", material_role: "main", stock_batch_id: 0, size: "", color: "", photo_url: "", quantity_per_piece: 1, unit: "kg", waste_percent: 5 };
+  return { item_id: 0, material_name: "", material_role: BOM_MATERIAL_ROLE_MAIN, stock_batch_id: 0, size: "", color: "", photo_url: "", quantity_per_piece: 1, unit: "kg", waste_percent: 5 };
 }
 
 export default function ModelDetail() {
@@ -204,14 +214,25 @@ export default function ModelDetail() {
     },
     fetcher,
   );
-  const { data: items } = useSWR<any[]>(`${modelApiBase}/bom-items`, fetcher);
-  const { data: brands } = useSWR<any[]>("/api/brands", fetcher);
-  const { data: seasons } = useSWR<string[]>("/api/collections/seasons", fetcher);
-  const { data: employees } = useSWR<any[]>("/api/employees", fetcher);
-  const { data: depts } = useSWR<any[]>("/api/departments", fetcher);
   const tabs = TAB_KEYS.map((k) => t(k));
 
   const [tab, setTab] = useState(1);
+  // BOM items and seasons were fetched on every page load, including for the tabs that
+  // never render them. SWR skips a null key, so these are requested only for the tabs
+  // that read them. Tab 3 is "materials" and tab 6 is "other", which is the second place
+  // that splits BOM rows into fabrics and accessories - gating on tab 3 alone would leave
+  // that panel showing every row as a fabric.
+  const needsBomItems = tab === 3 || tab === 6;
+  const { data: items } = useSWR<any[]>(needsBomItems ? `${modelApiBase}/bom-items` : null, fetcher);
+  const { data: brands } = useSWR<any[]>("/api/brands", fetcher);
+  // The season picker is rendered in the general tab only.
+  const { data: seasons } = useSWR<string[]>(tab === 1 ? "/api/collections/seasons" : null, fetcher);
+  // Employees stay unconditional: saveModel resolves the already-selected constructor
+  // and designer from this list, so deferring it could clear a value the operator never
+  // edited. Bounding this list needs a searchable endpoint, which is PERF35-HR.
+  const { data: employees } = useSWR<any[]>("/api/employees", fetcher);
+  const { data: depts } = useSWR<any[]>("/api/departments", fetcher);
+
   const [msg, setMsg] = useState("");
   const [isCloning, setIsCloning] = useState(false);
   const [showVariantForm, setShowVariantForm] = useState(false);
@@ -219,8 +240,15 @@ export default function ModelDetail() {
   const [savingVariant, setSavingVariant] = useState(false);
   const [editingVariantId, setEditingVariantId] = useState<number | null>(null);
   const [deletingVariantId, setDeletingVariantId] = useState<number | null>(null);
-  const [variantForm, setVariantForm] = useState({ variant_no: "", color: "", picture_url: "" });
+  const [variantForm, setVariantForm] = useState({ variant_no: "", color: "", picture_url: "", print_picture_url: "" });
   const [suggestedVariantNo, setSuggestedVariantNo] = useState("");
+  const [automaticModelPrefix, setAutomaticModelPrefix] = useState("");
+  const [modelNumberPrefixes, setModelNumberPrefixes] = useState<string[]>([]);
+  const { data: modelNumberPreview, error: modelNumberError } = useSWR<{ model_no: string; prefixes: string[] }>(
+    isNewModel ? `${modelApiBase}/next-number?prefix=${encodeURIComponent(automaticModelPrefix || "XJ")}` : null,
+    fetcher,
+  );
+  const [variantPrintFile, setVariantPrintFile] = useState<File | null>(null);
   const [variantPictureFile, setVariantPictureFile] = useState<File | null>(null);
 
   const [modelForm, setModelForm] = useState<ModelFormState>({
@@ -240,6 +268,12 @@ export default function ModelDetail() {
     sam_minutes: "",
   });
   const [details, setDetails] = useState<ModelDetails>({});
+
+  useEffect(() => {
+    if (modelNumberPreview) setModelNumberPrefixes(modelNumberPreview.prefixes);
+    if (!isNewModel || !automaticModelPrefix || !modelNumberPreview || modelNumberError) return;
+    setModelForm((current) => ({ ...current, model_no: modelNumberPreview.model_no, variant_no: "" }));
+  }, [isNewModel, automaticModelPrefix, modelNumberPreview, modelNumberError]);
 
   const [bomRow, setBomRow] = useState<BomFormState>(() => emptyBomRow());
   const [editingBom, setEditingBom] = useState<{ id: number; section: BomSection } | null>(null);
@@ -314,12 +348,12 @@ export default function ModelDetail() {
       };
     }
     nextDetails.paid_operations = serializePaidOperations(materializeLegacyPaidOperations(
-      withoutModelQuantities(paidOperationsFromDetails(nextDetails)),
+      withoutModelQuantities(paidOperationsFromDetails(nextDetails, !isUsluga)),
       visiblePaidOperationFactories,
     ));
     delete nextDetails.paidOperations;
     setDetails(nextDetails);
-  }, [m, visiblePaidOperationFactories]);
+  }, [m, visiblePaidOperationFactories, isUsluga]);
 
   const measurementJson = useMemo(() => buildMeasurementJson(measurementFields), [measurementFields]);
 
@@ -379,7 +413,7 @@ export default function ModelDetail() {
     setBomRow({
       item_id: isUsluga && section === "material" ? 0 : Number(row.item_id || 0),
       material_name: isUsluga && section === "material" ? String(row.material_name || row.item?.name || "") : "",
-      material_role: isUsluga && section === "material" && row.material_role === "secondary" ? "secondary" : "main",
+      material_role: isUsluga && section === "material" && row.material_role === BOM_MATERIAL_ROLE_SECONDARY ? BOM_MATERIAL_ROLE_SECONDARY : BOM_MATERIAL_ROLE_MAIN,
       stock_batch_id: section === "material" ? 0 : Number(row.stock_batch_id || 0),
       size: row.size || "",
       color: row.color || "",
@@ -460,10 +494,7 @@ export default function ModelDetail() {
   })), [accessoryItems]);
   const sizeRows = m?.sizes || [];
   const colorRows = m?.colors || [];
-  const primaryImage = (m?.images || []).find((img: any) => img.is_primary && img.image_type === "model")
-    || (m?.images || []).find((img: any) => img.is_primary)
-    || (m?.images || []).find((img: any) => img.image_type === "model")
-    || (m?.images || [])[0];
+  const primaryImage = m?.primary_image;
   const translatedName = details.translation?.[lang] || (lang === "ru" ? details.translation?.ru : "") || m?.name || "";
   const qolipNoValue = String(
     details.general?.qolip_no
@@ -478,7 +509,7 @@ export default function ModelDetail() {
     () => (m?.images || []).filter((img: any) => String(img.image_type || "").toLowerCase() === "pattern"),
     [m?.images],
   );
-  const paidOperations = useMemo(() => withoutModelQuantities(paidOperationsFromDetails(details)), [details]);
+  const paidOperations = useMemo(() => withoutModelQuantities(paidOperationsFromDetails(details, !isUsluga)), [details, isUsluga]);
   const modelCompositionRows = useMemo(
     () => (details.composition || []).length ? details.composition || [] : [{ name: "", percentage: "" }],
     [details.composition],
@@ -525,7 +556,7 @@ export default function ModelDetail() {
 
   function updatePaidOperation(id: string, patch: Partial<PaidOperation>) {
     setDetails((current) => {
-      const rows = withoutModelQuantities(paidOperationsFromDetails(current)).map((operation) => (
+      const rows = withoutModelQuantities(paidOperationsFromDetails(current, !isUsluga)).map((operation) => (
         operation.id === id ? { ...operation, ...patch } : operation
       ));
       return withPaidOperations(current, rows);
@@ -534,7 +565,7 @@ export default function ModelDetail() {
 
   function addPaidOperation(sewingFactory: PaidOperationFactory, template?: { name: string; code: string; section: SectionCode }) {
     setDetails((current) => {
-      const existing = withoutModelQuantities(paidOperationsFromDetails(current));
+      const existing = withoutModelQuantities(paidOperationsFromDetails(current, !isUsluga));
       if (template && existing.some(operation => operation.sewingFactory === sewingFactory && samePaidProcess(operation, template))) return current;
       const rows = [
         ...existing,
@@ -547,7 +578,7 @@ export default function ModelDetail() {
 
   function removePaidOperation(id: string) {
     setDetails((current) => {
-      const rows = withoutModelQuantities(paidOperationsFromDetails(current));
+      const rows = withoutModelQuantities(paidOperationsFromDetails(current, !isUsluga));
       return withPaidOperations(current, rows.filter((operation) => operation.id !== id));
     });
   }
@@ -578,6 +609,10 @@ export default function ModelDetail() {
   }
 
   async function saveModel() {
+    if (isNewModel && automaticModelPrefix && (!modelNumberPreview || modelNumberError)) {
+      await dialogs.notify(t("page.modelDetail.loadError"));
+      return;
+    }
     const selectedBrand = (brands || []).find((b) => Number(b.id) === Number(modelForm.brand_id));
     const constructor = (employees || []).find((e) => Number(e.id) === Number(modelForm.constructor_employee_id));
     const designer = (employees || []).find((e) => Number(e.id) === Number(modelForm.designer_employee_id));
@@ -650,6 +685,7 @@ export default function ModelDetail() {
     };
     const payload = {
       code: nextCode,
+      ...(isNewModel && automaticModelPrefix ? { automatic_model_prefix: automaticModelPrefix } : {}),
       name: modelForm.name,
       category: modelForm.category || null,
       description: modelForm.description || null,
@@ -691,9 +727,10 @@ export default function ModelDetail() {
   }
 
   function resetVariantForm() {
-    setVariantForm({ variant_no: "", color: "", picture_url: "" });
+    setVariantForm({ variant_no: "", color: "", picture_url: "", print_picture_url: "" });
     setSuggestedVariantNo("");
     setVariantPictureFile(null);
+    setVariantPrintFile(null);
     setEditingVariantId(null);
     setShowVariantForm(false);
   }
@@ -712,9 +749,11 @@ export default function ModelDetail() {
         variant_no: nextVariantNo,
         color: "",
         picture_url: "",
+        print_picture_url: "",
       });
       setSuggestedVariantNo(nextVariantNo);
       setVariantPictureFile(null);
+      setVariantPrintFile(null);
       setEditingVariantId(null);
       setShowVariantForm(true);
     } catch (e: any) {
@@ -732,8 +771,10 @@ export default function ModelDetail() {
       variant_no: String(variant.variant_no || "").trim(),
       color: String(variant.color || "").trim(),
       picture_url: String(variant.picture_url || ""),
+      print_picture_url: String(variant.print_picture_url || ""),
     });
     setVariantPictureFile(null);
+    setVariantPrintFile(null);
     setEditingVariantId(variantId);
     setShowVariantForm(true);
   }
@@ -761,11 +802,17 @@ export default function ModelDetail() {
         const uploaded = await api.postForm<{ file_url: string }>(`${modelApiBase}/${uploadModelId}/bom-photo/upload`, form);
         uploadedPictureUrl = String(uploaded.file_url || "").trim();
       }
-      const payload: { variant_no?: string; color?: string; picture_url?: string } = {};
+      const payload: { variant_no?: string; color?: string; picture_url?: string; print_picture_url?: string } = {};
       const useAutomaticVariantNumber = !editingVariantId && variantNo === suggestedVariantNo;
       if (!useAutomaticVariantNumber) payload.variant_no = variantNo;
       if (variantForm.color.trim()) payload.color = variantForm.color.trim();
       if (uploadedPictureUrl) payload.picture_url = uploadedPictureUrl;
+      if (variantPrintFile) {
+        const printForm = new FormData();
+        printForm.append("file", variantPrintFile);
+        const uploaded = await api.postForm<{ file_url: string }>(`${modelApiBase}/${editingVariantId || Number(id)}/bom-photo/upload`, printForm);
+        payload.print_picture_url = uploaded.file_url;
+      }
       if (editingVariantId) {
         await api.patch(`${modelApiBase}/${id}/variants/${editingVariantId}`, payload);
       } else {
@@ -816,6 +863,7 @@ export default function ModelDetail() {
 
   async function addBom(e?: { preventDefault?: () => void }, expectedCategory?: BomSection) {
     e?.preventDefault?.();
+    setMsg("");
     if (isNewModel) {
       await dialogs.notify(t("page.modelDetail.saveGeneralFirst"));
       setTab(1);
@@ -844,7 +892,7 @@ export default function ModelDetail() {
         return;
       }
     }
-    const payload: Record<string, unknown> = {
+    const payload: BomCreatePayload = {
       item_id: isManualUslugaMaterial ? null : bomRow.item_id,
       stock_batch_id: target === "material" ? null : (bomRow.stock_batch_id || null),
       size: bomRow.size || null,
@@ -857,10 +905,15 @@ export default function ModelDetail() {
     if (isManualUslugaMaterial) payload.material_name = bomRow.material_name.trim();
     if (isManualUslugaMaterial) payload.material_role = bomRow.material_role;
     const activeEdit = editingBom?.section === target ? editingBom : null;
-    if (activeEdit) {
-      await api.patch(`${modelApiBase}/${id}/bom/${activeEdit.id}`, payload);
-    } else {
-      await api.post(`${modelApiBase}/${id}/bom`, payload);
+    try {
+      if (activeEdit) {
+        await api.patch(`${modelApiBase}/${id}/bom/${activeEdit.id}`, payload);
+      } else {
+        await api.post<BomCreateResult>(`${modelApiBase}/${id}/bom`, payload);
+      }
+    } catch (error: unknown) {
+      await dialogs.notify(errorDetail(error) || localizeError(""));
+      return;
     }
     resetBomForm();
     setMsg(activeEdit ? t("page.modelDetail.msg.updatedBom") : target === "material" ? t("page.modelDetail.msg.addedToFabrics") : t("page.modelDetail.msg.addedToAccessories"));
@@ -954,7 +1007,7 @@ export default function ModelDetail() {
         setImageForms((prev) => ({ ...prev, [imageType]: { file_url: "" } }));
         await Promise.all([mutate(), mutateVariants()]);
       } catch (error: any) {
-        await dialogs.notify(String(error?.message || "Image upload failed"));
+        await dialogs.notify(String(error?.message || localizeError("Image upload failed")));
       } finally {
         setUploadingImageType(null);
       }
@@ -1125,7 +1178,26 @@ export default function ModelDetail() {
         {tab === 1 && (
           <div className="space-y-3">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <div><label className="label">{t("field.modelNo")}</label><input className="input" value={modelForm.model_no} onChange={(e) => setModelForm({ ...modelForm, model_no: e.target.value })} /></div>
+              <div>
+                <label className="label">{t("field.modelNo")}</label>
+                <div className={isNewModel ? "grid grid-cols-[6rem_minmax(0,1fr)] gap-2" : ""}>
+                  {isNewModel && (
+                    <select className="input" aria-label={lang === "ru" ? "Нумерация модели" : lang === "uz" ? "Model raqamlash" : "Model numbering"}
+                      value={automaticModelPrefix} onChange={(e) => {
+                        setAutomaticModelPrefix(e.target.value);
+                        if (e.target.value) setModelForm((current) => ({ ...current, model_no: "", variant_no: "" }));
+                      }}>
+                      <option value="">{lang === "ru" ? "Вручную" : lang === "uz" ? "Qo‘lda" : "Manual"}</option>
+                      {modelNumberPrefixes.map(prefix => <option key={prefix} value={prefix}>{prefix}</option>)}
+                    </select>
+                  )}
+                  <input className="input" aria-label={t("field.modelNo")} readOnly={isNewModel && Boolean(automaticModelPrefix)}
+                    aria-busy={isNewModel && Boolean(automaticModelPrefix) && !modelNumberPreview && !modelNumberError}
+                    placeholder={isNewModel && automaticModelPrefix && !modelNumberPreview && !modelNumberError ? t("common.loading") : undefined}
+                    value={modelForm.model_no} onChange={(e) => setModelForm({ ...modelForm, model_no: e.target.value })} />
+                </div>
+                {isNewModel && automaticModelPrefix && modelNumberError && <div role="alert" className="text-sm text-red-700">{t("page.modelDetail.loadError")}</div>}
+              </div>
               <div><label className="label">{t("common.name")}</label><input className="input" value={modelForm.name} onChange={(e) => setModelForm({ ...modelForm, name: e.target.value })} /></div>
               <div><label className="label">{t("field.category")}</label><input className="input" value={modelForm.category} onChange={(e) => setModelForm({ ...modelForm, category: e.target.value })} /></div>
             </div>
@@ -1307,7 +1379,7 @@ export default function ModelDetail() {
                   {materialRows.map((r: any) => (
                     <tr key={r.id}>
                       <td>{r.material_name || r.item?.name || "-"}</td>
-                      {isUsluga && <td>{r.material_role === "main" ? t("usluga.mainFabric") : t("usluga.secondaryFabric")}</td>}
+                      {isUsluga && <td>{r.material_role === BOM_MATERIAL_ROLE_MAIN ? t("usluga.mainFabric") : t("usluga.secondaryFabric")}</td>}
                       <td className="max-w-[260px] text-xs text-[#56503f]">{formatComposition(r.item?.composition) || "-"}</td>
                       <td>{r.size || t("common.all")} / {r.color || t("common.all")}</td>
                       <td>{n(r.quantity_per_piece).toFixed(4)} {r.unit} (+{n(r.waste_percent).toFixed(1)}%)</td>
@@ -1354,10 +1426,10 @@ export default function ModelDetail() {
                   <select
                     className="input"
                     value={bomRow.material_role}
-                    onChange={(e) => setBomRow({ ...bomRow, material_role: e.target.value === "secondary" ? "secondary" : "main" })}
+                    onChange={(e) => setBomRow({ ...bomRow, material_role: e.target.value === BOM_MATERIAL_ROLE_SECONDARY ? BOM_MATERIAL_ROLE_SECONDARY : BOM_MATERIAL_ROLE_MAIN })}
                   >
-                    <option value="main">{t("usluga.mainFabric")}</option>
-                    <option value="secondary">{t("usluga.secondaryFabric")}</option>
+                    <option value={BOM_MATERIAL_ROLE_MAIN}>{t("usluga.mainFabric")}</option>
+                    <option value={BOM_MATERIAL_ROLE_SECONDARY}>{t("usluga.secondaryFabric")}</option>
                   </select>
                 )}
                 <input className="input" placeholder={t("page.modelDetail.colorOptional")} value={bomRow.color} onChange={(e) => setBomRow({ ...bomRow, color: e.target.value })} />
@@ -1469,17 +1541,10 @@ export default function ModelDetail() {
                     </div>
                     <div>
                       <label className="label" htmlFor="variant-material-color">{t("field.materialColor")}</label>
-                      <select
-                        id="variant-material-color"
-                        className="input"
+                      <VariantColorSelect
                         value={variantForm.color}
-                        onChange={(event) => setVariantForm((prev) => ({ ...prev, color: event.target.value }))}
-                      >
-                        <option value="">{t("page.receiveStock.selectMaterialColor")}</option>
-                        {MATERIAL_COLOR_OPTIONS.map((option) => (
-                          <option key={option.value} value={option.value}>{t(option.labelKey)}</option>
-                        ))}
-                      </select>
+                        onChange={(color) => setVariantForm((prev) => ({ ...prev, color }))}
+                      />
                     </div>
                     <div>
                       <label className="label" htmlFor="variant-material-picture">{t("page.modelDetail.variantMaterialPicture")}</label>
@@ -1512,6 +1577,17 @@ export default function ModelDetail() {
                         </div>
                       )}
                     </div>
+                    <div>
+                      <label className="btn cursor-pointer">
+                        {t("page.modelDetail.addPrint")}
+                        <input type="file" className="sr-only" accept="image/png,image/jpeg,image/webp,image/gif"
+                          disabled={savingVariant} onChange={(event) => setVariantPrintFile(event.target.files?.[0] || null)} />
+                      </label>
+                      {variantPrintFile && <span className="ml-2 text-sm">{variantPrintFile.name}</span>}
+                      {variantForm.print_picture_url && <a href={imagePreviewHref(variantForm.print_picture_url, t("page.modelDetail.printPicture"))} target="_blank" rel="noreferrer">
+                        <img src={storageThumbnailUrl(variantForm.print_picture_url, 160)} alt={t("page.modelDetail.printPicture")} className="h-14 w-14 object-contain" />
+                      </a>}
+                    </div>
                     <button className="btn btn-primary" type="submit" disabled={savingVariant}>
                       {savingVariant ? t("common.saving") : editingVariantId ? t("page.modelDetail.saveVariant") : t("page.modelDetail.createVariant")}
                     </button>
@@ -1537,6 +1613,7 @@ export default function ModelDetail() {
                 <thead>
                   <tr>
                     <th>{t("field.picture")}</th>
+                    <th>{t("page.modelDetail.printPicture")}</th>
                     <th>{t("field.variantNo")}</th>
                     <th>{t("page.cuttingPassports.field.fabric")}</th>
                     <th>{t("page.priceCalculation.sellingPrice")}</th>
@@ -1551,8 +1628,8 @@ export default function ModelDetail() {
                       <tr key={variantId || v.code}>
                         <td>
                           {imageUrl ? (
-                            <a href={imagePreviewHref(v.picture_url, v.variant_no || v.code || "")} target="_blank" rel="noreferrer" className="block h-14 w-14 overflow-hidden rounded-md border border-[#ded9ca] bg-white">
-                              <img src={imageUrl} alt={v.variant_no || v.code || t("field.picture")} className="h-full w-full object-contain p-1" />
+                            <a href={imagePreviewHref(v.picture_url, formatVariantNumber(v.variant_no) || v.code || "")} target="_blank" rel="noreferrer" className="block h-14 w-14 overflow-hidden rounded-md border border-[#ded9ca] bg-white">
+                              <img src={imageUrl} alt={formatVariantNumber(v.variant_no) || v.code || t("field.picture")} className="h-full w-full object-contain p-1" />
                             </a>
                           ) : (
                             <div className="flex h-14 w-14 items-center justify-center rounded-md border border-dashed border-[#ded9ca] bg-[#f8f6ef] text-[10px] text-[#8a8472]">
@@ -1560,13 +1637,16 @@ export default function ModelDetail() {
                             </div>
                           )}
                         </td>
+                        <td>{v.print_picture_url ? <a href={imagePreviewHref(v.print_picture_url, t("page.modelDetail.printPicture"))} target="_blank" rel="noreferrer">
+                          <img src={storageThumbnailUrl(v.print_picture_url, 160)} alt={t("page.modelDetail.printPicture")} className="h-14 w-14 object-contain" />
+                        </a> : "-"}</td>
                         <td>
                           {variantId ? (
                             <Link href={`${modelPageBase}/${variantId}`} className="font-medium text-brand-600 hover:underline">
-                              {v.variant_no || v.code || "-"}
+                              {formatVariantNumber(v.variant_no) || v.code || "-"}
                             </Link>
                           ) : (
-                            v.variant_no || v.code || "-"
+                            formatVariantNumber(v.variant_no) || v.code || "-"
                           )}
                         </td>
                         <td>{v.fabric || "-"}</td>
@@ -1695,14 +1775,14 @@ export default function ModelDetail() {
               <div className="space-y-3">
                 <div>
                   <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    {t("field.modelNo")} {modelForm.model_no || "-"} / {t("field.variantNo")} {modelForm.variant_no || "-"}
+                    {t("field.modelNo")} {modelForm.model_no || "-"} / {t("field.variantNo")} {formatVariantNumber(modelForm.variant_no) || "-"}
                   </div>
                   <div className="text-2xl font-semibold text-[#14110b]">{translatedName}</div>
                   <div className="text-sm text-slate-600">{modelForm.category || "-"} · {modelForm.product_type || "-"}</div>
                 </div>
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div><span className="text-slate-500">{t("page.modelDetail.sizeRange")}</span> {sizeRows.map((s: any) => s.size).join(", ") || "-"}</div>
-                  <div><span className="text-slate-500">{t("page.modelDetail.colorsLabel")}</span> {colorRows.map((c: any) => c.color_name).join(", ") || "-"}</div>
+                  <div className="min-w-0 break-words"><span className="text-slate-500">{t("page.modelDetail.colorsLabel")}</span> {colorRows.map((c: any) => c.color_name).join(", ") || "-"}</div>
                 </div>
                 {modelCompositionText && (
                   <div className="text-sm">
@@ -1780,6 +1860,7 @@ export default function ModelDetail() {
 
         {tab === 10 && (
           <PaidOperationsEditor
+            catalogScope={isUsluga ? "usluga" : "standard"}
             key={id}
             operations={paidOperations}
             visibleFactories={visiblePaidOperationFactories}

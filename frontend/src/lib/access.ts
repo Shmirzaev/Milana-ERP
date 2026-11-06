@@ -15,13 +15,47 @@ const SEWING_WORKSPACE_NAV_ITEMS = [
 const SEWING_WORK_ORDER_PATH = /^\/work-orders\/\d+\/sewing(?:\/|$)/;
 
 export function isSewingRole(me: Me | undefined): boolean {
-  return (me?.role ?? "").trim().toLowerCase() === "sewing";
+  return Boolean(me?.sewing_band_id) || (!me?.access_configured && (me?.role ?? "").trim().toLowerCase() === "sewing");
 }
 
 export function sewingWorkspaceHome(me: Me | undefined): string {
   if (me?.factory_code === "BST") return "/departments/BST";
   if (me?.factory_code === "ECO") return "/departments/ECO";
   return SEWING_WORKSPACE_HOME;
+}
+
+export function factoryWorkspaceHome(me: Me | undefined): string {
+  if (isSewingRole(me)) return sewingWorkspaceHome(me);
+  const permits = (...permissions: string[]) => Boolean(me?.permissions.some(
+    (permission) => permission === "*" || permissions.includes(permission),
+  ));
+  const packaging = permits("packaging.records", "packaging.packages", "planning.production");
+  if (me?.factory_code === "BST") {
+    if (!permits("sewing.records", "sewing.bundles", "planning.production") && !packaging) {
+      if (permits("payroll.view", "payroll.manage", "payroll.pay")) return "/payroll";
+      if (permits("payroll.scan")) return "/payroll/scan";
+      if (permits("besttex.cutting_sheets")) return "/besttex/cutting-orders";
+    }
+    return packaging && !permits("sewing.records", "sewing.bundles", "planning.production")
+      ? "/departments/BPK"
+      : "/departments/BST";
+  }
+  if (me?.factory_code === "ECO") {
+    if (!permits("cutting.records", "cutting.bundles", "planning.production") && !packaging) {
+      if (permits("payroll.view", "payroll.manage", "payroll.pay")) return "/payroll";
+      if (permits("payroll.scan")) return "/payroll/scan";
+    }
+    return packaging && !permits("cutting.records", "cutting.bundles", "planning.production")
+      ? "/departments/ECP"
+      : "/departments/ECT";
+  }
+  return "/";
+}
+
+export function packagingDepartmentForSession(me: Me | undefined, requested: string | null): string {
+  // Preserve explicit destinations so guards can reject cross-factory URLs.
+  if (requested?.trim()) return requested.trim().toUpperCase();
+  return me?.factory_code === "BST" ? "BPK" : me?.factory_code === "ECO" ? "ECP" : "PKG";
 }
 
 export function isSewingWorkspacePath(pathname: string): boolean {

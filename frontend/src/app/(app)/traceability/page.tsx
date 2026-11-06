@@ -1,4 +1,5 @@
 "use client";
+import { formatModelVariantCode } from "@/lib/variantDisplay";
 import { formatOrderReference } from "@/lib/orderRef";
 
 import Link from "next/link";
@@ -392,7 +393,7 @@ export default function TraceabilityPage() {
               <dl className="space-y-2 text-sm">
                 <div className="flex justify-between gap-3"><dt className="text-[#8a8472]">{data.production_batch ? t("field.batchNo") : t("field.packageNo")}</dt><dd>{valueOrDash(data.production_batch?.batch_no || data.package?.package_no || data.packages?.[0]?.package_no)}</dd></div>
                 <div className="flex justify-between gap-3"><dt className="text-[#8a8472]">{t("field.barcode")}</dt><dd className="font-mono text-xs">{valueOrDash(data.package?.barcode || data.packages?.[0]?.barcode)}</dd></div>
-                <div className="flex justify-between gap-3"><dt className="text-[#8a8472]">{t("field.model")}</dt><dd>{valueOrDash(data.model?.code || data.model?.name)}</dd></div>
+                <div className="flex justify-between gap-3"><dt className="text-[#8a8472]">{t("field.model")}</dt><dd>{valueOrDash(formatModelVariantCode(data.model?.code) || data.model?.name)}</dd></div>
                 <div className="flex justify-between gap-3"><dt className="text-[#8a8472]">{t("field.brand")}</dt><dd>{valueOrDash(data.brand?.name)}</dd></div>
                 <div className="flex justify-between gap-3"><dt className="text-[#8a8472]">{t("field.collection")}</dt><dd>{valueOrDash(data.collection?.name)}</dd></div>
               </dl>

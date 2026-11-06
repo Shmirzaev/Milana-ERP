@@ -1,17 +1,23 @@
 "use client";
 
+import { formatModelVariantCode } from "@/lib/variantDisplay";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import { Boxes, Grid2X2, ImageOff, PackageSearch, Search, Warehouse } from "lucide-react";
 
+import DeleteWarehousePackage from "@/components/DeleteWarehousePackage";
+import ReleasePackageCustomer from "@/components/ReleasePackageCustomer";
 import PageHeader from "@/components/PageHeader";
 import StocktakeLink from "@/components/StocktakeLink";
+import WarehouseReportDownload from "@/components/WarehouseReportDownload";
 import { statusLabel } from "@/components/StagePipeline";
 import { fetcher } from "@/lib/api";
 import { can, useMe } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
-import { imagePreviewHref, storageThumbnailUrl } from "@/lib/modelImages";
+import { useSearchParams } from "next/navigation";
+import { firstGradeText } from "@/lib/firstGradeText";
+import { storageThumbnailUrl } from "@/lib/modelImages";
 import { modelSearchIncludes } from "@/lib/modelCode";
 import { formatOrderReference, rawOrderReference } from "@/lib/orderRef";
 
@@ -102,26 +108,35 @@ function packageListText(packages: DetailRow["packages"], packageCount: number) 
 }
 
 export default function WarehouseStockPage() {
-  const { t } = useT();
+  const { t, lang } = useT();
+  const copy = firstGradeText[lang];
+  const search = useSearchParams();
+  const [stockKind, setStockKind] = useState(["first_grade", "second_grade"].includes(search.get("stock_kind") || "") ? search.get("stock_kind")! : "standard");
   const { me } = useMe();
   const canTraceability = can(me, "traceability.view");
   const [query, setQuery] = useState("");
+  const [visibleCount, setVisibleCount] = useState(50);
+  useEffect(() => { setVisibleCount(50); }, [query, stockKind]);
   const [createdFrom, setCreatedFrom] = useState("");
   const [createdTo, setCreatedTo] = useState("");
   const stockUrl = useMemo(() => {
     const params = new URLSearchParams();
     params.set("include_unplaced", "true");
+    params.set("stock_kind", stockKind);
     if (createdFrom) params.set("created_from", createdFrom);
     if (createdTo) params.set("created_to", createdTo);
     const qs = params.toString();
     return `/api/packages/storage-map${qs ? `?${qs}` : ""}`;
-  }, [createdFrom, createdTo]);
-  const { data, isLoading } = useSWR<StorageMapResponse>(stockUrl, fetcher);
+  }, [createdFrom, createdTo, stockKind]);
+  const { data, isLoading, error } = useSWR<StorageMapResponse>(stockUrl, fetcher);
 
   const placements = useMemo(() => data?.placements || [], [data?.placements]);
   const filtered = useMemo(() => {
     const q = clean(query);
     if (!q) return placements;
+    // Model/variant searches must not include unrelated package or barcode matches.
+    const modelMatches = placements.filter((row) => modelSearchIncludes(row.model_code, q));
+    if (modelMatches.length) return modelMatches;
     return placements.filter((row) => {
       const fields = [
         row.order_no,
@@ -258,8 +273,15 @@ export default function WarehouseStockPage() {
 
   return (
     <div>
-      <PageHeader title={t("page.warehouseStock.title")} subtitle={t("page.warehouseStock.subtitle")} actions={<StocktakeLink />} />
+      <PageHeader title={t("page.warehouseStock.title")} subtitle={t("page.warehouseStock.subtitle")} actions={<><Link className="btn" href="/dashboards/warehouse">{t("departmentDashboard.warehouse")}</Link><WarehouseReportDownload /><StocktakeLink /></>} />
 
+      <div className="mb-4 flex flex-wrap gap-2">
+        <button className={`btn ${stockKind === "standard" ? "btn-primary" : ""}`} onClick={() => setStockKind("standard")}>{copy.standard}</button>
+        <button className={`btn ${stockKind === "first_grade" ? "btn-primary" : ""}`} onClick={() => setStockKind("first_grade")}>{copy.title}</button>
+        <button className={`btn ${stockKind === "second_grade" ? "btn-primary" : ""}`} onClick={() => setStockKind("second_grade")}>{lang === "ru" ? "2-й сорт" : lang === "uz" ? "2-nav" : "2nd Grade"}</button>
+        {stockKind === "first_grade" && can(me, "sales.orders") && <Link className="btn" href="/sales-orders/first-grade">{copy.sale}</Link>}
+      </div>
+      {error && <p role="alert" className="mb-4 text-red-700">{error.message}</p>}
       <div className="mb-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         <div className="kpi-card">
           <div className="flex items-center justify-between gap-3">
@@ -335,7 +357,7 @@ export default function WarehouseStockPage() {
               <div className="grid min-h-[132px] grid-cols-[104px_minmax(0,1fr)]">
                 <div className="bg-[#f1efe8]">
                   {group.model_image_url ? (
-                    <a href={imagePreviewHref(group.model_image_url, group.model_name || group.model_code || "")} target="_blank" rel="noreferrer" className="block h-full min-h-[132px] w-full">
+                    <a href={`/warehouse-stock/models/${group.model_id}?stock_kind=${stockKind}`} target="_blank" rel="noreferrer" className="block h-full min-h-[132px] w-full">
                       <img src={storageThumbnailUrl(group.model_image_url, 320)} alt={group.model_name || group.model_code || ""} className="h-full min-h-[132px] w-full object-contain p-1" loading="lazy" />
                     </a>
                   ) : (
@@ -345,7 +367,7 @@ export default function WarehouseStockPage() {
                   )}
                 </div>
                 <div className="flex min-w-0 flex-col p-3">
-                  <div className="mono text-xs font-semibold uppercase text-[#8a8472]">{group.model_code || group.model_id || "-"}</div>
+                  <div className="mono text-xs font-semibold uppercase text-[#8a8472]"><a className="underline" target="_blank" rel="noreferrer" href={`/warehouse-stock/models/${group.model_id}?stock_kind=${stockKind}`}>{formatModelVariantCode(group.model_code) || group.model_id || "-"}</a></div>
                   <div className="mt-1 line-clamp-2 text-sm font-semibold leading-snug text-[#14110b]">{group.model_name || t("page.models.noPreview")}</div>
                   <div className="mt-auto grid grid-cols-2 gap-2 pt-3 text-xs text-[#56503f]">
                     <div>
@@ -393,11 +415,11 @@ export default function WarehouseStockPage() {
               </tr>
             </thead>
             <tbody>
-              {detailRows.map((row) => (
+              {detailRows.slice(0, visibleCount).map((row) => (
                 <tr key={row.key}>
                   <td>
                     {row.model_image_url ? (
-                      <a href={imagePreviewHref(row.model_image_url, row.model_name || row.model_code || "")} target="_blank" rel="noreferrer" className="block h-12 w-12 overflow-hidden rounded-md border border-[#e3dfd3]">
+                      <a href={`/warehouse-stock/models/${row.model_id}?stock_kind=${stockKind}`} target="_blank" rel="noreferrer" className="block h-12 w-12 overflow-hidden rounded-md border border-[#e3dfd3]">
                         <img src={storageThumbnailUrl(row.model_image_url, 160)} alt={row.model_name || row.model_code || ""} className="h-full w-full object-contain p-1" loading="lazy" />
                       </a>
                     ) : (
@@ -407,7 +429,7 @@ export default function WarehouseStockPage() {
                     )}
                   </td>
                   <td>
-                    <div className="mono font-semibold text-[#14110b]">{row.model_code || row.model_id || "-"}</div>
+                    <div className="mono font-semibold text-[#14110b]"><a className="underline" target="_blank" rel="noreferrer" href={`/warehouse-stock/models/${row.model_id}?stock_kind=${stockKind}`}>{formatModelVariantCode(row.model_code) || row.model_id || "-"}</a></div>
                     <div className="max-w-[220px] truncate text-xs text-[#8a8472]">{row.model_name || "-"}</div>
                   </td>
                   <td className="mono">{formatOrderReference(row.order_no)}</td>
@@ -438,6 +460,7 @@ export default function WarehouseStockPage() {
                         packageListText(row.packages, row.package_count)
                       )}
                     </div>
+                    <details className="mt-2"><summary className="text-sm cursor-pointer">{t("common.actions")}</summary><div className="space-y-2 mt-2"><ReleasePackageCustomer packages={row.packages} />{row.packages.map(pkg => <div key={pkg.id} className="flex items-center gap-2"><Link href={`/packages/${pkg.id}`} className="underline text-sm">{pkg.package_no}</Link><DeleteWarehousePackage id={pkg.id} packageNo={pkg.package_no} /></div>)}</div></details>
                   </td>
                   <td className="mono font-semibold text-[#14110b]">{row.total_quantity.toLocaleString()}</td>
                   <td><span className="badge">{statusLabel(row.status, t)}</span></td>
@@ -453,6 +476,7 @@ export default function WarehouseStockPage() {
             </tbody>
           </table>
         </div>
+        {visibleCount < detailRows.length && <div className="p-3"><button className="btn" onClick={() => setVisibleCount(count => count + 50)}>{t("common.loadMore")}</button></div>}
       </div>
     </div>
   );

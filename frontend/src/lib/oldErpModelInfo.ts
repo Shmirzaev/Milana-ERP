@@ -335,14 +335,12 @@ export function oldErpModelInfoFromDetails(value: unknown): OldErpModelInfo {
     || asRecord(details.oldErpMigration);
   const deltaMigration = asRecord(details.old_erp_delta_migration)
     || asRecord(details.oldErpDeltaMigration);
-  const migration = correctionMigration || deltaMigration || {};
+  const reconciliation = asRecord(details.old_erp_catalog_reconciliation);
+  const migration = correctionMigration || deltaMigration || reconciliation || {};
   const containers = migrationContainers(details, migration);
-  const deltaFallback = correctionMigration && deltaMigration
-    ? [{
-        migration: deltaMigration,
-        containers: migrationContainers({}, deltaMigration),
-      }]
-    : [];
+  const deltaFallback = [deltaMigration, reconciliation]
+    .filter((candidate): candidate is UnknownRecord => candidate !== null && candidate !== migration)
+    .map(candidate => ({ migration: candidate, containers: migrationContainers({}, candidate) }));
   const recipeContainers = [
     ...containers,
     ...deltaFallback.flatMap((fallback) => fallback.containers),

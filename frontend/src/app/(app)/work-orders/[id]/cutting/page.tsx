@@ -1,8 +1,9 @@
 "use client";
+import { localizeError } from "@/lib/errorMessages";
 import { useParams } from "next/navigation";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import useSWR, { useSWRConfig } from "swr";
-import CuttingMaterialBatchEditor from "@/components/CuttingMaterialBatchEditor";
+import useSWR from "swr";
+import CuttingSewingFactory from "@/components/CuttingSewingFactory";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { api, fetcher } from "@/lib/api";
 import { formatBatchLabel, formatBatchSerial } from "@/lib/batchSerial";
@@ -20,6 +21,7 @@ import {
   wasteKgFromPassport,
   type CuttingPassportAutofillSource,
 } from "@/lib/cuttingPassportAutofill";
+import { InventoryQcStatus } from "@/lib/inventoryQcStatus";
 
 type SewingFactory = "milana" | "besttex" | "eco_cotton";
 
@@ -52,7 +54,8 @@ type BundleQuantityResponseRow = {
   size?: string;
 };
 type CuttingRecordDetailsEdit = {
-  materials: Array<{ stock_batch_id: number; quantity: number; unit: string; details: MaterialDetails }>;
+  materialUsagePending: boolean;
+  materials: Array<{ stock_batch_id: number; quantity: NumberInputValue; unit: string; details: MaterialDetails }>;
   recordId: number;
   layer_material_kg: NumberInputValue;
   beika_kg: NumberInputValue;
@@ -92,11 +95,6 @@ type CuttingMaterialForm = {
   unit: string;
 };
 type PassportAutofillField = "input_quantity" | "layer_material_kg" | "material_rolls_used" | "layup_operator_name" | "cut_pieces" | "notes";
-type ReplacementCompletionForm = {
-  production_batch_id: number;
-  completed_pieces: NumberInputValue;
-  input_quantity: NumberInputValue;
-};
 function canAdjustCuttingInventoryBundle(bundle: any): boolean {
   return Number(bundle?.cutting_record_id || 0) > 0;
 }
@@ -132,12 +130,15 @@ type StockBatchOption = {
   unit?: string | null;
   cost_per_unit?: number | null;
   warehouse_name?: string | null;
-  qc_status?: string | null;
+  qc_status?: InventoryQcStatus | null;
   received_date?: string | null;
   active_reservations?: StockBatchReservation[];
 };
 type CuttingPassportSummary = CuttingPassportAutofillSource & {
   id: number;
+  production_batch_id?: number | null;
+  nastil_name?: string | null;
+  used_for_cutting?: boolean;
   production_order_id?: number | null;
   lot_no?: string | null;
   passport_no?: string | null;
@@ -303,13 +304,13 @@ function distributeBundleTargets(items: any[], totalQty: number): Map<string, nu
 function autoSplitRows(totalQty: number, maxPerBatch: number): SplitRow[] {
   const safeTotal = Math.max(0, Number(totalQty || 0));
   const safeMax = Math.max(1, Number(maxPerBatch || 1));
-  if (safeTotal <= 0) return [{ name: "Batch 1", planned_quantity: "", start_date: "", deadline: "", notes: "" }];
+  if (safeTotal <= 0) return [{ name: "Nastil 1", planned_quantity: "", start_date: "", deadline: "", notes: "" }];
   const rows: SplitRow[] = [];
   let left = safeTotal;
   let idx = 1;
   while (left > 0) {
     const qty = Math.min(safeMax, left);
-    rows.push({ name: `Batch ${idx}`, planned_quantity: qty, start_date: "", deadline: "", notes: "" });
+    rows.push({ name: `Nastil ${idx}`, planned_quantity: qty, start_date: "", deadline: "", notes: "" });
     left -= qty;
     idx += 1;
   }
@@ -319,9 +320,6 @@ function autoSplitRows(totalQty: number, maxPerBatch: number): SplitRow[] {
 export default function CuttingPage() {
   const { t } = useT();
   const dialogs = useDialogs();
-  const { mutate: mutateCache } = useSWRConfig();
-  const [editingMaterialBatch, setEditingMaterialBatch] = useState<number | null>(null);
-  const [correctedBatches, setCorrectedBatches] = useState<StockBatchOption[]>([]);
   const params = useParams<{ id: string }>();
   const id = Number(params.id);
   const fabricListboxId = `fabric-batch-options-${id || "new"}`;
@@ -343,10 +341,6 @@ export default function CuttingPage() {
   );
   const { data: batchProgress, mutate: mutateBatchProgress } = useSWR<any>(
     wo ? `/api/work-orders/${id}/cutting-batch-progress` : null,
-    fetcher,
-  );
-  const { data: replacementStatus, mutate: mutateReplacementStatus } = useSWR<any>(
-    wo ? `/api/work-orders/${id}/replacement-status` : null,
     fetcher,
   );
   const { data: uslugaCuttingData, mutate: mutateUslugaCutting } = useSWR<any>(
@@ -433,14 +427,6 @@ export default function CuttingPage() {
   const [doneMsg, setDoneMsg] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState("");
-  const [replacementCompletion, setReplacementCompletion] = useState<ReplacementCompletionForm>({
-    production_batch_id: 0,
-    completed_pieces: "",
-    input_quantity: "",
-  });
-  const [replacementCompletionBusy, setReplacementCompletionBusy] = useState(false);
-  const [replacementCompletionErr, setReplacementCompletionErr] = useState("");
-  const [replacementCompletionDone, setReplacementCompletionDone] = useState("");
   const [adjustingBundle, setAdjustingBundle] = useState<BundleAdjustment | null>(null);
   const [adjustingBundleBusy, setAdjustingBundleBusy] = useState(false);
   const [adjustingBundleErr, setAdjustingBundleErr] = useState("");
@@ -556,13 +542,25 @@ export default function CuttingPage() {
     [po?.materials],
   );
   const plannedMaterialBatchLookup = useMemo(
-    () => new Map([...allSearchableFabricBatches, ...correctedBatches].map((batch) => [Number(batch.id), batch])),
-    [allSearchableFabricBatches, correctedBatches],
+    () => new Map(allSearchableFabricBatches.map((batch) => [Number(batch.id), batch])),
+    [allSearchableFabricBatches],
   );
   const hasPlannedMaterials = plannedMaterials.length > 0;
-  const materialPassports = useMemo(() => (Array.isArray(cuttingPassports) ? cuttingPassports : []).flatMap((passport: any) =>
+  const [passportId, setPassportId] = useState<number>(-1);
+  const selectedPassportId = cuttingPassports.some((row) => row.id === passportId) ? passportId : 0;
+  const deferMaterialUsage = hasPlannedMaterials && !isUsluga && selectedPassportId === 0;
+  const usePassportMaterials = !deferMaterialUsage && hasPlannedMaterials && selectedPassportId > 0;
+  useEffect(() => {
+    if (passportId !== -1 || cuttingPassports.length === 0) return;
+    const available = cuttingPassports.filter((row) => row.production_batch_id && !row.used_for_cutting && Number(row.pieces || 0) > 0);
+    const passport = available.find((row) => row.production_batch_id === Number(form.production_batch_id || wo?.production_batch_id)) || available[0];
+    if (!passport) return;
+    setPassportId(passport.id);
+    setForm((current) => ({ ...current, production_batch_id: passport.production_batch_id || current.production_batch_id }));
+  }, [cuttingPassports, passportId, form.production_batch_id, wo?.production_batch_id]);
+  const materialPassports = useMemo(() => (Array.isArray(cuttingPassports) ? cuttingPassports : []).filter((passport) => passport.id === selectedPassportId).flatMap((passport: any) =>
     passport.materials?.length ? passport.materials.map((material: any) => ({ ...passport, ...material, operator_name: material.operator_name_manual || passport.operator_name })) : [passport]
-  ), [cuttingPassports]);
+  ), [cuttingPassports, selectedPassportId]);
   const selectedCuttingPassport = useMemo(() => {
     return materialPassports.find((passport: any) => passport.stock_batch_id
       ? Number(passport.stock_batch_id) === Number(form.fabric_batch_id)
@@ -588,17 +586,6 @@ export default function CuttingPage() {
       return { ...row, details };
     }));
   }, [materialPassports, plannedMaterials.length, cuttingMaterials.length]);
-  const pendingReplacementItems = useMemo(
-    () => (Array.isArray(replacementStatus?.items) ? replacementStatus.items : [])
-      .filter((row: any) => Number(row?.waiting_cutting_qty || 0) > 0),
-    [replacementStatus?.items],
-  );
-  const selectedReplacementItem = useMemo(
-    () => pendingReplacementItems.find(
-      (row: any) => Number(row?.production_batch_id || 0) === Number(replacementCompletion.production_batch_id || 0),
-    ) || pendingReplacementItems[0] || null,
-    [pendingReplacementItems, replacementCompletion.production_batch_id],
-  );
   const autoWasteQuantity = useMemo(
     () => wasteKgFromPassport(selectedCuttingPassport, numberOrZero(form.input_quantity)),
     [form.input_quantity, selectedCuttingPassport],
@@ -630,14 +617,7 @@ export default function CuttingPage() {
     && (wo.production_batch_id === null || wo.production_batch_id === undefined)
   );
   const splitTotal = splitRows.reduce((sum, row) => sum + numberOrZero(row.planned_quantity), 0);
-  const splitPlannedQty = Number(wo?.planned_output_qty || po?.planned_quantity || 0);
-  const productInfoPo = useMemo(() => {
-    if (!po || !canSplitHere || splitTotal <= splitPlannedQty) return po;
-    return {
-      ...po,
-      actual_quantity: Math.max(Number(po?.actual_quantity || 0), splitTotal),
-    };
-  }, [canSplitHere, po, splitPlannedQty, splitTotal]);
+  const productInfoPo = po;
   const batchItems = useMemo(
     () => Array.isArray(batchProgress?.items) ? batchProgress.items : [],
     [batchProgress?.items],
@@ -669,10 +649,6 @@ export default function CuttingPage() {
     : plannedItemTotal;
   const cutPieces = numberOrZero(form.cut_pieces);
   const bundleTargetTotal = cutPieces > 0 ? cutPieces : batchTargetTotal;
-  const bundleTargetQtyByKey = useMemo(
-    () => distributeBundleTargets(po?.items || [], bundleTargetTotal),
-    [po?.items, bundleTargetTotal],
-  );
   const createdBundlesBatch = useMemo(() => {
     const productionBatches = Array.isArray(po?.batches) ? po.batches : [];
     const selectedId = Number(form.production_batch_id || wo?.production_batch_id || 0);
@@ -698,10 +674,20 @@ export default function CuttingPage() {
   const bundlePlanTotal = bundles.reduce((sum, row) => (
     sum + Math.max(0, numberOrZero(row.quantity)) * Math.max(0, numberOrZero(row.count))
   ), 0);
-  const visibleBundleIds = visibleBundles
-    .map((b) => Number(b?.id || 0))
-    .filter((bundleId) => bundleId > 0)
-    .join(",");
+  const printableBundleBatches = (() => {
+    const groups = new Map<number, { batchId: number; bundleIds: number[]; label: string }>();
+    for (const bundle of visibleBundles) {
+      const batchId = Number(bundle?.production_batch_id || 0);
+      const bundleId = Number(bundle?.id || 0);
+      if (!bundleId) continue;
+      const group = groups.get(batchId) || { batchId, bundleIds: [], label: "" };
+      const batch = (po?.batches || []).find((row: any) => Number(row.id) === batchId);
+      group.label = batch ? formatBatchLabel(batch, po?.id) : bundle.batch_label || orderReference(po);
+      group.bundleIds.push(bundleId);
+      groups.set(batchId, group);
+    }
+    return Array.from(groups.values());
+  })();
   const selectedBundleBatchId = Number(form.production_batch_id || wo?.production_batch_id || 0);
   const printableCuttingSheets = (() => {
     const productionBatches = Array.isArray(po?.batches) ? po.batches : [];
@@ -750,7 +736,6 @@ export default function CuttingPage() {
     if (!Array.isArray(po?.items) || po.items.length === 0 || departments.length === 0) return;
     const hasPrintingStage = Array.isArray(po?.work_orders) && po.work_orders.some((w: any) => w.operation === "printing");
     const nextStage: "sewing" | "printing" = hasPrintingStage ? "printing" : "sewing";
-    const defaultBundleQty = 50;
     const targetMap = distributeBundleTargets(po.items, bundleTargetTotal);
     setBundles((prev) => {
       const byKey = new Map(prev.map((row) => [itemKey(row.color, row.size), row]));
@@ -763,7 +748,9 @@ export default function CuttingPage() {
           const existing = byKey.get(key);
           const targetQty = targetMap.get(key) || 0;
           if (targetQty <= 0) return null;
-          const preferredQty = Math.max(1, Number(existing?.quantity || defaultBundleQty));
+          const preferredQty = existing && Number(existing.count) > 1
+            ? Math.max(1, Number(existing.quantity || targetQty))
+            : targetQty;
           const qtyPerBundle = Math.max(1, Math.min(preferredQty, targetQty));
           return {
             color,
@@ -859,21 +846,6 @@ export default function CuttingPage() {
     });
   }, [fabricBatches, fabricPickedManually, form.fabric_batch_id, plannedMaterials.length, po?.fabric_batch_id]);
 
-  useEffect(() => {
-    if (pendingReplacementItems.length === 0) return;
-    setReplacementCompletion((prev) => {
-      const selected = pendingReplacementItems.find(
-        (row: any) => Number(row?.production_batch_id || 0) === Number(prev.production_batch_id || 0),
-      ) || pendingReplacementItems[0];
-      const waiting = Math.max(0, Number(selected?.waiting_cutting_qty || 0));
-      const currentQty = numberOrZero(prev.completed_pieces);
-      return {
-        ...prev,
-        production_batch_id: Number(selected?.production_batch_id || 0),
-        completed_pieces: currentQty > 0 && currentQty <= waiting ? prev.completed_pieces : waiting,
-      };
-    });
-  }, [pendingReplacementItems]);
 
   useEffect(() => {
     if (!form.fabric_batch_id) return;
@@ -917,18 +889,6 @@ export default function CuttingPage() {
   function setB(i: number, p: Partial<BundlePlan>) {
     setBundles((prev) => prev.map((b, j) => (applyBundleColumnToAll || i === j ? { ...b, ...p } : b)));
   }
-  function setBQty(i: number, nextQtyRaw: string | number) {
-    const parsedQty = parseWholeInput(nextQtyRaw);
-    setBundles((prev) => prev.map((b, j) => {
-      if (!applyBundleColumnToAll && i !== j) return b;
-      if (parsedQty === "") return { ...b, quantity: "" };
-      const nextQty = Math.max(1, parsedQty);
-      const key = itemKey(b.color, b.size);
-      const targetQty = bundleTargetQtyByKey.get(key) ?? (Number(b.quantity || 0) * Number(b.count || 1));
-      const nextCount = Math.max(1, Math.ceil(Number(targetQty || 0) / nextQty));
-      return { ...b, quantity: nextQty, count: nextCount };
-    }));
-  }
   function addB() {
     const first = bundles[0];
     setBundles([
@@ -971,7 +931,7 @@ export default function CuttingPage() {
   }
 
   function addSplitRow() {
-    setSplitRows((prev) => [...prev, { name: `Batch ${prev.length + 1}`, planned_quantity: "", start_date: "", deadline: "", notes: "" }]);
+    setSplitRows((prev) => [...prev, { name: `Nastil ${prev.length + 1}`, planned_quantity: "", start_date: "", deadline: "", notes: "" }]);
   }
 
   function removeSplitRow(index: number) {
@@ -1003,7 +963,7 @@ export default function CuttingPage() {
       await Promise.all([mutatePo(), mutateWo(), mutateBatchProgress()]);
       setDoneMsg(t("batch.planSaved"));
     } catch (e: any) {
-      setSplitErr(e.message || "Failed to split into batches");
+      setSplitErr(e.message || localizeError("Failed to split into batches"));
     } finally {
       setSplitBusy(false);
     }
@@ -1012,7 +972,7 @@ export default function CuttingPage() {
   function openExtraBatchForm() {
     const nextIndex = (Array.isArray(po?.batches) ? po.batches.length : 0) + 1;
     setExtraBatch({
-      name: `Extra batch ${nextIndex}`,
+      name: `Nastil ${nextIndex}`,
       planned_quantity: Math.max(0, numberOrZero(form.cut_pieces)),
       start_date: "",
       deadline: "",
@@ -1054,7 +1014,7 @@ export default function CuttingPage() {
       setDoneMsg(t("batch.extraBatchCreated"));
       await Promise.all([mutatePo(), mutateWo(), mutateBatchProgress()]);
     } catch (e: any) {
-      setExtraBatchErr(e.message || "Failed to add extra batch");
+      setExtraBatchErr(e.message || localizeError("Failed to add extra batch"));
     } finally {
       setExtraBatchBusy(false);
     }
@@ -1076,6 +1036,23 @@ export default function CuttingPage() {
     setEditingBatchId(0);
     setBatchPlanEdit({ name: "", planned_quantity: "", start_date: "", deadline: "", notes: "" });
     setBatchPlanEditErr("");
+  }
+
+  async function deleteCuttingBatch(row: any) {
+    if (row.sewing_output_recorded || batchPlanEditBusy) return;
+    if (!window.confirm(t("batch.deleteConfirm", { name: row.name || row.batch_no }))) return;
+    setBatchPlanEditBusy(true);
+    setBatchPlanEditErr("");
+    try {
+      await api.del(`/api/work-orders/${id}/batches/${row.id}`);
+      setEditingBatchId(0);
+      await Promise.all([mutatePo(), mutateWo(), mutateBatchProgress(), mutateBundles()]);
+      setDoneMsg(t("batch.deleted"));
+    } catch (error: any) {
+      setBatchPlanEditErr(error.message || t("batch.deleteFailed"));
+    } finally {
+      setBatchPlanEditBusy(false);
+    }
   }
 
   async function saveBatchPlanEdit(row: any) {
@@ -1103,11 +1080,14 @@ export default function CuttingPage() {
           notes: batchPlanEdit.notes.trim() || null,
         } : {}),
       });
+      const passport = cuttingPassports.find((item) => item.production_batch_id === batchId && !item.used_for_cutting);
+      setPassportId(passport?.id || 0);
+      setForm((current) => ({ ...current, production_batch_id: batchId }));
       await Promise.all([mutatePo(), mutateWo(), mutateBatchProgress(), mutateBundles()]);
       cancelBatchPlanEdit();
       setDoneMsg(t("batch.planUpdated"));
     } catch (e: any) {
-      setBatchPlanEditErr(e.message || "Failed to update batch plan");
+      setBatchPlanEditErr(e.message || localizeError("Failed to update batch plan"));
     } finally {
       setBatchPlanEditBusy(false);
     }
@@ -1121,9 +1101,13 @@ export default function CuttingPage() {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (editingMaterialBatch !== null) return;
+    if (submitting) return;
     setErr("");
     setDoneMsg("");
+    if (editingBatchId || batchPlanEditBusy || extraBatchBusy) {
+      setErr(t("batch.finishEditingBeforeOutput"));
+      return;
+    }
     if (isUsluga && !form.model_bom_id) {
       setErr(t("usluga.selectCuttingFabric"));
       return;
@@ -1132,13 +1116,24 @@ export default function CuttingPage() {
       setErr(t("batch.selectBeforeSaving", { operation: operationLabel("cutting", t).toLowerCase() }));
       return;
     }
-    if (hasPlannedMaterials && cuttingMaterials.some((row) => numberOrZero(row.quantity) <= 0)) {
+    if (hasPlannedMaterials && !deferMaterialUsage && !usePassportMaterials && cuttingMaterials.some((row) => numberOrZero(row.quantity) <= 0)) {
       setErr(t("page.cutting.enterEveryMaterialAmount"));
       return;
     }
     setSubmitting(true);
     try {
       const outputPieces = isSecondaryUslugaFabric ? 0 : (bundlePlanTotal > 0 ? bundlePlanTotal : numberOrZero(form.cut_pieces));
+      if (isAlreadyBatched) {
+        const selected = (po?.batches || []).find((batch: any) => Number(batch.id) === Number(form.production_batch_id));
+        if (!selected) {
+          setErr(t("batch.selectBeforeSaving", { operation: operationLabel("cutting", t).toLowerCase() }));
+          return;
+        }
+        const confirmed = await dialogs.ask(t("batch.confirmCuttingOutput", {
+          batch: formatBatchLabel(selected, po?.id), quantity: outputPieces,
+        }));
+        if (!confirmed) return;
+      }
       const normalizedBundles = (isSecondaryUslugaFabric ? [] : bundles).map((bundle) => ({
         ...bundle,
         quantity: Math.max(1, numberOrFallback(bundle.quantity, 1)),
@@ -1163,12 +1158,16 @@ export default function CuttingPage() {
       const r = await api.post("/api/cutting/records", {
         work_order_id: id,
         ...form,
-        input_quantity: primaryMaterial?.quantity ?? numberOrZero(form.input_quantity),
+        layup_operator_name: deferMaterialUsage ? null : form.layup_operator_name,
+        defer_material_usage: deferMaterialUsage,
+        cutting_passport_id: deferMaterialUsage ? null : selectedPassportId || null,
+        use_passport_materials: usePassportMaterials,
+        input_quantity: deferMaterialUsage ? 0 : primaryMaterial?.quantity ?? numberOrZero(form.input_quantity),
         input_unit: primaryMaterial?.unit ?? form.input_unit,
-        layer_material_kg: numberOrZero(form.layer_material_kg),
-        beika_kg: numberOrZero(form.beika_kg),
-        material_rolls_used: numberOrZero(form.material_rolls_used),
-        waste_quantity: numberOrZero(form.waste_quantity),
+        layer_material_kg: deferMaterialUsage ? 0 : numberOrZero(form.layer_material_kg),
+        beika_kg: deferMaterialUsage ? 0 : numberOrZero(form.beika_kg),
+        material_rolls_used: deferMaterialUsage ? 0 : numberOrZero(form.material_rolls_used),
+        waste_quantity: deferMaterialUsage ? 0 : numberOrZero(form.waste_quantity),
         cut_pieces: outputPieces,
         report_piece_count: isSecondaryUslugaFabric ? numberOrZero(form.report_piece_count) : 0,
         passed_pieces: outputPieces,
@@ -1176,7 +1175,7 @@ export default function CuttingPage() {
         production_batch_id: form.production_batch_id || null,
         fabric_batch_id: isUsluga ? null : (primaryMaterial?.stock_batch_id ?? (form.fabric_batch_id || null)),
         model_bom_id: isUsluga ? (form.model_bom_id || null) : null,
-        materials: normalizedMaterials,
+        materials: deferMaterialUsage || usePassportMaterials ? [] : normalizedMaterials,
         bundles: normalizedBundles,
       }, 120_000);
       const created = Array.isArray(r?.bundles) ? r.bundles : [];
@@ -1196,7 +1195,7 @@ export default function CuttingPage() {
         material_rolls_used: "",
         notes: "",
       }));
-      await Promise.all([mutatePo(), mutateWo(), mutateBatchProgress(), mutateBundles(), mutateReplacementStatus(), mutateUslugaCutting()]);
+      await Promise.all([mutatePo(), mutateWo(), mutateBatchProgress(), mutateBundles(), mutateUslugaCutting()]);
     } catch (e: any) {
       setErr(e.message);
     } finally {
@@ -1281,55 +1280,6 @@ export default function CuttingPage() {
     }
   }
 
-  async function completeReplacementCutting() {
-    const completedPieces = numberOrZero(replacementCompletion.completed_pieces);
-    const materialUsed = numberOrZero(replacementCompletion.input_quantity);
-    const waitingPieces = Math.max(0, Number(selectedReplacementItem?.waiting_cutting_qty || 0));
-    setReplacementCompletionErr("");
-    setReplacementCompletionDone("");
-    if (!selectedReplacementItem || completedPieces <= 0 || completedPieces > waitingPieces) {
-      setReplacementCompletionErr(t("replacement.invalidCompletedQty", { count: waitingPieces.toLocaleString() }));
-      return;
-    }
-    if (!form.fabric_batch_id) {
-      setReplacementCompletionErr(t("replacement.selectFabricBatch"));
-      return;
-    }
-    if (materialUsed <= 0) {
-      setReplacementCompletionErr(t("replacement.materialUsedRequired"));
-      return;
-    }
-
-    setReplacementCompletionBusy(true);
-    try {
-      const result = await api.post("/api/cutting/records", {
-        work_order_id: id,
-        production_batch_id: selectedReplacementItem.production_batch_id || null,
-        fabric_batch_id: form.fabric_batch_id,
-        input_quantity: materialUsed,
-        input_unit: selectedFabricBatch?.unit || "kg",
-        cut_pieces: completedPieces,
-        passed_pieces: completedPieces,
-        defective_pieces: 0,
-        waste_quantity: 0,
-        waste_unit: selectedFabricBatch?.unit || "kg",
-        layer_material_kg: 0,
-        beika_kg: 0,
-        material_rolls_used: 0,
-        layup_operator_name: form.layup_operator_name.trim() || null,
-        notes: "Replacement cutting completed",
-        bundles: [],
-      }, 120_000);
-      const recorded = Math.max(0, Number(result?.replacement_cut_qty || 0));
-      setReplacementCompletionDone(t("replacement.cuttingCompleted", { count: recorded.toLocaleString() }));
-      setReplacementCompletion((prev) => ({ ...prev, input_quantity: "" }));
-      await Promise.all([mutatePo(), mutateWo(), mutateBatchProgress(), mutateBundles(), mutateReplacementStatus()]);
-    } catch (e: any) {
-      setReplacementCompletionErr(e?.message || t("replacement.cuttingCompleteFailed"));
-    } finally {
-      setReplacementCompletionBusy(false);
-    }
-  }
 
   function beginBundleAdjustment(bundle: any) {
     const recordId = Number(bundle?.cutting_record_id || 0);
@@ -1380,7 +1330,7 @@ export default function CuttingPage() {
       setAdjustingBundle(null);
       setDoneMsg(t("page.cutting.bundleQuantityUpdated"));
     } catch (e: any) {
-      setAdjustingBundleErr(e.message || "Failed to update bundle quantity");
+      setAdjustingBundleErr(e.message || localizeError("Failed to update bundle quantity"));
     } finally {
       setAdjustingBundleBusy(false);
     }
@@ -1395,7 +1345,10 @@ export default function CuttingPage() {
       const record = await api.get(`/api/cutting/records/${recordId}`);
       setEditingCuttingDetails({
         recordId,
-        materials: (record?.materials || []).filter((row: any) => row.details),
+        materialUsagePending: Boolean(record.material_usage_pending),
+        materials: record.material_usage_pending
+          ? (record.pending_materials || []).map((row: any) => ({ ...row, quantity: "", details: { ...emptyMaterialDetails(), cut_pieces: Number(record.cut_pieces || 0) } }))
+          : (record?.materials || []).filter((row: any) => row.details),
         layer_material_kg: Number(record?.layer_material_kg || 0),
         beika_kg: Number(record?.beika_kg || 0),
         material_rolls_used: Number(record?.material_rolls_used || 0),
@@ -1413,9 +1366,20 @@ export default function CuttingPage() {
     if (!editingCuttingDetails) return;
     setEditingCuttingDetailsBusy(true);
     setEditingCuttingDetailsErr("");
+    if (editingCuttingDetails.materialUsagePending && editingCuttingDetails.materials.some((row) => numberOrZero(row.quantity) <= 0)) {
+      setEditingCuttingDetailsErr(t("page.cutting.enterEveryMaterialAmount"));
+      setEditingCuttingDetailsBusy(false);
+      return;
+    }
     try {
       await api.patch(`/api/cutting/records/${editingCuttingDetails.recordId}`, {
-        materials: editingCuttingDetails.materials.length ? editingCuttingDetails.materials.map((row) => ({
+        material_usage: editingCuttingDetails.materialUsagePending ? editingCuttingDetails.materials.map((row) => ({
+          stock_batch_id: row.stock_batch_id, quantity: numberOrZero(row.quantity), unit: row.unit,
+          details: { ...row.details, layer_material_kg: numberOrZero(row.details.layer_material_kg),
+            beika_kg: numberOrZero(row.details.beika_kg), material_rolls_used: numberOrZero(row.details.material_rolls_used),
+            cut_pieces: numberOrZero(row.details.cut_pieces), waste_quantity: numberOrZero(row.details.waste_quantity) },
+        })) : undefined,
+        materials: !editingCuttingDetails.materialUsagePending && editingCuttingDetails.materials.length ? editingCuttingDetails.materials.map((row) => ({
           stock_batch_id: row.stock_batch_id,
           layer_material_kg: numberOrZero(row.details.layer_material_kg), beika_kg: numberOrZero(row.details.beika_kg),
           material_rolls_used: numberOrZero(row.details.material_rolls_used), layup_operator_name: row.details.layup_operator_name,
@@ -1516,112 +1480,6 @@ export default function CuttingPage() {
         onSaveBreakdown={saveBreakdown}
       />
 
-      {Number(replacementStatus?.waiting_cutting_qty || 0) > 0 && (
-        <>
-          <div className="border-y border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-            <div className="font-semibold">
-              {t("replacement.cuttingRequired", {
-                count: Number(replacementStatus.waiting_cutting_qty).toLocaleString(),
-              })}
-            </div>
-            <div className="mt-1 text-amber-900">{t("replacement.cuttingHint")}</div>
-            {Array.isArray(replacementStatus.items) && replacementStatus.items.length > 1 && (
-              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-amber-900">
-                {replacementStatus.items
-                  .filter((row: any) => Number(row.waiting_cutting_qty || 0) > 0)
-                  .map((row: any) => (
-                    <span key={row.production_batch_id || "order"}>
-                      {row.batch_no || t("field.batch")}: {Number(row.waiting_cutting_qty).toLocaleString()}
-                    </span>
-                  ))}
-              </div>
-            )}
-          </div>
-          <section className="card mb-4 rounded-t-none border-t-0 p-4">
-            <div className="mb-3">
-              <h2 className="text-base font-semibold">{t("replacement.completeCuttingTitle")}</h2>
-              <p className="mt-1 text-sm text-slate-600">{t("replacement.completeCuttingHint")}</p>
-            </div>
-            <div className="grid grid-cols-1 items-end gap-3 md:grid-cols-4">
-              {pendingReplacementItems.length > 1 && (
-                <div>
-                  <label className="label">{t("batch.orderBatch")}</label>
-                  <select
-                    className="input"
-                    value={replacementCompletion.production_batch_id}
-                    onChange={(e) => {
-                      const batchId = Number(e.target.value || 0);
-                      const row = pendingReplacementItems.find((item: any) => Number(item?.production_batch_id || 0) === batchId);
-                      setReplacementCompletion((prev) => ({
-                        ...prev,
-                        production_batch_id: batchId,
-                        completed_pieces: Number(row?.waiting_cutting_qty || 0),
-                      }));
-                    }}
-                  >
-                    {pendingReplacementItems.map((row: any) => (
-                      <option key={row.production_batch_id || "order"} value={Number(row.production_batch_id || 0)}>
-                        {row.batch_no || t("field.batch")} ({Number(row.waiting_cutting_qty || 0).toLocaleString()})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-              <div>
-                <label className="label">{t("field.fabricBatch")}</label>
-                <select
-                  className="input"
-                  value={form.fabric_batch_id}
-                  onChange={(e) => {
-                    const batch = allSearchableFabricBatches.find((row) => Number(row.id) === Number(e.target.value || 0)) || null;
-                    selectFabricBatch(batch);
-                  }}
-                >
-                  <option value={0}>{t("replacement.selectFabricBatchOption")}</option>
-                  {allSearchableFabricBatches.slice(0, 100).map((batch) => (
-                    <option key={batch.id} value={batch.id}>
-                      {fabricBatchCompactLabel(batch)} - {fmtQty(batchAvailableQty(batch))} {batch.unit}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="label">{t("replacement.completedPieces")}</label>
-                <input
-                  className="input"
-                  type="number"
-                  min={1}
-                  max={Math.max(1, Number(selectedReplacementItem?.waiting_cutting_qty || 1))}
-                  value={replacementCompletion.completed_pieces}
-                  onChange={(e) => setReplacementCompletion((prev) => ({ ...prev, completed_pieces: parseWholeInput(e.target.value) }))}
-                />
-              </div>
-              <div>
-                <label className="label">{t("replacement.materialUsed", { unit: selectedFabricBatch?.unit || "kg" })}</label>
-                <input
-                  className="input"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={replacementCompletion.input_quantity}
-                  onChange={(e) => setReplacementCompletion((prev) => ({ ...prev, input_quantity: parseDecimalInput(e.target.value) }))}
-                />
-              </div>
-            </div>
-            {replacementCompletionErr && <div className="mt-3 text-sm text-red-600">{replacementCompletionErr}</div>}
-            <div className="mt-3">
-              <button type="button" className="btn btn-primary" onClick={completeReplacementCutting} disabled={replacementCompletionBusy}>
-                {replacementCompletionBusy ? t("common.saving") : t("replacement.markCuttingDone")}
-              </button>
-            </div>
-          </section>
-        </>
-      )}
-      {replacementCompletionDone && (
-        <div className="mb-4 border-y border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
-          {replacementCompletionDone}
-        </div>
-      )}
 
       {!isAlreadyBatched && canCompleteWithShortage && (
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-y border-amber-200 bg-amber-50 px-4 py-3">
@@ -1691,6 +1549,7 @@ export default function CuttingPage() {
                           <>
                             <div className="font-medium">{formatBatchLabel(row, po?.id)}</div>
                             <div className="text-xs text-slate-500">{formatBatchSerial(row, po?.id)}</div>
+                            {row.passport_actual_quantity != null && <div className="text-xs text-slate-500">{t("field.actualQty")}: {row.passport_actual_quantity} · {t("page.cuttingPassports.field.passportNo")}</div>}
                           </>
                         )}
                       </td>
@@ -1777,7 +1636,16 @@ export default function CuttingPage() {
                               >
                                 {t("btn.edit")}
                               </button>
-                              {!quantityEditable && (
+                              {can(me, "cutting.records", "*") && (
+                                <button type="button" className="btn text-red-600"
+                                  disabled={batchPlanEditBusy || !row.deletable}
+                                  onClick={() => deleteCuttingBatch(row)}>
+                                  {t("btn.delete")}
+                                </button>
+                              )}
+                              {row.sewing_output_recorded ? (
+                                <span className="text-xs text-slate-500">{t("batch.lockedAfterSewing")}</span>
+                              ) : !quantityEditable && (
                                 <span className="text-xs text-slate-500">{t("batch.lockedAfterBundles")}</span>
                               )}
                             </div>
@@ -1940,6 +1808,13 @@ export default function CuttingPage() {
             </button>
           </div>
         </div>
+      )}
+
+      {!isUsluga && can(me, "cutting.records", "*") && wo && po && (
+        <CuttingSewingFactory workOrderId={Number(id)} factory={po.sewing_factory_code || "MIL"}
+          batches={batchItems}
+          locked={batchItems.some((row: any) => row.sewing_output_recorded) || (po.work_orders || []).some((row: any) => row.operation === "sewing" && (row.actual_output_qty > 0 || row.passed_qty > 0 || row.failed_qty > 0))}
+          onSaved={() => Promise.all([mutatePo(), mutateWo(), mutateBatchProgress(), mutateBundles()])} />
       )}
 
       {visibleBundles.length > 0 && (
@@ -2220,7 +2095,7 @@ export default function CuttingPage() {
                             <button
                               type="button"
                               className="btn btn-primary"
-                              disabled={uslugaSizeCountEditBusy || sizeCountEditTotal !== requiredSizeCountTotal}
+                              disabled={uslugaSizeCountEditBusy || sizeCountEditTotal < requiredSizeCountTotal || uslugaSizeCountEdits.some((entry) => !Number.isInteger(entry.quantity) || Number(entry.quantity) < entry.bundle_count)}
                               onClick={() => saveUslugaSizeCounts(Number(row.id))}
                             >
                               {t("common.save")}
@@ -2254,6 +2129,19 @@ export default function CuttingPage() {
       )}
 
       <form id={isUsluga ? "usluga-cutting-entry" : undefined} onSubmit={submit} className="card space-y-5 p-6">
+        {cuttingPassports.length > 0 && <div>
+          <label className="label">{t("passportBatch.optional")}</label>
+          <select className="input" value={selectedPassportId} onChange={(event) => {
+            setPassportId(Number(event.target.value));
+            const passport = cuttingPassports.find((row) => row.id === Number(event.target.value));
+            passportAutofillDirtyFields.current.clear();
+            setForm((current) => ({ ...current, production_batch_id: passport?.production_batch_id || current.production_batch_id, input_quantity: "", layer_material_kg: "", material_rolls_used: "", layup_operator_name: "", cut_pieces: "", notes: "", beika_kg: "", waste_quantity: "" }));
+            setCuttingMaterials((rows) => rows.map((row) => ({ ...row, quantity: "", details: emptyMaterialDetails() })));
+          }}>
+            <option value={0}>{t("passportBatch.withoutPassport")}</option>
+            {(cuttingPassports || []).filter((passport) => !passport.used_for_cutting).map((passport) => <option key={passport.id} value={passport.id}>{[passport.passport_no, passport.nastil_name, passport.pieces].filter((value) => value != null).join(" · ")}</option>)}
+          </select>
+        </div>}
         <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
           {isAlreadyBatched && (
             <div>
@@ -2261,7 +2149,12 @@ export default function CuttingPage() {
               <select
                 className="input"
                 value={form.production_batch_id}
-                onChange={(e) => setForm({ ...form, production_batch_id: Number(e.target.value) })}
+                onChange={(e) => {
+                  const batchId = Number(e.target.value);
+                  const passport = cuttingPassports.find((row) => row.production_batch_id === batchId && !row.used_for_cutting);
+                  setPassportId(passport?.id || 0);
+                  setForm({ ...form, production_batch_id: batchId, cut_pieces: passport?.pieces ?? "" });
+                }}
               >
                 <option value={0}>{t("batch.selectBatch")}</option>
                 {(po?.batches || []).map((b: any) => (
@@ -2272,111 +2165,7 @@ export default function CuttingPage() {
               </select>
             </div>
           )}
-          {hasPlannedMaterials ? (
-            <div className="md:col-span-4">
-              <div className="mb-3">
-                <h2 className="text-sm font-semibold text-[#393528]">{t("page.cutting.materialUsage")}</h2>
-                <p className="mt-0.5 text-xs text-[#8a8472]">{t("page.cutting.materialUsageHelp")}</p>
-              </div>
-              <div className="divide-y divide-[#ecebe3] rounded-md border border-[#e3e0d5]">
-                {cuttingMaterials.map((material, index) => {
-                  const batch = plannedMaterialBatchLookup.get(material.stock_batch_id);
-                  const reservation = reservationForOrder(batch, po?.id);
-                  return (
-                    <div
-                      key={material.stock_batch_id}
-                      className="grid grid-cols-1 gap-3 p-3 md:grid-cols-[minmax(0,1fr)_150px_150px] md:items-end"
-                    >
-                      <div>
-                        <div className="text-sm font-medium text-[#14110b]">
-                          {batch
-                            ? compactParts([batch.item_sku, batch.item_name]) || t("page.cutting.itemId", { id: batch.item_id })
-                            : `${t("field.fabricBatch")} #${material.stock_batch_id}`}
-                        </div>
-                        <div className="mt-1 text-xs text-[#6f684f]">
-                          {batch?.batch_no ? `${t("field.batch")} ${batch.batch_no}` : `${t("field.batch")} #${material.stock_batch_id}`}
-                          {" · "}
-                          {t("page.cutting.plannedAmount")}: {fmtQty(material.planned_quantity)} {material.unit}
-                        </div>
-                        {batch && (
-                          <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-[#8a8472]">
-                            <span>{t("field.available")}: {fmtQty(batchAvailableQty(batch))} {batch.unit}</span>
-                            <span>{t("field.reserved")}: {fmtQty(batch.reserved_quantity)} {batch.unit}</span>
-                            {reservation && (
-                              <span>{t("page.cutting.forThisOrder")}: {fmtQty(reservation.remaining_quantity)} {reservation.unit || batch.unit}</span>
-                            )}
-                          </div>
-                        )}
-                        {can(me, "*", "cutting.records") && !isUsluga && !["completed", "cancelled"].includes(String(wo?.status)) && !["completed", "cancelled"].includes(String(po?.status)) && (
-                          <CuttingMaterialBatchEditor workOrderId={id} batchId={material.stock_batch_id}
-                            assignedIds={cuttingMaterials.map((row) => row.stock_batch_id)} unit={material.unit}
-                            disabled={submitting || (editingMaterialBatch !== null && editingMaterialBatch !== material.stock_batch_id)}
-                            onEditing={(editing) => setEditingMaterialBatch(editing ? material.stock_batch_id : null)}
-                            onChanged={async (selected) => {
-                              setCorrectedBatches((rows) => [...rows.filter((row) => row.id !== selected.id), selected]);
-                              setCuttingMaterials((rows) => rows.map((row) => row.stock_batch_id === material.stock_batch_id ? { ...row, stock_batch_id: selected.id } : row));
-                              setEditingMaterialBatch(null);
-                              await mutatePo();
-                              await mutateCache((key) => typeof key === "string" && (key.startsWith("/api/cutting-passports") || key.startsWith("/api/inventory/") || key.startsWith("/api/production-orders")));
-                            }} />
-                        )}
-                      </div>
-                      <div>
-                        <label className="label" htmlFor={`cutting-material-${material.stock_batch_id}`}>
-                          {t("page.cutting.actualAmountUsed")}
-                        </label>
-                        <input
-                          id={`cutting-material-${material.stock_batch_id}`}
-                          className="input"
-                          type="number"
-                          min={0}
-                          step="0.01"
-                          value={material.quantity}
-                          onChange={(e) => {
-                            const quantity = parseDecimalInput(e.target.value);
-                            setCuttingMaterials((current) => current.map((row, rowIndex) => (
-                              rowIndex === index ? { ...row, quantity } : row
-                            )));
-                            if (index === 0) {
-                              setPassportAutofillField("input_quantity", quantity);
-                            }
-                          }}
-                          required
-                        />
-                      </div>
-                      <div>
-                        <label className="label">{t("field.inputUnit")}</label>
-                        <input className="input" value={material.unit} readOnly />
-                      </div>
-                      {cuttingMaterials.length > 1 && <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 md:col-span-3">
-                        <label className="block"><span className="label">{t("field.layerMaterialKg")}</span>
-                          <input className="input" type="number" min={0} step="0.01" value={material.details.layer_material_kg} onChange={(e) => { const value = parseDecimalInput(e.target.value); setCuttingMaterials((rows) => rows.map((row, i) => i === index ? { ...row, details: { ...row.details, layer_material_kg: value } } : row)); }} />
-                        </label>
-                        <label className="block"><span className="label">{t("field.beikaKg")}</span>
-                          <input className="input" type="number" min={0} step="0.01" value={material.details.beika_kg} onChange={(e) => { const value = parseDecimalInput(e.target.value); setCuttingMaterials((rows) => rows.map((row, i) => i === index ? { ...row, details: { ...row.details, beika_kg: value } } : row)); }} />
-                        </label>
-                        <label className="block"><span className="label">{t("field.materialRollsUsed")}</span>
-                          <input className="input" type="number" min={0} step="0.01" value={material.details.material_rolls_used} onChange={(e) => { const value = parseDecimalInput(e.target.value); setCuttingMaterials((rows) => rows.map((row, i) => i === index ? { ...row, details: { ...row.details, material_rolls_used: value } } : row)); }} />
-                        </label>
-                        <label className="block"><span className="label">{t("field.layupOperator")}</span>
-                          <input className="input" type="text" maxLength={128} value={material.details.layup_operator_name} onChange={(e) => { const value = e.target.value; setCuttingMaterials((rows) => rows.map((row, i) => i === index ? { ...row, details: { ...row.details, layup_operator_name: value } } : row)); }} />
-                        </label>
-                        <label className="block"><span className="label">{t("field.cutPieces")}</span>
-                          <input className="input" type="number" min={0} step={1} value={material.details.cut_pieces} onChange={(e) => { const value = parseWholeInput(e.target.value); setCuttingMaterials((rows) => rows.map((row, i) => i === index ? { ...row, details: { ...row.details, cut_pieces: value } } : row)); }} />
-                        </label>
-                        <label className="block"><span className="label">{t("field.wasteQty")}</span>
-                          <input className="input" type="number" min={0} step="0.01" value={material.details.waste_quantity} onChange={(e) => { const value = parseDecimalInput(e.target.value); setCuttingMaterials((rows) => rows.map((row, i) => i === index ? { ...row, details: { ...row.details, waste_quantity: value } } : row)); }} />
-                        </label>
-                        <label className="block"><span className="label">{t("field.wasteUnit")}</span>
-                          <input className="input" type="text" maxLength={32} value={material.details.waste_unit} onChange={(e) => { const value = e.target.value; setCuttingMaterials((rows) => rows.map((row, i) => i === index ? { ...row, details: { ...row.details, waste_unit: value } } : row)); }} />
-                        </label>
-                      </div>}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          ) : !isUsluga ? <div className="md:col-span-2">
+          {hasPlannedMaterials ? null : !isUsluga ? <div className="md:col-span-2">
             <label className="label">{t("field.fabricBatch")}</label>
             <div
               className="relative"
@@ -2519,7 +2308,7 @@ export default function CuttingPage() {
             <label className="label">{t("field.inputUnit")}</label>
             <input className="input" value={form.input_unit} onChange={(e) => setForm({ ...form, input_unit: e.target.value })} />
           </div>}
-          {cuttingMaterials.length <= 1 && <>
+          {!hasPlannedMaterials && cuttingMaterials.length <= 1 && <>
           <div>
             <label className="label">{t("field.layerMaterialKg")}</label>
             <input className="input" type="number" step="0.01" value={form.layer_material_kg} onChange={(e) => setPassportAutofillField("layer_material_kg", parseDecimalInput(e.target.value))} />
@@ -2542,10 +2331,6 @@ export default function CuttingPage() {
               onChange={(e) => setPassportAutofillField("layup_operator_name", e.target.value)}
             />
           </div>
-          {!isSecondaryUslugaFabric && <div>
-            <label className="label">{t("field.cutPieces")}</label>
-            <input className="input" type="number" value={form.cut_pieces} onChange={(e) => setPassportAutofillField("cut_pieces", parseWholeInput(e.target.value))} />
-          </div>}
           {isSecondaryUslugaFabric && <div>
             <label className="label">{t("usluga.reportPieces")}</label>
             <input
@@ -2575,11 +2360,16 @@ export default function CuttingPage() {
             <input className="input" value={form.waste_unit} onChange={(e) => setForm({ ...form, waste_unit: e.target.value })} />
           </div>
           </>}
+          {!isSecondaryUslugaFabric && <div>
+            <label className="label">{t("field.cutPieces")}</label>
+            <input className="input" type="number" value={form.cut_pieces} onChange={(e) => setPassportAutofillField("cut_pieces", parseWholeInput(e.target.value))} />
+          </div>}
         </div>
 
         {!isSecondaryUslugaFabric && <div>
           <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
             <h3 className="font-medium">{t("page.cutting.bundlePlan")}</h3>
+            <p className="text-sm">{t("cuttingBundles.summary", { bundles: bundles.reduce((sum, row) => sum + Math.max(0, numberOrZero(row.count)), 0), items: bundlePlanTotal })}</p>
             <div className="flex flex-wrap items-center gap-3">
               <label className="flex items-center gap-2 text-sm font-medium text-[#56503f]">
                 <input
@@ -2599,8 +2389,8 @@ export default function CuttingPage() {
               <tr>
                 <th>{t("field.color")}</th>
                 <th>{t("field.size")}</th>
-                <th>{t("field.bundleQty")}</th>
-                <th>{t("field.count")}</th>
+                <th>{t("cuttingBundles.count")}</th>
+                <th>{t("cuttingBundles.itemsPerBundle")}</th>
                 <th>{t("field.sewingFactory")}</th>
                 <th>{t("field.next")}</th>
                 <th>{t("field.actions")}</th>
@@ -2611,8 +2401,8 @@ export default function CuttingPage() {
                 <tr key={i}>
                   <td><input className="input" value={b.color} onChange={(e) => setB(i, { color: e.target.value })} /></td>
                   <td><input className="input" value={b.size} onChange={(e) => setB(i, { size: e.target.value })} /></td>
-                  <td><input className="input" type="number" value={b.quantity} onChange={(e) => setBQty(i, e.target.value)} /></td>
-                  <td><input className="input" type="number" value={b.count} onChange={(e) => setB(i, { count: parseWholeInput(e.target.value) })} /></td>
+                  <td><input className="input" type="number" min={1} step={1} aria-label={t("cuttingBundles.count")} value={b.count} onChange={(e) => setB(i, { count: parseWholeInput(e.target.value) })} /></td>
+                  <td><input className="input" type="number" min={1} step={1} aria-label={t("cuttingBundles.itemsPerBundle")} value={b.quantity} onChange={(e) => setB(i, { quantity: parseWholeInput(e.target.value) })} /></td>
                   <td>
                     <select className="input" disabled={isUsluga} value={isUsluga ? "eco_cotton" : (b.sewing_factory || "milana")} onChange={(e) => setB(i, { sewing_factory: e.target.value as SewingFactory })}>
                       <option value="milana">{t("factory.milana")}</option>
@@ -2641,7 +2431,10 @@ export default function CuttingPage() {
 
         {doneMsg && <div className="rounded border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">{doneMsg}</div>}
         {err && <div className="text-sm text-red-600">{err}</div>}
-        <button className="btn btn-primary" disabled={submitting || editingMaterialBatch !== null}>
+        {isAlreadyBatched && createdBundlesBatch && (
+          <p className="text-sm" role="status">{t("batch.outputTarget", { batch: createdBundlesBatchLabel })}</p>
+        )}
+        <button className="btn btn-primary" disabled={submitting || Boolean(editingBatchId) || batchPlanEditBusy || extraBatchBusy}>
           {submitting
             ? t("common.saving")
             : isSecondaryUslugaFabric
@@ -2717,14 +2510,16 @@ export default function CuttingPage() {
                     >
                       {t(isMilanaCutting && canEditBreakdown && wo?.status !== "completed" ? "page.cutting.printAndComplete" : "page.cutting.printProductionSheet")}
                     </button>
-                    <button
-                      type="button"
-                      className="btn"
-                      disabled={!visibleBundleIds}
-                      onClick={() => api.openLabel(`/api/bundles/label-sheet/by-ids?ids=${encodeURIComponent(visibleBundleIds)}`)}
-                    >
-                      {t("page.packaging.printAllLabels")}
-                    </button>
+                    {printableBundleBatches.map((batch) => (
+                      <button
+                        key={batch.batchId}
+                        type="button"
+                        className="btn"
+                        onClick={() => api.openLabel(`/api/bundles/label-sheet/by-ids?ids=${encodeURIComponent(batch.bundleIds.join(","))}`)}
+                      >
+                        {t("common.print")} — {batch.label} ({batch.bundleIds.length})
+                      </button>
+                    ))}
                   </div>
                 </div>
                 <table className="table">
@@ -2742,8 +2537,9 @@ export default function CuttingPage() {
                   <tbody>
                     {visibleBundles.map((b) => {
                       const bundleId = Number(b?.id || 0);
-                      const canAdjust = canAdjustCuttingInventoryBundle(b);
-                      const canDelete = b?.status === "created" && Number(b?.created_by || 0) === Number(me?.id || 0);
+                      const outputLocked = batchItems.some((row: any) => Number(row.id) === Number(b.production_batch_id) && row.sewing_output_recorded);
+                      const canAdjust = !outputLocked && canAdjustCuttingInventoryBundle(b);
+                      const canDelete = !outputLocked && b?.status === "created" && Number(b?.created_by || 0) === Number(me?.id || 0);
                       const isAdjusting = adjustingBundle?.bundleId === bundleId;
                       return (
                         <tr key={b.id}>
@@ -2837,7 +2633,27 @@ export default function CuttingPage() {
                       const batch = plannedMaterialBatchLookup.get(material.stock_batch_id);
                       return <div key={material.stock_batch_id} className="mb-4 space-y-2 border-b border-[#ecebe3] pb-4">
                         <div className="font-medium">{batch?.item_name || t("field.fabricBatch")} · {batch?.batch_no || material.stock_batch_id}</div>
-                        <div className="text-sm">{fmtQty(material.quantity)} {material.unit} · {t("field.cutPieces")}: {material.details.cut_pieces} · {t("field.wasteQty")}: {material.details.waste_quantity} {material.details.waste_unit}</div>
+                        {!editingCuttingDetails.materialUsagePending && <div className="text-sm">{fmtQty(Number(material.quantity))} {material.unit} · {t("field.cutPieces")}: {material.details.cut_pieces} · {t("field.wasteQty")}: {material.details.waste_quantity} {material.details.waste_unit}</div>}
+                        {editingCuttingDetails.materialUsagePending && <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                          <label><span className="label">{t("page.cutting.actualAmountUsed")} ({material.unit})</span>
+                            <input className="input" type="number" min={0} step="0.01" value={material.quantity} onChange={(e) => {
+                              const quantity = parseDecimalInput(e.target.value);
+                              setEditingCuttingDetails((prev) => prev ? { ...prev, materials: prev.materials.map((row, i) => i === index ? { ...row, quantity } : row) } : prev);
+                            }} />
+                          </label>
+                          <label><span className="label">{t("field.wasteQty")}</span>
+                            <input className="input" type="number" min={0} step="0.01" value={material.details.waste_quantity} onChange={(e) => {
+                              const value = parseDecimalInput(e.target.value);
+                              setEditingCuttingDetails((prev) => prev ? { ...prev, materials: prev.materials.map((row, i) => i === index ? { ...row, details: { ...row.details, waste_quantity: value } } : row) } : prev);
+                            }} />
+                          </label>
+                          <label><span className="label">{t("field.wasteUnit")}</span>
+                            <input className="input" value={material.details.waste_unit} onChange={(e) => {
+                              const value = e.target.value;
+                              setEditingCuttingDetails((prev) => prev ? { ...prev, materials: prev.materials.map((row, i) => i === index ? { ...row, details: { ...row.details, waste_unit: value } } : row) } : prev);
+                            }} />
+                          </label>
+                        </div>}
                         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
                           {([ ["layer_material_kg", "layerMaterialKg"], ["beika_kg", "beikaKg"], ["material_rolls_used", "materialRollsUsed"], ["layup_operator_name", "layupOperator"] ] as const).map(([field, label]) => (
                             <label key={field}><span className="label">{t(`field.${label}`)}</span>

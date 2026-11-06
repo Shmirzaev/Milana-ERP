@@ -5,8 +5,8 @@ import argparse
 from sqlalchemy import select, text
 
 from app.db.session import SessionLocal
-from app.models import SewingFlow
-from app.services.audit import log_action
+from app.schemas import SewingFlow
+from app.models.audit_service import log_action
 
 
 EXPECTED_CURRENT_NAMES = {

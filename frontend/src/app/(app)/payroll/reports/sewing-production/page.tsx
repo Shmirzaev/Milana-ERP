@@ -1,14 +1,18 @@
 "use client";
+import { ApiError } from "@/lib/errorMessages";
 
 import { useMemo, useState } from "react";
 import useSWR from "swr";
+import useLoadMore from "@/lib/useLoadMore";
 import { Download, Filter, Printer, RotateCcw } from "lucide-react";
 
 import PageHeader from "@/components/PageHeader";
 import PaginationControls from "@/components/PaginationControls";
 import SearchableSelect from "@/components/SearchableSelect";
+import SewingSalarySummaryTable from "@/components/payroll/SewingSalarySummaryTable";
 import SewingProductionReportTable from "@/components/payroll/SewingProductionReportTable";
-import { api, fetcher } from "@/lib/api";
+import { api, fetcher, fetchResponse } from "@/lib/api";
+import { useMe } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
 import {
   buildSewingReportParams,
@@ -19,7 +23,7 @@ import {
   type SewingProductionReportRow,
 } from "@/lib/sewingProductionReport";
 
-const PAGE_SIZE = 100;
+const PAGE_SIZE = 50;
 
 function localDateTime(date: Date, endOfDay = false): string {
   const local = new Date(date);
@@ -100,8 +104,11 @@ function downloadBlob(filename: string, blob: Blob) {
 
 export default function SewingProductionReportPage() {
   const { t, lang } = useT();
+  const { me } = useMe();
+  const scopedFactory = me?.factory_code === "ECO" || me?.factory_code === "BST" ? me.factory_code : "";
   const [draft, setDraft] = useState<SewingProductionReportFilters>(initialFilters);
   const [applied, setApplied] = useState<SewingProductionReportFilters>(initialFilters);
+  const [reportView, setReportView] = useState<"details" | "salary">("details");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(PAGE_SIZE);
   const [action, setAction] = useState<"xlsx" | "print" | null>(null);
@@ -109,13 +116,18 @@ export default function SewingProductionReportPage() {
   const [printRows, setPrintRows] = useState<SewingProductionReportRow[] | null>(null);
 
   const query = useMemo(
-    () => buildSewingReportParams(applied, page, pageSize).toString(),
-    [applied, page, pageSize],
+    () => {
+      const params = buildSewingReportParams(applied, page, pageSize);
+      params.set("report_view", reportView);
+      return params.toString();
+    },
+    [applied, page, pageSize, reportView],
   );
-  const { data, error, isLoading } = useSWR<SewingProductionReportResponse>(
+  const listPager = useLoadMore<SewingProductionReportResponse>(
     `/api/payroll/reports/sewing-production?${query}`,
     fetcher,
   );
+  const { data, error, isLoading } = listPager;
   const optionQuery = draft.factoryCode
     ? `?factory_code=${encodeURIComponent(draft.factoryCode)}`
     : "";
@@ -125,7 +137,7 @@ export default function SewingProductionReportPage() {
   );
 
   const reportRows = printRows || data?.items || [];
-  const rowOffset = printRows ? 0 : (page - 1) * pageSize;
+  const rowOffset = 0;
   const options = scopedOptions;
   const printSummary = {
     qrCount: printRows ? reportRows.length : Number(data?.total || 0),
@@ -195,7 +207,8 @@ export default function SewingProductionReportPage() {
       params.delete("limit");
       params.delete("offset");
       params.set("lang", lang);
-      const response = await fetch(`/api/payroll/reports/sewing-production.xlsx?${params.toString()}`, {
+      params.set("report_view", reportView);
+      const response = await fetchResponse(`/api/payroll/reports/sewing-production.xlsx?${params.toString()}`, {
         credentials: "same-origin",
       });
       if (!response.ok) {
@@ -204,7 +217,7 @@ export default function SewingProductionReportPage() {
           const body = await response.json();
           detail = body.detail || detail;
         } catch {}
-        throw new Error(`${response.status}: ${detail}`);
+        throw new ApiError(response.status, detail);
       }
       const disposition = response.headers.get("content-disposition") || "";
       const serverFilename = disposition.match(/filename="?([^";]+)"?/i)?.[1];
@@ -221,6 +234,10 @@ export default function SewingProductionReportPage() {
     setAction("print");
     setActionError("");
     try {
+      if (reportView === "salary") {
+        window.print();
+        return;
+      }
       const rows = await fetchAllRows();
       setPrintRows(rows);
       window.setTimeout(() => {
@@ -242,17 +259,27 @@ export default function SewingProductionReportPage() {
           subtitle={t("page.sewingReport.subtitle")}
           actions={(
             <div className="flex flex-wrap gap-2">
-              <button type="button" className="btn" onClick={exportExcel} disabled={Boolean(action) || !data?.total}>
+              <button type="button" className="btn" onClick={exportExcel} disabled={Boolean(action) || isLoading || Boolean(error) || !data?.total}>
                 <Download />
                 <span>{action === "xlsx" ? t("page.sewingReport.exporting") : "Excel"}</span>
               </button>
-              <button type="button" className="btn" onClick={printReport} disabled={Boolean(action) || !data?.total}>
+              <button type="button" className="btn" onClick={printReport} disabled={Boolean(action) || isLoading || Boolean(error) || !data?.total}>
                 <Printer />
                 <span>{action === "print" ? t("page.sewingReport.preparingPrint") : t("common.print")}</span>
               </button>
             </div>
           )}
         />
+      </div>
+
+      <div className="flex gap-6 border-b border-[#ded9ca] no-print" aria-label={t("page.sewingReport.title")}>
+        {(["details", "salary"] as const).map((view) => (
+          <button key={view} type="button" aria-pressed={reportView === view} disabled={Boolean(action)}
+            className={`border-b-2 px-1 py-3 text-sm ${reportView === view ? "border-[#14110b] font-semibold" : "border-transparent text-[#8a8472]"}`}
+            onClick={() => { setReportView(view); setDraft(current => ({ ...current, sewingLine: "" })); setApplied(current => ({ ...current, sewingLine: "" })); setPage(1); setActionError(""); }}>
+            {t(view === "salary" ? "page.sewingReport.salarySummary" : "page.sewingReport.scanDetails")}
+          </button>
+        ))}
       </div>
 
       <form className="card p-4 no-print" onSubmit={applyFilters}>
@@ -284,11 +311,11 @@ export default function SewingProductionReportPage() {
           />
           <label>
             <span className="label">{t("page.sewingReport.factory")}</span>
-            <select className="input" value={draft.factoryCode} onChange={(e) => updateFactory(e.target.value)}>
-              <option value="">{t("common.all")}</option>
-              <option value="MIL">Milana</option>
-              <option value="BST">Besttex</option>
-              <option value="ECO">Eco Cotton</option>
+            <select className="input" value={scopedFactory || draft.factoryCode} disabled={Boolean(scopedFactory)} onChange={(e) => updateFactory(e.target.value)}>
+              {!scopedFactory && <option value="">{t("common.all")}</option>}
+              {!scopedFactory && <option value="MIL">Milana</option>}
+              {scopedFactory !== "ECO" && <option value="BST">Besttex</option>}
+              {scopedFactory !== "BST" && <option value="ECO">Eco Cotton</option>}
             </select>
           </label>
           <ReportFilterSelect
@@ -323,11 +350,11 @@ export default function SewingProductionReportPage() {
           />
           <ReportFilterSelect
             id="sewing-report-line"
-            label={t("page.sewingReport.line")}
+            label={reportView === "salary" ? (lang === "ru" ? "Мастер" : "Master") : t("page.sewingReport.line")}
             value={draft.sewingLine}
-            options={options?.sewing_lines || []}
-            allLabel={t("page.sewingReport.allLines")}
-            searchPlaceholder={t("page.sewingReport.searchLine")}
+            options={(reportView === "salary" ? options?.salary_masters : options?.sewing_lines) || []}
+            allLabel={reportView === "salary" ? (lang === "ru" ? "Все мастера" : lang === "uz" ? "Barcha masterlar" : "All Masters") : t("page.sewingReport.allLines")}
+            searchPlaceholder={reportView === "salary" ? (lang === "ru" ? "Поиск мастера" : lang === "uz" ? "Masterni qidirish" : "Search Masters") : t("page.sewingReport.searchLine")}
             noResultsText={t("page.sewingReport.noFilterOptions")}
             onChange={(value) => update("sewingLine", value)}
           />
@@ -385,7 +412,7 @@ export default function SewingProductionReportPage() {
         </div>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-3 no-print">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 no-print">
         <div className="kpi-card">
           <div className="label">{t("page.sewingReport.records")}</div>
           <div className="text-2xl font-semibold tabular-nums">{Number(data?.total || 0).toLocaleString(lang)}</div>
@@ -397,31 +424,39 @@ export default function SewingProductionReportPage() {
         <div className="kpi-card">
           <div className="label">{t("page.sewingReport.totalAmount")}</div>
           <div className="text-2xl font-semibold tabular-nums">
-            {Number(data?.total_amount || 0).toLocaleString(lang, { maximumFractionDigits: 2 })} {data?.currency || "UZS"}
+            {data?.currency === "MIXED" && reportView === "salary"
+              ? t("page.sewingReport.separateCurrencies")
+              : <>{Number(data?.total_amount || 0).toLocaleString(lang, { maximumFractionDigits: 2 })} {data?.currency || "UZS"}</>}
           </div>
+        </div>
+        <div className="kpi-card">
+          <div className="label">{t("page.sewingReport.totalProducts")}</div>
+          <div className="text-2xl font-semibold tabular-nums">{Number(data?.total_product_quantity || 0).toLocaleString(lang)}</div>
         </div>
       </div>
 
       <section className="card sewing-report-print-area">
-        <div className="hidden border-b border-[#ded9ca] px-4 py-3 print:block">
-          <h1 className="text-lg font-semibold">{t("page.sewingReport.title")}</h1>
+        <div className={`${reportView === "salary" ? "" : "hidden print:block"} border-b border-[#ded9ca] px-4 py-3`}>
+          <h1 className="text-lg font-semibold">{t(reportView === "salary" ? "page.sewingReport.salarySummary" : "page.sewingReport.title")}</h1>
+          {reportView === "salary" && <p className="mt-1 text-xs text-[#56503f]">{t("page.sewingReport.salaryHint")}</p>}
           <p className="mt-1 text-xs text-[#56503f]">
             {new Date(applied.dateFrom).toLocaleString(lang)} — {new Date(applied.dateTo).toLocaleString(lang)}
           </p>
         </div>
         {isLoading && !printRows ? (
           <div className="p-8 text-center text-sm text-[#8a8472]">{t("common.loading")}</div>
+        ) : reportView === "salary" ? (
+          <SewingSalarySummaryTable days={data?.salary_days || []} rows={data?.salary_summary || []} lang={lang} t={t} />
         ) : (
           <SewingProductionReportTable rows={reportRows} rowOffset={rowOffset} lang={lang} t={t} />
         )}
-        {!printRows && (
+        {!printRows && reportView === "details" && (
           <div className="no-print">
-            <PaginationControls
+            <PaginationControls loading={listPager.isValidating} error={listPager.error} onRetry={() => void listPager.mutate()}
               page={page}
               pageSize={pageSize}
               total={data?.total || 0}
               count={data?.items.length || 0}
-              pageSizeOptions={[50, 100, 200, 500]}
               onPageChange={setPage}
               onPageSizeChange={(next) => {
                 setPageSize(next);
@@ -430,7 +465,7 @@ export default function SewingProductionReportPage() {
             />
           </div>
         )}
-        <div className="sewing-report-print-summary hidden border-t-2 border-[#14110b] px-4 py-3 print:block">
+        {reportView === "details" && <div className="sewing-report-print-summary hidden border-t-2 border-[#14110b] px-4 py-3 print:block">
           <div className="mb-2 text-sm font-bold">{t("page.sewingReport.printTotals")}</div>
           <dl className="grid grid-cols-4 gap-5 tabular-nums">
             <div>
@@ -450,7 +485,7 @@ export default function SewingProductionReportPage() {
               <dd>{printSummary.totalAmount.toLocaleString(lang, { maximumFractionDigits: 2 })} {data?.currency || "UZS"}</dd>
             </div>
           </dl>
-        </div>
+        </div>}
       </section>
 
       <style jsx global>{`
@@ -475,6 +510,16 @@ export default function SewingProductionReportPage() {
           .sewing-report-print-summary { break-inside: avoid !important; page-break-inside: avoid !important; color: #000 !important; }
           .sewing-report-print-summary dt { font-size: 10px !important; font-weight: 600 !important; }
           .sewing-report-print-summary dd { margin-top: 2px !important; font-size: 14px !important; font-weight: 700 !important; }
+          .sewing-report-print-area .sewing-salary-table { table-layout: fixed !important; font-size: 7px !important; }
+          .sewing-report-print-area .sewing-salary-table th,
+          .sewing-report-print-area .sewing-salary-table td { padding: 3px 1px !important; overflow-wrap: anywhere; }
+          .sewing-salary-table .salary-number { width: 20px; }
+          .sewing-salary-table .salary-employee { width: 100px; }
+          .sewing-salary-table .salary-total { width: 65px; }
+          .sewing-salary-table td div { font-size: inherit !important; }
+          .sewing-salary-table tfoot { display: table-row-group; }
+          .sewing-salary-table tr { break-inside: avoid; }
+          .salary-print-page + .salary-print-page { break-before: page; }
           .no-print { display: none !important; }
         }
       `}</style>

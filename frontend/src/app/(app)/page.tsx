@@ -8,6 +8,7 @@ import PageHeader from "@/components/PageHeader";
 import { useMe, can } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
 import { statusLabel } from "@/components/StagePipeline";
+import ManagementDashboard from "@/components/dashboard/ManagementDashboard";
 
 type FilterKind = "all" | "client_order" | "branded_stock_sale";
 type DatePreset = "all" | "today" | "yesterday" | "tomorrow" | "this_week" | "this_month" | "current_year" | "custom";
@@ -103,6 +104,13 @@ function toCsvCell(v: unknown): string {
 }
 
 export default function HomePage() {
+  const { me, loading } = useMe();
+  const { t } = useT();
+  if (loading || !me) return <div role="status">{t("common.loading")}</div>;
+  return can(me, "management.view") ? <ManagementDashboard /> : <LegacyHomePage />;
+}
+
+function LegacyHomePage() {
   const { me } = useMe();
   const { t } = useT();
   const [clientTz, setClientTz] = useState("UTC");
@@ -280,7 +288,7 @@ export default function HomePage() {
 
       <div className="mb-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Kpi label={t("dash.activeOrders")} value={activeOrdersTotal || mgmt?.active_orders || 0} sub="Planning + confirmed + in production" tone="good" />
-        <Kpi label={t("dash.production")} value={(Number(prod?.cutting_output || 0) + Number(prod?.printing_output || 0) + Number(prod?.sewing_output || 0) + Number(prod?.packaging_output || 0)).toLocaleString()} tone="good" />
+        <Kpi label={t("home.stageActivity")} sub={t("home.stageActivityHint")} value={(Number(prod?.cutting_output || 0) + Number(prod?.printing_output || 0) + Number(prod?.sewing_output || 0) + Number(prod?.packaging_output || 0)).toLocaleString()} tone="good" />
         <Kpi label={t("dash.lateOrders")} value={mgmt?.late_orders ?? 0} tone={Number(mgmt?.late_orders || 0) > 0 ? "bad" : "good"} />
         <Kpi label={t("dash.todaysDefects")} value={Number(mgmt?.todays_defects || 0).toLocaleString()} tone={Number(mgmt?.todays_defects || 0) > 0 ? "bad" : "good"} />
       </div>

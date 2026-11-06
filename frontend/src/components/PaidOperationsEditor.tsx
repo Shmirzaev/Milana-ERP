@@ -10,11 +10,13 @@ import {
   type PaidOperationFactory,
   type SectionCode,
 } from "@/lib/modelPaidOperations";
+import { DEFAULT_CATALOG_SCOPE, type CatalogScope } from "@/lib/catalogScope";
 
 import PaidProcessPicker, { type PaidProcessTemplate } from "@/components/PaidProcessPicker";
 import { paidSectionLabel } from "@/lib/paidProcessSections";
 
 type Props = {
+  catalogScope?: CatalogScope;
   operations: PaidOperation[];
   visibleFactories: PaidOperationFactory[];
   onAdd: (factory: PaidOperationFactory, template?: PaidProcessTemplate) => void;
@@ -28,7 +30,7 @@ const FACTORY_LABEL_KEYS: Record<PaidOperationFactory, string> = {
   eco_cotton: "factory.ecoCotton",
 };
 
-export default function PaidOperationsEditor({ operations, visibleFactories, onAdd, onUpdate, onRemove }: Props) {
+export default function PaidOperationsEditor({ catalogScope = DEFAULT_CATALOG_SCOPE, operations, visibleFactories, onAdd, onUpdate, onRemove }: Props) {
   const { t, lang } = useT();
 
   function operationTable(rows: PaidOperation[]) {
@@ -95,7 +97,7 @@ export default function PaidOperationsEditor({ operations, visibleFactories, onA
             </summary>
             <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
               <span className="text-xs text-[#716a5c]">{t("page.modelDetail.factoryOperationsHint", { factory: label })}</span>
-              <div className="w-full"><PaidProcessPicker existing={rows} onSelect={row => onAdd(factory, row)} /></div>
+              <div className="w-full"><PaidProcessPicker catalogScope={catalogScope} existing={rows} onSelect={row => onAdd(factory, row)} /></div>
             </div>
             {operationTable(rows)}
           </details>

@@ -3,6 +3,7 @@ import { formatOrderReference } from "@/lib/orderRef";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import useSWR from "swr";
+import useLoadMore from "@/lib/useLoadMore";
 import { fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import PaginationControls from "@/components/PaginationControls";
@@ -15,7 +16,8 @@ export default function BatchesPage() {
   const [itemId, setItemId] = useState(0);
   const [availability, setAvailability] = useState("all");
   const query = `include_total=true&page=${page}&page_size=${pageSize}${itemId ? `&item_id=${itemId}` : ""}`;
-  const { data: pageData } = useSWR<any>(`/api/inventory/batches?${query}`, fetcher);
+  const listPager = useLoadMore<any>(`/api/inventory/batches?${query}`, fetcher);
+  const { data: pageData } = listPager;
   const { data: items } = useSWR<any[]>("/api/inventory/items", fetcher);
   const data: any[] = useMemo(() => {
     const rows = pageData?.rows || [];
@@ -100,7 +102,7 @@ export default function BatchesPage() {
             ))}
           </tbody>
         </table>
-        <PaginationControls
+        <PaginationControls loading={listPager.isValidating} error={listPager.error} onRetry={() => void listPager.mutate()}
           page={page}
           pageSize={pageSize}
           total={availability === "all" ? Number(pageData?.total || data.length) : data.length}

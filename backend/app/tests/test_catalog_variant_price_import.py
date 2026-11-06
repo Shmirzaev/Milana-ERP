@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from app.db.session import SessionLocal
-from app.models import Model
+from app.schemas import Model
 from scripts.apply_catalog_variant_prices import load_manifest, plan_import
 
 

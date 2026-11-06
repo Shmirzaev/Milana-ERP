@@ -16,6 +16,8 @@ export type MaterialQrStickerData = {
   supplier: string;
   batchQuantity: number;
   pieceCount: number;
+  rollWeights?: number[];
+  offsiteRollNumbers?: number[];
   searchValue: string;
 };
 
@@ -69,9 +71,11 @@ export default function MaterialQrStickerModal({
   const [qrSources, setQrSources] = useState<string[]>([]);
   const [qrError, setQrError] = useState(false);
   const weights = useMemo(() => (
-    data ? divideBatchQuantityByRollCount(data.batchQuantity, data.pieceCount) : []
+    data ? data.rollWeights?.length ? data.rollWeights : divideBatchQuantityByRollCount(data.batchQuantity, data.pieceCount) : []
   ), [data]);
-  const rollCount = weights.length;
+  const rolls = useMemo(() => weights.map((weight, index) => ({ weight, number: index + 1 }))
+    .filter((roll) => !data?.offsiteRollNumbers?.includes(roll.number)), [weights, data]);
+  const rollCount = rolls.length;
 
   useEffect(() => {
     if (!data) return;
@@ -80,16 +84,16 @@ export default function MaterialQrStickerModal({
 
   const qrPayloads = useMemo(() => {
     if (!data || typeof window === "undefined") return [];
-    return Array.from({ length: rollCount }, (_, index) => {
+    return rolls.map((roll) => {
       const url = new URL("/inventory", window.location.origin);
       url.searchParams.set("group", "materials");
       url.searchParams.set("q", data.searchValue);
       url.searchParams.set("batch_id", String(data.batchId));
-      url.searchParams.set("roll", String(index + 1));
-      url.searchParams.set("roll_total", String(rollCount));
+      url.searchParams.set("roll", String(roll.number));
+      url.searchParams.set("roll_total", String(data.pieceCount));
       return url.toString();
     });
-  }, [data, rollCount]);
+  }, [data, rolls]);
 
   useEffect(() => {
     setPreviewRoll((current) => Math.min(Math.max(1, current), rollCount));
@@ -126,8 +130,8 @@ export default function MaterialQrStickerModal({
   }
 
   const previewQrSrc = qrSources[previewRoll - 1] || "";
-  const previewWeight = weights[previewRoll - 1] || 0;
-  const qrReady = qrSources.length === rollCount;
+  const previewWeight = rolls[previewRoll - 1]?.weight || 0;
+  const qrReady = rollCount > 0 && qrSources.length === rollCount;
 
   return (
     <>
@@ -146,7 +150,7 @@ export default function MaterialQrStickerModal({
               </div>
             </div>
             <div className="mt-2 overflow-x-auto border border-[#ded9ca] bg-[#f5f2e9] p-4">
-              <div className="mx-auto w-[360px] max-w-full"><Sticker data={data} qrSrc={previewQrSrc} rollNumber={previewRoll} weight={previewWeight} /></div>
+              <div className="mx-auto w-[360px] max-w-full"><Sticker data={data} qrSrc={previewQrSrc} rollNumber={rolls[previewRoll - 1]?.number || 1} weight={previewWeight} /></div>
             </div>
             {qrError ? <div className="mt-2 text-sm text-red-700">{t("page.inventory.qrStickerUnavailable")}</div> : null}
             <div className="mt-4 flex justify-end gap-2">
@@ -161,7 +165,7 @@ export default function MaterialQrStickerModal({
       </Modal>
       {typeof document !== "undefined" && data ? createPortal(
         <div className="material-qr-print-sheet" aria-hidden="true">
-          {weights.map((weight, index) => <Sticker key={index} data={data} qrSrc={qrSources[index] || ""} rollNumber={index + 1} weight={weight} />)}
+          {rolls.map((roll, index) => <Sticker key={roll.number} data={data} qrSrc={qrSources[index] || ""} rollNumber={roll.number} weight={roll.weight} />)}
         </div>,
         document.body,
       ) : null}

@@ -1,4 +1,8 @@
+from app.api.routes import warehouse_reservations, usluga_packaging
+from app.api.routes import besttex_cutting
+from app.api.routes import eco_transfers, sewing_corrections
 from fastapi import APIRouter
+from app.api.routes import sewing_bands
 
 from app.api.routes import (
     auth, admin, partners, catalog, inventory, sales, planning, purchasing, production,
@@ -9,10 +13,12 @@ from app.api.routes import (
     forecasting,
     payroll,
     attendance, usluga, hr_workspace, price_calculation, stocktake,
-    packaging_reports, paid_processes, process_qr_setup,
+    packaging_reports, paid_processes, process_qr_setup, fabric_scans,
 )
 
 api_router = APIRouter(prefix="/api")
+api_router.include_router(sewing_bands.router)
+api_router.include_router(besttex_cutting.router)
 api_router.include_router(auth.router)
 api_router.include_router(auth.session_router)
 api_router.include_router(admin.router)
@@ -55,3 +61,15 @@ api_router.include_router(stocktake.router)
 
 api_router.include_router(paid_processes.router)
 api_router.include_router(process_qr_setup.router)
+api_router.include_router(fabric_scans.router)
+
+api_router.include_router(eco_transfers.router)
+api_router.include_router(sewing_corrections.router)
+
+api_router.include_router(warehouse_reservations.router)
+api_router.include_router(usluga_packaging.router)
+
+from app.api.routes import turnstile_access, turnstile_photos, turnstile_simulator
+api_router.include_router(turnstile_access.router)
+api_router.include_router(turnstile_photos.router)
+api_router.include_router(turnstile_simulator.router)

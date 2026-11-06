@@ -1,4 +1,5 @@
 "use client";
+import { formatModelVariantCode } from "@/lib/variantDisplay";
 import { formatOrderReference } from "@/lib/orderRef";
 
 import type { SewingProductionReportRow } from "@/lib/sewingProductionReport";
@@ -61,7 +62,7 @@ export default function SewingProductionReportTable({ rows, rowOffset, lang, t }
                 <div className="text-[11px] text-[#8a8472]">{formatOrderReference(row.sales_order_no || row.production_no || "")}</div>
               </td>
               <td>
-                <div>{row.model_code || "-"}</div>
+                <div>{formatModelVariantCode(row.model_code) || "-"}</div>
                 {row.size && <div className="text-[11px] text-[#8a8472]">{t("page.sewingReport.size")}: {row.size}</div>}
               </td>
               <td>{row.product_name || "-"}</td>
@@ -105,7 +106,7 @@ export default function SewingProductionReportTable({ rows, rowOffset, lang, t }
               <td className="whitespace-nowrap">{new Date(row.scanned_at).toLocaleString(lang)}</td>
               <td>{row.employee_name}</td>
               <td className="font-mono">{row.barcode}</td>
-              <td>{[row.model_code, row.size].filter(Boolean).join(" / ") || "-"}</td>
+              <td>{[formatModelVariantCode(row.model_code), row.size].filter(Boolean).join(" / ") || "-"}</td>
               <td>{row.operation_name || row.operation_code || "-"}</td>
               <td className="text-right tabular-nums">{Number(row.quantity || 0).toLocaleString(lang)}</td>
               <td className="text-right tabular-nums">{money(row.rate_per_piece, row.currency, lang)}</td>

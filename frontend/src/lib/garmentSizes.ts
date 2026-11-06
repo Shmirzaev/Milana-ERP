@@ -19,10 +19,12 @@ const CHILD_SIZES: readonly string[] = [
   "140", "146", "152", "158", "164", "170", "176",
 ];
 
-export const GARMENT_SIZE_OPTIONS: readonly string[] = [...ADULT_SIZES, ...CHILD_SIZES];
+const FREE_SIZES: readonly string[] = ["Free Size"];
+
+export const GARMENT_SIZE_OPTIONS: readonly string[] = [...ADULT_SIZES, ...CHILD_SIZES, ...FREE_SIZES];
 
 export function garmentSizeRangeEndOptions(from: string): readonly string[] {
-  const family = [ADULT_SIZES, CHILD_SIZES].find((sizes) => sizes.includes(from));
+  const family = [ADULT_SIZES, CHILD_SIZES, FREE_SIZES].find((sizes) => sizes.includes(from));
   return family ? family.slice(family.indexOf(from)) : [];
 }
 

@@ -1,7 +1,7 @@
 "use client";
 import { useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import useSWR from "swr";
+import useLoadMore from "@/lib/useLoadMore";
 import { Search } from "lucide-react";
 import { fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
@@ -127,7 +127,8 @@ export default function AuditLogsPage() {
     () => buildQuery({ page, pageSize, query, userId, entityType, entityId, action, dateFrom, dateTo }),
     [page, pageSize, query, userId, entityType, entityId, action, dateFrom, dateTo],
   );
-  const { data: pageData, isLoading } = useSWR<any>(url, fetcher);
+  const listPager = useLoadMore<any>(url, fetcher);
+  const { data: pageData, isLoading } = listPager;
   const rows: AuditRow[] = pageData?.rows || [];
 
   function resetFilters() {
@@ -225,15 +226,15 @@ export default function AuditLogsPage() {
                       <span className="badge">{formatWhen(row.created_at)}</span>
                       <span>{row.user?.name || row.user_name || `User #${row.user_id || "-"}`}</span>
                       <span>/</span>
-                      <span>{row.entity_label || row.entity_type} #{row.entity_id || "-"}</span>
+                      <span>{row.action === "switch_factory" ? t("page.admin.audit.user") : (row.entity_label || row.entity_type)} #{row.entity_id || "-"}</span>
                     </div>
-                    <h2 className="mt-2 text-base font-semibold text-[#14110b]">{row.summary || `${row.action} ${row.entity_type}`}</h2>
-                    <p className="mt-1 text-sm text-[#56503f]">{row.root_cause_hint || t("page.admin.audit.defaultHint")}</p>
+                    <h2 className="mt-2 text-base font-semibold text-[#14110b]">{row.action === "switch_factory" ? t("page.admin.audit.factorySwitch", { actor: row.user?.name || row.user_name || t("page.admin.audit.user"), id: row.entity_id || "-" }) : (row.summary || `${row.action} ${row.entity_type}`)}</h2>
+                    <p className="mt-1 text-sm text-[#56503f]">{row.action === "switch_factory" ? t("page.admin.audit.factorySwitchHint") : (row.root_cause_hint || t("page.admin.audit.defaultHint"))}</p>
                     {changes.length ? (
                       <div className="mt-3 flex flex-wrap gap-2">
                         {changes.slice(0, 4).map((change) => (
                           <span key={`${row.id}-${change.field}`} className="badge bg-[#f8f6ef] text-[#2c2920]">
-                            {change.field.replace(/_/g, " ")}: {formatValue(change.from)} -&gt; {formatValue(change.to)}
+                            {row.action === "switch_factory" && change.field === "factory_code" ? t("common.factory") : change.field.replace(/_/g, " ")}: {formatValue(change.from)} -&gt; {formatValue(change.to)}
                           </span>
                         ))}
                         {changes.length > 4 ? <span className="badge">+{changes.length - 4}</span> : null}
@@ -266,7 +267,7 @@ export default function AuditLogsPage() {
           ) : null}
         </div>
 
-        <PaginationControls
+        <PaginationControls loading={listPager.isValidating} error={listPager.error} onRetry={() => void listPager.mutate()}
           page={page}
           pageSize={pageSize}
           total={Number(pageData?.total || 0)}

@@ -1,8 +1,8 @@
 from sqlalchemy import event, select
 
 from app.db.session import SessionLocal
-from app.models import Model, ModelSize
-from app.models import PayrollQrLabel, PayrollRecord, SewingFlow
+from app.schemas import Model, ModelSize
+from app.schemas import PayrollQrLabel, PayrollRecord, SewingFlow
 from app.tests.test_payroll import _create_employee
 
 

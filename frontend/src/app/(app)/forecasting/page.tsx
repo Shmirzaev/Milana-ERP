@@ -1,5 +1,6 @@
 "use client";
 
+import { formatModelVariantCode } from "@/lib/variantDisplay";
 import Link from "next/link";
 import { useRef, useState } from "react";
 import useSWR from "swr";
@@ -11,6 +12,14 @@ import { statusLabel } from "@/components/StagePipeline";
 import { api, fetcher } from "@/lib/api";
 import { can, useMe } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
+import {
+  forecastRecommendationInput,
+  ForecastRecommendationStatus,
+  type ForecastDashboard,
+  type ForecastRecommendationCreated,
+  type ForecastRecommendationLegacyRow,
+  type ForecastSuggestion,
+} from "@/lib/forecastRecommendationContracts";
 
 function qty(value: unknown) {
   return Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
@@ -20,8 +29,8 @@ export default function ForecastingPage() {
   const { lang, t } = useT();
   const { me } = useMe();
   const canManage = can(me, "forecasting.manage");
-  const { data, error, isLoading, isValidating, mutate } = useSWR<any>("/api/forecasting/dashboard", fetcher);
-  const { data: recommendations, error: recommendationsError, isLoading: recommendationsLoading, mutate: mutateRecommendations } = useSWR<any[]>("/api/forecasting/recommendations", fetcher);
+  const { data, error, isLoading, isValidating, mutate } = useSWR<ForecastDashboard>("/api/forecasting/dashboard", fetcher);
+  const { data: recommendations, error: recommendationsError, isLoading: recommendationsLoading, mutate: mutateRecommendations } = useSWR<ForecastRecommendationLegacyRow[]>("/api/forecasting/recommendations", fetcher);
   const [actionMessage, setActionMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const actionLock = useRef(false);
@@ -42,15 +51,15 @@ export default function ForecastingPage() {
     }
   }
   const branded = data?.branded_stock_suggestions || [];
-  const reorder = data?.item_reorder_suggestions || [];
+  const reorder = (data?.item_reorder_suggestions || []).filter((row) => Boolean(row.model_id));
   const demandTrend = data?.demand_trend || [];
   const cards = data?.cards || {};
   const locale = lang === "ru" ? "ru-RU" : lang === "uz" ? "uz-UZ" : "en-US";
-  const demandPoints = demandTrend.map((row: any) => ({
+  const demandPoints = demandTrend.map((row) => ({
     label: new Intl.DateTimeFormat(locale, { month: "short", day: "numeric" }).format(new Date(`${row.week_start}T00:00:00`)),
     values: { demand: Number(row.quantity || 0) },
   }));
-  const variantPoints = branded.slice(0, 8).map((row: any) => ({
+  const variantPoints = branded.slice(0, 8).map((row) => ({
     label: row.size || "-",
     tooltipLabel: `${row.model_code || row.model_name || "-"} / ${row.color || "-"} / ${row.size || "-"}`,
     values: {
@@ -60,28 +69,15 @@ export default function ForecastingPage() {
     },
   }));
 
-  async function saveSuggestion(row: any) {
+  async function saveSuggestion(row: ForecastSuggestion) {
     if (!canManage) return;
     await runAction(async () => {
-      await api.post("/api/forecasting/recommendations", {
-        recommendation_type: row.recommendation_type,
-        model_id: row.model_id || null,
-        item_id: row.item_id || null,
-        brand_id: row.brand_id || null,
-        collection_id: row.collection_id || null,
-        color: row.color || null,
-        size: row.size || null,
-        suggested_quantity: Number(row.suggested_quantity || 0),
-        unit: row.unit || "pcs",
-        confidence: row.confidence || null,
-        reason: row.reason || null,
-        source_json: row,
-      });
+      await api.post<ForecastRecommendationCreated>("/api/forecasting/recommendations", forecastRecommendationInput(row));
       await mutateRecommendations();
     }, t("page.forecasting.saved"));
   }
 
-  async function setRecommendationStatus(id: number, status: "accepted" | "dismissed" | "converted") {
+  async function setRecommendationStatus(id: number, status: ForecastRecommendationStatus.ACCEPTED | ForecastRecommendationStatus.DISMISSED | ForecastRecommendationStatus.CONVERTED) {
     if (!canManage) return;
     await runAction(async () => {
       await api.patch(`/api/forecasting/recommendations/${id}`, { status });
@@ -104,7 +100,7 @@ export default function ForecastingPage() {
       {data.unlinked_bom_count > 0 && <p className="mb-4 text-sm text-amber-800">{t("page.forecasting.unlinkedBom", { count: data.unlinked_bom_count })}</p>}
       <div className="mb-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         <div className="kpi-card"><div className="label">{t("page.forecasting.productionSuggestions")}</div><div className="mt-1 text-2xl font-semibold">{cards.suggested_production_count ?? branded.length}</div></div>
-        <div className="kpi-card"><div className="label">{t("page.forecasting.reorderAlerts")}</div><div className="mt-1 text-2xl font-semibold">{cards.reorder_alert_count ?? reorder.length}</div></div>
+        <div className="kpi-card"><div className="label">{t("page.forecasting.reorderAlerts")}</div><div className="mt-1 text-2xl font-semibold">{reorder.length || "—"}</div>{reorder.length === 0 && <div className="mt-1 text-xs text-slate-500">{t("page.forecasting.sharedInventoryExcluded")}</div>}</div>
         <div className="kpi-card"><div className="label">{t("page.forecasting.lowStockFinished")}</div><div className="mt-1 text-2xl font-semibold">{cards.low_stock_finished_goods ?? 0}</div></div>
         <div className="kpi-card"><div className="label">{t("page.forecasting.demandTrend")}</div><div className="mt-1 text-2xl font-semibold">{qty(cards.demand_trend_quantity)}</div></div>
       </div>
@@ -152,9 +148,9 @@ export default function ForecastingPage() {
             </tr>
           </thead>
           <tbody>
-            {branded.map((row: any) => (
+            {branded.map((row) => (
               <tr key={`${row.model_id}-${row.brand_id}-${row.collection_id}-${row.color}-${row.size}`}>
-                <td><div className="font-medium">{row.model_code || row.model_name || "-"}</div><div className="text-xs text-[#8a8472]">{row.model_name || "-"}</div></td>
+                <td><div className="font-medium">{formatModelVariantCode(row.model_code) || row.model_name || "-"}</div><div className="text-xs text-[#8a8472]">{row.model_name || "-"}</div></td>
                 <td>{row.brand_name || "-"}</td>
                 <td>{row.color}</td>
                 <td>{row.size}</td>
@@ -195,7 +191,7 @@ export default function ForecastingPage() {
             </tr>
           </thead>
           <tbody>
-            {reorder.map((row: any) => (
+            {reorder.map((row) => (
               <tr key={row.item_id}>
                 <td><div className="font-medium">{row.item_sku}</div><div className="text-xs text-[#8a8472]">{row.item_name}</div></td>
                 <td>{row.category}</td>
@@ -213,7 +209,7 @@ export default function ForecastingPage() {
                 </td>
               </tr>
             ))}
-            {reorder.length === 0 && <tr><td colSpan={9} className="text-sm text-slate-400">{t("page.forecasting.noReorderSuggestions")}</td></tr>}
+            {reorder.length === 0 && <tr><td colSpan={9} className="text-sm text-slate-500">{t("page.forecasting.sharedInventoryExcluded")}</td></tr>}
           </tbody>
         </table>
       </section>
@@ -250,10 +246,10 @@ export default function ForecastingPage() {
                 <td className="min-w-[280px] text-xs text-[#56503f]">{row.reason || "-"}</td>
                 <td>{row.created_at ? new Date(row.created_at).toLocaleString() : "-"}</td>
                 <td className="flex flex-wrap gap-2">
-                  {canManage && row.status === "open" && (
+                  {canManage && row.status === ForecastRecommendationStatus.OPEN && (
                     <>
-                      <button className="text-green-700 hover:underline" disabled={busy} onClick={() => setRecommendationStatus(row.id, "accepted")}><Check className="inline h-3 w-3" /> {t("page.forecasting.accept")}</button>
-                      <button className="text-red-700 hover:underline" disabled={busy} onClick={() => setRecommendationStatus(row.id, "dismissed")}><X className="inline h-3 w-3" /> {t("page.forecasting.dismiss")}</button>
+                      <button className="text-green-700 hover:underline" disabled={busy} onClick={() => setRecommendationStatus(row.id, ForecastRecommendationStatus.ACCEPTED)}><Check className="inline h-3 w-3" /> {t("page.forecasting.accept")}</button>
+                      <button className="text-red-700 hover:underline" disabled={busy} onClick={() => setRecommendationStatus(row.id, ForecastRecommendationStatus.DISMISSED)}><X className="inline h-3 w-3" /> {t("page.forecasting.dismiss")}</button>
                     </>
                   )}
                 </td>

@@ -1,12 +1,14 @@
 "use client";
 
+import { formatVariantNumber } from "@/lib/variantDisplay";
 import { useMemo, useState } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
-import useSWR from "swr";
 import ImageThumbnail from "@/components/ImageThumbnail";
 import PageHeader from "@/components/PageHeader";
 import { useDialogs } from "@/components/DialogProvider";
-import { api, fetcher } from "@/lib/api";
+import { usePriceRequests } from "@/hooks/usePriceRequests";
+import PriceRequestPagination from "@/components/price-calculation/PriceRequestPagination";
+import { api } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import { priceRequestSurface, type PriceCalculationRequest, type PriceRequestStatus } from "@/lib/priceCalculationRequests";
 import {
@@ -31,7 +33,7 @@ function rowFromRequest(request: PriceCalculationRequest): PriceCalculationRow {
     kroyNo: request.kroy_no || "",
     date: request.date?.slice(0, 10) || "",
     modelNo: request.model_no,
-    variantNo: request.variant_no,
+    variantNo: formatVariantNumber(request.variant_no),
     modelCategory: request.model_category || "",
     modelName: request.model_name,
     modelSize: request.model_sizes.join(", "),
@@ -109,7 +111,7 @@ function PriceCalculationField({ column, row, calculated, formatter, label, onCh
 export default function PriceCalculationPage() {
   const { lang, t } = useT();
   const dialogs = useDialogs();
-  const { data: requests, error, isLoading, mutate } = useSWR<PriceCalculationRequest[]>("/api/price-calculation/requests", fetcher, { refreshInterval: 5_000 });
+  const { data: requests, error, isLoading, mutate, hasMore, isLoadingMore, loadMore } = usePriceRequests();
   const [expandedRows, setExpandedRows] = useState<Set<string>>(() => new Set());
   const [editingRequests, setEditingRequests] = useState<Set<number>>(() => new Set());
   const [financeDrafts, setFinanceDrafts] = useState<Record<number, Partial<PriceCalculationRow>>>({});
@@ -186,7 +188,7 @@ export default function PriceCalculationPage() {
                 </div>
                 <div>
                   <div className="mb-0.5 text-[11px] font-medium leading-3.5 text-[var(--erp-text-muted)]">{t("page.priceWorkflow.variantPicture")}</div>
-                  <ImageThumbnail imageUrl={request.variant_image_url} label={`${request.variant_no} ${t("page.priceWorkflow.variantPicture")}`} title={`${t("page.priceWorkflow.openPicture")}: ${t("page.priceWorkflow.variantPicture")}`} emptyLabel={t("page.priceWorkflow.noPicture")} />
+                  <ImageThumbnail imageUrl={request.variant_image_url} label={`${formatVariantNumber(request.variant_no)} ${t("page.priceWorkflow.variantPicture")}`} title={`${t("page.priceWorkflow.openPicture")}: ${t("page.priceWorkflow.variantPicture")}`} emptyLabel={t("page.priceWorkflow.noPicture")} />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-x-2 gap-y-1.5 px-3 py-2 md:grid-cols-4 xl:grid-cols-[repeat(6,minmax(0,1fr))_2rem] xl:items-end">
@@ -215,6 +217,7 @@ export default function PriceCalculationPage() {
           );
         })}
       </div>
+      <PriceRequestPagination hasMore={hasMore} isLoadingMore={isLoadingMore} loadMore={loadMore} />
     </div>
   );
 }

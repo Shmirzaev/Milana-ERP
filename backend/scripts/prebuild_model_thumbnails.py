@@ -8,7 +8,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.core.config import settings
-from app.services.image_storage import PREBUILT_THUMBNAIL_SIZES, ensure_webp_thumbnail
+from app.models.image_storage_service import PREBUILT_THUMBNAIL_SIZES, ensure_webp_thumbnail
 
 
 def main() -> int:

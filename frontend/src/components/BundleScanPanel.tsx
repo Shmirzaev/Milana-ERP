@@ -1,4 +1,5 @@
 "use client";
+import { formatModelVariantCode } from "@/lib/variantDisplay";
 import { formatOrderReference } from "@/lib/orderRef";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
@@ -18,6 +19,7 @@ import {
   Search,
 } from "lucide-react";
 import { api, fetcher } from "@/lib/api";
+import { sewingBandText } from "@/lib/sewingBandText";
 import PageHeader from "@/components/PageHeader";
 import FabricThumbnail from "@/components/FabricThumbnail";
 import Modal from "@/components/Modal";
@@ -48,6 +50,8 @@ type SewingBatchResult = {
 };
 type ManualReceiveOption = {
   production_order_id: number;
+  production_batch_id: number | null;
+  batch_label?: string | null;
   model_id: number | null;
   production_no?: string | null;
   order_no?: string | null;
@@ -113,12 +117,15 @@ function sewingBatchIdFromScan(rawCode: string): number | null {
 }
 
 export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
-  const { t } = useT();
+  const { t, lang } = useT();
+  const bandText = sewingBandText(lang);
   const { me } = useMe();
+  const bandOnly = Boolean(me?.sewing_band_id);
+  const receiptBusy = useRef(false);
   const searchParams = useSearchParams();
   const requestedFactory = (searchParams.get("factory") || me?.factory_code || "MIL").toUpperCase();
   const factoryCode = requestedFactory === "BST" || requestedFactory === "ECO" ? requestedFactory : "MIL";
-  const { data: departments = [] } = useSWR<Department[]>("/api/departments", fetcher);
+  const { data: departments = [] } = useSWR<Department[]>(me && !bandOnly ? "/api/departments" : null, fetcher);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const initialBatchHandled = useRef(false);
   const [code, setCode] = useState("");
@@ -144,7 +151,7 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
   const includePrinting = scope === "all" || scope === "printing";
   const includeSewing = scope === "all" || scope === "sewing";
   const showManualReceive = scope === "sewing" && canSewingScan;
-  const { data: sewingFlows = [] } = useSWR<SewingFlow[]>(showManualReceive ? `/api/sewing-flows?factory_code=${factoryCode}` : null, fetcher);
+  const { data: sewingFlows = [] } = useSWR<SewingFlow[]>(showManualReceive && !bandOnly ? `/api/sewing-flows?factory_code=${factoryCode}` : null, fetcher);
   const departmentById = useMemo(
     () => new Map(departments.map((d) => [Number(d.id), d])),
     [departments],
@@ -153,8 +160,8 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
     const params = new URLSearchParams({ limit: "20" });
     params.set("factory_code", factoryCode);
     if (manualSearch) params.set("q", manualSearch);
-    return `/api/bundles/sewing-receive-options?${params.toString()}`;
-  }, [manualSearch, factoryCode]);
+    return bandOnly ? `/api/sewing-bands/receive-options?q=${encodeURIComponent(manualSearch)}` : `/api/bundles/sewing-receive-options?${params.toString()}`;
+  }, [manualSearch, factoryCode, bandOnly]);
   const {
     data: manualOptions = [],
     mutate: mutateManualOptions,
@@ -190,8 +197,9 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
     if (!batchId) return;
     initialBatchHandled.current = true;
     setCode(window.location.href);
-    void loadSewingBatch(batchId);
-  }, [canSewingScan, loadSewingBatch, scope]);
+    // Band receipt remains an explicit scan/Enter action, including QR deep links.
+    if (!bandOnly) void loadSewingBatch(batchId);
+  }, [canSewingScan, loadSewingBatch, scope, bandOnly]);
 
   function departmentLabel(id: number | null | undefined) {
     if (!id) return "-";
@@ -266,7 +274,19 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
     focusScanInput();
   }
 
+  async function receiveBand(body: { code: string } | { production_order_id: number; production_batch_id: number | null }) {
+    if (receiptBusy.current) return;
+    receiptBusy.current = true; setIsLookingUp(true); setMsg(""); setManualMsg("");
+    try {
+      const result = await api.post<{ already_accepted: boolean }>("/api/sewing-bands/receive", body);
+      setCode(""); setMsg(result.already_accepted ? bandText.repeated : bandText.received); setMessageTone("success");
+      await mutateManualOptions(); focusScanInput();
+    } catch (err: any) { setMsg(err.message); setMessageTone("error"); focusScanInput(true); }
+    finally { receiptBusy.current = false; setIsLookingUp(false); }
+  }
+
   async function lookup() {
+    if (bandOnly) { if (code.trim()) await receiveBand({ code: code.trim() }); return; }
     setMsg("");
     setMessageTone("info");
     const sewingBatchId = includeSewing ? sewingBatchIdFromScan(code) : null;
@@ -338,12 +358,14 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
   }
 
   async function manualReceive(option: ManualReceiveOption) {
-    const key = `${option.production_order_id}:${option.model_id ?? ""}`;
+    if (bandOnly) { await receiveBand({ production_order_id: option.production_order_id, production_batch_id: option.production_batch_id }); return; }
+    const key = `${option.production_order_id}:${option.production_batch_id ?? "unbatched"}:${option.model_id ?? ""}`;
     setManualBusyKey(key);
     setManualMsg("");
     try {
       const result = await api.post<ManualReceiveResult>("/api/bundles/manual-receive-sewing", {
         production_order_id: option.production_order_id,
+        production_batch_id: option.production_batch_id,
         model_id: option.model_id,
         factory_code: factoryCode,
       });
@@ -351,7 +373,7 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
       setManualMsg(t("page.bundleScan.manualReceived", {
         count: result.received_count,
         qty: result.received_quantity,
-        order,
+        order: option.batch_label ? `${order} · ${option.batch_label}` : order,
       }));
       if (bundle && result.bundle_ids.includes(Number(bundle.id))) {
         setBundle(null);
@@ -400,7 +422,8 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
 
   return (
     <div>
-      <PageHeader title={scopeTitle} subtitle={scopeSubtitle} />
+      <PageHeader title={scopeTitle} subtitle={bandOnly ? bandText.receiptHint : scopeSubtitle} />
+      {bandOnly && <p className="mb-4 text-sm text-[#56503f]">{t("field.line")}: {me?.name}</p>}
 
       <section className="scan-workspace" aria-label={scopeTitle}>
         <div className="scan-entry">
@@ -463,7 +486,7 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
               </div>
               <button className="btn btn-primary scan-lookup" type="submit" disabled={isLookingUp || !code.trim()}>
                 {isLookingUp ? <Loader2 className="animate-spin" /> : <Search />}
-                {isLookingUp ? t("page.bundleScan.lookingUp") : t("btn.lookup")}
+                {isLookingUp ? t("page.bundleScan.lookingUp") : bandOnly ? bandText.receiveButton : t("btn.lookup")}
               </button>
             </div>
           </form>
@@ -497,7 +520,7 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
               </div>
               <div>
                 <dt>{t("field.model")}</dt>
-                <dd>{sewingBatch.model_code || "-"}</dd>
+                <dd>{formatModelVariantCode(sewingBatch.model_code) || "-"}</dd>
               </div>
               <div>
                 <dt>{t("nav.bundles")}</dt>
@@ -543,7 +566,7 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
             <dl className="scan-detail-grid">
               <div>
                 <dt>{t("field.model")}</dt>
-                <dd>{bundle.model_code || bundle.model_id || "-"}</dd>
+                <dd>{formatModelVariantCode(bundle.model_code) || bundle.model_id || "-"}</dd>
               </div>
               <div>
                 <dt>{t("field.color")} / {t("field.size")}</dt>
@@ -670,6 +693,7 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
               <thead>
                 <tr>
                   <th>{t("field.orderNo")}</th>
+                  <th>{t("field.batch")}</th>
                   <th>{t("field.model")}</th>
                   <th>{t("nav.bundles")}</th>
                   <th>{t("field.qty")}</th>
@@ -679,17 +703,17 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
               <tbody>
                 {manualLoading && manualOptions.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="text-slate-500">{t("common.loading")}</td>
+                    <td colSpan={6} className="text-slate-500">{t("common.loading")}</td>
                   </tr>
                 )}
                 {!manualLoading && manualOptions.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="text-slate-500">{t("page.bundleScan.manualEmpty")}</td>
+                    <td colSpan={6} className="text-slate-500">{t("page.bundleScan.manualEmpty")}</td>
                   </tr>
                 )}
                 {manualOptions.map((option) => {
-                  const key = `${option.production_order_id}:${option.model_id ?? ""}`;
-                  const busy = manualBusyKey === key;
+                  const key = `${option.production_order_id}:${option.production_batch_id ?? "unbatched"}:${option.model_id ?? ""}`;
+                  const busy = manualBusyKey === key || (bandOnly && isLookingUp);
                   return (
                     <tr key={key}>
                       <td>
@@ -698,6 +722,7 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
                           <div className="text-xs text-slate-500">{formatOrderReference(option.production_no)}</div>
                         )}
                       </td>
+                      <td>{option.batch_label || "—"}</td>
                       <td>
                         <div className="flex min-w-[190px] items-center gap-3">
                           <FabricThumbnail
@@ -705,7 +730,7 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
                             label={option.model_code || option.model_name}
                           />
                           <div className="min-w-0">
-                            <div className="font-medium">{option.model_code || option.model_id || "-"}</div>
+                            <div className="font-medium">{formatModelVariantCode(option.model_code) || option.model_id || "-"}</div>
                             {option.model_name && <div className="truncate text-xs text-slate-500">{option.model_name}</div>}
                           </div>
                         </div>
@@ -716,7 +741,7 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
                         <button
                           type="button"
                           className="btn btn-primary"
-                          disabled={busy}
+                          disabled={Boolean(manualBusyKey)}
                           onClick={() => manualReceive(option)}
                         >
                           <CheckCircle2 className="h-4 w-4" />
@@ -762,7 +787,7 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
               </div>
               <div>
                 <dt className="text-[var(--erp-text-muted)]">{t("field.model")}</dt>
-                <dd className="font-medium text-[var(--erp-text)]">{sewingBatch.model_code || "-"}</dd>
+                <dd className="font-medium text-[var(--erp-text)]">{formatModelVariantCode(sewingBatch.model_code) || "-"}</dd>
               </div>
               <div>
                 <dt className="text-[var(--erp-text-muted)]">{t("nav.bundles")}</dt>

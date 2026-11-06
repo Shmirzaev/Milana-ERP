@@ -15,10 +15,10 @@ assert.deepEqual(garmentSizeRange("46", "56"), ["46", "48", "50", "52", "54", "5
 assert.deepEqual(garmentSizeRangeEndOptions("64"), ["64", "66", "68"]);
 assert.deepEqual(garmentSizeRangeEndOptions("170"), ["170", "176"]);
 for (const [from, to] of [["68", "98"], ["44", "176"], ["98", "68"], ["176", "98"], ["102", "110"], ["", ""]]) {
-  assert.deepEqual(garmentSizeRange(from, to), [], `reject invalid or mixed family range ${from}–${to}`);
+  assert.deepEqual(garmentSizeRange(from, to), [], `reject invalid or mixed family range ${from}â€“${to}`);
 }
 assert.equal(new Set(GARMENT_SIZE_OPTIONS).size, GARMENT_SIZE_OPTIONS.length);
-assert.equal(GARMENT_SIZE_OPTIONS.length, 27);
+assert.equal(GARMENT_SIZE_OPTIONS.length, 28);
 for (const size of GARMENT_SIZE_OPTIONS) assert.deepEqual(garmentSizeRange(size, size), [size]);
 
 // Both saving flows must use the same family-aware expansion and end choices.

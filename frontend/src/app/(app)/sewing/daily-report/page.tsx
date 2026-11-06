@@ -1,6 +1,7 @@
 "use client";
+import { ApiError } from "@/lib/errorMessages";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CalendarDays,
   ClipboardList,
@@ -15,6 +16,8 @@ import {
 } from "lucide-react";
 import useSWR from "swr";
 
+import { useDialogs } from "@/components/DialogProvider";
+import { type Band } from "@/lib/sewingBandText";
 import PageHeader from "@/components/PageHeader";
 import DefectReasonSelect from "@/components/DefectReasonSelect";
 import ManualModelIdentityFields, { type ManualModelIdentityValue } from "@/components/ManualModelIdentityFields";
@@ -26,7 +29,7 @@ import SewingWorkPicker, {
   sewingWorkKey,
   type SewingModelIdentity,
 } from "@/components/SewingWorkPicker";
-import { api, fetcher } from "@/lib/api";
+import { api, fetcher, fetchResponse } from "@/lib/api";
 import { can, useMe } from "@/lib/auth";
 import { defectReasonLabel } from "@/lib/defectReasons";
 import { formatBatchLabel } from "@/lib/batchSerial";
@@ -57,6 +60,8 @@ type LineWorkOrder = SewingModelIdentity & {
   planned_qty: number;
   completed_qty: number;
   remaining_qty: number;
+  report_remaining_top_qty?: number;
+  report_remaining_bottom_qty?: number;
   deadline: string | null;
   kroy_no: string | null;
 };
@@ -155,9 +160,14 @@ const MAX_SECTION_COUNT = 20;
 export default function SewingDailyReportPage() {
   const { t, lang } = useT();
   const { me } = useMe();
+  const bandOnly = Boolean(me?.sewing_band_id);
+  const pendingWrites = useRef(new Map<string, string>());
+  const savingRef = useRef(false);
   const sessionFactory = (me?.factory_code || "MIL").toUpperCase();
   const factoryCode = sessionFactory === "BST" || sessionFactory === "ECO" ? sessionFactory : "MIL";
   const factoryName = factoryCode === "BST" ? "Besttex" : factoryCode === "ECO" ? "Eco Cotton" : "Milana";
+  const dialogs = useDialogs();
+  const [deletingId, setDeletingId] = useState<number | null>(null);
   const canManageReport = can(me, "sewing.workspace", "*");
   const [reportDate, setReportDate] = useState(todayInputDate());
   const [exportFromDate, setExportFromDate] = useState(todayInputDate());
@@ -178,7 +188,9 @@ export default function SewingDailyReportPage() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
-  const { data: flows } = useSWR<Flow[]>(canManageReport ? `/api/sewing-flows?factory_code=${factoryCode}` : null, fetcher, { refreshInterval: 30_000 });
+  const { data: factoryFlows } = useSWR<Flow[]>(canManageReport && !bandOnly ? `/api/sewing-flows?factory_code=${factoryCode}` : null, fetcher, { refreshInterval: 30_000 });
+  const { data: bands } = useSWR<Band[]>(bandOnly ? "/api/sewing-bands" : null, fetcher, { refreshInterval: 15000 });
+  const flows = useMemo(() => bandOnly ? bands?.map(b => ({ ...b, factory_code: "ECO", is_active: true })) : factoryFlows, [bandOnly, bands, factoryFlows]);
   const activeFlows = useMemo(() => (flows || []).filter((flow) => flow.is_active), [flows]);
   const selectedFlow = useMemo(
     () => activeFlows.find((flow) => flow.id === selectedFlowId) || null,
@@ -213,7 +225,7 @@ export default function SewingDailyReportPage() {
     fetcher,
     { refreshInterval: 15_000 },
   );
-  const reportUrl = `/api/sewing-daily-reports?report_date=${encodeURIComponent(reportDate)}&factory_code=${factoryCode}`;
+  const reportUrl = me ? `/api/sewing-daily-reports?report_date=${encodeURIComponent(reportDate)}&factory_code=${factoryCode}` : null;
   const { data: report, mutate: mutateReport, isLoading: loadingReport } = useSWR<ReportList>(
     reportUrl,
     fetcher,
@@ -228,10 +240,10 @@ export default function SewingDailyReportPage() {
         setSectionEntries((current) => current.map((entry) => ({
           ...entry,
           workKey: "",
-          manualModel: { ...entry.manualModel, enabled: true },
+          manualModel: { ...entry.manualModel, enabled: !bandOnly },
         })));
       } else {
-        setManualModel((current) => ({ ...current, enabled: true }));
+        setManualModel((current) => ({ ...current, enabled: !bandOnly }));
       }
       return;
     }
@@ -248,7 +260,7 @@ export default function SewingDailyReportPage() {
       setSelectedWorkKey(sewingWorkKey(activeWork[0]));
       setKroyNo(activeWork[0].kroy_no || "");
     }
-  }, [lineContext, selectedWorkKey, usesSectionEntry]);
+  }, [lineContext, selectedWorkKey, usesSectionEntry, bandOnly]);
 
   const selectedWork = useMemo(
     () => (lineContext?.active_work_orders || []).find((work) => sewingWorkKey(work) === selectedWorkKey) || null,
@@ -275,7 +287,7 @@ export default function SewingDailyReportPage() {
         lang,
         factory_code: factoryCode,
       });
-      const response = await fetch(`/api/sewing-daily-reports/export.${format}?${params.toString()}`, {
+      const response = await fetchResponse(`/api/sewing-daily-reports/export.${format}?${params.toString()}`, {
         credentials: "same-origin",
       });
       if (!response.ok) {
@@ -284,7 +296,7 @@ export default function SewingDailyReportPage() {
           const body = await response.json();
           detail = body.detail || detail;
         } catch {}
-        throw new Error(`${response.status}: ${detail}`);
+        throw new ApiError(response.status, detail);
       }
       const blob = await response.blob();
       const disposition = response.headers.get("content-disposition") || "";
@@ -305,7 +317,21 @@ export default function SewingDailyReportPage() {
     }
   }
 
+  async function deleteReport(row: ReportRow) {
+    if (!(await dialogs.ask({ message: t("sewingReport.deleteConfirm"), tone: "danger" }))) return;
+    setDeletingId(row.id);
+    setError("");
+    try {
+      await api.del(`/api/sewing-daily-reports/${row.id}`);
+      setMessage(t("sewingReport.deleted"));
+      await Promise.all([mutateReport(), mutateLineContext()]);
+    } catch (err: any) {
+      setError(err?.message || t("page.sewingDailyReport.saveFailed"));
+    } finally { setDeletingId(null); }
+  }
+
   async function saveReport() {
+    if (savingRef.current) return;
     setMessage("");
     setError("");
     if (selectedFlowId === "") {
@@ -328,6 +354,7 @@ export default function SewingDailyReportPage() {
           continue;
         }
         const work = activeWork.find((candidate) => sewingWorkKey(candidate) === entry.workKey);
+        if (bandOnly && !work) { setError(t("page.sewingDailyReport.noActiveOrder")); return; }
         const usesManualIdentity = entry.manualModel.enabled || !work;
         if (usesManualIdentity && !entry.manualModel.modelNo.trim()) {
           setError(t("page.sewingDailyReport.manualModelRequired"));
@@ -365,6 +392,7 @@ export default function SewingDailyReportPage() {
     } else {
       const sewn = numberOrZero(sewnQty);
       const defective = numberOrZero(defectiveQty);
+      if (bandOnly && !selectedWork) { setError(t("page.sewingDailyReport.noActiveOrder")); return; }
       const usesManualIdentity = manualModel.enabled || !selectedWork;
       if (usesManualIdentity && !manualModel.modelNo.trim()) {
         setError(t("page.sewingDailyReport.manualModelRequired"));
@@ -396,9 +424,33 @@ export default function SewingDailyReportPage() {
         notes: notes.trim() || null,
       });
     }
+    const pending = new Map<string, { top: number; bottom: number }>();
+    for (const payload of payloads) {
+      if (!payload.work_order_id) continue;
+      const work = lineContext?.active_work_orders.find((row) => row.work_order_id === payload.work_order_id && (row.sewing_assignment_id || null) === (payload.sewing_assignment_id || null));
+      if (!work) continue;
+      const key = sewingWorkKey(work);
+      const used = pending.get(key) || { top: 0, bottom: 0 };
+      used.top += Number(payload.top_qty ?? payload.sewn_qty);
+      used.bottom += Number(payload.bottom_qty ?? payload.sewn_qty);
+      pending.set(key, used);
+      if (used.top > (work.report_remaining_top_qty ?? work.planned_qty) || used.bottom > (work.report_remaining_bottom_qty ?? work.planned_qty)) {
+        setError(t("sewingReport.limit"));
+        return;
+      }
+    }
+    savingRef.current = true;
     setSaving(true);
     try {
-      await Promise.all(payloads.map((payload) => api.post("/api/sewing-daily-reports", payload)));
+      for (const payload of payloads) {
+        const fingerprint = JSON.stringify(payload);
+        const key = pendingWrites.current.get(fingerprint) || crypto.randomUUID();
+        pendingWrites.current.set(fingerprint, key);
+        await api.postWithHeaders("/api/sewing-daily-reports", payload, { "Idempotency-Key": key });
+        pendingWrites.current.delete(fingerprint);
+        // Clear only saved sections so a later failure cannot duplicate them on retry.
+        if (payload.section_no) setSectionEntries((rows) => rows.map((row, index) => index + 1 === payload.section_no ? { ...row, sewnQty: "", topQty: "", bottomQty: "", defectiveQty: "" } : row));
+      }
       setSewnQty("");
       setSectionEntries((current) => current.map((entry) => ({
         ...entry,
@@ -414,7 +466,9 @@ export default function SewingDailyReportPage() {
       await Promise.all([mutateReport(), mutateLineContext()]);
     } catch (err: any) {
       setError(err?.message || t("page.sewingDailyReport.saveFailed"));
+      await Promise.all([mutateReport(), mutateLineContext()]);
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   }
@@ -453,6 +507,7 @@ export default function SewingDailyReportPage() {
             <div>
               <label className="label" htmlFor="daily-sewing-line">{t("field.line")}</label>
               <select
+                disabled={bandOnly}
                 id="daily-sewing-line"
                 className="input"
                 value={selectedFlowId}
@@ -484,13 +539,13 @@ export default function SewingDailyReportPage() {
               {!loadingLine && (lineContext?.active_work_orders || []).length === 0 && (
                 <div>
                   <div className="text-sm text-[#8a8472]">{t("page.sewingDailyReport.noActiveOrder")}</div>
-                  <ManualModelIdentityFields
+                  {!bandOnly && <ManualModelIdentityFields
                     value={manualModel}
                     onChange={setManualModel}
                     inputIdPrefix="daily-sewing-manual-only"
                     alwaysVisible
                     modelNoRequired
-                  />
+                  />}
                 </div>
               )}
               {(lineContext?.active_work_orders || []).length > 0 && (
@@ -507,7 +562,7 @@ export default function SewingDailyReportPage() {
                       }}
                     />
                   )}
-                  <ManualModelIdentityFields
+                  {!bandOnly && <ManualModelIdentityFields
                     value={manualModel}
                     onChange={(manualValue) => {
                       if (manualValue.enabled && !manualModel.enabled) setKroyNo("");
@@ -515,7 +570,7 @@ export default function SewingDailyReportPage() {
                       setManualModel(manualValue);
                     }}
                     inputIdPrefix="daily-sewing-manual"
-                  />
+                  />}
                   {selectedWork && !manualModel.enabled && (
                     <div className="space-y-2">
                       {workBatchLabel(selectedWork) && (
@@ -602,7 +657,7 @@ export default function SewingDailyReportPage() {
                         }}
                       />
                     )}
-                    <ManualModelIdentityFields
+                    {!bandOnly && <ManualModelIdentityFields
                       value={entry.manualModel}
                       onChange={(manualValue) => {
                         setSectionEntries((current) => current.map((item) => (
@@ -620,7 +675,7 @@ export default function SewingDailyReportPage() {
                       inputIdPrefix={`daily-sewing-section-${index + 1}-manual`}
                       alwaysVisible={!sectionWork}
                       modelNoRequired={!sectionWork}
-                    />
+                    />}
                     <div className="mt-2">
                       <label className="mb-1 block text-xs text-[#56503f]" htmlFor={`daily-sewing-section-kroy-${index + 1}`}>
                         {t("field.kroyNo")}
@@ -1045,6 +1100,9 @@ export default function SewingDailyReportPage() {
                           <Pencil className="h-3.5 w-3.5" />
                           {t("common.edit")}
                         </button>
+                        <button type="button" className="btn ml-2 h-8 px-2 text-red-600" disabled={deletingId !== null} onClick={() => deleteReport(row)}>
+                          <Trash2 className="h-3.5 w-3.5" />{t("common.delete")}
+                        </button>
                       </td>}
                     </tr>
                   ))}
@@ -1063,7 +1121,7 @@ export default function SewingDailyReportPage() {
         onClose={() => setEditingRow(null)}
         onSaved={async () => {
           setMessage(t("page.sewingDailyReport.updated"));
-          await mutateReport();
+          await Promise.all([mutateReport(), mutateLineContext()]);
         }}
       />}
     </div>

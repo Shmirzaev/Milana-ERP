@@ -4,11 +4,13 @@ import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
 import { modelOptionsByIdsFetcher, modelOptionsByIdsKey } from "@/lib/useModelOptions";
+import MaterialRollWeightFields, { rollWeightsTotal, validRollWeights } from "@/components/MaterialRollWeightFields";
 import PageHeader from "@/components/PageHeader";
 import { useT } from "@/lib/i18n";
 import { formatOrderReference, orderReference } from "@/lib/orderRef";
 import { imagePreviewHref, storageThumbnailUrl } from "@/lib/modelImages";
 import { MATERIAL_COLOR_OPTIONS, materialColorLabelKey } from "@/lib/materialColors";
+import { InventoryQcStatus } from "@/lib/inventoryQcStatus";
 import { divideBatchQuantityByRollCount } from "@/lib/materialRollWeights";
 
 type ReceiveFormState = {
@@ -23,12 +25,15 @@ type ReceiveFormState = {
   order_no: string;
   quantity: number | "";
   gsm: string | number;
+  roll_lengths_m: string[];
   piece_count: number | "";
+  roll_weights_kg: string[];
+  weight_entry: "rolls" | "total" | "length";
   processes: string;
   unit: string;
   cost_per_unit: number | "";
   warehouse_id: number;
-  qc_status: string;
+  qc_status: InventoryQcStatus;
   image_url: string;
   return_condition?: string;
 };
@@ -114,6 +119,14 @@ type AccessoryIssueSummaryRow = {
   returnable_quantity?: number;
 };
 
+// The create receipt screen offers these three QC values and starts on
+// `passed`. Membership in the canonical vocabulary does not widen this list.
+const RECEIPT_QC_STATUSES = [
+  InventoryQcStatus.PENDING,
+  InventoryQcStatus.PASSED,
+  InventoryQcStatus.FAILED,
+] as const;
+
 const DEFAULT_RECEIVE_FORM: ReceiveFormState = {
   item_id: 0,
   production_order_id: 0,
@@ -126,12 +139,15 @@ const DEFAULT_RECEIVE_FORM: ReceiveFormState = {
   order_no: "",
   quantity: "",
   gsm: "",
-  piece_count: "",
+  roll_lengths_m: [""],
+  piece_count: 1,
+  roll_weights_kg: [""],
+  weight_entry: "rolls",
   processes: "",
   unit: "kg",
   cost_per_unit: "",
   warehouse_id: 0,
-  qc_status: "passed",
+  qc_status: InventoryQcStatus.PASSED,
   image_url: "",
 };
 
@@ -140,6 +156,8 @@ const DEFAULT_ACCESSORY_RETURN_FORM: ReceiveFormState = {
   processes: "Collected back accessories",
   return_condition: "used",
   unit: "pcs",
+  piece_count: "",
+  weight_entry: "total",
 };
 
 function numericInputValue(value: string): number | "" {
@@ -149,6 +167,21 @@ function numericInputValue(value: string): number | "" {
 function numberOrZero(value: number | string | ""): number {
   const parsed = Number(value || 0);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function isMeterUnit(unit: string): boolean {
+  return ["m", "м", "meter", "meters", "metre", "metres"].includes(unit.trim().toLowerCase());
+}
+
+function changeReceiveUnit(form: ReceiveFormState, unit: string, material: boolean): ReceiveFormState {
+  if (!material) return { ...form, unit };
+  const meters = isMeterUnit(unit);
+  const changedMeasure = meters !== isMeterUnit(form.unit);
+  return {
+    ...form, unit: meters ? "m" : unit,
+    weight_entry: meters ? "length" : form.weight_entry === "length" ? "total" : form.weight_entry,
+    ...(changedMeasure ? { quantity: "" as const, roll_weights_kg: [""], roll_lengths_m: [""] } : {}),
+  };
 }
 
 function toReceivePayload(form: ReceiveFormState, deriveRollWeights = false) {
@@ -161,7 +194,7 @@ function toReceivePayload(form: ReceiveFormState, deriveRollWeights = false) {
     batch_no: form.batch_no,
     color: form.color,
     quantity,
-    unit: form.unit,
+    unit: deriveRollWeights && isMeterUnit(form.unit) ? "m" : form.unit,
     cost_per_unit: numberOrZero(form.cost_per_unit),
     warehouse_id: form.warehouse_id,
     qc_status: form.qc_status,
@@ -171,8 +204,12 @@ function toReceivePayload(form: ReceiveFormState, deriveRollWeights = false) {
     color_status: form.color_status.trim() || null,
     order_no: form.order_no.trim() || null,
     gsm: form.gsm === "" ? null : Number(form.gsm),
+    roll_lengths_m: deriveRollWeights && !isMeterUnit(form.unit) && form.weight_entry === "rolls" ? Array.from({ length: pieceCount }, (_, index) => {
+      const value = form.roll_lengths_m[index];
+      return value ? Number(value) : null;
+    }) : [],
     piece_count: pieceCount > 0 ? pieceCount : null,
-    roll_weights_kg: deriveRollWeights ? divideBatchQuantityByRollCount(quantity, pieceCount) : [],
+    roll_weights_kg: deriveRollWeights && !isMeterUnit(form.unit) ? (form.weight_entry === "rolls" ? form.roll_weights_kg.map(Number) : divideBatchQuantityByRollCount(quantity, pieceCount)) : [],
     processes: processNote || null,
     image_url: form.image_url.trim() || null,
   };
@@ -250,6 +287,8 @@ function StockForm({
   const [showColorInput, setShowColorInput] = useState(false);
   const [newColor, setNewColor] = useState("");
   const spanClass = "md:col-span-2";
+  const lengthOnly = requireRollCount && isMeterUnit(form.unit);
+  const individualRolls = requireRollCount && !lengthOnly && form.weight_entry === "rolls";
   const selectedOrderId = Number(form.production_order_id || 0);
   const presetColorValues = new Set(MATERIAL_COLOR_OPTIONS.map((option) => option.value.toLowerCase()));
   const visibleCustomColors = customColors.filter((color) => !presetColorValues.has(color.toLowerCase()));
@@ -280,7 +319,7 @@ function StockForm({
           onChange={(e) => {
             const itemId = Number(e.target.value);
             const item = items?.find((row) => Number(row.id) === itemId);
-            onChange({ ...form, item_id: itemId, unit: item?.unit || form.unit, image_url: "" });
+            onChange({ ...changeReceiveUnit(form, item?.unit || form.unit, requireRollCount), item_id: itemId, image_url: "" });
           }}
           required
         >
@@ -431,9 +470,28 @@ function StockForm({
           </select>
         </div>
       )}
+      {requireRollCount && <div className={spanClass}>
+        <label className="label" htmlFor="fabric-weight-entry">{t("fabricRollEntry.quantityMethod")}</label>
+        <select id="fabric-weight-entry" className="input" value={form.weight_entry} onChange={(event) => {
+          const mode = event.target.value as ReceiveFormState["weight_entry"];
+          const next = changeReceiveUnit(form, mode === "length" ? "m" : lengthOnly ? "kg" : form.unit, true);
+          onChange({ ...next, weight_entry: mode, ...(mode === "rolls" ? {
+            quantity: Number(rollWeightsTotal(next.roll_weights_kg).toFixed(2)), piece_count: next.roll_weights_kg.length,
+            roll_lengths_m: next.roll_weights_kg.map((_, index) => next.roll_lengths_m[index] || ""),
+          } : {}) });
+        }}>
+          <option value="rolls">{t("fabricRollEntry.individual")}</option>
+          <option value="total">{t("fabricRollEntry.totalOnly")}</option>
+          <option value="length">{t("fabricRollEntry.totalLengthOnly")}</option>
+        </select>
+      </div>}
+      {individualRolls && <MaterialRollWeightFields values={form.roll_weights_kg} lengths={form.roll_lengths_m} showTotal={false} onChange={(weights, lengths) => onChange({
+        ...form, roll_weights_kg: weights, roll_lengths_m: lengths, piece_count: weights.length,
+        quantity: Number(rollWeightsTotal(weights).toFixed(2)),
+      })} />}
       <div>
-        <label className="label">{t("field.netto")}</label>
-        <input className="input" type="number" min={0} step="0.01" placeholder={t("field.netto")} value={form.quantity} onChange={(e) => onChange({ ...form, quantity: numericInputValue(e.target.value) })} required />
+        <label className="label">{t(lengthOnly ? "fabricRollEntry.totalMeters" : requireRollCount ? "fabricRollEntry.totalKg" : "field.netto")}</label>
+        <input className="input" type="number" min={0} step="0.01" placeholder={t(lengthOnly ? "fabricRollEntry.totalMeters" : "field.netto")} value={form.quantity} readOnly={individualRolls} onChange={(e) => onChange({ ...form, quantity: numericInputValue(e.target.value) })} required />
       </div>
       {showGramaj && (
         <div>
@@ -450,6 +508,8 @@ function StockForm({
           step={1}
           placeholder={t("field.pieceCount")}
           value={form.piece_count}
+          readOnly={individualRolls}
+          max={requireRollCount ? 1000 : undefined}
           onChange={(e) => onChange({ ...form, piece_count: numericInputValue(e.target.value) })}
           required={requireRollCount}
         />
@@ -469,7 +529,7 @@ function StockForm({
 
       <div>
         <label className="label">{t("field.unit")}</label>
-        <input className="input" placeholder={t("field.unit")} value={form.unit} onChange={(e) => onChange({ ...form, unit: e.target.value })} />
+        <input className="input" placeholder={t("field.unit")} value={form.unit} onChange={(e) => onChange(changeReceiveUnit(form, e.target.value, requireRollCount))} />
       </div>
       <div>
         <label className="label">{`${t("field.cost")} / ${t("field.unit")}`}</label>
@@ -485,10 +545,17 @@ function StockForm({
       </div>
       <div>
         <label className="label">{t("page.receiveStock.qcStatus")}</label>
-        <select className="input" value={form.qc_status} onChange={(e) => onChange({ ...form, qc_status: e.target.value })}>
-          <option value="pending">{t("qc.pending")}</option>
-          <option value="passed">{t("qc.passed")}</option>
-          <option value="failed">{t("qc.failed")}</option>
+        <select
+          className="input"
+          value={form.qc_status}
+          onChange={(e) => {
+            const next = RECEIPT_QC_STATUSES.find((status) => String(status) === e.target.value);
+            if (next) onChange({ ...form, qc_status: next });
+          }}
+        >
+          {RECEIPT_QC_STATUSES.map((status) => (
+            <option key={status} value={status}>{t(`qc.${status}`)}</option>
+          ))}
         </select>
       </div>
 
@@ -592,7 +659,7 @@ export default function ReceiveStockPage() {
   }, [pendingColors, savedColors]);
 
   useEffect(() => {
-    setReceiveForm({ ...DEFAULT_RECEIVE_FORM, unit: isFabricReceiving ? "kg" : "pcs" });
+    setReceiveForm({ ...DEFAULT_RECEIVE_FORM, unit: isFabricReceiving ? "kg" : "pcs", piece_count: isFabricReceiving ? 1 : "" });
     setReceiveMsg("");
   }, [isFabricReceiving]);
 
@@ -621,13 +688,17 @@ export default function ReceiveStockPage() {
     const quantity = numberOrZero(receiveForm.quantity);
     const rollCount = numberOrZero(receiveForm.piece_count);
     if (isFabricReceiving && (quantity <= 0 || !Number.isInteger(rollCount) || rollCount <= 0)) {
-      setReceiveMsg(t("page.inventory.rollWeightsRequired"));
+      setReceiveMsg(t(isMeterUnit(receiveForm.unit) ? "fabricRollEntry.metersRequired" : "page.inventory.rollWeightsRequired"));
+      return;
+    }
+    if (isFabricReceiving && !isMeterUnit(receiveForm.unit) && receiveForm.weight_entry === "rolls" && !validRollWeights(receiveForm.roll_weights_kg)) {
+      setReceiveMsg(t("fabricRollEntry.required"));
       return;
     }
     try {
       await api.post("/api/inventory/receive", toReceivePayload(receiveForm, isFabricReceiving));
       setReceiveMsg(t("msg.recorded"));
-      setReceiveForm({ ...DEFAULT_RECEIVE_FORM, unit: isFabricReceiving ? "kg" : "pcs" });
+      setReceiveForm({ ...DEFAULT_RECEIVE_FORM, unit: isFabricReceiving ? "kg" : "pcs", piece_count: isFabricReceiving ? 1 : "" });
       refreshBatches();
       refreshColors();
     } catch (e: any) {
@@ -878,6 +949,7 @@ export default function ReceiveStockPage() {
               <th>{t("field.orderNo").toUpperCase()}</th>
               <th>{t("field.netto").toUpperCase()}</th>
               {isFabricReceiving && <th>{t("field.gramaj").toUpperCase()}</th>}
+              {isFabricReceiving && <th>{t("materialLength.rolls")}</th>}
               <th>{t("field.pieceCount").toUpperCase()}</th>
               <th>{t("field.processes").toUpperCase()}</th>
             </tr>
@@ -894,6 +966,7 @@ export default function ReceiveStockPage() {
                 <td>{formatOrderReference(b.order_no || "-")}</td>
                 <td>{Number(b.quantity).toFixed(2)}</td>
                 {isFabricReceiving && <td>{b.gsm != null ? Number(b.gsm).toFixed(3) : "-"}</td>}
+                {isFabricReceiving && <td>{b.roll_lengths_m?.some((value: number | null) => value != null) ? b.roll_lengths_m.map((value: number | null, index: number) => <div key={index}>{index + 1}: {value ?? "-"}</div>) : b.length_m != null ? `${t("materialLength.legacyTotal")}: ${b.length_m}` : "-"}</td>}
                 <td>{b.piece_count ?? "-"}</td>
                 <td>{b.processes || "-"}</td>
               </tr>

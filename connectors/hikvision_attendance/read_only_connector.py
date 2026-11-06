@@ -403,6 +403,7 @@ class ReadOnlyHikvision:
     def events(self, start: datetime, end: datetime) -> list[dict[str, Any]]:
         search_id = str(uuid.uuid4())
         position = 0
+        total: int | None = None
         result: list[dict[str, Any]] = []
         while True:
             payload = {"AcsEventCond": {
@@ -416,16 +417,38 @@ class ReadOnlyHikvision:
             }}
             data = self.post_search("/ISAPI/AccessControl/AcsEvent?format=json", payload)
             root = data.get("AcsEvent") or data.get("AcsEventSearchResult") or data
-            page = root.get("InfoList") or root.get("infoList") or []
+            status = str(root.get("responseStatusStrg", "")).strip().upper()
+            if status and status not in {"OK", "MORE", "NO MATCH"}:
+                raise RuntimeError(f"Hikvision event search failed: {status}")
+            if root.get("totalMatches") is None and not status:
+                raise RuntimeError("Hikvision event search omitted completion metadata")
+            page = _first(root, "InfoList", "infoList", default=[]) or []
             if isinstance(page, dict):
-                page = page.get("AcsEventInfo") or page.get("acsEventInfo") or [page]
+                page = _first(page, "AcsEventInfo", "acsEventInfo", default=[page]) or []
             if isinstance(page, dict):
                 page = [page]
-            result.extend(page)
-            matches = int(root.get("numOfMatches", len(page)) or 0)
-            total = int(root.get("totalMatches", len(result)) or len(result))
+            if not isinstance(page, list) or any(not isinstance(item, dict) for item in page):
+                raise RuntimeError("Hikvision event search returned an invalid event page")
+            matches = int(root.get("numOfMatches", len(page)))
+            if matches != len(page):
+                raise RuntimeError("Hikvision event search page count does not match its records")
+            if root.get("totalMatches") is not None:
+                page_total = int(root["totalMatches"])
+                if page_total < 0 or (total is not None and total != page_total):
+                    raise RuntimeError("Hikvision event search total changed during pagination")
+                total = page_total
             position += matches
-            if matches == 0 or position >= total:
+            if total is not None and position > total:
+                raise RuntimeError("Hikvision event search returned more records than its total")
+            complete = position == total if total is not None else status in {"OK", "NO MATCH"}
+            if (status == "MORE" and complete) or (status == "NO MATCH" and matches):
+                raise RuntimeError("Hikvision event search returned contradictory completion metadata")
+            if not matches and not complete:
+                raise RuntimeError("Hikvision event search ended before all records were collected")
+            result.extend(page)
+            # Returning a partial window would let sync_events permanently skip
+            # unread records when it checkpoints the end of this time window.
+            if complete:
                 break
         return result
 
@@ -448,15 +471,32 @@ class ErpMirror:
         response.raise_for_status()
         return response_json(response)
 
-    def people(self, device: dict[str, Any], people: list[dict[str, Any]]) -> dict[str, Any]:
+    def people(
+        self,
+        device: dict[str, Any],
+        people: list[dict[str, Any]],
+        *,
+        source_snapshot_at: datetime,
+    ) -> dict[str, Any]:
         return self.post_json("/api/attendance/integration/people", {
             "device": device,
             "people": people,
             "full_snapshot": True,
+            "source_snapshot_at": source_snapshot_at.isoformat(),
         })
 
-    def events(self, device: dict[str, Any], events: list[dict[str, Any]]) -> dict[str, Any]:
-        return self.post_json("/api/attendance/integration/events", {"device": device, "events": events})
+    def events(
+        self,
+        device: dict[str, Any],
+        events: list[dict[str, Any]],
+        *,
+        source_snapshot_at: datetime,
+    ) -> dict[str, Any]:
+        return self.post_json("/api/attendance/integration/events", {
+            "device": device,
+            "events": events,
+            "source_snapshot_at": source_snapshot_at.isoformat(),
+        })
 
     def photo(self, device_key: str, person_id: str, data: bytes, content_type: str) -> dict[str, Any]:
         path = f"/api/attendance/integration/photos/{quote(device_key, safe='')}/{quote(person_id, safe='')}"
@@ -579,6 +619,7 @@ def chunks(values: list[dict[str, Any]], size: int) -> Iterable[list[dict[str, A
 
 
 def sync_people(config: Config, hik: ReadOnlyHikvision, erp: ErpMirror, state: dict[str, Any]) -> None:
+    source_snapshot_at = datetime.now(timezone.utc)
     info = hik.device_info()
     count = hik.person_count()
     raw_people = hik.people()
@@ -596,7 +637,7 @@ def sync_people(config: Config, hik: ReadOnlyHikvision, erp: ErpMirror, state: d
     if count is not None and count != len(people):
         raise RuntimeError(f"Device reported {count} people but search returned {len(people)}; snapshot was not uploaded")
     device = device_payload(config, info, count)
-    result = erp.people(device, people)
+    result = erp.people(device, people, source_snapshot_at=source_snapshot_at)
     log(f"People mirror: {result['received']} received, {result['created']} new, {result['updated']} updated")
 
     if not config.sync_photos:
@@ -651,7 +692,13 @@ def sync_events(config: Config, hik: ReadOnlyHikvision, erp: ErpMirror, state: d
     else:
         start = now - timedelta(days=config.initial_event_days)
     info = hik.device_info()
-    count = hik.person_count()
+    try:
+        count = hik.person_count()
+    except Exception as exc:
+        # Profile totals are optional metadata, not a prerequisite for events.
+        # Unknown is distinct from an empty roster and must never mean zero.
+        count = None
+        log(f"Profile count unavailable; continuing event sync: {exc}")
     device = device_payload(config, info, count)
     received = inserted = duplicates = 0
     window_start = start
@@ -660,7 +707,7 @@ def sync_events(config: Config, hik: ReadOnlyHikvision, erp: ErpMirror, state: d
         raw_events = hik.events(window_start, window_end)
         events = [normalized for raw in raw_events if (normalized := normalize_event(raw))]
         for batch in chunks(events, 1000):
-            result = erp.events(device, batch)
+            result = erp.events(device, batch, source_snapshot_at=now)
             inserted += int(result["inserted"])
             duplicates += int(result["duplicates"])
         received += len(events)
@@ -668,7 +715,7 @@ def sync_events(config: Config, hik: ReadOnlyHikvision, erp: ErpMirror, state: d
         save_state(Path(config.state_path), state)
         window_start = window_end
     if not received:
-        erp.events(device, [])
+        erp.events(device, [], source_snapshot_at=now)
     log(f"Event mirror: {received} received from device, {inserted} new, {duplicates} duplicates")
 
 
@@ -686,10 +733,22 @@ def run_sync(config: Config, mode: str) -> None:
     hik = ReadOnlyHikvision(config)
     erp = ErpMirror(config)
     try:
-        if mode in {"people", "all"} or (mode == "scheduled" and should_sync_people(config, state)):
-            sync_people(config, hik, erp, state)
+        failures: list[tuple[str, Exception]] = []
+        try:
+            if mode in {"people", "all"} or (mode == "scheduled" and should_sync_people(config, state)):
+                sync_people(config, hik, erp, state)
+        except Exception as exc:
+            failures.append(("People", exc))
+            log(f"People sync failed; independent event collection will still run when selected: {exc}")
         if mode in {"events", "all", "scheduled"}:
-            sync_events(config, hik, erp, state)
+            try:
+                sync_events(config, hik, erp, state)
+            except Exception as exc:
+                failures.append(("Event", exc))
+        if failures:
+            # Preserve a failed task status for monitoring; successful event
+            # checkpoints remain valid, while failed roster refreshes retry.
+            raise RuntimeError("; ".join(f"{stage} sync failed: {exc}" for stage, exc in failures)) from failures[0][1]
     finally:
         hik.close()
         erp.close()

@@ -8,6 +8,8 @@ import useSWR from "swr";
 
 import PageHeader from "@/components/PageHeader";
 import { api, fetcher } from "@/lib/api";
+import { useMe } from "@/lib/auth";
+import { packagingDepartmentForSession } from "@/lib/access";
 import { useT } from "@/lib/i18n";
 import { parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
 
@@ -67,8 +69,9 @@ function modelLabel(row: { model_code?: string | null; model_name?: string | nul
 export default function PackagingReceivePage() {
   const { t } = useT();
   const searchParams = useSearchParams();
+  const { me } = useMe();
   const requestedDepartment = searchParams.get("packaging_department");
-  const packagingDepartment = requestedDepartment === "ECP" || requestedDepartment === "BPK" ? requestedDepartment : "PKG";
+  const packagingDepartment = packagingDepartmentForSession(me, requestedDepartment);
   const isEcoCotton = packagingDepartment === "ECP";
   const factoryLabel = isEcoCotton ? "Eco Cotton" : packagingDepartment === "BPK" ? "Besttex" : "Milana";
   const scanInputRef = useRef<HTMLInputElement>(null);
