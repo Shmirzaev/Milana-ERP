@@ -11,11 +11,17 @@ from app.core.order_reference import (
     canonical_order_reference, order_reference_variants,
 )
 from app.schemas import (
+    Bundle,
     Department,
     Employee,
+    Model,
     PayrollPeriod,
     PayrollQrLabel,
     PayrollRecord,
+    ProductionBatch,
+    ProductionOrder,
+    SalesOrder,
+    SewingFlow,
     User,
 )
 from app.libs.dto.people.payroll import (
@@ -23,53 +29,9 @@ from app.libs.dto.people.payroll import (
     PayrollPeriodUpdate,
 )
 from app.models.audit_service import log_action
-from app.models.factory_scope_service import selected_factory_code
-from datetime import datetime
-import json
-from typing import Any
-from fastapi import HTTPException
-from sqlalchemy import func, or_
-from sqlalchemy.orm import load_only, object_session
-from app.core.dt import as_utc, utcnow
-from app.core.order_reference import (
-    canonical_order_reference, order_reference_contains, order_reference_variants,
-)
-from app.schemas import (
-    Department,
-    Employee,
-    PayrollPeriod,
-    PayrollQrLabel,
-    PayrollRecord,
-    User,
-)
-from app.libs.dto.people.payroll import (
-    PayrollPeriodIn,
-    PayrollPeriodUpdate,
-)
-from app.models.audit_service import log_action
-from app.models.factory_scope_service import selected_factory_code
-from datetime import datetime
-import json
-from typing import Any
-from fastapi import HTTPException
-from sqlalchemy.orm import load_only, object_session
-from app.core.dt import as_utc, utcnow
-from app.core.order_reference import (
-    canonical_order_reference, order_reference_variants,
-)
-from app.schemas import (
-    Department,
-    Employee,
-    PayrollPeriod,
-    PayrollRecord,
-    User,
-)
-from app.libs.dto.people.payroll import (
-    PayrollPeriodIn,
-    PayrollPeriodUpdate,
-)
-from app.models.audit_service import log_action
-from app.models.factory_scope_service import selected_factory_code
+from app.models.factory_scope_service import require_factory_access, selected_factory_code
+from app.models.paid_operations_service import filter_operation_rows, paid_operations_from_details
+from app.core.order_reference import order_reference_contains
 from app.schemas.people.payroll import apply_payroll_period_changes, update_period_record_status
 
 
@@ -840,3 +802,309 @@ def order_qr_status_report(db: Session, current: User=None, order_no: str='', st
         "scanned_quantity": sum((_to_decimal(label.quantity) for label in scanned_labels), Decimal("0")),
         "available_quantity": sum((_to_decimal(label.quantity) for label in available_labels), Decimal("0")),
     }
+
+
+def _sewing_report_factory_code(value: str | None) -> str | None:
+    if not value:
+        return None
+    normalized = value.strip().upper()
+    if normalized not in {"MIL", "BST", "ECO"}:
+        raise HTTPException(400, "Factory must be MIL, BST, or ECO")
+    return normalized
+
+
+def _sewing_report_options(db: Session, factory_code: str) -> dict[str, list[dict[str, str]]]:
+    factory_code = _sewing_report_factory_code(factory_code)
+
+    def bundle_factory_condition():
+        if factory_code == "MIL":
+            return or_(
+                Bundle.sewing_factory_code.in_(("MIL", "SEW")),
+                Bundle.sewing_factory_code.is_(None),
+            )
+        return Bundle.sewing_factory_code == factory_code
+
+    routed_order_ids = db.query(Bundle.production_order_id).distinct()
+    routed_model_ids = db.query(Bundle.model_id).distinct()
+    if factory_code:
+        routed_order_ids = routed_order_ids.filter(bundle_factory_condition())
+        routed_model_ids = routed_model_ids.filter(bundle_factory_condition())
+
+    employee_qry = (
+        db.query(
+            Employee.id,
+            Employee.full_name,
+            Employee.employee_no,
+            Employee.position,
+            Department.name,
+        )
+        .select_from(Employee)
+        .outerjoin(Department, Department.id == Employee.department_id)
+        .outerjoin(User, User.id == Employee.user_id)
+        .filter(Employee.status == "active", Employee.factory_code == factory_code)
+    )
+    employees = employee_qry.order_by(Employee.full_name.asc(), Employee.id.asc()).all()
+
+    operation_qry = (
+        db.query(
+            PayrollRecord.operation_code,
+            PayrollRecord.operation_name,
+            PayrollRecord.operation_section,
+        )
+        .select_from(PayrollRecord)
+        .outerjoin(PayrollQrLabel, PayrollQrLabel.payroll_record_id == PayrollRecord.id)
+        .outerjoin(SewingFlow, SewingFlow.id == PayrollQrLabel.sewing_flow_id)
+        .filter(
+            PayrollRecord.factory_code == factory_code,
+            or_(PayrollRecord.operation_code.isnot(None), PayrollRecord.operation_name.isnot(None)),
+        )
+    )
+    operations = operation_qry.distinct().order_by(
+        PayrollRecord.operation_name.asc(),
+        PayrollRecord.operation_code.asc(),
+    ).all()
+
+    configured_operations: list[tuple[str | None, str | None, str | None]] = []
+    production_model_query = db.query(Model.details_json)
+    if factory_code:
+        production_model_query = production_model_query.filter(Model.id.in_(routed_model_ids))
+    else:
+        production_model_query = production_model_query.filter(Model.id.in_(db.query(ProductionOrder.model_id).distinct()))
+    production_model_details = production_model_query.all()
+    for (details,) in production_model_details:
+        for raw in filter_operation_rows(paid_operations_from_details(details), factory_code):
+            if not isinstance(raw, dict) or raw.get("selected") is False:
+                continue
+            section = str(raw.get("section") or "sewing").strip().lower()
+            if section not in {"sewing", "tikuv"}:
+                continue
+            code = str(raw.get("code") or "").strip().upper() or None
+            name = str(raw.get("name") or raw.get("operation_name") or "").strip() or None
+            if code or name:
+                configured_operations.append((code, name, section))
+    line_qry = (
+        db.query(
+            PayrollQrLabel.sewing_line_code,
+            PayrollQrLabel.sewing_line_name,
+            SewingFlow.code,
+            SewingFlow.name,
+            SewingFlow.factory_code,
+        )
+        .select_from(PayrollQrLabel)
+        .join(PayrollRecord, PayrollRecord.id == PayrollQrLabel.payroll_record_id)
+        .outerjoin(SewingFlow, SewingFlow.id == PayrollQrLabel.sewing_flow_id)
+        .filter(
+            PayrollQrLabel.factory_code == factory_code,
+            or_(
+                PayrollQrLabel.sewing_line_code.isnot(None),
+                PayrollQrLabel.sewing_line_name.isnot(None),
+                SewingFlow.code.isnot(None),
+                SewingFlow.name.isnot(None),
+            ),
+        )
+    )
+    lines = line_qry.distinct().order_by(
+        PayrollQrLabel.sewing_line_code.asc(),
+        PayrollQrLabel.sewing_line_name.asc(),
+    ).all()
+
+    configured_line_qry = (
+        db.query(SewingFlow.code, SewingFlow.name, SewingFlow.factory_code)
+        .filter(SewingFlow.is_active.is_(True))
+    )
+    if factory_code:
+        configured_line_qry = configured_line_qry.filter(SewingFlow.factory_code == factory_code)
+    configured_lines = configured_line_qry.order_by(SewingFlow.code.asc(), SewingFlow.name.asc()).all()
+    # HR teams can be report filters without creating operational Sewing flows.
+    report_managers = db.query(Employee).filter(
+        Employee.factory_code == factory_code,
+    ).all()
+    manager_ids = {row.manager_employee_id for row in report_managers if row.manager_employee_id}
+    salary_masters = [
+        {"value": f"manager:{manager.id}", "label": manager.full_name}
+        for manager in report_managers
+        if manager.id in manager_ids or (manager.hr_profile_json or {}).get("payroll_report_group") is True
+    ]
+    report_groups = [
+        {"value": f"manager:{manager.id}", "label": f"{manager.full_name} | {factory_code}"}
+        for manager in report_managers
+        if manager.status == "active" and (manager.hr_profile_json or {}).get("payroll_report_group") is True
+    ]
+
+    model_qry = (
+        db.query(PayrollRecord.model_code, Model.name, Model.product_type)
+        .select_from(PayrollRecord)
+        .outerjoin(PayrollQrLabel, PayrollQrLabel.payroll_record_id == PayrollRecord.id)
+        .outerjoin(SewingFlow, SewingFlow.id == PayrollQrLabel.sewing_flow_id)
+        .outerjoin(Model, Model.id == PayrollRecord.model_id)
+        .filter(PayrollRecord.factory_code == factory_code, PayrollRecord.model_code.isnot(None))
+    )
+    models = model_qry.distinct().order_by(PayrollRecord.model_code.asc()).all()
+
+    production_model_qry = (
+        db.query(Model.code, Model.name, Model.product_type)
+        .join(ProductionOrder, ProductionOrder.model_id == Model.id)
+    )
+    if factory_code:
+        production_model_qry = production_model_qry.filter(ProductionOrder.id.in_(routed_order_ids))
+    production_models = production_model_qry.distinct().order_by(Model.code.asc()).all()
+
+    order_qry = (
+        db.query(PayrollRecord.production_no, PayrollRecord.sales_order_no, PayrollRecord.model_code)
+        .select_from(PayrollRecord)
+        .outerjoin(PayrollQrLabel, PayrollQrLabel.payroll_record_id == PayrollRecord.id)
+        .outerjoin(SewingFlow, SewingFlow.id == PayrollQrLabel.sewing_flow_id)
+        .filter(
+            PayrollRecord.factory_code == factory_code,
+            or_(PayrollRecord.production_no.isnot(None), PayrollRecord.sales_order_no.isnot(None)),
+        )
+    )
+    orders = order_qry.distinct().order_by(
+        PayrollRecord.production_no.asc(),
+        PayrollRecord.sales_order_no.asc(),
+    ).all()
+
+    production_order_qry = (
+        db.query(ProductionOrder.production_no, SalesOrder.order_no, Model.code)
+        .select_from(ProductionOrder)
+        .outerjoin(SalesOrder, SalesOrder.id == ProductionOrder.sales_order_id)
+        .join(Model, Model.id == ProductionOrder.model_id)
+    )
+    if factory_code:
+        production_order_qry = production_order_qry.filter(ProductionOrder.id.in_(routed_order_ids))
+    production_orders = production_order_qry.order_by(ProductionOrder.production_no.asc()).all()
+
+    cutting_qry = (
+        db.query(
+            PayrollQrLabel.cutting_passport_no,
+            PayrollRecord.batch_no,
+            PayrollRecord.production_no,
+            PayrollRecord.model_code,
+        )
+        .select_from(PayrollQrLabel)
+        .join(PayrollRecord, PayrollRecord.id == PayrollQrLabel.payroll_record_id)
+        .outerjoin(SewingFlow, SewingFlow.id == PayrollQrLabel.sewing_flow_id)
+        .filter(
+            PayrollQrLabel.factory_code == factory_code,
+            or_(PayrollQrLabel.cutting_passport_no.isnot(None), PayrollRecord.batch_no.isnot(None)),
+        )
+    )
+    cutting_references = cutting_qry.distinct().order_by(
+        PayrollQrLabel.cutting_passport_no.asc(),
+        PayrollRecord.batch_no.asc(),
+    ).all()
+
+    production_batch_qry = (
+        db.query(ProductionBatch.batch_no, ProductionOrder.production_no, Model.code)
+        .select_from(ProductionBatch)
+        .join(ProductionOrder, ProductionOrder.id == ProductionBatch.production_order_id)
+        .join(Model, Model.id == ProductionOrder.model_id)
+    )
+    if factory_code:
+        production_batch_qry = production_batch_qry.filter(ProductionOrder.id.in_(routed_order_ids))
+    production_batches = production_batch_qry.order_by(ProductionBatch.batch_no.asc()).all()
+
+    size_qry = (
+        db.query(PayrollQrLabel.size)
+        .select_from(PayrollQrLabel)
+        .join(PayrollRecord, PayrollRecord.id == PayrollQrLabel.payroll_record_id)
+        .outerjoin(SewingFlow, SewingFlow.id == PayrollQrLabel.sewing_flow_id)
+        .filter(PayrollQrLabel.factory_code == factory_code, PayrollQrLabel.size.isnot(None))
+    )
+    sizes = size_qry.distinct().all()
+    bundle_size_qry = db.query(Bundle.size).filter(Bundle.size.isnot(None))
+    if factory_code:
+        bundle_size_qry = bundle_size_qry.filter(bundle_factory_condition())
+    production_sizes = bundle_size_qry.distinct().all()
+
+    def make_label(*parts: Any) -> str:
+        return " | ".join(str(part).strip() for part in parts if part is not None and str(part).strip())
+
+    def unique_options(rows: list[dict[str, str]]) -> list[dict[str, str]]:
+        by_value: dict[str, dict[str, str]] = {}
+        for row in rows:
+            if row["value"] and row["value"] not in by_value:
+                by_value[row["value"]] = row
+        return list(by_value.values())
+
+    order_option_rows: list[dict[str, str]] = []
+    for production_no, sales_order_no, model_code in [*orders, *production_orders]:
+        if production_no:
+            order_option_rows.append({
+                "value": str(production_no),
+                "label": make_label(production_no, sales_order_no, model_code),
+            })
+        if sales_order_no and sales_order_no != production_no:
+            order_option_rows.append({
+                "value": str(sales_order_no),
+                "label": make_label(sales_order_no, production_no, model_code),
+            })
+    order_options = unique_options(order_option_rows)
+    cutting_options: list[dict[str, str]] = []
+    for passport_no, batch_no, production_no, model_code in cutting_references:
+        context = make_label(passport_no, batch_no, production_no, model_code)
+        if passport_no:
+            cutting_options.append({"value": str(passport_no), "label": context})
+        if batch_no and batch_no != passport_no:
+            cutting_options.append({
+                "value": str(batch_no),
+                "label": make_label(batch_no, passport_no, production_no, model_code),
+            })
+    for batch_no, production_no, model_code in production_batches:
+        if batch_no:
+            cutting_options.append({
+                "value": str(batch_no),
+                "label": make_label(batch_no, production_no, model_code),
+            })
+
+    return {
+        "employees": [
+            {
+                "value": str(employee_id),
+                "label": make_label(full_name, employee_no or employee_id, position, department_name),
+            }
+            for employee_id, full_name, employee_no, position, department_name in employees
+        ],
+        "operations": unique_options([
+            {
+                "value": str(code or name),
+                "label": make_label(name or code, code if code and code != name else None, section),
+            }
+            for code, name, section in [*operations, *configured_operations]
+        ]),
+        "salary_masters": salary_masters,
+        "sewing_lines": unique_options([
+            {
+                "value": str(label_code or flow_code or label_name or flow_name),
+                "label": make_label(label_code or flow_code, label_name or flow_name, factory_code),
+            }
+            for label_code, label_name, flow_code, flow_name, factory_code in lines
+        ] + [
+            {
+                "value": str(code or name),
+                "label": make_label(code, name, factory_code),
+            }
+            for code, name, factory_code in configured_lines
+            if code or name
+        ] + report_groups),
+        "models": unique_options([
+            {"value": str(code), "label": make_label(code, name, product_type)}
+            for code, name, product_type in [*models, *production_models]
+        ]),
+        "orders": order_options,
+        "cutting_references": unique_options(cutting_options),
+        "sizes": [
+            {"value": str(size), "label": str(size)}
+            for (size,) in sorted(
+                {*sizes, *production_sizes},
+                key=lambda row: _qr_size_sort_key(str(row[0])),
+            )
+        ],
+    }
+
+
+def sewing_production_report_options(db: Session, current: User=None, factory_code: str | None=None):
+    scoped_factory = selected_factory_code(current)
+    if factory_code:
+        require_factory_access(current, factory_code)
+    return _sewing_report_options(db, scoped_factory)
