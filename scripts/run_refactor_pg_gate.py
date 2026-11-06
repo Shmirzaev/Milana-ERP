@@ -77,6 +77,13 @@ GROUPS = {
         "test_pg_unchecked_direct_reference_rejects_delete_atomically",
         "test_pg_reference_insert_after_link_check_rolls_back_delete",
     )),
+    "test_process_qr_size_setup_postgres": (7, (
+        "test_postgres_setup_audit_failure_rolls_back",
+        "test_postgres_simultaneous_setup_serializes",
+        "test_postgres_setup_then_generic_writer_waits_on_parent_fk",
+        "test_postgres_http_failure_teardown_rolls_back",
+        "test_postgres_deferred_commit_failure_rolls_back_request",
+    )),
     "test_modelsize_create_postgres": (2, ("test_pg_create_atomic_audit_and_failure_retry", "test_pg_concurrent_duplicate_creates")),
     "test_modelcolor_create_postgres": (27, ()),
 }
