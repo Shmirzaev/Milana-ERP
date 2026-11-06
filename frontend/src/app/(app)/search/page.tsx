@@ -75,7 +75,7 @@ export default function SearchPage() {
           <Search className="h-4 w-4 shrink-0 text-[#8a8472]" />
           <input
             id="search-page-query"
-            className="h-10 min-w-0 flex-1 bg-transparent text-sm text-[#2c2920] placeholder:text-[#8a8472] focus:outline-none"
+            className="h-10 min-w-0 flex-1 bg-transparent text-sm text-[#2c2920] placeholder:text-[#8a8472] focus:outline-hidden"
             placeholder={t("top.searchPlaceholder")}
             value={query}
             onChange={(e) => setQuery(e.target.value)}

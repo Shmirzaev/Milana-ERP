@@ -374,7 +374,7 @@ export default function InventoryMasterDataPage() {
               <div className="flex h-10 min-w-0 items-center gap-2 rounded-md border border-[#ded9ca] bg-[#fdfcf8] px-3 md:w-80">
                 <Search className="h-4 w-4 shrink-0 text-[#8a8472]" />
                 <input
-                  className="w-full min-w-0 bg-transparent text-sm text-[#14110b] placeholder:text-[#8a8472] focus:outline-none"
+                  className="w-full min-w-0 bg-transparent text-sm text-[#14110b] placeholder:text-[#8a8472] focus:outline-hidden"
                   placeholder={t("common.search")}
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}

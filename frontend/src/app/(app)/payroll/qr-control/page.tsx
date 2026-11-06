@@ -257,7 +257,7 @@ export default function PayrollQrControlPage() {
                 <Search className="h-4 w-4 shrink-0 text-[#8a8472]" />
                 <input
                   id="qr-control-search"
-                  className="w-full bg-transparent text-sm outline-none"
+                  className="w-full bg-transparent text-sm outline-hidden"
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
                   placeholder={t("page.payrollQrControl.searchPlaceholder")}

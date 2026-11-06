@@ -210,7 +210,7 @@ export default function SearchableSelect<T extends string | number>({
           aria-controls={listboxId}
           aria-activedescendant={open && visibleOptions.length ? activeOptionId : undefined}
           aria-required={required}
-          className="h-full min-w-0 flex-1 bg-transparent text-sm outline-none"
+          className="h-full min-w-0 flex-1 bg-transparent text-sm outline-hidden"
           value={query}
           placeholder={placeholder}
           disabled={disabled}

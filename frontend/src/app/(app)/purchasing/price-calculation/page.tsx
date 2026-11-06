@@ -52,7 +52,7 @@ function FormField({ label, value, type = "text", disabled, onChange }: {
         value={value}
         disabled={disabled}
         onChange={(event) => onChange(event.target.value)}
-        className="h-9 w-full rounded-md border border-[var(--erp-border-strong)] bg-white px-2.5 text-sm text-[var(--erp-text)] outline-none transition focus:border-[var(--erp-accent)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--erp-accent)_20%,transparent)] disabled:cursor-default disabled:bg-white/70"
+        className="h-9 w-full rounded-md border border-[var(--erp-border-strong)] bg-white px-2.5 text-sm text-[var(--erp-text)] outline-hidden transition focus:border-[var(--erp-accent)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--erp-accent)_20%,transparent)] disabled:cursor-default disabled:bg-white/70"
       />
     </label>
   );
