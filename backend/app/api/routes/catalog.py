@@ -38,6 +38,10 @@ def _standard_catalog_scope() -> str:
     return "standard"
 
 
+def _create_catalog_scope() -> CatalogScope:
+    return CatalogScope.STANDARD
+
+
 # ===== Brands =====
 @router.get("/brands", response_model=list[BrandOut])
 def list_brands(db: DbSession, _: CurrentUser):
@@ -199,7 +203,7 @@ def create_model(
     payload: ModelIn,
     db: DbSession,
     current: User = Depends(require_permissions("modeling.models", "*")),
-    catalog_scope: str = Depends(_standard_catalog_scope),
+    catalog_scope: CatalogScope = Depends(_create_catalog_scope),
 ):
     return models_service.create_model(current, db, payload, catalog_scope)
 

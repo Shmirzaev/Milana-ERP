@@ -187,3 +187,61 @@ def test_actual_catalog_late_audit_failure_rolls_back_number_and_model(db, monke
     db.rollback()  # Existing outer operation/session owns failure rollback.
     assert setting(db) is None and db.query(Model).count() == 0
     assert numbering.next_model_no(db, "XJ") == "XJ3201"
+
+
+def test_variant_create_inherits_family_approval_through_schema_writer(db, monkeypatch):
+    from datetime import datetime, timezone
+    from app.libs.dto.catalog.model_input import ModelIn
+    from app.models.catalog import models_service
+    from app.schemas import AuditLog, Role, User
+
+    actor = User(email="inherit@example.invalid", name="Synthetic", password_hash="unused", role=Role(name="admin", permissions=["*"]))
+    db.add(actor)
+    db.flush()
+    approved_at = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    db.add(Model(code="XJ4000", name="Base", status="approved", approved_by=actor.id,
+                 approved_at=approved_at, details_json={"general": {"model_no": "XJ4000"}}))
+    db.commit()
+    calls = []
+    original = models_service.insert_model
+    def observe(session, model, *, approval):
+        calls.append((session, approval))
+        return original(session, model, approval=approval)
+    monkeypatch.setattr(models_service, "insert_model", observe)
+    result = models_service.create_model(actor, db, ModelIn(
+        code="XJ4000-1", name="Variant", details_json={"general": {"model_no": "XJ4000", "variant_no": "1"}}))
+    row = db.query(Model).filter_by(id=result["id"]).one()
+    assert calls[0][0] is db and calls[0][1].code == "XJ4000"
+    assert (row.status, row.approved_by, row.approved_at.replace(tzinfo=None)) == ("approved", actor.id, approved_at.replace(tzinfo=None))
+    assert db.query(AuditLog).filter_by(entity_type="Model", entity_id=row.id, action="create").count() == 1
+
+
+@pytest.mark.parametrize(('scope', 'expected'), [
+    ('standard', 'standard'), (' StAnDaRd ', 'standard'), ('', 'standard'),
+    (' USLUGA ', 'usluga'),
+])
+def test_create_scope_direct_raw_compatibility(db, scope, expected):
+    from app.libs.dto.catalog.model_input import ModelIn
+    from app.models.catalog import models_service
+    from app.schemas import Role, User
+
+    actor = User(email='scope@example.invalid', name='Scope', password_hash='unused',
+                 role=Role(name='scope-test', permissions=['*']))
+    db.add(actor); db.commit()
+    result = models_service.create_model(actor, db, ModelIn(code='SCOPE1', name='Scope'), scope)
+    row = db.get(Model, result['id'])
+    assert (row.catalog_scope, row.factory_code) == (expected, 'ECO' if expected == 'usluga' else None)
+
+
+def test_create_scope_invalid_precedes_number_reservation(db):
+    from app.libs.dto.catalog.model_input import ModelIn
+    from app.models.catalog import models_service
+    from app.schemas import Role, User
+
+    actor = User(email='invalid-scope@example.invalid', name='Scope', password_hash='unused',
+                 role=Role(name='scope-invalid', permissions=['*']))
+    db.add(actor); db.commit()
+    with pytest.raises(HTTPException) as error:
+        models_service.create_model(actor, db, ModelIn(code='preview', name='Scope', automatic_model_prefix='XJ'), 'unknown')
+    assert (error.value.status_code, error.value.detail) == (400, 'Invalid model catalog scope')
+    assert setting(db) is None and db.query(Model).count() == 0

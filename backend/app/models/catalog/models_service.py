@@ -112,6 +112,7 @@ from app.schemas.catalog.model_paid_operations_persistence import set_model_paid
 from app.schemas.catalog.model_image_persistence import delete_model_image
 from app.schemas.catalog.model_size_persistence import add_initial_model_sizes, insert_model_size
 from app.schemas.catalog.model_color_persistence import insert_model_color
+from app.schemas.catalog.model_create_persistence import build_model, insert_model
 from app.schemas.catalog.model_image_persistence import insert_url_image
 
 # A model's details_json is per-model modelling metadata: identity, costing and
@@ -1630,9 +1631,10 @@ def create_model(
     current: User,
     db: Session,
     payload: ModelIn,
-    catalog_scope: str = "standard",
+    catalog_scope: CatalogScope = CatalogScope.STANDARD,
 ):
-    catalog_scope = _normalize_catalog_scope(catalog_scope)
+    raw_scope = catalog_scope.value if isinstance(catalog_scope, CatalogScope) else catalog_scope
+    catalog_scope = CatalogScope(_normalize_catalog_scope(raw_scope))
     model_data = payload.model_dump()
     automatic_prefix = model_data.pop("automatic_model_prefix", None)
     details = deepcopy(model_data.get("details_json")) if isinstance(model_data.get("details_json"), dict) else {}
@@ -1649,7 +1651,7 @@ def create_model(
     )
     if db.query(Model).filter(Model.code == model_data["code"]).first():
         raise HTTPException(400, "Model code already exists")
-    factory_scope = "eco_cotton" if catalog_scope == "usluga" else sewing_master_factory_scope(current)
+    factory_scope = "eco_cotton" if catalog_scope is CatalogScope.USLUGA else sewing_master_factory_scope(current)
     if factory_scope:
         details = merge_scoped_paid_operations({}, details, factory_scope)
     general = details.get("general")
@@ -1669,19 +1671,16 @@ def create_model(
     model_data["details_json"] = details
     _validate_model_details_json_bounds(model_data["details_json"])
 
-    m = Model(
-        **model_data,
+    m = build_model(
+        values=model_data,
         catalog_scope=catalog_scope,
-        factory_code="ECO" if catalog_scope == "usluga" else None,
+        factory_code="ECO" if catalog_scope is CatalogScope.USLUGA else None,
         created_by=current.id,
     )
+    approval = None
     if _model_code_parts(m)[1]:
         approval = next((row for row in _approval_family(db, m) if row.status == "approved"), None)
-        if approval:
-            m.status = "approved"
-            m.approved_by = approval.approved_by
-            m.approved_at = approval.approved_at
-    db.add(m); db.flush()
+    insert_model(db, m, approval=approval)
     log_action(db, current, "create", "Model", m.id, new_value={"code": m.code})
     db.commit(); db.refresh(m)
     return _model_out_payload(m, factory_scope)
