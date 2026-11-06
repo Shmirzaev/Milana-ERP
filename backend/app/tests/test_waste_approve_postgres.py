@@ -28,11 +28,11 @@ def _seed(sessions):
         return actor.id, other.id, record.id, request.id
 
 
-def _effect(sessions, wid, rid, actor):
+def _effect(sessions, wid, rid, actor, started, completed):
     with sessions() as db:
         record, request = db.get(WasteRecord, wid), db.get(WasteDisposalRequest, rid)
         assert record.status == 'disposal_approved' and request.status == 'approved'
-        assert request.approved_by == actor and request.approved_at is not None
+        assert request.approved_by == actor and started <= request.approved_at <= completed
         assert (request.requested_by, request.reason, request.proof_file_url) == (actor, 'test', 'fixture')
         audit = db.query(AuditLog).filter_by(entity_type='WasteDisposalRequest', entity_id=rid, action='approve_disposal').one()
         assert audit.user_id == actor and audit.entry_hash
@@ -119,12 +119,14 @@ def test_pg_approve_auth_refusal_audit_failure_retry(pg_sessions, monkeypatch):
         with pg_sessions() as db:
             assert _public_snapshot(db) == before
             assert audit_service.verify_audit_hash_chain(db)['ok']
+        started = datetime.now(timezone.utc)
         response = client.post(path, headers=headers)
+        completed = datetime.now(timezone.utc)
         assert response.status_code == 200, response.text
         duplicate = client.post(path, headers=headers)
         assert duplicate.status_code == 400
         assert duplicate.json()['detail'] == 'Disposal request is not pending'
-    _effect(pg_sessions, wid, rid, actor)
+    _effect(pg_sessions, wid, rid, actor, started, completed)
 
 
 def test_pg_approve_deferred_commit_failure_retry(pg_sessions):
@@ -159,9 +161,11 @@ def test_pg_approve_deferred_commit_failure_retry(pg_sessions):
             conn.exec_driver_sql('DROP TRIGGER pr408_approval_commit_guard ON waste_disposal_requests')
             conn.exec_driver_sql('DROP FUNCTION pr408_approval_commit_abort()')
     with TestClient(_app(pg_sessions)) as client:
+        started = datetime.now(timezone.utc)
         response = client.post(path, headers=headers)
+        completed = datetime.now(timezone.utc)
         assert response.status_code == 200, response.text
-    _effect(pg_sessions, wid, rid, actor)
+    _effect(pg_sessions, wid, rid, actor, started, completed)
 
 
 @pytest.mark.parametrize('second', ['approve', 'reject'])
@@ -174,29 +178,38 @@ def test_pg_approval_race_serializes_on_parent(pg_sessions, second):
     from app.models.inventory import waste_service
 
     actor, _, wid, rid = _seed(pg_sessions)
+    with pg_sessions.begin() as db:
+        role = Role(name=f'approval-race-{uuid4().hex}', permissions=['management.approve'])
+        db.add(role); db.flush()
+        other = User(name='Other approver', email=f'{uuid4().hex}@example.invalid', password_hash='unused', role_id=role.id, factory_code='MIL', is_active=True)
+        db.add(other); db.flush()
+        other_actor = other.id
     engine = pg_sessions.kw['bind']
     ready, start = Queue(), Event()
 
-    def decide(action):
+    def decide(action, actor_id):
         with pg_sessions() as db:
             parent = db.get(WasteRecord, wid)
             request = db.get(WasteDisposalRequest, rid)
-            user = db.get(User, actor)
+            user = db.get(User, actor_id)
             assert parent.status == 'pending_disposal_approval' and request.status == 'pending'
             ready.put(db.execute(text('SELECT pg_backend_pid()')).scalar_one())
             assert start.wait(10)
             try:
                 getattr(waste_service, f'{action}_disposal')(db, rid, user)
-                return 200
+                expected = ('approved', 'disposal_approved') if action == 'approve' else ('rejected', 'received_by_waste_department')
+                assert (request.status, parent.status) == expected
+                return 200, actor_id, action
             except HTTPException as exc:
-                return exc.status_code
+                return exc.status_code, actor_id, action
 
     with engine.connect() as holder, ThreadPoolExecutor(max_workers=2) as workers:
         holder_pid = holder.execute(text('SELECT pg_backend_pid()')).scalar_one()
         holder.execute(text('SELECT id FROM waste_records WHERE id=:id FOR NO KEY UPDATE'), {'id': wid})
-        futures = [workers.submit(decide, action) for action in ('approve', second)]
+        futures = [workers.submit(decide, action, actor_id) for action, actor_id in (('approve', actor), (second, other_actor))]
         try:
             pids = [ready.get(timeout=10) for _ in futures]
+            started = datetime.now(timezone.utc)
             start.set()
             deadline = monotonic() + 10
             graph = {}
@@ -213,6 +226,7 @@ def test_pg_approval_race_serializes_on_parent(pg_sessions, second):
                 graph = {pid: holder.execute(text('SELECT pg_blocking_pids(:pid)'), {'pid': pid}).scalar_one() for pid in pids}
                 if (all(graph[pid] and set(graph[pid]) <= owned and reaches_holder(pid) for pid in pids)
                         and all(not future.done() for future in futures)):
+                    print('OWNED_PARENT_WAIT_GRAPH', {'holder': holder_pid, 'workers': pids, 'blockers': graph})
                     break
                 sleep(0.01)
             else:
@@ -220,16 +234,19 @@ def test_pg_approval_race_serializes_on_parent(pg_sessions, second):
         finally:
             start.set()
             holder.rollback()
-        assert sorted(f.result(timeout=20) for f in futures) == [200, 400]
+        results = [f.result(timeout=20) for f in futures]
+        completed = datetime.now(timezone.utc)
+        assert sorted(result[0] for result in results) == [200, 400]
+        _, winner, action = next(result for result in results if result[0] == 200)
     with pg_sessions() as db:
         parent, request = db.get(WasteRecord, wid), db.get(WasteDisposalRequest, rid)
-        assert (request.status, parent.status) in {('approved', 'disposal_approved'), ('rejected', 'received_by_waste_department')}
+        assert (request.status, parent.status) == (('approved', 'disposal_approved') if action == 'approve' else ('rejected', 'received_by_waste_department'))
         if second == 'approve':
             assert request.status == 'approved'
-        assert request.approved_by == actor and request.approved_at is not None
+        assert request.approved_by == winner and started <= request.approved_at <= completed
         assert (request.requested_by, request.reason, request.proof_file_url) == (actor, 'test', 'fixture')
         rows = db.query(AuditLog).filter_by(entity_type='WasteDisposalRequest', entity_id=rid).all()
         assert len(rows) == 1
         assert rows[0].action == ('approve_disposal' if request.status == 'approved' else 'reject_disposal')
-        assert rows[0].user_id == actor and rows[0].entry_hash
+        assert rows[0].user_id == winner and rows[0].entry_hash
         assert audit_service.verify_audit_hash_chain(db)['ok']
