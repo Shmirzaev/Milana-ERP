@@ -32,7 +32,7 @@ class RequiredPGGateTests(unittest.TestCase):
 
     def test_complete_evidence_passes(self):
         counts = gate.check_report(self.write_report(self.report()))
-        self.assertEqual(sum(counts.values()), 465)
+        self.assertEqual(sum(counts.values()), 470)
 
     def test_postgres_old_bearer_cutoff_missing_or_skipped_fails(self):
         module = "test_identity_admin_user_update"
