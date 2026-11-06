@@ -92,11 +92,16 @@ def test_pg_batch_restore_concurrent_duplicate_serializes(customer_pg_sessions):
                           reached=reached, release=release) if first else sessions())
         with db:
             pids[first] = db.execute(sa.text('SELECT pg_backend_pid()')).scalar_one()
+            # Real supplied sessions may already retain the row before locking.
+            preloaded = db.get(StockBatch, batch_id)
+            assert preloaded.archived_at is not None
             barrier.wait()
             if not first:
                 assert reached.wait(8), 'first restore did not reach commit'
                 second_ready.set()
-            return stock_service.restore_material_batch(db, batch_id, payload(), db.get(User, actor_id))
+            result = stock_service.restore_material_batch(db, batch_id, payload(), db.get(User, actor_id))
+            assert result is preloaded
+            return result
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         first = pool.submit(worker, True)
