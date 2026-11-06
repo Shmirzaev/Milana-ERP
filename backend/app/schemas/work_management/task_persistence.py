@@ -24,3 +24,9 @@ def add_stock_shortage_task(
     db.add(Task(title=title, description=description, assigned_to=assigned_to,
                 created_by=created_by, due_date=due_date,
                 status=status.value, priority=priority.value))
+
+
+def apply_task_update(db: Session, task: Task, changes: dict, *, completed_at: datetime | None) -> None:
+    for key, value in changes.items():
+        setattr(task, key, value)
+    task.completed_at = completed_at

@@ -3,22 +3,23 @@
 User creation owns its commit; Sales retains its outer transaction for shortages.
 """
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.exc import StaleDataError
 
 from app.core.deps import PRODUCTION_READ_PERMISSIONS, user_permissions, is_admin
 from app.models.factory_scope_service import available_factory_codes, factory_for_department, require_factory_access, user_is_super_admin
 from app.models.packaging_scope_service import normalize_packaging_department_code, require_package_access
 from app.schemas import Bundle, Invoice, Package, ProductionOrder, SalesOrder, Shipment, Task, User, WorkOrder
 from app.libs.enums.work_management import TaskPriority, TaskStatus
-from app.schemas.work_management.task_persistence import add_stock_shortage_task, add_created_task
+from app.schemas.work_management.task_persistence import apply_task_update, add_stock_shortage_task, add_created_task
 from app.schemas.core_persistence import add_notification_row
-from app.libs.dto.work_management.tasks import TaskIn
+from app.libs.dto.work_management.tasks import TaskIn, TaskUpdate
 from app.models.audit_service import log_action
-from app.models.notifications_service import _max_bulk_recipients
+from app.models.notifications_service import notify, _max_bulk_recipients
 from app.models.user_access_service import access_configured, permission_denied
 
 
@@ -283,3 +284,52 @@ def create_stock_shortage_task(
     add_stock_shortage_task(db, title=title, description=description,
                            assigned_to=assigned_to, created_by=created_by, due_date=due_date,
                            status=TaskStatus.PENDING, priority=TaskPriority.HIGH)
+
+
+def update_task(tid: int, payload: TaskUpdate, db: Session, current: User, *, audit=log_action):
+    t = db.get(Task, tid)
+    if not t: raise HTTPException(404, "Task not found")
+    # Assignees may update status; only managers / creator may change other fields.
+    changes = payload.model_dump(exclude_unset=True)
+    is_assignee = t.assigned_to == current.id
+    is_manager = _can_manage(current)
+    can_edit = is_manager or t.created_by == current.id
+
+    if not can_edit:
+        if not is_assignee:
+            raise HTTPException(403, "Not allowed")
+        # Restrict assignees to status-only changes.
+        allowed = {"status"}
+        if set(changes.keys()) - allowed:
+            raise HTTPException(403, "Assignees can only change status")
+
+    previous_assignee = t.assigned_to
+    if "assigned_to" in changes and changes["assigned_to"] != previous_assignee:
+        _require_single_assignee(changes["assigned_to"], db, current, is_manager)
+    next_assignee_id = changes.get("assigned_to", previous_assignee)
+    next_assignee = db.get(User, next_assignee_id) if next_assignee_id is not None else None
+    reference = validate_task_reference_update(db, current, t, changes, next_assignee)
+    completed_at = t.completed_at
+    if changes.get("status") == "completed" and not completed_at:
+        completed_at = datetime.now(timezone.utc)
+    elif changes.get("status") and changes["status"] != "completed":
+        completed_at = None
+    apply_task_update(db, t, changes, completed_at=completed_at)
+
+    try:
+        # Notify new assignee if task was reassigned.
+        if "assigned_to" in changes and t.assigned_to and t.assigned_to != previous_assignee:
+            notify(
+                db, user_id=t.assigned_to,
+                title=f"Task reassigned to you: {t.title}",
+                message=(t.description or "")[:280],
+                link=_task_link(t, db=db, reference=reference),
+            )
+
+        audit(db, current, "update", "Task", t.id, new_value=changes)
+        db.commit()
+    except StaleDataError as exc:
+        db.rollback()
+        raise HTTPException(404, "Task not found") from exc
+    db.refresh(t)
+    return t
