@@ -1,11 +1,11 @@
-"""QR image compatibility; zxing-cpp is an optional test-only dependency."""
+"""QR image compatibility using the required test-only ZXing decoder."""
 import base64
 from io import BytesIO
 
 import pytest
 from PIL import Image
 
-zxing = pytest.importorskip("zxingcpp", reason="install test-only zxing-cpp to decode QR images")
+import zxingcpp as zxing
 from app.models import barcode_service
 
 
