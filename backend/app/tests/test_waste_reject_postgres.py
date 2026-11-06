@@ -5,6 +5,7 @@ from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import event, text
+from sqlalchemy.exc import IntegrityError
 
 from app.core.security import create_access_token
 from app.models import audit_service
@@ -96,6 +97,35 @@ def test_pg_reject_recovers_invalid_historical_parent(pg_sessions, sellable, qua
     _effect(pg_sessions, wid, rid, actor, started, completed)
 
 
+def test_pg_reject_orphan_creation_fk_refusal_then_existing_request(pg_sessions):
+    actor, _, wid, rid = _seed(pg_sessions)
+    with pg_sessions() as db:
+        before = _public_snapshot(db)
+        missing_wid = -1
+        assert db.get(WasteRecord, missing_wid) is None
+        fk_name = db.execute(text("""SELECT c.conname FROM pg_constraint c
+            JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY(c.conkey)
+            WHERE c.conrelid = 'waste_disposal_requests'::regclass
+              AND c.confrelid = 'waste_records'::regclass AND c.contype = 'f'
+              AND a.attname = 'waste_record_id'""")).scalar_one()
+    with pg_sessions() as db:
+        with pytest.raises(IntegrityError) as error:
+            db.add(WasteDisposalRequest(waste_record_id=missing_wid, status='pending', requested_by=actor))
+            db.flush()
+        assert error.value.orig.pgcode == '23503'
+        assert error.value.orig.diag.constraint_name == fk_name
+        db.rollback()
+    with pg_sessions() as db:
+        assert _public_snapshot(db) == before
+        assert audit_service.verify_audit_hash_chain(db)['ok']
+    started = datetime.now(timezone.utc)
+    with TestClient(_app(pg_sessions)) as client:
+        response = client.post(f'/waste/disposal/{rid}/reject', headers={'Authorization': f'Bearer {create_access_token(actor)}'})
+    completed = datetime.now(timezone.utc)
+    assert response.status_code == 200, response.text
+    _effect(pg_sessions, wid, rid, actor, started, completed)
+
+
 def test_pg_reject_auth_refusal_audit_failure_retry(pg_sessions, monkeypatch):
     actor, denied, wid, rid = _seed(pg_sessions)
     path = f'/waste/disposal/{rid}/reject'
@@ -138,11 +168,11 @@ def test_pg_reject_deferred_commit_failure_retry(pg_sessions):
     with pg_sessions() as db:
         before = _public_snapshot(db)
     with engine.begin() as conn:
-        conn.exec_driver_sql("""CREATE FUNCTION pr408_rejection_commit_abort() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
-            RAISE EXCEPTION 'fixture commit failure' USING ERRCODE = '23514', CONSTRAINT = 'pr408_rejection_commit_guard'; END; $$""")
-        conn.exec_driver_sql(f"""CREATE CONSTRAINT TRIGGER pr408_rejection_commit_guard AFTER UPDATE ON waste_disposal_requests
+        conn.exec_driver_sql("""CREATE FUNCTION pr405_rejection_commit_abort() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+            RAISE EXCEPTION 'fixture commit failure' USING ERRCODE = '23514', CONSTRAINT = 'pr405_rejection_commit_guard'; END; $$""")
+        conn.exec_driver_sql(f"""CREATE CONSTRAINT TRIGGER pr405_rejection_commit_guard AFTER UPDATE ON waste_disposal_requests
             DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN (NEW.id = {int(rid)} AND NEW.status = 'rejected')
-            EXECUTE FUNCTION pr408_rejection_commit_abort()""")
+            EXECUTE FUNCTION pr405_rejection_commit_abort()""")
     def capture(context):
         exc = context.original_exception
         if getattr(exc, 'pgcode', None) == '23514':
@@ -151,15 +181,15 @@ def test_pg_reject_deferred_commit_failure_retry(pg_sessions):
     try:
         with TestClient(_app(pg_sessions), raise_server_exceptions=False) as client:
             assert client.post(path, headers=headers).status_code == 500
-        assert observed == [(None, 'pr408_rejection_commit_guard')]
+        assert observed == [(None, 'pr405_rejection_commit_guard')]
         with pg_sessions() as db:
             assert _public_snapshot(db) == before
             assert audit_service.verify_audit_hash_chain(db)['ok']
     finally:
         event.remove(engine, 'handle_error', capture)
         with engine.begin() as conn:
-            conn.exec_driver_sql('DROP TRIGGER pr408_rejection_commit_guard ON waste_disposal_requests')
-            conn.exec_driver_sql('DROP FUNCTION pr408_rejection_commit_abort()')
+            conn.exec_driver_sql('DROP TRIGGER pr405_rejection_commit_guard ON waste_disposal_requests')
+            conn.exec_driver_sql('DROP FUNCTION pr405_rejection_commit_abort()')
     with TestClient(_app(pg_sessions)) as client:
         started = datetime.now(timezone.utc)
         response = client.post(path, headers=headers)
@@ -181,7 +211,7 @@ def test_pg_rejection_race_serializes_on_parent(pg_sessions, second):
     with pg_sessions.begin() as db:
         role = Role(name=f'rejection-race-{uuid4().hex}', permissions=['management.approve'])
         db.add(role); db.flush()
-        other = User(name='Other rejectr', email=f'{uuid4().hex}@example.invalid', password_hash='unused', role_id=role.id, factory_code='MIL', is_active=True)
+        other = User(name='Other rejector', email=f'{uuid4().hex}@example.invalid', password_hash='unused', role_id=role.id, factory_code='MIL', is_active=True)
         db.add(other); db.flush()
         other_actor = other.id
     engine = pg_sessions.kw['bind']
