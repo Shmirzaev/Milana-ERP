@@ -5,17 +5,24 @@
     "test_batch_restore_postgres": {
       "revision": "db914a5b803810e1f9c24c870711c6b77559f364",
       "git_blob_sha256": "33fc05acf06663991548a1641e60548eed240c45e1de9c3e63306325f4c5fd97",
-      "selected_functions": ["test_pg_batch_restore_audit_failure_rolls_back", "test_pg_batch_restore_concurrent_duplicate_serializes"]
+      "selected_functions": [
+        "test_pg_batch_restore_audit_failure_rolls_back",
+        "test_pg_batch_restore_concurrent_duplicate_serializes"
+      ]
     },
     "test_waste_create_receive_postgres": {
       "revision": "cd9054ae42f3efeca75cbbca5cd6a3e1d3cb804a",
       "git_blob_sha256": "70d24a5a856dfa52ac05e489df7b6bcd753e9a9b4b805e7b39048b3cc5e4b38c",
-      "selected_functions": ["test_waste_create_receive_audit_failure_rolls_back_then_retry"]
+      "selected_functions": [
+        "test_waste_create_receive_audit_failure_rolls_back_then_retry"
+      ]
     },
     "test_waste_receipt_race_characterization_postgres": {
       "revision": "cd9054ae42f3efeca75cbbca5cd6a3e1d3cb804a",
       "git_blob_sha256": "e3d91379e8387416028fd4e3da0308e8a34d28e216c08b8e98fa04c36dcd2f42",
-      "selected_functions": ["test_receipt_concurrent_observed_recorded_characterization"]
+      "selected_functions": [
+        "test_receipt_concurrent_observed_recorded_characterization"
+      ]
     },
     "test_brand_create_postgres": {
       "revision": "53ba460e85bb8b7e5ee9803affd624099276f9fe",
@@ -337,6 +344,16 @@
         "test_self_deletion_refused_before_protection_and_audit_history"
       ],
       "case_identity_source": "qualified passing runtime receipt evidence/identity-full-corrected/current.xml; includes fixture-parametrized IDs"
+    },
+    "test_stocktake_delete_postgres": {
+      "revision": "3ad59367daddb8a56e6aa6476f8708da7714ad4d",
+      "git_blob_sha256": "c9c289f95499524f856476c61d15035d422d6308647190e1a1b884df207a6cc2",
+      "selected_functions": [
+        "test_pg_request_audit_flush_failure_rolls_back_bulk",
+        "test_pg_overlapping_bulk_deletes_serialize",
+        "test_pg_deferred_commit_failure_restores_bulk",
+        "test_pg_delete_blocks_scan_or_completion"
+      ]
     }
   },
   "cases": {
@@ -871,6 +888,13 @@
       "test_direct_service_rejects_inactive_privileged_actor[postgres-super]",
       "test_direct_service_rejects_stale_deactivated_actor[postgres-manager]",
       "test_direct_service_rejects_stale_deactivated_actor[postgres-super]"
+    ],
+    "test_stocktake_delete_postgres": [
+      "test_pg_request_audit_flush_failure_rolls_back_bulk",
+      "test_pg_overlapping_bulk_deletes_serialize",
+      "test_pg_deferred_commit_failure_restores_bulk",
+      "test_pg_delete_blocks_scan_or_completion[scan]",
+      "test_pg_delete_blocks_scan_or_completion[complete]"
     ]
   },
   "isolated_supplemental_cases": [

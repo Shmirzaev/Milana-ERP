@@ -23,6 +23,12 @@ from refactor_pg_evidence import (
 # Minimum collected counts pin the current parameterized business cases. Adding
 # cases is allowed; removing a required case needs an explicit ledger change.
 GROUPS = {
+    "test_stocktake_delete_postgres": (5, (
+        'test_pg_request_audit_flush_failure_rolls_back_bulk',
+        'test_pg_overlapping_bulk_deletes_serialize',
+        'test_pg_deferred_commit_failure_restores_bulk',
+        'test_pg_delete_blocks_scan_or_completion',
+    )),
     'test_identity_access_catalog': (20, ('test_catalog_authentication_and_permission_refusals', 'test_catalog_retains_order_labels_and_grantability_without_writes', 'test_direct_service_rejects_inactive_privileged_actor', 'test_direct_service_rejects_stale_deactivated_actor', 'test_direct_service_rejects_unprivileged_actor')),
     'test_identity_access_preview': (30, ('test_direct_service_rejects_inactive_privileged_actor', 'test_direct_service_rejects_stale_deactivated_actor', 'test_direct_service_rejects_unprivileged_actor', 'test_preview_expands_wildcard_without_saving_or_enforcing_grant_rights', 'test_preview_primary_denies_secondary_grants_and_empty_factories', 'test_preview_refusal_order_and_no_writes', 'test_super_admin_subject_is_available_in_every_factory')),
     'test_identity_admin_user_list': (20, ('test_direct_service_rejects_inactive_privileged_actor', 'test_direct_service_rejects_stale_deactivated_actor', 'test_direct_service_rejects_unprivileged_actor', 'test_list_authentication_and_permission_refusals', 'test_list_includes_inactive_other_factory_and_protected_accounts_in_id_order')),
