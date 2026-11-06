@@ -10,8 +10,11 @@ import tempfile
 import time
 import xml.etree.ElementTree as ET
 
-from run_refactor_pg_gate import GROUPS, check_report, sanitized_pg_environment
-from run_refactor_pg_supplement_gate import check_report as check_supplement, expected_nodeids, junit_nodeid
+from run_refactor_pg_gate import GROUPS, check_report
+from refactor_pg_evidence import (
+    report_totals, sanitized_pg_environment, write_required_report, write_supplement_report,
+)
+from run_refactor_pg_supplement_gate import check_report as check_supplement, expected_nodeids
 
 ROOT = Path(__file__).resolve().parents[1]
 PORT = 55432
@@ -49,32 +52,18 @@ def run_tests() -> int:
             result = subprocess.run([sys.executable, "-m", "pytest", "-q", "-ra",
                                      *nodes, f"--junitxml={report}"], cwd=cwd, env=env)
             results.append(result.returncode)
-        totals = {"passed": 0, "failed": 0, "skipped": 0}
-        for report in reports.glob("*.xml"):
-            for case in ET.parse(report).getroot().iter("testcase"):
-                key = "skipped" if case.find("skipped") is not None else (
-                    "failed" if any(case.find(tag) is not None for tag in ("failure", "error")) else "passed")
-                totals[key] += 1
+        totals = report_totals(reports)
         print(json.dumps({"counts": totals, "reports": str(reports)}), flush=True)
         gate_failed = False
         try:
             tree = ET.parse(reports / "backend.xml")
-            required = ET.Element("testsuite")
-            for case in tree.getroot().iter("testcase"):
-                if case.get("classname", "").rsplit(".", 1)[-1] in GROUPS:
-                    required.append(case)
             required_report = reports / "required.xml"
-            ET.ElementTree(required).write(required_report)
+            write_required_report(tree, required_report, GROUPS)
             counts = check_report(required_report)
             print(json.dumps({"required_pg_gate": "PASS", "groups": counts}), flush=True)
-            selected = ET.Element("testsuite")
             wanted = set(expected_nodeids())
-            for case in tree.getroot().iter("testcase"):
-                node = junit_nodeid(case)
-                if node in wanted:
-                    selected.append(case)
             supplement = reports / "supplement.xml"
-            ET.ElementTree(selected).write(supplement)
+            write_supplement_report(tree, supplement, wanted)
             supplement_result = check_supplement(supplement, list(wanted))
             print(json.dumps({"supplement_pg_gate": "PASS", "cases": supplement_result["case_count"]}), flush=True)
         except ValueError as exc:
