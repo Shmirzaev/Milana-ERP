@@ -5,6 +5,7 @@ from app.core.deps import DbSession, CurrentUser, require_permissions, user_perm
 from app.schemas import Employee, User
 from app.models.audit_service import log_action
 from app.models.people.employees_service import (
+    backfill_employees_from_users,
     create_employee as create_employee_record,
     update_employee as update_employee_record,
     archive_employee as archive_employee_record,
@@ -99,41 +100,6 @@ def _serialize(r: Employee, *, include_private: bool = False) -> dict:
     return payload
 
 
-def _backfill_employees_from_users(db: DbSession) -> int:
-    """Ensure each app user has a corresponding employee row.
-
-    Older databases may contain demo users in `users` without entries in
-    `employees`, which makes the HR table appear empty.
-    """
-    existing_user_ids = {
-        uid
-        for (uid,) in db.query(Employee.user_id).filter(Employee.user_id.isnot(None)).all()
-        if uid is not None
-    }
-    users = db.query(User).order_by(User.id.asc()).all()
-    created = 0
-    for u in users:
-        if u.id in existing_user_ids:
-            continue
-        db.add(
-            Employee(
-                factory_code=u.factory_code,
-                user_id=u.id,
-                full_name=u.name,
-                department_id=u.department_id,
-                position=(u.role.name if getattr(u, "role", None) else None),
-                phone=None,
-                salary=None,
-                status="active" if bool(u.is_active) else "inactive",
-                joined_at=getattr(u, "created_at", None),
-            )
-        )
-        created += 1
-    if created:
-        db.commit()
-    return created
-
-
 EMPLOYEE_LIST_MAX_LIMIT = 500
 
 
@@ -156,7 +122,7 @@ def list_employees(
     `q` instead of hydrating every employee.
     """
     if settings.BACKFILL_EMPLOYEES_FROM_USERS:
-        _backfill_employees_from_users(db)
+        backfill_employees_from_users(db)
     if page is not None or page_size is not None:
         return _employee_directory_page(db, current, search=search if search is not None else q,
                                         page=page or 1, page_size=page_size or 50, include_archived=include_archived)
