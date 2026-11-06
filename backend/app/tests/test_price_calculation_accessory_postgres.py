@@ -55,7 +55,6 @@ def _effects(db, case):
 
 
 def test_signed_failure_rollback_and_retry(customer_pg_sessions, monkeypatch):
-    import pytest
     from sqlalchemy import event
     from uuid import uuid4
     from app.models import audit_service
