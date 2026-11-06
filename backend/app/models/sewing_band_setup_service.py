@@ -2,6 +2,9 @@
 from sqlalchemy import func
 from app.core.security import hash_password
 from app.schemas import Department, Role, SewingAssignment, SewingFlow, User, WorkOrder
+from app.schemas.identity.role_persistence import add_role
+from app.schemas.identity.user_persistence import add_user
+from app.schemas.production.sewing_flow_persistence import set_sewing_flow_active
 from app.models.audit_service import log_action
 
 BAND_PERMISSIONS = ["sewing.workspace", "sewing.bundles", "sewing.records"]
@@ -35,23 +38,21 @@ def configure_eco_bands(db, actor, password=None, *, apply=False):
     if not password:
         raise ValueError("Password must be supplied securely at provisioning time")
     if not role:
-        role = Role(name="Eco Band", permissions=BAND_PERMISSIONS)
-        db.add(role); db.flush()
+        role = add_role(db, name="Eco Band", permissions=BAND_PERMISSIONS)
         log_action(db, actor, "create", "Role", role.id, new_value={"name": role.name, "permissions": BAND_PERMISSIONS})
     for flow in retiring:
-        flow.is_active = False
+        set_sewing_flow_active(db, flow, False)
         log_action(db, actor, "retire", "SewingFlow", flow.id, old_value={"is_active": True}, new_value={"is_active": False})
     for n, email in enumerate(emails, 1):
         flow = by_code[f"ECO-BAND-{n:02}"]
         if not flow.is_active:
-            flow.is_active = True
+            set_sewing_flow_active(db, flow, True)
             log_action(db, actor, "activate", "SewingFlow", flow.id, new_value={"is_active": True})
         if email in existing:
             continue  # Never reset existing passwords on a retry.
-        user = User(name=f"Band {n}", email=email, password_hash=hash_password(password), role_id=role.id,
-                    department_id=department.id, factory_code="ECO", sewing_band_id=flow.id, is_active=True,
-                    extra_permissions=[])
-        db.add(user); db.flush()
+        user = add_user(db, name=f"Band {n}", email=email, password_hash=hash_password(password), role_id=role.id,
+                        department_id=department.id, factory_code="ECO", sewing_band_id=flow.id, is_active=True,
+                        extra_permissions=[], access_policy=None)
         log_action(db, actor, "create_band_account", "User", user.id,
                    new_value={"email": email, "factory_code": "ECO", "sewing_band_id": flow.id})
     return result
