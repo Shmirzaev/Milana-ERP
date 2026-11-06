@@ -1,5 +1,6 @@
 """Rejection source coverage for the guarded migrated PostgreSQL fixture."""
 from datetime import datetime, timezone
+from decimal import Decimal
 from uuid import uuid4
 
 import pytest
@@ -95,6 +96,15 @@ def test_pg_reject_recovers_invalid_historical_parent(pg_sessions, sellable, qua
     completed = datetime.now(timezone.utc)
     assert response.status_code == 200, response.text
     _effect(pg_sessions, wid, rid, actor, started, completed)
+    with pg_sessions() as db:
+        actual_quantity, actual_sellable = db.execute(
+            text('SELECT quantity::text, sellable FROM waste_records WHERE id=:wid'), {'wid': wid}
+        ).one()
+    assert actual_sellable is sellable
+    if quantity == 'NaN':
+        assert Decimal(actual_quantity).is_nan()
+    else:
+        assert Decimal(actual_quantity) == Decimal(quantity)
 
 
 def test_pg_reject_orphan_creation_fk_refusal_then_existing_request(pg_sessions):
