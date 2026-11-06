@@ -17,12 +17,51 @@ not appended here. This summary does not replace live release verification.
 
 ## Passport totals, pictures and transferred ECT fabric (6 November)
 
-Both live application hosts were verified on `20261105_065721` / `488f3d654`,
+**Deployed together with the seven 5 November fixes.** Both hosts now serve
+green `20261106_061725`, exact application
+`a8579e64efbb2f9545d6df1c35d527c1d4ae2f01`, manifest
+`7f52cf7bf61e6fa4159d65e590d9cefaa6a493992e8b80197343490e5ee09fb0`.
+Database remains `0154_eco_receipt_details`; no business backfill or production
+test rows were created. The historical saved rows now report automatically:
+PO-0749 and PO-0750 each show 1,200 pieces, totaling 2,400. Actual public Edge
+screenshots and signed immutable API checks agree. Export pictures and the
+authoritative ECT 5A picker also passed; fresh available 5A was 151.8 kg at QA.
+
+CI run 42173510387 passed for this exact source: 5,245 backend tests passed, 644
+skipped; separate required PostgreSQL gates passed 180/23/176 cases without
+skips. Frontend lint, strict types, build and contracts passed. Combined local
+Edge flows, independent review, staging/public performance comparisons, all four
+health checks, strict startup/router/log checks and database integrity passed.
+Fresh 113,383,511-byte PostgreSQL backup validated 1,329 restore objects.
+User explicitly waived timed observation; none was run. Owned deployment leases
+were released, and owned local QA services were stopped without deleting data.
+
+Compatible **read-only** rollback is retained on blue `20261106_054000` /
+`bf9cb9f0e738e82b9a21909b22e4cdecae7bed37`. Plain writable 488 is unsafe after
+new grouped/Eco/rejection facts. Recovery uses read-only PostgreSQL and business
+storage, with a separate private writable SQLite security counter store; login
+locks/rate limits remain enabled across two workers. The retained counter copy
+is a rehearsal snapshot: before incident activation, quiesce green and refresh
+from its authoritative store using the separately reviewed recovery procedure.
+Direct old `activate-readonly-backend` authorization is superseded; no automatic
+fallback or completed recovery activation is claimed.
+
+See [combined release record](COMBINED_PASSPORT_FLOOR_RELEASE_20261106.md) for
+immutable identities, backup and actual evidence. Branch
+`codex/deploy-passport-floor-20261106` is pushed and unmerged; shared-source
+integration and human factory acceptance remain pending. The earlier candidate
+records below describe their pre-deployment snapshots and are superseded by this
+release state; they do not prohibit the owner's later explicit deployment request.
+The durable [recovery restriction](archive/passport-floor-release-2026-11-06/READONLY_RECOVERY.md)
+records the required fresh operational counter snapshot before emergency use.
+
+At task start both application hosts were verified on `20261105_065721` / `488f3d654`,
 manifest `e6c603d4c1954c64a75962cf189427eb5e316c039ea23de4699b9bd4f3112095`.
 All 1,905 manifest entries match the candidate base; database remains
 `0154_eco_receipt_details`, rollback source `20261105_043000`. The user approved
 using this exact source after the required baseline drift stop. Older runtime
-pointers below are historical. This task has not deployed or changed production.
+pointers below are historical. The initial standalone task did not deploy;
+the combined release above subsequently deployed its changes.
 
 The [passport repair packet](PASSPORT_TOTALS_ECT_20261106.md) records a reporting-only
 correction: sum saved fabric-row pieces, with a legacy parent fallback and the
