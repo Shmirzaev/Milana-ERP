@@ -109,7 +109,12 @@ export default function SettingsPage() {
         >
           <div><label className="label">{t("common.name")}</label><input className="input" value={company.name} onChange={(e) => setCompany({ ...company, name: e.target.value })} /></div>
           {errors.company_name && <div className="text-xs text-red-600">{errors.company_name}</div>}
-          <div><label className="label">{t("field.logo")}</label><input className="input" type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={(e) => setLogoFile(e.target.files?.[0] || null)} /></div>
+          <div>
+            <span className="label">{t("field.logo")}</span>
+            <input id="company-logo-file" className="sr-only" type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={(e) => setLogoFile(e.target.files?.[0] || null)} />
+            <label htmlFor="company-logo-file" className="btn mt-1 cursor-pointer">{t("page.settings.chooseLogo")}</label>
+            <span className="ml-2 text-sm">{logoFile?.name || t("page.settings.noLogoSelected")}</span>
+          </div>
           {company.logo_url && <img src={company.logo_url} alt={t("page.settings.companyLogo")} className="h-12 w-12 rounded-md border border-[#ecebe3] object-contain" />}
           <div><label className="label">{t("field.address")}</label><input className="input" value={company.address || ""} onChange={(e) => setCompany({ ...company, address: e.target.value })} /></div>
           <div><label className="label">{t("field.phone")}</label><input className="input" value={company.phone || ""} onChange={(e) => setCompany({ ...company, phone: e.target.value })} /></div>

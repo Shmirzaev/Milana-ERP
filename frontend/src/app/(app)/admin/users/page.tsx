@@ -297,7 +297,7 @@ export default function AdminUsersPage() {
               <th>{t("auth.email")}</th>
               <th>{t("field.role")}</th>
               <th>{t("field.department")}</th>
-              <th>Factory</th>
+              <th>{t("common.factory")}</th>
               <th>{t("field.active")}</th>
               <th>{t("field.activity")}</th>
               <th>{t("field.actions")}</th>
@@ -394,7 +394,7 @@ export default function AdminUsersPage() {
               </select>
             </div>
             <div>
-              <label className="label">Factory</label>
+              <label className="label">{t("common.factory")}</label>
               <select className="input" value={edit.factory_code} onChange={(e) => setEdit({ ...edit, factory_code: e.target.value as "MIL" | "BST" | "ECO" })}>
                 <option value="MIL">Milana</option><option value="BST">Besttex</option><option value="ECO">Eco Cotton</option>
               </select>
