@@ -5,8 +5,7 @@ import json
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
 from fastapi import HTTPException
-from sqlalchemy import String, and_, cast, func, or_
-from sqlalchemy.orm import load_only
+from sqlalchemy import String, cast, func, or_
 from app.core.dt import as_utc, utcnow
 from app.core.order_reference import (
     order_reference_variants,
@@ -27,10 +26,9 @@ from app.schemas import (
     WorkOrder,
 )
 from app.libs.dto.people.payroll import (
+    PayrollAdjustmentOut,
     PayrollPeriodIn,
     PayrollPeriodUpdate,
-    PayrollSummaryEmployeeOut,
-    PayrollSummaryOperationOut,
     PayrollSummaryOut,
 )
 from app.models.process_qr_export_service import ProcessQrExportIn
@@ -39,6 +37,9 @@ from app.models.factory_scope_service import selected_factory_code
 from app.models.payroll_reports_service import ReportLanguage
 from app.models.employee_aliases_service import merged_employee
 from app.models.payroll_operation_service import is_control_operation as _is_control_operation
+from sqlalchemy import and_
+from sqlalchemy.orm import load_only
+from app.libs.dto.people.payroll import PayrollSummaryEmployeeOut, PayrollSummaryOperationOut
 from types import SimpleNamespace
 from sqlalchemy import case
 from app.core.model_search import normalized_model_code_column, normalized_model_code_pattern
@@ -139,7 +140,7 @@ def create_period(payload: PayrollPeriodIn, db: Session, current: User) -> Payro
     return period
 
 
-def list_periods(db: Session, current: User=None, status: str | None=None):
+def list_periods(db: Session, current: User, status: str | None=None):
     qry = db.query(PayrollPeriod).filter(PayrollPeriod.factory_code == selected_factory_code(current))
     if status:
         qry = qry.filter(PayrollPeriod.status == status)
@@ -157,7 +158,7 @@ PERIOD_MANAGE_STATUS_TRANSITIONS = {
 }
 
 
-def update_period(period_id: int, payload: PayrollPeriodUpdate, db: Session, current: User=None):
+def update_period(period_id: int, payload: PayrollPeriodUpdate, db: Session, current: User):
     factory_code = selected_factory_code(current)
     _lock_period_schedule(db, factory_code)
     period = db.query(PayrollPeriod).filter(PayrollPeriod.id == period_id, PayrollPeriod.factory_code == factory_code).populate_existing().with_for_update().first()
@@ -193,7 +194,7 @@ def update_period(period_id: int, payload: PayrollPeriodUpdate, db: Session, cur
     return period
 
 
-def lock_period(period_id: int, db: Session, current: User=None):
+def lock_period(period_id: int, db: Session, current: User):
     factory_code = selected_factory_code(current)
     period = db.query(PayrollPeriod).filter(PayrollPeriod.id == period_id, PayrollPeriod.factory_code == factory_code).populate_existing().with_for_update().first()
     if not period:
@@ -208,7 +209,7 @@ def lock_period(period_id: int, db: Session, current: User=None):
     return period
 
 
-def approve_period(period_id: int, db: Session, current: User=None):
+def approve_period(period_id: int, db: Session, current: User):
     factory_code = selected_factory_code(current)
     period = db.query(PayrollPeriod).filter(PayrollPeriod.id == period_id, PayrollPeriod.factory_code == factory_code).populate_existing().with_for_update().first()
     if not period:
@@ -224,7 +225,7 @@ def approve_period(period_id: int, db: Session, current: User=None):
     return period
 
 
-def mark_period_paid(period_id: int, db: Session, current: User=None):
+def mark_period_paid(period_id: int, db: Session, current: User):
     factory_code = selected_factory_code(current)
     period = db.query(PayrollPeriod).filter(PayrollPeriod.id == period_id, PayrollPeriod.factory_code == factory_code).populate_existing().with_for_update().first()
     if not period:
@@ -451,7 +452,7 @@ def _map_payroll_snapshot_references(value, resolve, *, production_order_id=None
     return json.dumps(canonical, ensure_ascii=False, separators=(",", ":")) if canonical != parsed else value
 
 
-def list_records(db: Session, current: User=None, period_id: int | None=None, employee_id: int | None=None, department_id: int | None=None, date_from: datetime | None=None, date_to: datetime | None=None, status: str | None=None, limit: int=200, page: int | None=None, page_size: int | None=None):
+def list_records(db: Session, current: User, period_id: int | None=None, employee_id: int | None=None, department_id: int | None=None, date_from: datetime | None=None, date_to: datetime | None=None, status: str | None=None, limit: int=200, page: int | None=None, page_size: int | None=None):
     qry = _filtered_record_query(
         db,
         factory_code=selected_factory_code(current),
@@ -503,7 +504,7 @@ def _payroll_order_reference_match(db, column, namespace: str, pattern: str):
     return or_(order_reference_contains(column, pattern), column.in_(variants))
 
 
-def order_qr_status_orders(db: Session, current: User=None, search: str | None=None, limit: int=50):
+def order_qr_status_orders(db: Session, current: User, search: str | None=None, limit: int=50):
     qry = db.query(
         PayrollQrLabel.sales_order_no,
         PayrollQrLabel.production_no,
@@ -712,7 +713,7 @@ def _qr_size_sort_key(value: str) -> tuple[int, int, str]:
     return (2, 0, normalized)
 
 
-def order_qr_status_report(db: Session, current: User=None, order_no: str='', status: str | None=None, limit: int=100, offset: int=0):
+def order_qr_status_report(db: Session, current: User, order_no: str='', status: str | None=None, limit: int=100, offset: int=0):
     exact_order = order_no.strip()
     if not exact_order:
         raise HTTPException(400, "Order number is required")
@@ -1125,7 +1126,7 @@ def _sewing_report_options(db: Session, factory_code: str) -> dict[str, list[dic
     }
 
 
-def sewing_production_report_options(db: Session, current: User=None, factory_code: str | None=None):
+def sewing_production_report_options(db: Session, current: User, factory_code: str | None=None):
     scoped_factory = selected_factory_code(current)
     if factory_code:
         require_factory_access(current, factory_code)
@@ -1360,7 +1361,7 @@ def _sewing_report_product_quantity(qry, *, size: str | None = None) -> Decimal:
     )
 
 
-def sewing_production_report(db: Session, current: User=None, date_from: datetime | None=None, date_to: datetime | None=None, employee_id: int | None=None, order_no: str | None=None, cutting_reference: str | None=None, model_code: str | None=None, sewing_flow_id: int | None=None, sewing_line: str | None=None, operation: str | None=None, barcode: str | None=None, size: str | None=None, factory_code: str | None=None, status: str='active', report_view: Literal['details', 'salary']='details', limit: int=100, offset: int=0):
+def sewing_production_report(db: Session, current: User, date_from: datetime | None=None, date_to: datetime | None=None, employee_id: int | None=None, order_no: str | None=None, cutting_reference: str | None=None, model_code: str | None=None, sewing_flow_id: int | None=None, sewing_line: str | None=None, operation: str | None=None, barcode: str | None=None, size: str | None=None, factory_code: str | None=None, status: str='active', report_view: Literal['details', 'salary']='details', limit: int=100, offset: int=0):
     scoped_factory = selected_factory_code(current)
     if factory_code:
         require_factory_access(current, factory_code)
@@ -1418,7 +1419,7 @@ def sewing_production_report(db: Session, current: User=None, date_from: datetim
     }
 
 
-def sewing_production_report_excel(db: Session, current: User=None, lang: ReportLanguage='uz', date_from: datetime | None=None, date_to: datetime | None=None, employee_id: int | None=None, order_no: str | None=None, cutting_reference: str | None=None, model_code: str | None=None, sewing_flow_id: int | None=None, sewing_line: str | None=None, operation: str | None=None, barcode: str | None=None, size: str | None=None, factory_code: str | None=None, status: str='active', report_view: Literal['details', 'salary']='details'):
+def sewing_production_report_excel(db: Session, current: User, lang: ReportLanguage='uz', date_from: datetime | None=None, date_to: datetime | None=None, employee_id: int | None=None, order_no: str | None=None, cutting_reference: str | None=None, model_code: str | None=None, sewing_flow_id: int | None=None, sewing_line: str | None=None, operation: str | None=None, barcode: str | None=None, size: str | None=None, factory_code: str | None=None, status: str='active', report_view: Literal['details', 'salary']='details'):
     scoped_factory = selected_factory_code(current)
     if factory_code:
         require_factory_access(current, factory_code)
@@ -1461,7 +1462,7 @@ def sewing_production_report_excel(db: Session, current: User=None, lang: Report
     return workbook, filename
 
 
-def export_process_qr_operations(payload: ProcessQrExportIn, current: User=None):
+def export_process_qr_operations(payload: ProcessQrExportIn, current: User):
     require_factory_access(current, payload.factory)
     return build_process_qr_xlsx(payload)
 
@@ -1500,7 +1501,7 @@ def _employee_scan_payload(
     }
 
 
-def search_payroll_employees(db: Session, q: str, current: User=None):
+def search_payroll_employees(db: Session, q: str, current: User):
     terms = q.strip().split()
     if len(q.strip()) < 2:
         return {"items": [], "has_more": False}
@@ -1529,7 +1530,7 @@ def search_payroll_employees(db: Session, q: str, current: User=None):
     }
 
 
-def resolve_employee_number(employee_no: str, db: Session, current: User=None):
+def resolve_employee_number(employee_no: str, db: Session, current: User):
     normalized = employee_no.strip()
     if not normalized or len(normalized) > 32:
         raise HTTPException(400, "Employee number must contain between 1 and 32 characters")
@@ -1603,7 +1604,7 @@ def _qr_label_scan_payload(label: PayrollQrLabel) -> dict[str, Any]:
     }
 
 
-def resolve_qr_token(token: str, db: Session, current: User=None):
+def resolve_qr_token(token: str, db: Session, current: User):
     normalized = token.strip()
     if len(normalized) != PAYROLL_QR_TOKEN_LENGTH or not normalized.isdigit():
         raise HTTPException(400, "Payroll QR token must contain exactly 9 digits")
@@ -1792,7 +1793,7 @@ class _PayrollOrderLookup:
         return {reference for namespace in namespaces for reference in self.aliases_by_entity.get((namespace, entity_id), ())}
 
 
-def list_qr_labels(db: Session, current: User=None, search: str | None=None, status: str | None=None, order_no: str | None=None, production_order_id: int | None=None, include_superseded: bool=False, limit: int=100, offset: int=0):
+def list_qr_labels(db: Session, current: User, search: str | None=None, status: str | None=None, order_no: str | None=None, production_order_id: int | None=None, include_superseded: bool=False, limit: int=100, offset: int=0):
     if status and status not in {"available", "scanned", "superseded", "closed"}:
         raise HTTPException(400, "Invalid payroll QR status")
     qry = (
@@ -1904,7 +1905,7 @@ def _filtered_adjustment_query(
     return qry
 
 
-def payroll_summary(db: Session, current: User=None, period_id: int | None=None, employee_id: int | None=None, department_id: int | None=None, date_from: datetime | None=None, date_to: datetime | None=None, group_by_operation: bool=True, page: int | None=None, page_size: int | None=None, employee_search: str | None=None):
+def payroll_summary(db: Session, current: User, period_id: int | None=None, employee_id: int | None=None, department_id: int | None=None, date_from: datetime | None=None, date_to: datetime | None=None, group_by_operation: bool=True, page: int | None=None, page_size: int | None=None, employee_search: str | None=None):
     paged = page is not None or page_size is not None or bool((employee_search or "").strip())
     effective_page = page or 1
     effective_page_size = page_size or 50
@@ -2175,3 +2176,58 @@ def payroll_summary(db: Session, current: User=None, period_id: int | None=None,
         ),
         employee_search=normalized_search or None if paged else None,
     )
+
+
+def list_adjustments(db: Session, current: User, period_id: int | None=None, employee_id: int | None=None, department_id: int | None=None, date_from: datetime | None=None, date_to: datetime | None=None, page: int | None=None, page_size: int | None=None):
+    qry = _filtered_adjustment_query(
+        db,
+        factory_code=selected_factory_code(current),
+        period_id=period_id,
+        employee_id=employee_id,
+        department_id=department_id,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    total = None
+    if page is not None or page_size is not None:
+        page = page or 1
+        page_size = page_size or 100
+        total = qry.order_by(None).count()
+    ordered_qry = qry.order_by(PayrollAdjustment.id.desc())
+    if total is None:
+        return ordered_qry.all()
+    rows = ordered_qry.offset((page - 1) * page_size).limit(page_size).all()
+    employee_ids = {int(row.employee_id) for row in rows}
+    employee_labels = {}
+    if employee_ids:
+        labels = db.query(
+            Employee.id,
+            Employee.full_name,
+            Employee.department_id,
+            Department.name.label("department_name"),
+        ).outerjoin(Department, Employee.department_id == Department.id).filter(
+            Employee.factory_code == selected_factory_code(current),
+            Employee.id.in_(employee_ids),
+        ).all()
+        employee_labels = {
+            int(row.id): {
+                "employee_name": row.full_name,
+                "department_id": row.department_id,
+                "department_name": row.department_name,
+            }
+            for row in labels
+        }
+    serialized_rows = [
+        {
+            **PayrollAdjustmentOut.model_validate(row).model_dump(),
+            **employee_labels.get(int(row.employee_id), {}),
+        }
+        for row in rows
+    ]
+    return {
+        "rows": serialized_rows,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "has_more": page * page_size < total,
+    }

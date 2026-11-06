@@ -2655,58 +2655,7 @@ def list_adjustments(
     page: Annotated[int | None, Query(ge=1)] = None,
     page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
 ):
-    qry = _filtered_adjustment_query(
-        db,
-        factory_code=selected_factory_code(current),
-        period_id=period_id,
-        employee_id=employee_id,
-        department_id=department_id,
-        date_from=date_from,
-        date_to=date_to,
-    )
-    total = None
-    if page is not None or page_size is not None:
-        page = page or 1
-        page_size = page_size or 100
-        total = qry.order_by(None).count()
-    ordered_qry = qry.order_by(PayrollAdjustment.id.desc())
-    if total is None:
-        return ordered_qry.all()
-    rows = ordered_qry.offset((page - 1) * page_size).limit(page_size).all()
-    employee_ids = {int(row.employee_id) for row in rows}
-    employee_labels = {}
-    if employee_ids:
-        labels = db.query(
-            Employee.id,
-            Employee.full_name,
-            Employee.department_id,
-            Department.name.label("department_name"),
-        ).outerjoin(Department, Employee.department_id == Department.id).filter(
-            Employee.factory_code == selected_factory_code(current),
-            Employee.id.in_(employee_ids),
-        ).all()
-        employee_labels = {
-            int(row.id): {
-                "employee_name": row.full_name,
-                "department_id": row.department_id,
-                "department_name": row.department_name,
-            }
-            for row in labels
-        }
-    serialized_rows = [
-        {
-            **PayrollAdjustmentOut.model_validate(row).model_dump(),
-            **employee_labels.get(int(row.employee_id), {}),
-        }
-        for row in rows
-    ]
-    return {
-        "rows": serialized_rows,
-        "total": total,
-        "page": page,
-        "page_size": page_size,
-        "has_more": page * page_size < total,
-    }
+    return payroll_service.list_adjustments(db, current, period_id, employee_id, department_id, date_from, date_to, page, page_size)
 
 
 
