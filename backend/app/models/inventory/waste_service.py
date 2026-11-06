@@ -21,6 +21,7 @@ from app.models.idempotency_service import replay_idempotent_response, store_ide
 from app.schemas import Item, StockBatch, User, WasteDisposalRequest, WasteRecord, WasteSale
 from app.schemas.inventory.waste import add_disposal_request, apply_disposal_approval, mark_waste_disposed, persist_disposal_rejection
 from app.schemas.inventory.waste_create_persistence import insert_manual_waste
+from app.schemas.inventory.waste_receive_persistence import set_received
 from app.schemas.inventory.waste import insert_waste_sale, mark_waste_sold
 
 
@@ -101,7 +102,7 @@ def receive_waste(db, wid: int, current: User) -> WasteRecord:
     if not w: raise HTTPException(404, "Waste record not found")
     if w.status != "recorded":
         raise HTTPException(400, f"Can't receive from status '{w.status}'")
-    w.status = "received_by_waste_department"
+    set_received(db, w)
     log_action(db, current, "receive", "WasteRecord", w.id)
     db.commit(); db.refresh(w)
     return w
