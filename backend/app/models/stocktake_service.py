@@ -22,6 +22,7 @@ from app.schemas import FinishedGoodsStock, Model, Package, PackageItem, User
 from app.schemas.inventory.stocktake import (
     WarehouseStocktake, WarehouseStocktakeRow, add_expected_stocktake_row, add_stocktake,
     delete_stocktake, freeze_stocktake_completion,
+    remove_recorded_scan as persist_scan_undo,
 )
 from app.models.package_identity_service import resolve_warehouse_package
 
@@ -157,7 +158,7 @@ def row_payload(row, current):
 def get_count(db, count_id, *, lock=False):
     query = db.query(WarehouseStocktake).filter(WarehouseStocktake.id == count_id)
     if lock:
-        query = query.with_for_update()
+        query = query.populate_existing().with_for_update()
     count = query.first()
     if not count:
         raise HTTPException(404, "Inventory count not found")
@@ -501,11 +502,7 @@ def remove_recorded_scan(db, current, count_id, row):
         count_id,
         old_value={"row_id": row.id, "code": row.scan_code, "package_id": row.package_id},
     )
-    if row.expected:
-        row.scan_code = row.scanned_at = row.scanned_by = None
-        row.scan_snapshot = None
-    else:
-        db.delete(row)
+    persist_scan_undo(db, row)
 
 
 def delete_scans(db, count_id: int, body: DeleteScans, current: User) -> dict:

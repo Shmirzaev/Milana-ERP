@@ -65,3 +65,12 @@ def freeze_stocktake_completion(
     for row in rows:
         row.final_snapshot = snapshots.get(row.package_id, {})
     count.completed_at = completed_at
+
+
+def remove_recorded_scan(db, row: WarehouseStocktakeRow) -> None:
+    """Apply an already-authorized undo in the caller's transaction."""
+    if row.expected:
+        row.scan_code = row.scanned_at = row.scanned_by = None
+        row.scan_snapshot = None
+    else:
+        db.delete(row)
