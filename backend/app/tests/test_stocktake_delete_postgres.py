@@ -106,3 +106,93 @@ def test_pg_overlapping_bulk_deletes_serialize(pg_sessions, pg_case, monkeypatch
         assert second.result(timeout=30) == 404
     counts, rows, audits = read_state(pg_sessions, ids)
     assert counts == [] and rows == [] and sorted(audits) == ids
+
+
+def test_pg_deferred_commit_failure_restores_bulk(pg_sessions, pg_case, pg_app):
+    actor_id = pg_case["actors"]["standard"]
+    ids = setup_counts(pg_sessions, actor_id)
+    with pg_sessions.begin() as db:
+        db.get(User, actor_id).role.permissions = ["storage.packages"]
+    pg_app.include_router(stocktake.router, prefix="/api")
+    engine = pg_sessions.kw["bind"]
+    observed = []
+    with engine.begin() as conn:
+        conn.exec_driver_sql("""CREATE FUNCTION pr416_reject_commit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+            RAISE EXCEPTION 'fixture commit failure' USING ERRCODE = '23514', CONSTRAINT = 'pr416_commit_guard'; END; $$""")
+        conn.exec_driver_sql(f"""CREATE CONSTRAINT TRIGGER pr416_commit_guard AFTER DELETE ON warehouse_stocktakes
+            DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN (OLD.id = {int(ids[0])})
+            EXECUTE FUNCTION pr416_reject_commit()""")
+    def capture(context):
+        exc = context.original_exception
+        if getattr(exc, "pgcode", None) == "23514":
+            observed.append((context.statement, exc.diag.constraint_name))
+    event.listen(engine, "handle_error", capture)
+    try:
+        with TestClient(pg_app, raise_server_exceptions=False) as client:
+            response = client.post("/api/warehouse-stocktakes/delete-selected", json={"count_ids": ids})
+        assert response.status_code == 500 and observed == [(None, "pr416_commit_guard")]
+        assert read_state(pg_sessions, ids) == (ids, ids, [])
+    finally:
+        event.remove(engine, "handle_error", capture)
+        with engine.begin() as conn:
+            conn.exec_driver_sql("DROP TRIGGER pr416_commit_guard ON warehouse_stocktakes")
+            conn.exec_driver_sql("DROP FUNCTION pr416_reject_commit()")
+
+
+@pytest.mark.parametrize("operation", ["scan", "complete"])
+def test_pg_delete_blocks_scan_or_completion(pg_sessions, pg_case, monkeypatch, operation):
+    from fastapi import HTTPException
+    from app.libs.dto.inventory.warehouse_stocktake_input import ScanCount
+    actor_id = pg_case["actors"]["standard"]
+    ids = setup_counts(pg_sessions, actor_id)
+    locked, release, selecting = Event(), Event(), Event()
+    pids = {}
+    original = stocktake_service.delete_stocktake
+    def pause(db, count, rows):
+        if not locked.is_set():
+            pids["delete"] = db.scalar(text("select pg_backend_pid()"))
+            locked.set()
+            assert release.wait(20)
+        original(db, count, rows)
+    monkeypatch.setattr(stocktake_service, "delete_stocktake", pause)
+    def delete():
+        with pg_sessions() as db:
+            return stocktake_service.delete_counts(db, DeleteCounts(count_ids=ids), db.get(User, actor_id))
+    def competing():
+        with pg_sessions() as db:
+            actor = db.get(User, actor_id)
+            pids["other"] = db.scalar(text("select pg_backend_pid()"))
+            def before(conn, cursor, statement, parameters, context, executemany):
+                if "for update" in statement.lower() and "warehouse_stocktakes" in statement.lower():
+                    selecting.set()
+            event.listen(db.connection(), "before_cursor_execute", before)
+            try:
+                if operation == "scan":
+                    stocktake_service.scan_count(db, ids[0], ScanCount(code="fixture"), actor)
+                else:
+                    stocktake_service.complete_count(db, ids[0], actor)
+            except HTTPException as exc:
+                db.rollback()
+                return exc.status_code
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(delete)
+        try:
+            assert locked.wait(10)
+            second = pool.submit(competing)
+            assert selecting.wait(10)
+            deadline = monotonic() + 10
+            blocked = False
+            while monotonic() < deadline:
+                with pg_sessions() as db:
+                    blocked = pids["delete"] in db.scalar(text("select pg_blocking_pids(:pid)"), {"pid": pids["other"]})
+                if blocked:
+                    break
+                sleep(.05)
+            assert blocked
+            assert read_state(pg_sessions, ids) == (ids, ids, [])
+        finally:
+            release.set()
+        assert first.result(timeout=30) == {"deleted": ids}
+        assert second.result(timeout=30) == 404
+    counts, rows, audits = read_state(pg_sessions, ids)
+    assert counts == [] and rows == [] and sorted(audits) == ids
