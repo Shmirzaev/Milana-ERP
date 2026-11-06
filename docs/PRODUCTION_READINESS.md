@@ -16,7 +16,7 @@ Use this checklist before exposing Milana ERP to real users or customer data.
 - Authenticated model file access.
 - Audit logs with hash-chain tamper evidence.
 - Backend regression tests for security, auth, audit, production, inventory, and sales flows.
-- CI backend tests and Ruff; frontend lint, typecheck, browser regressions, and build. Bandit, `pip-audit`, and `npm audit` do not currently run in CI.
+- CI backend tests and Ruff; frontend lint, typecheck, browser regressions, and build. The conditional Trivy gate scans exact images and dependency files before manual release; explicit dated acceptances are in `security/accepted-findings.json`. Bandit, `pip-audit`, and `npm audit` are not separate CI jobs. The nightly schedule starts once the reviewed workflow reaches main, the repository default branch.
 - Dependabot configuration for backend, frontend, and GitHub Actions.
 
 ## Must Be Completed Before Production
