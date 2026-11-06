@@ -149,7 +149,8 @@ def test_pg_disposal_request_race_serializes_on_parent(pg_sessions):
                     break
                 sleep(0.01)
             else:
-                pytest.fail('Both requests did not wait on the owned parent lock')
+                graph = {pid: holder.execute(text('SELECT pg_blocking_pids(:pid)'), {'pid': pid}).scalar_one() for pid in pids}
+                pytest.fail(f'Both requests did not wait directly on owned parent holder={holder_pid}; graph={graph}')
         finally:
             start.set()
             holder.rollback()
