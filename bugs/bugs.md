@@ -1,5 +1,9 @@
 # Team bug tracker — clone_main
 
+## PERF37-CI-TIMING-20261106 — rate-store isolation timing test intermittently fails in hosted CI
+
+- **P3 · Flaky timing test, root cause unknown · Shared backend infrastructure · Owner: Dilmurod.** On [#485](https://github.com/Shmirzaev/Milana-ERP/pull/485), one hosted backend run measured a health p95 increase of 0.948 s over the 0.25 s limit under SQLite rate-store contention; its one rerun passed. The test passed 3/3 on current `clone_main` and 3/3 on #485 locally (about 11–12 s per run). #485 moves `/api/auth/me`'s existing last-seen update and single commit into the Identity service without adding a query or lock; the failing test exercises `/health` and OPTIONS, not `/api/auth/me`. Investigate hosted runner timing before changing the budget or runtime behavior. No production failure claimed.
+
 ## PEO-PAY-CREATE-20261106 — payroll extraction awaiting user browser acceptance
 
 - **USER BROWSER PENDING · People · Owner: Dilmurod; lead: Mirshoir (review delegated).** Payroll period/read stack and final three families are tracked in [task evidence](../docs/archive/payroll-create-2026-11-06/CONTINUATION.md). User explicitly owns browser checks and authorized one combined top-PR CI merge. Normal-routed QR44/adjustments24/records70 checks passed with zero skips; full combined payroll and hosted CI gates remain pending at this commit. Production acceptance remains unrecorded; no deployment.
