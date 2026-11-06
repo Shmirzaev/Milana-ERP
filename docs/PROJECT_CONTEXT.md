@@ -18,10 +18,12 @@ not appended here. This summary does not replace live release verification.
 ## Dilmurod source classification (7 November)
 
 Behavior-preserving Identity #546, People #545, Support #547 and Work #544 code
-landed on `clone_main`. The [coverage ledger](REFACTOR_COVERAGE.md#dilmurods-source-classification-slice--7-november-2026)
-classifies 23 mapped tables / 324 fields from source and fixtures. Actual stored
-values, remaining route/bootstrap boundaries, contract decisions and human
-acceptance remain open. No deployment is implied by these merges.
+landed on `clone_main`; #549 closes the remaining Eco Band writer and Work read
+boundaries. The [coverage ledger](REFACTOR_COVERAGE.md#dilmurods-source-classification-slice--7-november-2026)
+classifies 23 mapped tables / 324 fields from source and fixtures. Dilmurod
+excluded seed and one-off employee reconciliation from the running-app slice on
+7 November. Actual stored-value counts, contract decisions and human acceptance
+remain open. No deployment is implied by these merges.
 
 ## RF-004 shared infrastructure (6 November)
 
