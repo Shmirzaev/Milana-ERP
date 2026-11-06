@@ -1,5 +1,9 @@
 # Team bug tracker — clone_main
 
+## CUT-INBOX-CI-FLAKE-20261106 — cutting search pagination test intermittently fails in hosted CI
+
+- **P3 · Flaky test, root cause unknown · Production/Cutting · Owner: Mirshoir.** On [#495](https://github.com/Shmirzaev/Milana-ERP/pull/495), one hosted backend run reported 63 instead of 3 matching cutting cards in `test_cutting_search_matches_displayed_fields_before_paging_and_keeps_latest_passport`; its one rerun passed. The same test passed 3/3 on current `clone_main` and 3/3 on #495 locally (about 9.1–9.3 s per run). Running attendance characterization tests immediately before it also passed (27 passed, 26 PostgreSQL-only skips). The attendance fixture resets SQLite state per test; no attendance-to-cutting data leak was reproduced. Investigate the hosted full-suite order and search query before changing Production behavior. No production failure claimed.
+
 ## PEO-PAY-CREATE-20261106 — payroll extraction awaiting user browser acceptance
 
 - **USER BROWSER PENDING · People · Owner: Dilmurod; lead: Mirshoir (review delegated).** Payroll period/read stack and final three families are tracked in [task evidence](../docs/archive/payroll-create-2026-11-06/CONTINUATION.md). User explicitly owns browser checks and authorized one combined top-PR CI merge. Normal-routed QR44/adjustments24/records70 checks passed with zero skips; full combined payroll and hosted CI gates remain pending at this commit. Production acceptance remains unrecorded; no deployment.

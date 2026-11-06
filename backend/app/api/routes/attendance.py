@@ -1,21 +1,17 @@
 from __future__ import annotations
 
 import hmac
-from datetime import date, datetime, time, timedelta, timezone
-from pathlib import Path
+from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse, Response
-from sqlalchemy import case, func, or_
-from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.deps import DbSession, require_permissions
-from app.core.dt import as_utc, utcnow
-from app.schemas import AttendanceDevice, AttendanceEvent, AttendancePerson, User
-from app.models.factory_scope_service import selected_factory_code
-from app.models.attendance_reports_service import ReportLanguage, build_daily_attendance_xlsx
+from app.core.dt import utcnow
+from app.schemas import AttendanceDevice, User
+from app.models.attendance_reports_service import ReportLanguage
 from app.models.audit_service import log_action
 from app.models.people import attendance_service
 from app.models.people.attendance_service import (
@@ -33,8 +29,11 @@ from app.models.people.attendance_service import (
 )
 from app.libs.dto.people.attendance import PersonIn as PersonIn, PeopleSnapshotIn, EventIn as EventIn, EventBatchIn
 from app.libs.dto.people.attendance import DeviceIn as DeviceIn, ManagedDeviceIn as ManagedDeviceIn, ManagedDeviceUpdateIn as ManagedDeviceUpdateIn
-from app.models.attendance_event_policy_service import accepted_attendance_result
 
+
+_day_bounds = attendance_service._day_bounds
+_attendance_people_query = attendance_service._attendance_people_query
+_attendance_row_payload = attendance_service._attendance_row_payload
 
 router = APIRouter(prefix="/attendance", tags=["attendance"])
 TASHKENT = ZoneInfo("Asia/Tashkent")
@@ -106,120 +105,6 @@ async def import_person_photo(
     return await attendance_service.import_person_photo(device_key, external_person_id, content, db, identity)
 
 
-def _day_bounds(day: date) -> tuple[datetime, datetime]:
-    start_local = datetime.combine(day, time.min, tzinfo=TASHKENT)
-    end_local = datetime.combine(day, time.max, tzinfo=TASHKENT)
-    return start_local.astimezone(timezone.utc), end_local.astimezone(timezone.utc)
-
-
-def _attendance_people_query(
-    db: Session,
-    *,
-    factory_code: str,
-    start: datetime,
-    end: datetime,
-    query: str,
-    usage: str,
-):
-    event_rollup = db.query(
-        AttendanceEvent.external_person_id.label("external_person_id"),
-        func.count(AttendanceEvent.id).label("event_count"),
-        func.min(AttendanceEvent.occurred_at).label("first_seen_at"),
-        func.max(AttendanceEvent.occurred_at).label("last_seen_at"),
-    ).filter(
-        AttendanceEvent.factory_code == factory_code,
-        AttendanceEvent.occurred_at >= start,
-        AttendanceEvent.occurred_at <= end,
-        AttendanceEvent.external_person_id.is_not(None),
-        accepted_attendance_result(AttendanceEvent.result),
-    ).group_by(AttendanceEvent.external_person_id).subquery()
-
-    # Hikvision commonly replicates the same employee profile to every lane.
-    # Keep the device-specific copies for traceability, but choose one stable
-    # representative per employee ID for the combined attendance view.
-    representative_people = db.query(
-        AttendancePerson.external_person_id.label("external_person_id"),
-        func.coalesce(
-            func.min(case((AttendancePerson.present_on_device.is_(True), AttendancePerson.id))),
-            func.min(AttendancePerson.id),
-        ).label("person_id"),
-    ).outerjoin(
-        event_rollup,
-        event_rollup.c.external_person_id == AttendancePerson.external_person_id,
-    ).filter(
-        AttendancePerson.factory_code == factory_code,
-        or_(AttendancePerson.present_on_device.is_(True), event_rollup.c.event_count.is_not(None)),
-    ).group_by(AttendancePerson.external_person_id).subquery()
-
-    base = db.query(
-        AttendancePerson,
-        event_rollup.c.event_count,
-        event_rollup.c.first_seen_at,
-        event_rollup.c.last_seen_at,
-    ).outerjoin(
-        event_rollup,
-        event_rollup.c.external_person_id == AttendancePerson.external_person_id,
-    ).join(
-        representative_people,
-        representative_people.c.person_id == AttendancePerson.id,
-    ).filter(
-        AttendancePerson.factory_code == factory_code,
-    )
-    search = query.strip()
-    if search:
-        like = f"%{search}%"
-        base = base.filter(or_(AttendancePerson.full_name.ilike(like), AttendancePerson.external_person_id.ilike(like)))
-    if usage == "used":
-        base = base.filter(event_rollup.c.event_count.is_not(None))
-    elif usage == "not_used":
-        base = base.filter(event_rollup.c.event_count.is_(None))
-    return base
-
-
-def _attendance_row_payload(
-    person: AttendancePerson,
-    event_count: int | None,
-    first_seen_at: datetime | None,
-    last_seen_at: datetime | None,
-) -> dict:
-    count = int(event_count or 0)
-    arrival_at = as_utc(first_seen_at) if count else None
-    final_seen_at = as_utc(last_seen_at) if count else None
-    departure_at = (
-        final_seen_at
-        if (
-            count > 1
-            and arrival_at is not None
-            and final_seen_at is not None
-            and final_seen_at - arrival_at >= timedelta(minutes=1)
-        )
-        else None
-    )
-    attendance_status = "complete" if departure_at is not None else ("single_scan" if arrival_at is not None else "absent")
-    worked_minutes = (
-        int((departure_at - arrival_at).total_seconds() // 60)
-        if departure_at is not None and arrival_at is not None
-        else None
-    )
-    return {
-        "id": person.id,
-        "external_person_id": person.external_person_id,
-        "full_name": person.full_name,
-        "user_type": person.user_type,
-        "is_valid": person.is_valid,
-        "has_face": person.has_face,
-        "has_photo": bool(person.photo_file_name),
-        "event_count": count,
-        "arrival_at": arrival_at,
-        "departure_at": departure_at,
-        "worked_minutes": worked_minutes,
-        "attendance_status": attendance_status,
-        # Kept for compatibility with the first attendance UI/API version.
-        "first_seen_at": arrival_at,
-        "last_seen_at": final_seen_at,
-    }
-
-
 _device_payload = attendance_service._device_payload
 
 
@@ -258,64 +143,7 @@ def attendance_overview(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=10, le=200),
 ):
-    factory_code = selected_factory_code(current)
-    start, end = _day_bounds(day)
-    base = _attendance_people_query(
-        db,
-        factory_code=factory_code,
-        start=start,
-        end=end,
-        query=query,
-        usage=usage,
-    )
-    total_filtered = base.count()
-    rows = base.order_by(AttendancePerson.full_name.asc(), AttendancePerson.external_person_id.asc()).offset(
-        (page - 1) * page_size
-    ).limit(page_size).all()
-
-    total_people = _attendance_people_query(
-        db, factory_code=factory_code, start=start, end=end, query="", usage="all",
-    ).count()
-    used_today = db.query(func.count(func.distinct(AttendanceEvent.external_person_id))).filter(
-        AttendanceEvent.factory_code == factory_code,
-        AttendanceEvent.occurred_at >= start,
-        AttendanceEvent.occurred_at <= end,
-        AttendanceEvent.external_person_id.is_not(None),
-        accepted_attendance_result(AttendanceEvent.result),
-    ).scalar() or 0
-    events_today = db.query(func.count(AttendanceEvent.id)).filter(
-        AttendanceEvent.factory_code == factory_code,
-        AttendanceEvent.occurred_at >= start,
-        AttendanceEvent.occurred_at <= end,
-    ).scalar() or 0
-    unmatched_events = db.query(func.count(AttendanceEvent.id)).filter(
-        AttendanceEvent.factory_code == factory_code,
-        AttendanceEvent.occurred_at >= start,
-        AttendanceEvent.occurred_at <= end,
-        AttendanceEvent.external_person_id.is_(None),
-    ).scalar() or 0
-    devices = db.query(AttendanceDevice).filter(AttendanceDevice.factory_code == factory_code).order_by(AttendanceDevice.name).all()
-    return {
-        "date": day.isoformat(),
-        "summary": {
-            "total_people": total_people,
-            "used_today": used_today,
-            "not_used_today": max(total_people - used_today, 0),
-            "events_today": events_today,
-            "unmatched_events": unmatched_events,
-        },
-        "devices": [_device_payload(device) for device in devices],
-        "people": [
-            _attendance_row_payload(person, event_count, first_seen_at, last_seen_at)
-            for person, event_count, first_seen_at, last_seen_at in rows
-        ],
-        "pagination": {
-            "page": page,
-            "page_size": page_size,
-            "total": total_filtered,
-            "pages": max((total_filtered + page_size - 1) // page_size, 1),
-        },
-    }
+    return attendance_service.attendance_overview(db, current, day, query, usage, page, page_size)
 
 
 @router.get("/reports/daily.xlsx")
@@ -327,26 +155,7 @@ def download_daily_attendance_report(
     usage: str = Query(default="all", pattern="^(all|used|not_used)$"),
     lang: ReportLanguage = Query(default="uz"),
 ):
-    factory_code = selected_factory_code(current)
-    start, end = _day_bounds(day)
-    records = _attendance_people_query(
-        db,
-        factory_code=factory_code,
-        start=start,
-        end=end,
-        query=query,
-        usage=usage,
-    ).order_by(AttendancePerson.full_name.asc(), AttendancePerson.external_person_id.asc()).all()
-    rows = [
-        _attendance_row_payload(person, event_count, first_seen_at, last_seen_at)
-        for person, event_count, first_seen_at, last_seen_at in records
-    ]
-    content = build_daily_attendance_xlsx(
-        day=day,
-        rows=rows,
-        generated_at=utcnow(),
-        lang=lang,
-    )
+    content = attendance_service.daily_attendance_report(db, current, day, query, usage, lang, clock=utcnow)
     return Response(
         content=content,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -360,15 +169,5 @@ def attendance_person_photo(
     db: DbSession,
     current: User = Depends(require_permissions("attendance.view", "attendance.manage", "*")),
 ):
-    person = db.query(AttendancePerson).filter(
-        AttendancePerson.id == person_id,
-        AttendancePerson.factory_code == selected_factory_code(current),
-        AttendancePerson.present_on_device.is_(True),
-    ).one_or_none()
-    if not person or not person.photo_file_name:
-        raise HTTPException(404, "Attendance photo not found")
-    root = Path(settings.ATTENDANCE_PHOTOS_DIR).resolve()
-    path = (root / person.photo_file_name).resolve()
-    if path.parent != root or not path.is_file():
-        raise HTTPException(404, "Attendance photo not found")
-    return FileResponse(path, media_type="image/webp", headers={"Cache-Control": "private, max-age=300"})
+    path = attendance_service.attendance_person_photo_path(person_id, db, current)
+    return FileResponse(path, media_type="image/webp", headers={"Cache-Control": "no-store"})
