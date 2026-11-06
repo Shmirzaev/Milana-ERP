@@ -48,6 +48,37 @@ def create_employee(db: Session, current: User, values: dict) -> Employee:
     return employee
 
 
+def backfill_employees_from_users(db: Session) -> int:
+    """Keep the optional legacy employee-list backfill in one transaction."""
+    existing_user_ids = {
+        uid
+        for (uid,) in db.query(Employee.user_id).filter(Employee.user_id.isnot(None)).all()
+        if uid is not None
+    }
+    users = db.query(User).order_by(User.id.asc()).all()
+    created = 0
+    for user in users:
+        if user.id in existing_user_ids:
+            continue
+        insert_employee(
+            db, factory_code=user.factory_code,
+            values={
+                "user_id": user.id,
+                "full_name": user.name,
+                "department_id": user.department_id,
+                "position": user.role.name if getattr(user, "role", None) else None,
+                "phone": None,
+                "salary": None,
+                "status": "active" if bool(user.is_active) else "inactive",
+                "joined_at": getattr(user, "created_at", None),
+            },
+        )
+        created += 1
+    if created:
+        db.commit()
+    return created
+
+
 def _validated_employee_salary(value: Decimal | None) -> Decimal | None:
     if value is None:
         return None
