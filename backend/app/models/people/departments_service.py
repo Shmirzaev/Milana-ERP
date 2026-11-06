@@ -5,8 +5,8 @@ from sqlalchemy.orm import Session
 
 from app.libs.dto.catalog.catalog import DepartmentIn
 from app.models.audit_service import log_action
-from app.schemas import Department, User
-from app.schemas.people.department_persistence import insert_department, update_department_values
+from app.schemas import Department, Employee, User, WorkOrder
+from app.schemas.people.department_persistence import delete_department_row, insert_department, update_department_values
 
 
 def create_department(payload: DepartmentIn, db: Session, current: User) -> Department:
@@ -43,3 +43,20 @@ def update_department(
     db.commit()
     db.refresh(d)
     return d
+
+
+def delete_department(department_id: int, db: Session, current: User) -> None:
+    d = db.get(Department, department_id)
+    if not d:
+        raise HTTPException(404, "Department not found")
+
+    if db.query(User).filter(User.department_id == department_id).first():
+        raise HTTPException(409, "Department is assigned to users. Reassign users before delete.")
+    if db.query(Employee).filter(Employee.department_id == department_id).first():
+        raise HTTPException(409, "Department is assigned to employees. Reassign employees before delete.")
+    if db.query(WorkOrder).filter(WorkOrder.department_id == department_id).first():
+        raise HTTPException(409, "Department is used by work orders. Delete is blocked.")
+
+    delete_department_row(db, d)
+    log_action(db, current, "delete", "Department", department_id)
+    db.commit()
