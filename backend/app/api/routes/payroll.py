@@ -84,9 +84,7 @@ from app.models.employee_aliases_service import merged_employee
 from app.libs.dto.people.payroll_split_correction import SplitAllocationOut, SplitAllocationUpdate
 from app.models.payroll_split_correction_service import correct_split_allocation, read_split_allocation, render_split_allocation_labels
 from app.models.payroll_labels_service import split_labels_print_response
-from app.models.payroll_period_lock_service import lock_period_schedule as _lock_period_schedule
 from app.models.people import payroll_service
-from app.models.people.payroll_service import _validate_period_dates, _assert_period_dates_available
 from app.models.payroll_operation_service import is_control_operation as _is_control_operation
 
 router = APIRouter(prefix="/payroll", tags=["payroll"])
@@ -97,15 +95,6 @@ router = APIRouter(prefix="/payroll", tags=["payroll"])
 MAX_PAYROLL_SNAPSHOT_BYTES = 16 * 1024
 MAX_PAYROLL_SNAPSHOT_DEPTH = 16
 
-PERIOD_STATUSES = {"draft", "open", "locked", "approved", "paid", "cancelled"}
-PERIOD_MANAGE_STATUS_TRANSITIONS = {
-    "draft": {"draft", "open", "cancelled"},
-    "open": {"draft", "open", "cancelled"},
-    "locked": {"open", "locked", "cancelled"},
-    "approved": {"approved"},
-    "paid": {"paid"},
-    "cancelled": {"cancelled"},
-}
 RECORD_STATUSES = {"recorded", "voided", "approved", "paid"}
 MUTATION_LOCKED_PERIOD_STATUSES = {"locked", "approved", "paid", "cancelled"}
 ADJUSTMENT_TYPES = {"bonus", "deduction"}
@@ -1268,48 +1257,7 @@ def update_period(
     db: DbSession,
     current: User = Depends(require_permissions("payroll.manage", "*")),
 ):
-    factory_code = selected_factory_code(current)
-    _lock_period_schedule(db, factory_code)
-    period = db.query(PayrollPeriod).filter(
-        PayrollPeriod.id == period_id,
-        PayrollPeriod.factory_code == factory_code,
-    ).populate_existing().with_for_update().first()
-    if not period:
-        raise HTTPException(404, "Payroll period not found")
-    changes = payload.model_dump(exclude_unset=True)
-    if "status" in changes:
-        next_status = changes["status"]
-        if next_status not in PERIOD_STATUSES:
-            raise HTTPException(400, "Invalid payroll period status")
-        if next_status not in PERIOD_MANAGE_STATUS_TRANSITIONS.get(period.status, {period.status}):
-            raise HTTPException(409, "Use the dedicated lock, approval, or payment action for this payroll status")
-    start_date = changes.get("start_date", period.start_date)
-    end_date = changes.get("end_date", period.end_date)
-    _validate_period_dates(start_date, end_date)
-    if changes.get("period_no"):
-        exists = db.query(PayrollPeriod.id).filter(
-            PayrollPeriod.factory_code == factory_code,
-            PayrollPeriod.period_no == changes["period_no"],
-            PayrollPeriod.id != period.id,
-        ).first()
-        if exists:
-            raise HTTPException(400, "Payroll period number already exists")
-    if "name" in changes and changes["name"] is not None and len(changes["name"]) > 128:
-        raise HTTPException(422, "Payroll period name exceeds the 128-character storage limit")
-    # Shrinking a legacy range can remove ambiguity without introducing any
-    # new overlap. Keep that repair available even if older overlaps remain.
-    if as_utc(start_date) < as_utc(period.start_date) or as_utc(end_date) > as_utc(period.end_date):
-        _assert_period_dates_available(db, factory_code, start_date, end_date, exclude_id=period.id)
-    for key in ("start_date", "end_date"):
-        if key in changes:
-            changes[key] = as_utc(changes[key])
-    old = {key: getattr(period, key) for key in changes.keys() if hasattr(period, key)}
-    for key, value in changes.items():
-        setattr(period, key, value)
-    log_action(db, current, "update", "PayrollPeriod", period.id, old_value=old, new_value=changes)
-    db.commit()
-    db.refresh(period)
-    return period
+    return payroll_service.update_period(period_id, payload, db, current)
 
 
 @router.post("/periods/{period_id}/lock", response_model=PayrollPeriodOut)
