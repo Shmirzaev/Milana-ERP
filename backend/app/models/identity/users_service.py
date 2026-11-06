@@ -65,3 +65,8 @@ def create_user(db: Session, payload: UserIn, actor: User) -> tuple[User, str | 
     db.commit()
     db.refresh(user)
     return user, setup_url
+
+
+def list_users(db: Session, actor: User) -> list[User]:
+    require_permissions("admin.users", "*")(actor)
+    return db.query(User).order_by(User.id).all()
