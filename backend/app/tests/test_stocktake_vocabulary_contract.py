@@ -27,6 +27,9 @@ def test_result_filter_values_and_invalid_request(client, auth_headers):
         result = schema['components']['schemas'][result['$ref'].rsplit('/', 1)[-1]]
     assert set(result['enum']) == {'all', 'scanned', 'found', 'missing', 'unknown', 'unexpected', 'ambiguous', 'changed'}
     assert client.get('/api/warehouse-stocktakes/1?result=invalid', headers=auth_headers).status_code == 422
+    for value in StocktakeFilter:
+        response = client.get(f'/api/warehouse-stocktakes/999999?result={value.value}', headers=auth_headers)
+        assert response.status_code == 404, (value.value, response.text)
 
 
 def test_vocabulary_serializes_existing_values():
