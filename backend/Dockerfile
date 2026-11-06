@@ -21,4 +21,6 @@ USER appuser
 
 EXPOSE 8000
 
-CMD ["sh", "-c", "PYTHONPATH=/app:/app/backend alembic -c /app/alembic.ini upgrade head && PYTHONPATH=/app:/app/backend uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-10000} --workers ${WEB_CONCURRENCY:-2}"]
+# This retained incident image never runs migrations. The recovery coordinator
+# verifies the existing schema before starting it; FastAPI verifies it again.
+CMD ["sh", "-c", "exec env PYTHONPATH=/app:/app/backend uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-10000} --workers ${WEB_CONCURRENCY:-2}"]

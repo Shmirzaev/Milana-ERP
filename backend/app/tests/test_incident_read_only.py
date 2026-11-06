@@ -1,9 +1,20 @@
 """Old recovery application must not execute newer-fact mutation paths."""
 import pytest
+import json
+from pathlib import Path
 from app.core.config import Settings, settings
 from app.db.session import _engine_options
 from app.schemas import User
 from app.tests.conftest import TestSessionLocal
+
+
+def test_recovery_container_starts_uvicorn_without_migrations():
+    dockerfile=(Path(__file__).resolve().parents[2]/'Dockerfile').read_text()
+    command=json.loads(next(line[4:] for line in dockerfile.splitlines() if line.startswith('CMD ')))
+    assert command[:2]==['sh','-c']
+    assert command[2].startswith('exec env PYTHONPATH=/app:/app/backend uvicorn app.main:app ')
+    assert 'alembic' not in command[2] and '&&' not in command[2]
+    assert '--workers ${WEB_CONCURRENCY:-2}' in command[2]
 
 
 def test_mode_defaults_off_and_requires_postgresql():

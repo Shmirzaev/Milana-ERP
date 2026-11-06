@@ -26,6 +26,9 @@ The application PostgreSQL engine defaults every connection to read-only and set
 each transaction READ ONLY, covering normal sessions and hidden/raw SQL GET writes.
 PostgreSQL25006 is mapped to503. Startup fails if schema sync or seed is enabled;
 unsupported non-PostgreSQL engines refuse rather than silently losing enforcement.
+This dedicated recovery Docker image starts only Uvicorn, never Alembic. Recovery
+verifies the retained schema beforehand and application startup verifies its head;
+an incompatible schema refuses startup instead of running migration writes.
 No new business state, DTO, schema, migration or persistence operation is introduced.
 The switch is a typed boolean deployment setting; HTTP verbs and exception SQLSTATE
 are infrastructure protocols, not new business enums. Existing domain writers and
@@ -74,7 +77,8 @@ DEPLOYMENT.md health/backup/source/rollback gates remain; the owner waived only 
 
 ## Evidence and remaining gate
 
-Targeted mode/auth/config/startup tests45passed. Actual PostgreSQL gate uses a unique
+Targeted mode/auth/config/startup tests45passed; an added container-command contract
+proves the recovery default starts only Uvicorn without Alembic. Actual PostgreSQL gate uses a unique
 schema in a disposable loopback QA database, distinct-source100+200 grouped JSON,
 an independent no-execution rejected order, and an ECO physical debit. It reads the
 actual grouped passport, checks persisted allocations, attempts old mutation paths,
