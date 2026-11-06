@@ -16,6 +16,7 @@ from app.models.audit_service import log_action
 from app.models.finance.invoices_service import void_invoices_for_shipment_reopen
 from app.models.packages_service import _sync_package_production
 from app.models.shipment_review_service import locked_shipment
+from app.schemas.core_idempotency_record_persistence import set_idempotency_request_hash
 
 
 def _conflict(code: str):
@@ -142,7 +143,9 @@ def reopen_shipment(db: Session, sid: int, payload: ShipmentReopen, user: User) 
         if (response.get("shipment_id") == sid or response.get("id") == sid
                 or ((record.scope == "shipments.scan-package" or record.scope.startswith("shipments.scan-package:v2:"))
                     and response.get("package_id") in ids)):
-            record.request_hash = sha256(("shipment-reopened:" + record.request_hash).encode()).hexdigest()
+            set_idempotency_request_hash(
+                record, sha256(("shipment-reopened:" + record.request_hash).encode()).hexdigest(),
+            )
     db.flush()
     for production_id in {p.production_order_id for p in packages if p.production_order_id}:
         _sync_package_production(db, production_id)
