@@ -34,6 +34,21 @@ class WarehouseStocktakeRow(Base, PkMixin):
     scanned_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
 
 
+def add_stocktake(db: Session, *, request_key: str, title: str, created_by: int) -> WarehouseStocktake:
+    """Add the count to the caller's session; the service controls flushing."""
+    count = WarehouseStocktake(request_key=request_key, title=title, created_by=created_by)
+    db.add(count)
+    return count
+
+
+def add_expected_stocktake_row(db: Session, *, stocktake_id: int, package_id: int, snapshot: dict) -> None:
+    """Record one count-start snapshot in the caller's session."""
+    db.add(WarehouseStocktakeRow(
+        stocktake_id=stocktake_id, identity=f"package:{package_id}",
+        package_id=package_id, expected=True, category="expected", snapshot=snapshot,
+    ))
+
+
 def delete_stocktake(db: Session, count: WarehouseStocktake, rows: Query) -> None:
     """Delete a locked count and its rows in the caller's transaction."""
     rows.delete(synchronize_session=False)

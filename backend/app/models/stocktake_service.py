@@ -17,7 +17,8 @@ from app.libs.dto.inventory.warehouse_stocktake_input import (
 from app.models.audit_service import log_action
 from app.schemas import FinishedGoodsStock, Model, Package, PackageItem, User
 from app.schemas.inventory.stocktake import (
-    WarehouseStocktake, WarehouseStocktakeRow, delete_stocktake, freeze_stocktake_completion,
+    WarehouseStocktake, WarehouseStocktakeRow, add_expected_stocktake_row, add_stocktake,
+    delete_stocktake, freeze_stocktake_completion,
 )
 from app.models.package_identity_service import resolve_warehouse_package
 
@@ -395,8 +396,7 @@ def create_count(db, body: CreateCount, current: User) -> dict:
     existing = db.query(WarehouseStocktake).filter_by(request_key=key).first()
     if existing:
         return count_info(existing)
-    count = WarehouseStocktake(request_key=key, title=title, created_by=current.id)
-    db.add(count)
+    count = add_stocktake(db, request_key=key, title=title, created_by=current.id)
     try:
         db.flush()
     except IntegrityError:
@@ -406,16 +406,7 @@ def create_count(db, body: CreateCount, current: User) -> dict:
             return count_info(existing)
         raise
     for pid, snapshot in package_snapshots(db, expected_only=True).items():
-        db.add(
-            WarehouseStocktakeRow(
-                stocktake_id=count.id,
-                identity=f"package:{pid}",
-                package_id=pid,
-                expected=True,
-                category="expected",
-                snapshot=snapshot,
-            )
-        )
+        add_expected_stocktake_row(db, stocktake_id=count.id, package_id=pid, snapshot=snapshot)
     log_action(db, current, "start", "WarehouseStocktake", count.id, new_value={"title": title})
     db.commit()
     return count_info(count)
