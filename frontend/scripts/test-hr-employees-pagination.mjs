@@ -64,6 +64,14 @@ function text(tree) {
 const pageModule = { exports: {} };
 new Function("require", "exports", "module", output)(name => {
   if (name === "react") return { useState, useEffect, useMemo, createElement };
+  if (name === "next/dynamic") return { default: (loader, options) => {
+    assert.equal(typeof loader, "function");
+    assert.equal(options.ssr, false);
+    return () => null;
+  } };
+  if (name === "@/components/hr/turnstile/turnstilePreview") return { PREVIEW_ENABLED: false, BACKEND_ENABLED: false };
+  if (name === "@/components/hr/turnstile/turnstileBackendCopy") return { backendCopy: {} };
+  if (name === "@/components/hr/turnstile/turnstilePreviewCopy") return { gateCopy: {} };
   if (name === "@/lib/auth") return { useMe: () => ({ me: { permissions: ["*"] } }) };
   if (name === "swr") return { default: useSWR, useSWRConfig: () => ({ mutate: async () => { apiCalls.push(["mutate"]); } }) };
   if (name === "@/lib/api") return { api: {
