@@ -32,7 +32,7 @@ class RequiredPGGateTests(unittest.TestCase):
 
     def test_complete_evidence_passes(self):
         counts = gate.check_report(self.write_report(self.report()))
-        self.assertEqual(sum(counts.values()), 475)
+        self.assertEqual(sum(counts.values()), 486)
 
     def test_receipt_cases_are_required_and_cannot_be_skipped_or_replaced(self):
         for module, count in (("test_purchase_receipt_concurrency", 2),
@@ -52,6 +52,24 @@ class RequiredPGGateTests(unittest.TestCase):
                             case.set("name", "unrelated_replacement_case")
                         with self.assertRaises(ValueError):
                             gate.check_report(self.write_report(tree))
+
+    def test_item_delete_cases_cannot_be_skipped_or_replaced(self):
+        module = "test_item_delete_postgres"
+        self.assertEqual(len(gate.REQUIRED_CASES[module]), 11)
+        self.assertEqual(gate.GROUPS[module][0], 11)
+        for name in gate.REQUIRED_CASES[module]:
+            for mutation in ("skipped", "replacement"):
+                with self.subTest(name=name, mutation=mutation):
+                    tree = self.report()
+                    case = next(row for row in tree.iter("testcase")
+                                if row.get("classname") == f"app.tests.{module}"
+                                and row.get("name") == name)
+                    if mutation == "skipped":
+                        ET.SubElement(case, "skipped")
+                    else:
+                        case.set("name", "unrelated_replacement_case")
+                    with self.assertRaises(ValueError):
+                        gate.check_report(self.write_report(tree))
 
     def test_postgres_old_bearer_cutoff_missing_or_skipped_fails(self):
         module = "test_identity_admin_user_update"
