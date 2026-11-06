@@ -8,7 +8,7 @@ from fastapi import HTTPException
 from sqlalchemy import or_
 from app.core.dt import as_utc, utcnow
 from app.core.order_reference import (
-    order_reference_variants,
+    order_reference_variants, resolve_order_id,
 )
 from app.schemas import (
     Employee,
@@ -33,6 +33,7 @@ from app.libs.dto.people.payroll import (
 from app.models.process_qr_export_service import ProcessQrExportIn
 from app.models.audit_service import log_action
 from app.models.factory_scope_service import selected_factory_code
+from app.models.payroll_factory_scope_service import require_production_order_factory
 from app.models.payroll_reports_service import ReportLanguage
 from app.models.employee_aliases_service import merged_employee
 from app.models.payroll_operation_service import is_control_operation as _is_control_operation
@@ -2319,3 +2320,57 @@ def print_split_record_labels(record_id: int, db: Session, current: User):
         token = _work_qr_token(label.id)
         cards.append(split_label_card(label, employee, token))
     return split_labels_html(cards)
+
+
+def _canonicalize_payroll_input(
+    db,
+    data: dict[str, Any],
+    factory_code: str,
+    *,
+    lookup=None,
+    factory_production_ids: set[int] | None = None,
+) -> None:
+    for namespace, field in (("PO", "production_no"), ("SO", "sales_order_no")):
+        data[field] = _canonical_payroll_reference(
+            db,
+            namespace,
+            data.get(field),
+            entity_id=data.get("production_order_id") if namespace == "PO" else data.get("sales_order_id"),
+            production_order_id=data.get("production_order_id") if namespace == "SO" else None,
+            lookup=lookup,
+        )
+    # A reference-only legacy QR must undergo the same factory check as an ID QR.
+    if not data.get("production_order_id") and data.get("production_no"):
+        referenced_id = resolve_order_id(db, "PO", data["production_no"], lookup=lookup)
+        if referenced_id is not None:
+            if factory_production_ids is None:
+                require_production_order_factory(db, referenced_id, factory_code)
+            elif referenced_id not in factory_production_ids:
+                raise HTTPException(404, "Production order was not found in this factory")
+    data["raw_work_json"] = _canonical_payroll_snapshot(
+        db,
+        data.get("raw_work_json"),
+        production_order_id=data.get("production_order_id"),
+        sales_order_id=data.get("sales_order_id"),
+        lookup=lookup,
+    )
+
+
+def _issue_order_lookup(db, rows):
+    requests, snapshots = set(), set()
+
+    def collect(namespace, reference, *, entity_id=None, production_order_id=None):
+        if reference or entity_id is not None:
+            snapshots.add((namespace, reference, entity_id, production_order_id))
+        return reference
+
+    for row in rows:
+        requests.add(("PO", row.production_no, row.production_order_id, None))
+        requests.add(("SO", row.sales_order_no, row.sales_order_id, row.production_order_id))
+        _map_payroll_snapshot_references(
+            row.payload,
+            collect,
+            production_order_id=row.production_order_id,
+            sales_order_id=row.sales_order_id,
+        )
+    return _PayrollOrderLookup(db, requests | snapshots, snapshots)

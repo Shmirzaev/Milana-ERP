@@ -1,25 +1,12 @@
-
-import importlib.util
-
 import pytest
 from sqlalchemy import event
 
 from app.schemas import AuditLog, PayrollQrLabel, PayrollRecord
 from app.tests.payroll_operation_fixture import payroll_case, payroll_postgres_sessions  # noqa: F401
 
-@pytest.fixture
-def issuance_case(payroll_case, monkeypatch):
+
+def test_issue_duplicates_keep_one_label_and_audit(payroll_case):
     c = payroll_case
-    if importlib.util.find_spec('app.models.people.payroll_qr_service'):
-        from app.models.people.payroll_qr_service import issue_qr_labels
-        for route in c.client.app.routes:
-            if getattr(route, 'path', None) == '/api/payroll/qr-labels/issue':
-                monkeypatch.setattr(route.dependant, 'call', issue_qr_labels)
-    return c
-
-
-def test_issue_duplicates_keep_one_label_and_audit(issuance_case):
-    c = issuance_case
     uid = 'ISSUE-' + c.suffix
     row = {'label_uid': uid, 'quantity': 2, 'rate_per_piece': 25, 'operation_name': 'Synthetic sewing'}
     body = {'labels': [row, row]}
@@ -40,8 +27,8 @@ def test_issue_duplicates_keep_one_label_and_audit(issuance_case):
         assert audit.new_value_json['count'] == 1 and audit.entry_hash
 
 
-def test_issue_failure_rolls_back_label_and_audit_then_retry(issuance_case):
-    c = issuance_case
+def test_issue_failure_rolls_back_label_and_audit_then_retry(payroll_case):
+    c = payroll_case
     uid = 'ROLLBACK-' + c.suffix
     row = {'label_uid': uid, 'operation_name': 'Retry sewing', 'quantity': 2, 'rate_per_piece': 25}
     def fail_commit(session):
@@ -62,8 +49,8 @@ def test_issue_failure_rolls_back_label_and_audit_then_retry(issuance_case):
         assert db.query(AuditLog).filter_by(entity_type='PayrollQrLabel', entity_id=label.id, action='issue').count() == 1
 
 
-def test_issue_duplicate_query_timing_and_batch_reads(issuance_case):
-    c = issuance_case
+def test_issue_duplicate_query_timing_and_batch_reads(payroll_case):
+    c = payroll_case
     counts = []
     for size in (1, 20):
         prefix = f'BOUNDED-{c.suffix}-{size}'
@@ -85,8 +72,8 @@ def test_issue_duplicate_query_timing_and_batch_reads(issuance_case):
     assert counts[1] <= counts[0] + 1, counts
 
 
-def test_issue_links_existing_scan_after_flush_and_validation_order(issuance_case):
-    c = issuance_case
+def test_issue_links_existing_scan_after_flush_and_validation_order(payroll_case):
+    c = payroll_case
     uid = 'SCANNED-' + c.suffix
     with c.sessions() as db:
         record = db.get(PayrollRecord, c.record_id)
