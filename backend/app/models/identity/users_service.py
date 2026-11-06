@@ -136,7 +136,7 @@ def update_user(db: Session, user_id: int, payload: UserUpdate, current: User) -
         if not actor_is_super_admin and data["factory_code"] != u.factory_code:
             raise HTTPException(403, "Only Super Admin can change a user's factory")
         if data["factory_code"] != u.factory_code:
-            set_user_credential_cutoff(u, datetime.now(timezone.utc))
+            set_user_credential_cutoff(db, u, datetime.now(timezone.utc))
     if "extra_permissions" in data:
         data["extra_permissions"] = normalize_permissions(data["extra_permissions"])
     # Guard against self-escalation and self-lockout by a non-superadmin manager.
@@ -182,7 +182,7 @@ def update_user(db: Session, user_id: int, payload: UserUpdate, current: User) -
         apply_password_credential_change(db, u, data.pop("password"))
     elif "password" in data:
         data.pop("password")
-    apply_admin_user_changes(u, data)
+    apply_admin_user_changes(db, u, data)
     audit_new_value = dict(data)
     if credential_change:
         audit_new_value.update({"credential_changed": True, "reset_links_invalidated": True})

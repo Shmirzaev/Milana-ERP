@@ -55,11 +55,11 @@ def add_password_reset_token(
     return token
 
 
-def set_user_credential_cutoff(user: User, now: datetime) -> None:
+def set_user_credential_cutoff(db: Session, user: User, now: datetime) -> None:
     user.tokens_valid_from = now
 
 
-def apply_admin_user_changes(user: User, changes: dict) -> None:
+def apply_admin_user_changes(db: Session, user: User, changes: dict) -> None:
     for key, value in changes.items():
         setattr(user, key, value)
 
