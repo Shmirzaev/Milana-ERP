@@ -6,10 +6,10 @@ from collections.abc import Callable
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from app.libs.dto.people.attendance import ManagedDeviceIn
+from app.libs.dto.people.attendance import ManagedDeviceIn, ManagedDeviceUpdateIn
 from app.models.factory_scope_service import selected_factory_code
 from app.schemas import AttendanceDevice, User
-from app.schemas.people.attendance_persistence import insert_managed_device
+from app.schemas.people.attendance_persistence import insert_managed_device, update_managed_device
 
 
 def _connector_token_hash(token: str) -> str:
@@ -74,3 +74,28 @@ def create_managed_attendance_device(
     result["connector_token"] = connector_token
     return result
 
+
+
+def update_managed_attendance_device(device_id: int, payload: ManagedDeviceUpdateIn, db: Session, current: User, *, audit: Callable):
+    device = db.query(AttendanceDevice).filter(
+        AttendanceDevice.id == device_id,
+        AttendanceDevice.factory_code == selected_factory_code(current),
+    ).one_or_none()
+    if not device:
+        raise HTTPException(404, "Attendance device not found")
+    changes = {}
+    if payload.name is not None:
+        changes["name"] = payload.name.strip()
+    if payload.sync_enabled is not None:
+        changes["sync_enabled"] = payload.sync_enabled
+    update_managed_device(db, device=device, changes=changes)
+    audit(
+        db,
+        current,
+        "update",
+        "AttendanceDeviceConfig",
+        device.id,
+        new_value={"name": device.name, "sync_enabled": device.sync_enabled},
+    )
+    db.commit()
+    return _device_payload(device)
