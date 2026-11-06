@@ -31,7 +31,7 @@ from app.models.production.passport_material_allocation_service import (
 from app.models.passport_nastil_service import passport_batch_map, sync_passport_nastil
 from app.models.factory_scope_service import available_factory_codes, selected_factory_code
 from app.models.model_images_service import model_display_image_url
-from app.models.production.ect_passport_fabric_service import list_passport_fabrics, transferred_fabric_balance
+from app.models.production.ect_passport_fabric_service import list_passport_fabrics, transferred_fabric_balances
 
 router = APIRouter(prefix="/cutting-passports", tags=["cutting_passports"])
 _MATERIAL_CATEGORIES = ("fabric", "semi_finished")
@@ -725,6 +725,10 @@ def _add_passport_materials(db, order, work_order, payload, current):
     reservations_by_batch = {}
     for reservation in active_reservations:
         reservations_by_batch.setdefault(reservation.stock_batch_id, []).append(reservation)
+    # _passport_order has already authorized the exact session factory. Keep
+    # MIL's existing fixed query cost; ECT resolves all linked receipts together.
+    transferred_balances = (transferred_fabric_balances(db, order.id, batches)
+                            if selected_factory_code(current) == "ECO" else {})
     reservation_lines = []
     pending_additions = []
     for addition in payload.additional_materials:
@@ -738,7 +742,7 @@ def _add_passport_materials(db, order, work_order, payload, current):
         item = items.get(batch.item_id) if batch else None
         if not batch or not item or item.category not in _MATERIAL_CATEGORIES:
             raise HTTPException(400, "Select a fabric inventory batch")
-        transferred = transferred_fabric_balance(db, order.id, batch.id)
+        transferred = transferred_balances.get(batch.id)
         if transferred is not None and addition.estimated_quantity > float(transferred):
             raise HTTPException(409, f"Insufficient transferred Eco Cotton fabric: available {transferred:g} {batch.unit}")
         if transferred is None and (batch.archived_at is not None or float(batch.quantity or 0) <= 0):

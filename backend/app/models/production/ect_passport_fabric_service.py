@@ -56,6 +56,28 @@ def transferred_fabric_balance(db: Session, production_order_id: int, stock_batc
     return None if rows is None else available_transferred_fabric(rows)
 
 
+def transferred_fabric_balances(db: Session, production_order_id: int, batches: dict[int, StockBatch]) -> dict[int, Decimal]:
+    """One ECT-scoped receipt query for preloaded authoritative central sources.
+
+    A mapped zero/held balance stays present: only an absent mapping permits the
+    legacy central path. Callers keep their existing order/factory authorization.
+    """
+    if not batches:
+        return {}
+    ect_order = db.query(WorkOrder.id).join(Department, Department.id == WorkOrder.department_id).join(
+        ProductionOrder, ProductionOrder.id == WorkOrder.production_order_id,
+    ).filter(WorkOrder.production_order_id == production_order_id, WorkOrder.operation == "cutting",
+             Department.code == "ECT", ProductionOrder.source_type != "usluga").exists()
+    grouped = defaultdict(list)
+    for row in db.query(EcoMaterialBatch).filter(EcoMaterialBatch.kind == "fabric",
+            EcoMaterialBatch.source_stock_batch_id.in_(sorted(batches)), ect_order).order_by(EcoMaterialBatch.id).all():
+        source = batches[row.source_stock_batch_id]
+        if row.item_id != source.item_id or row.unit != source.unit:
+            raise HTTPException(409, "Transferred fabric identity or unit has changed; review its receipt")
+        grouped[source.id].append(row)
+    return {source_id: available_transferred_fabric(rows) for source_id, rows in grouped.items()}
+
+
 def list_transferred_passport_fabrics(db: Session, current: User, production_order_id: int, q: str = "") -> list[dict]:
     """Small cutting lookup; no ECO row IDs are exposed as central batch IDs."""
     require_factory_access(current, "ECO")

@@ -3,7 +3,7 @@ from decimal import Decimal
 from fastapi import HTTPException
 from sqlalchemy import func
 from app.schemas import CuttingPassport, CuttingRecord, ProductionOrderMaterial, StockBatch, StockMovement, WorkOrder
-from app.models.production.ect_passport_fabric_service import transferred_fabric_balance
+from app.models.production.ect_passport_fabric_service import transferred_fabric_balances
 from app.models.production.passport_material_allocation_service import (
     grouped_stock_sources, material_quantity, material_source_ids, passport_unit,
     material_stock_metadata,
@@ -41,15 +41,21 @@ def validate_passport_stock(db, order, values, passport_id=None):
         ).group_by(EcoMaterialBatch.source_stock_batch_id).all())
     grouped_ids = [part["stock_batch_id"] for row in sources for part in row.get("batch_allocations") or []]
     group_available = material_stock_metadata(db, grouped_ids, order.id)
-    for source in grouped_stock_sources(sources):
-        quantity = Decimal(str(source["allocated_quantity"])) if source.get("allocated_quantity") is not None else material_quantity(source)
-        batch = db.get(StockBatch, source["stock_batch_id"])
+    physical_sources = grouped_stock_sources(sources)
+    source_quantities = [(source, Decimal(str(source["allocated_quantity"])) if source.get("allocated_quantity") is not None
+                          else material_quantity(source)) for source in physical_sources]
+    source_ids = {source["stock_batch_id"] for source in physical_sources}
+    batches = {batch.id: batch for batch in db.query(StockBatch).filter(StockBatch.id.in_(sorted(source_ids))).all()} if source_ids else {}
+    positive_ids = {source["stock_batch_id"] for source, quantity in source_quantities if quantity > 0}
+    transferred_balances = transferred_fabric_balances(db, order.id, {key: batch for key, batch in batches.items() if key in positive_ids})
+    for source, quantity in source_quantities:
+        batch = batches.get(source["stock_batch_id"])
         if not batch:
             raise HTTPException(404, "Cutting material inventory batch not found")
         unit = passport_unit(source, batch.unit)
         if quantity <= 0:  # Incomplete passports may still be saved as before.
             continue
-        transferred = transferred_fabric_balance(db, order.id, batch.id)
+        transferred = transferred_balances.get(batch.id)
         central_available = group_available[batch.id]["available_quantity"] if batch.id in group_available else batch.quantity or 0
         available = (Decimal(str(central_available)) + Decimal(str(consumed.get(batch.id, 0)))
                      if transferred is None else transferred + Decimal(str(eco_consumed.get(batch.id, 0)))
