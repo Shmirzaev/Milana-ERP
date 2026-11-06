@@ -555,6 +555,17 @@
         "test_pg_signed_creation_margin_contract",
         "test_pg_signed_creation_failure_teardown_retry"
       ]
+    },
+    "test_model_delete_postgres": {
+      "revision": "f6f86b6fdf65ddb3768947212b88b8414e72888e",
+      "git_blob_sha256": "5dad570528faea933dc3a546247434c93fafc01c7b4044dd987ccd37286bda62",
+      "selected_functions": [
+        "test_pg_signed_delete_scope_and_retained_readback",
+        "test_pg_signed_delete_unguarded_forecast_fk_rollback",
+        "test_pg_signed_delete_finalization_and_deferred_commit_rollback_retry",
+        "test_pg_signed_delete_real_reference_guards_in_order",
+        "test_pg_delete_blocks_concurrent_sales_reference_then_fk_refuses"
+      ]
     }
   },
   "cases": {
@@ -1265,6 +1276,22 @@
       "test_pg_signed_creation_failure_teardown_retry[notification]",
       "test_pg_signed_creation_failure_teardown_retry[audit]",
       "test_pg_signed_creation_failure_teardown_retry[commit]"
+    ],
+    "test_model_delete_postgres": [
+      "test_pg_signed_delete_scope_and_retained_readback[standard-/api/models-standard]",
+      "test_pg_signed_delete_scope_and_retained_readback[usluga-/api/usluga/models-eco]",
+      "test_pg_signed_delete_unguarded_forecast_fk_rollback",
+      "test_pg_signed_delete_finalization_and_deferred_commit_rollback_retry[audit]",
+      "test_pg_signed_delete_finalization_and_deferred_commit_rollback_retry[commit]",
+      "test_pg_signed_delete_real_reference_guards_in_order[sales orders]",
+      "test_pg_signed_delete_real_reference_guards_in_order[production orders]",
+      "test_pg_signed_delete_real_reference_guards_in_order[production order items]",
+      "test_pg_signed_delete_real_reference_guards_in_order[bundles]",
+      "test_pg_signed_delete_real_reference_guards_in_order[packages]",
+      "test_pg_signed_delete_real_reference_guards_in_order[package items]",
+      "test_pg_signed_delete_real_reference_guards_in_order[finished goods stock]",
+      "test_pg_signed_delete_real_reference_guards_in_order[all]",
+      "test_pg_delete_blocks_concurrent_sales_reference_then_fk_refuses"
     ]
   },
   "isolated_supplemental_cases": [

@@ -632,7 +632,7 @@ def delete_usluga_model_bom(
 @router.delete("/models/{mid}", status_code=204)
 def delete_usluga_model(mid: int, db: DbSession, current: User = Depends(require_permissions("usluga.manage", "*"))):
     _require_eco(current)
-    return models_service.delete_model(current, db, mid, "usluga")
+    return models_service.delete_model(current, db, mid, CatalogScope.USLUGA)
 
 
 @router.get("/orders")
