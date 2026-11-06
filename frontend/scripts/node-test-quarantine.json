@@ -1,0 +1,63 @@
+{
+  "check-invoice-status-parity.mjs": {
+    "owner": "Ismail",
+    "reason": "Stale inline PaymentStatus guard after canonical customer-payment type extraction.",
+    "bug": "CI-FINANCE-INVOICE-CONTRACT-20261105",
+    "signature": "The customer order-level payment summary must keep its own projection vocabulary.",
+    "failures": [
+      "check-invoice-status-parity.mjs"
+    ]
+  },
+  "check-sewing-partial-size.mjs": {
+    "owner": "Mirshoir",
+    "reason": "Pre-partial-size source guard expects t(\"field.inputQty\"), absent in current Sewing page.",
+    "bug": "CI-SEWING-PARTIAL-SIZE-CONTRACT-20261105",
+    "signature": "Missing pre-partial-size sewing contract: t(\"field.inputQty\")",
+    "failures": [
+      "check-sewing-partial-size.mjs"
+    ]
+  },
+  "test-hr-employees-pagination.mjs": {
+    "owner": "Dilmurod",
+    "reason": "Employee page imports next/dynamic, which the test mock rejects.",
+    "bug": "CI-HR-PAGINATION-MOCK-20261105",
+    "signature": "Unexpected dependency: next/dynamic",
+    "failures": [
+      "test-hr-employees-pagination.mjs"
+    ]
+  },
+  "test-invoice-status-parity.mjs": {
+    "owner": "Ismail",
+    "reason": "Eight stale invoice contract/mutation failures; canonical customer-payment type is not recognized.",
+    "bug": "CI-FINANCE-INVOICE-CONTRACT-20261105",
+    "signature": "The customer order-level payment summary must keep its own projection vocabulary.",
+    "failures": [
+      "the current real source satisfies the invoice contract",
+      "a separate Sales-owned enum is allowed by the Finance guard",
+      "Sales status cannot borrow InvoiceStatus",
+      "Sales status cannot borrow InvoiceStatus | string",
+      "Sales status cannot borrow Readonly<InvoiceStatus>",
+      "a local alias cannot disguise the invoice vocabulary as Sales status",
+      "an import alias cannot disguise the invoice vocabulary as Sales status",
+      "the aggregate payment projection must not use persisted invoice states"
+    ]
+  },
+  "test-payroll-adjustment-pagination.mjs": {
+    "owner": "Dilmurod",
+    "reason": "Test reads retired backend/app/schemas/payroll.py instead of the current schema layout.",
+    "bug": "CI-PAYROLL-ADJUSTMENT-SCHEMA-PATH-20261105",
+    "signature": "backend/app/schemas/payroll.py'",
+    "failures": [
+      "test-payroll-adjustment-pagination.mjs"
+    ]
+  },
+  "test-payroll-employee-options.mjs": {
+    "owner": "Dilmurod",
+    "reason": "Test reads retired backend/app/schemas/payroll.py instead of the current schema layout.",
+    "bug": "CI-PAYROLL-OPTIONS-SCHEMA-PATH-20261105",
+    "signature": "backend/app/schemas/payroll.py'",
+    "failures": [
+      "test-payroll-employee-options.mjs"
+    ]
+  }
+}
