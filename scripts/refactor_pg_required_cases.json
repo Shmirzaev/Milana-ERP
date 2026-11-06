@@ -244,8 +244,8 @@
       ]
     },
     "test_purchase_receipt_concurrency": {
-      "revision": "92c10c302c03e5dbfc408880f95243acc5ad7d6e",
-      "git_blob_sha256": "52dd32e377e54267593318888a0e48f852d8a84da071019ace1459d8d012febd",
+      "revision": "49b193b343232097daa266c3a09dc46394ffd5f6",
+      "git_blob_sha256": "99858110ca9214ee53565fe70d45c75673fd49834fb82423c570abde793e565a",
       "selected_functions": [
         "test_postgres_receipts_serialize_line_totals_and_closed_order_no_write"
       ]
