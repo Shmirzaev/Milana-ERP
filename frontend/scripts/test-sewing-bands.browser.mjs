@@ -3,9 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { build } from 'esbuild';
 import { chromium } from 'playwright';
-import postcss from 'postcss';
-import tailwind from 'tailwindcss';
-import autoprefixer from 'autoprefixer';
+import { compileAppCss } from './lib/compile-app-css.mjs';
 const root=process.cwd();
 const stubs={
   '@/lib/auth': `import {useEffect,useState} from 'react'; export const logout=()=>{}; export const useMe=()=>{const [ready,setReady]=useState(false);useEffect(()=>{const id=setTimeout(()=>setReady(true),25);return()=>clearTimeout(id)},[]);return {me:ready?window.me:undefined,loading:!ready,hasToken:ready?true:undefined,refresh:async()=>{}}}; export const can=(me,...perms)=>!!me?.permissions.some(p=>p==='*'||perms.includes(p));`,
@@ -31,7 +29,7 @@ const built=await build({stdin:{contents:entry,resolveDir:root,loader:'tsx'},bun
   b.onResolve({filter:/^(?:@\/|next\/)/},a=>a.path in stubs?{path:a.path,namespace:'fixtures'}:undefined);
   b.onLoad({filter:/.*/,namespace:'fixtures'},a=>({contents:stubs[a.path],loader:'tsx',resolveDir:root}));
 }}]});
-const css=(await postcss([tailwind(),autoprefixer()]).process(fs.readFileSync('src/app/globals.css','utf8'),{from:'src/app/globals.css'})).css + '\n' + built.outputFiles.filter(file=>file.path.endsWith('.css')).map(file=>file.text).join('\n');
+const css=(await compileAppCss()) + '\n' + built.outputFiles.filter(file=>file.path.endsWith('.css')).map(file=>file.text).join('\n');
 const job={id:41,work_order_id:81,production_order_id:71,production_batch_id:91,order_no:'PO-100',model:'1001-1',batch:'Kroy 1',quantity:100,reported_qty:40,actual_qty:0,top_qty:40,bottom_qty:40,line_finished:false,awaiting_final:false,finish_reason:null,status:'planned'};
 const work={...job,sewing_assignment_id:41,model_no:'1001',variant_no:'1',batch_no:'Kroy 1',planned_qty:100,completed_qty:0,remaining_qty:100,report_remaining_top_qty:60,report_remaining_bottom_qty:60};
 const me={id:9,name:'Band 1',sewing_band_id:64,factory_code:'ECO',available_factories:['ECO'],role:'Eco Band',permissions:['sewing.workspace','sewing.bundles','sewing.records'],access_configured:true};

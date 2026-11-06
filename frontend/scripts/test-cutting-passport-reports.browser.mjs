@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import http from "node:http";
-import { execFileSync } from "node:child_process";
+import { compileAppCss } from "./lib/compile-app-css.mjs";
 import { build } from "esbuild";
 import { chromium } from "playwright";
 import { runtimeMessages } from "./runtime-locales.mjs";
@@ -25,7 +25,7 @@ const built = await build({ stdin: { contents: `import React from 'react';import
   b.onResolve({ filter: /^(?:@\/lib\/(?:api|auth|i18n|theme)|@\/components\/DialogProvider|next\/(?:link|navigation))$/ }, args => ({ path: args.path, namespace: "fixture" }));
   b.onLoad({ filter: /.*/, namespace: "fixture" }, args => ({ contents: mocks[args.path], loader: "js", resolveDir: root }));
 } }] });
-const css = execFileSync(process.execPath, ["node_modules/tailwindcss/lib/cli.js", "-i", "src/app/globals.css", "--minify"], { encoding: "utf8", maxBuffer: 8 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] });
+const css = await compileAppCss();
 const sample = Array.from({ length: 6 }, (_, index) => ({
   id: index + 1, passport_no: `CP-${String(101 + index).padStart(4, '0')}`, date: `2026-10-${String(12 + index).padStart(2, '0')}T00:00:00Z`,
   created_at: '2026-10-17T00:00:00Z', updated_at: '2026-10-17T00:00:00Z', production_order_id: null,
