@@ -9,7 +9,7 @@ from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 
-from app.schemas import AuditLog, Item, PurchaseOrder, PurchaseOrderLine, StockBatch, StockMovement, Warehouse
+from app.schemas import Item, PurchaseOrder, PurchaseOrderLine, StockBatch, StockMovement, Warehouse
 from app.models.purchasing_service import receive_purchase_order
 from app.tests.test_customer_create_postgres import customer_pg_sessions  # noqa: F401
 
