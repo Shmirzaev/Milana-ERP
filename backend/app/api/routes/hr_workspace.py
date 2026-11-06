@@ -254,14 +254,7 @@ def create_position(payload: PositionIn, db: DbSession, current: User = HrUser):
 
 @router.patch("/positions/{position_id}")
 def update_position(position_id: int, payload: PositionIn, db: DbSession, current: User = HrUser):
-    factory = _factory(current)
-    row = db.query(HrPosition).filter(HrPosition.id == position_id, HrPosition.factory_code == factory).first()
-    if not row: raise HTTPException(404, "Position not found")
-    _validate_position_links(payload, db, factory)
-    values = payload.model_dump(); values["required_skills_json"] = values.pop("required_skills")
-    for key, value in values.items(): setattr(row, key, value)
-    log_action(db, current, "update", "HrPosition", row.id, new_value=values); db.commit(); db.refresh(row)
-    return _position_dict(row)
+    return _position_dict(hr_workspace_service.update_position(position_id, payload, db, current, audit=log_action))
 
 
 @router.get("/recruitment")

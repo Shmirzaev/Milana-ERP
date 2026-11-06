@@ -19,3 +19,8 @@ def insert_position(db: Session, *, factory_code: str, values: dict) -> HrPositi
     row = HrPosition(factory_code=factory_code, **values)
     db.add(row)
     return row
+
+
+def update_position_row(db: Session, *, row: HrPosition, values: dict) -> None:
+    for key, value in values.items():
+        setattr(row, key, value)
