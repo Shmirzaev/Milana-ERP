@@ -17,3 +17,8 @@ def add_initial_model_sizes(db: Session, model_id: int, sizes: list[str]) -> Non
     """Stage the setup rows in order; the caller owns flush and transaction timing."""
     for size in sizes:
         db.add(ModelSize(model_id=model_id, size=size))
+
+
+def delete_model_size(db: Session, row: ModelSize) -> None:
+    """Schedule deletion within the caller-owned transaction."""
+    db.delete(row)
