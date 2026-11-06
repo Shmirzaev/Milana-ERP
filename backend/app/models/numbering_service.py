@@ -237,8 +237,7 @@ def next_bundle_no(db: Session) -> str:
     reference = _next_order(db, Bundle, "bundle_no", "BND")
     # Reserve in the caller's transaction, including after a future bundle deletion.
     # Bundle creation attaches its actual ID after flush; zero is reservation-only.
-    db.add(BusinessOrderAlias(namespace="BND", entity_id=0, reference=reference, canonical_reference=reference))
-    db.flush()
+    BusinessOrderAlias.reserve_bundle_reference(db, reference)
     return reference
 
 
