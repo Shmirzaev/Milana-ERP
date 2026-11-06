@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.orm.exc import StaleDataError
 
 from app.core.deps import PRODUCTION_READ_PERMISSIONS, user_permissions, is_admin
-from app.models.factory_scope_service import available_factory_codes, factory_for_department, require_factory_access, user_is_super_admin
+from app.models.factory_scope_service import available_factory_codes, factory_for_department, require_factory_access, selected_factory_code, user_is_super_admin
 from app.models.packaging_scope_service import normalize_packaging_department_code, require_package_access
 from app.schemas import Bundle, Invoice, Package, ProductionOrder, SalesOrder, Shipment, Task, User, WorkOrder
 from app.libs.enums.work_management import TaskPriority, TaskStatus
@@ -33,6 +33,17 @@ def _can_manage(user: User) -> bool:
         return True
     perms = user_permissions(user)
     return "tasks.manage" in perms or "management.approve" in perms
+
+
+def list_task_assignees(db: Session, current: User) -> list[dict[str, int | str]]:
+    if not _can_manage(current):
+        raise HTTPException(403, "Only managers can list task assignees")
+    factory = selected_factory_code(current)
+    return [
+        {"id": user.id, "name": user.name}
+        for user in db.query(User).filter(User.is_active.is_(True)).order_by(User.name, User.id)
+        if factory in available_factory_codes(user)
+    ]
 
 
 def _require_single_assignee(assigned: int | None, db: Session, current: User, is_manager: bool) -> None:
