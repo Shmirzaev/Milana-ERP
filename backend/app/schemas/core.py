@@ -117,6 +117,19 @@ class SystemSetting(Base, PkMixin, TimestampMixin):
     value_json: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
 
     @classmethod
+    def ensure_employee_merge_alias_setting(
+        cls, db: Session, *, key: str, setting: SystemSetting | None,
+    ) -> SystemSetting:
+        if setting is None:
+            setting = cls(key=key, value_json={"ids": {}, "numbers": {}})
+            db.add(setting)
+        return setting
+
+    @staticmethod
+    def write_employee_merge_aliases(setting: SystemSetting, aliases: dict) -> None:
+        setting.value_json = aliases
+
+    @classmethod
     def for_section_update(cls, db: Session, section: str) -> SystemSetting | None:
         # Serialize first writes too; logo uploads use this same section lock.
         if db.bind and db.bind.dialect.name == "postgresql":
