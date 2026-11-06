@@ -38,3 +38,13 @@ def test_lookup_permission_before_missing_target(identity_admin, actor, status, 
     h = identity_admin
     response = h.client.get('/api/users/2147483647', headers=h.actors[actor][1] if actor else {})
     assert (response.status_code, response.json()) == (status, {'detail': detail})
+
+
+def test_direct_service_rejects_unprivileged_actor(identity_admin):
+    from fastapi import HTTPException
+    from app.models.identity.users_service import get_user
+    with identity_admin.db() as db:
+        actor = db.get(User, identity_admin.actors["ordinary"][0])
+        with pytest.raises(HTTPException) as error:
+            get_user(db, 2147483647, actor)
+        assert error.value.status_code == 403
