@@ -43,6 +43,28 @@ def _snapshot(tid):
         }
 
 
+def test_manager_assignee_options_are_active_and_factory_scoped(client):
+    _, manager_headers = _actor(("tasks.manage",), selected="MIL")
+    mil_user, _ = _actor(factory="MIL")
+    inactive_user, _ = _actor(factory="MIL", active=False)
+    eco_user, _ = _actor(factory="ECO")
+    _, restricted_headers = _actor(factory="MIL")
+
+    denied = client.get("/api/tasks/assignees", headers=restricted_headers)
+    assert denied.status_code == 403
+    assert denied.json()["detail"] == "Only managers can list task assignees"
+
+    response = client.get("/api/tasks/assignees", headers=manager_headers)
+    assert response.status_code == 200, response.text
+    options = response.json()
+    assert all(set(option) == {"id", "name"} for option in options)
+    assert mil_user in {option["id"] for option in options}
+    assert inactive_user not in {option["id"] for option in options}
+    assert eco_user not in {option["id"] for option in options}
+    created = client.post("/api/tasks", headers=manager_headers, json={"title": "Assigned", "assigned_to": mil_user})
+    assert created.status_code == 201 and created.json()["assigned_to"] == mil_user
+
+
 @pytest.mark.parametrize("factory", ["MIL", "ECO"])
 def test_creator_cannot_bypass_creation_assignment_rule_through_patch(client, factory):
     creator, headers = _actor()
