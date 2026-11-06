@@ -1,5 +1,7 @@
+"""Payroll period operations own validation, schedule locks, audit and commit."""
+from app.libs.dto.people.payroll import PayrollPeriodUpdate
+from app.schemas.people.payroll import apply_payroll_period_changes
 
-"""Payroll period creation owns validation, schedule locking, audit and commit."""
 from datetime import datetime
 
 from fastapi import HTTPException
@@ -95,3 +97,50 @@ def list_periods(db: Session, current: User=None, status: str | None=None):
     if status:
         qry = qry.filter(PayrollPeriod.status == status)
     return qry.order_by(PayrollPeriod.start_date.desc(), PayrollPeriod.id.desc()).all()
+
+
+PERIOD_STATUSES = {"draft", "open", "locked", "approved", "paid", "cancelled"}
+PERIOD_MANAGE_STATUS_TRANSITIONS = {
+    "draft": {"draft", "open", "cancelled"},
+    "open": {"draft", "open", "cancelled"},
+    "locked": {"open", "locked", "cancelled"},
+    "approved": {"approved"},
+    "paid": {"paid"},
+    "cancelled": {"cancelled"},
+}
+
+
+def update_period(period_id: int, payload: PayrollPeriodUpdate, db: Session, current: User=None):
+    factory_code = selected_factory_code(current)
+    _lock_period_schedule(db, factory_code)
+    period = db.query(PayrollPeriod).filter(PayrollPeriod.id == period_id, PayrollPeriod.factory_code == factory_code).populate_existing().with_for_update().first()
+    if not period:
+        raise HTTPException(404, 'Payroll period not found')
+    changes = payload.model_dump(exclude_unset=True)
+    if 'status' in changes:
+        next_status = changes['status']
+        if next_status not in PERIOD_STATUSES:
+            raise HTTPException(400, 'Invalid payroll period status')
+        if next_status not in PERIOD_MANAGE_STATUS_TRANSITIONS.get(period.status, {period.status}):
+            raise HTTPException(409, 'Use the dedicated lock, approval, or payment action for this payroll status')
+    start_date = changes.get('start_date', period.start_date)
+    end_date = changes.get('end_date', period.end_date)
+    _validate_period_dates(start_date, end_date)
+    if changes.get('period_no'):
+        exists = db.query(PayrollPeriod.id).filter(PayrollPeriod.factory_code == factory_code, PayrollPeriod.period_no == changes['period_no'], PayrollPeriod.id != period.id).first()
+        if exists:
+            raise HTTPException(400, 'Payroll period number already exists')
+    if 'name' in changes and changes['name'] is not None and (len(changes['name']) > 128):
+        raise HTTPException(422, 'Payroll period name exceeds the 128-character storage limit')
+    # Shrinking legacy overlap remains available for repair.
+    if as_utc(start_date) < as_utc(period.start_date) or as_utc(end_date) > as_utc(period.end_date):
+        _assert_period_dates_available(db, factory_code, start_date, end_date, exclude_id=period.id)
+    for key in ('start_date', 'end_date'):
+        if key in changes:
+            changes[key] = as_utc(changes[key])
+    old = {key: getattr(period, key) for key in changes.keys() if hasattr(period, key)}
+    apply_payroll_period_changes(period, changes)
+    log_action(db, current, 'update', 'PayrollPeriod', period.id, old_value=old, new_value=changes)
+    db.commit()
+    db.refresh(period)
+    return period

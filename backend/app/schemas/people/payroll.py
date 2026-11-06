@@ -170,3 +170,8 @@ def add_payroll_period(db, **values) -> PayrollPeriod:
     db.add(period)
     db.flush()
     return period
+
+
+def apply_payroll_period_changes(period: PayrollPeriod, changes: dict) -> None:
+    for key, value in changes.items():
+        setattr(period, key, value)
