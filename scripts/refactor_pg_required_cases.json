@@ -521,6 +521,16 @@
         "test_pg_partial_sale_remaining_stale_and_exhaustion",
         "test_pg_nan_original_service_diagnostic"
       ]
+    },
+    "test_model_create_commit_postgres": {
+      "revision": "59a5a645209fc8e93e637cb1c320223908cc02c0",
+      "git_blob_sha256": "58d2b1ecb661129e504ed79f76c88a1315532c25ab9cd28a9a5c178bf40403b4",
+      "selected_functions": [
+        "test_pg_signed_create_auth_scope_and_retained_readback",
+        "test_pg_variant_inherits_approval_without_changing_family_or_other_scope",
+        "test_pg_create_finalization_and_deferred_commit_rollback_retry",
+        "test_pg_create_serializes_on_numbering_and_family_lock"
+      ]
     }
   },
   "cases": {
@@ -1205,6 +1215,15 @@
       "test_pg_list_batch_history_filters_auth_and_no_writes",
       "test_pg_partial_sale_remaining_stale_and_exhaustion",
       "test_pg_nan_original_service_diagnostic"
+    ],
+    "test_model_create_commit_postgres": [
+      "test_pg_signed_create_auth_scope_and_retained_readback[/api/models-standard-standard-None]",
+      "test_pg_signed_create_auth_scope_and_retained_readback[/api/usluga/models-eco-usluga-ECO]",
+      "test_pg_variant_inherits_approval_without_changing_family_or_other_scope",
+      "test_pg_create_finalization_and_deferred_commit_rollback_retry[audit]",
+      "test_pg_create_finalization_and_deferred_commit_rollback_retry[commit]",
+      "test_pg_create_serializes_on_numbering_and_family_lock[numbering]",
+      "test_pg_create_serializes_on_numbering_and_family_lock[family]"
     ]
   },
   "isolated_supplemental_cases": [
