@@ -17,7 +17,7 @@ from app.schemas.catalog.catalog import Model
 from app.schemas.planning.price_calculation import PriceCalculationRequest
 from app.libs.types.planning import PriceCalculationPurchasingCommand
 from app.libs.enums.planning import PriceCalculationStatus
-from app.schemas.planning.price_calculation_persistence import apply_purchasing_contribution
+from app.schemas.planning.price_calculation_persistence import apply_purchasing_contribution, insert_price_request
 from app.models.audit_service import log_action
 from app.models.model_images_service import model_preview_image_url, model_variant_picture_url
 
@@ -377,14 +377,7 @@ def create_price_request(db: Session, model_id: int, current: User) -> PriceCalc
         or margin != margin.quantize(Decimal("0.01"))
     ):
         raise HTTPException(422, "Model target margin exceeds supported price calculation precision")
-    request = PriceCalculationRequest(
-        model_id=model.id,
-        created_by_id=current.id,
-        profit_percentage=margin,
-        accessories_json=[],
-    )
-    db.add(request)
-    db.flush()
+    request = insert_price_request(db, model_id=model.id, created_by_id=current.id, margin=margin)
     log_action(
         db,
         current,

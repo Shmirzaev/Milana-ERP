@@ -546,6 +546,15 @@
         "test_pg_purchasing_completion_transition_recipients_and_audit_actor",
         "test_pg_purchasing_request_audit_and_notification_rollback_then_retry"
       ]
+    },
+    "test_price_calculation_creation_postgres": {
+      "revision": "958e3f2de4007197864b0ba4689a5ad4f45ef514",
+      "git_blob_sha256": "786962b61b84dbd3202a68b9d4a92c2c81d95edc3922d3a971624b0846020a8b",
+      "selected_functions": [
+        "test_pg_signed_creation_auth_duplicates_and_recipients",
+        "test_pg_signed_creation_margin_contract",
+        "test_pg_signed_creation_failure_teardown_retry"
+      ]
     }
   },
   "cases": {
@@ -1246,6 +1255,16 @@
     "test_price_calculation_purchasing_postgres": [
       "test_pg_purchasing_completion_transition_recipients_and_audit_actor",
       "test_pg_purchasing_request_audit_and_notification_rollback_then_retry"
+    ],
+    "test_price_calculation_creation_postgres": [
+      "test_pg_signed_creation_auth_duplicates_and_recipients",
+      "test_pg_signed_creation_margin_contract[999999.99-201-expected0]",
+      "test_pg_signed_creation_margin_contract[1000000-422-None]",
+      "test_pg_signed_creation_margin_contract[0.001-422-None]",
+      "test_pg_signed_creation_margin_contract[not-a-number-201-None]",
+      "test_pg_signed_creation_failure_teardown_retry[notification]",
+      "test_pg_signed_creation_failure_teardown_retry[audit]",
+      "test_pg_signed_creation_failure_teardown_retry[commit]"
     ]
   },
   "isolated_supplemental_cases": [
