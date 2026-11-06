@@ -441,6 +441,15 @@
         "test_pg_manual_create_commit_abort_rolls_back_then_retry",
         "test_pg_unicode_create_and_all_typed_status_filters_round_trip"
       ]
+    },
+    "test_waste_request_postgres": {
+      "revision": "024f9b3039110ad96e6869695e294538806fbb54",
+      "git_blob_sha256": "6840ad19fa60b2fe319896dd26e236f9751edb3f4caed7075248dbf0d2651d05",
+      "selected_functions": [
+        "test_pg_disposal_http_refusal_and_audit_failure_retry",
+        "test_pg_disposal_deferred_commit_failure_retry",
+        "test_pg_disposal_request_race_serializes_on_parent"
+      ]
     }
   },
   "cases": {
@@ -1045,6 +1054,11 @@
     "test_waste_manual_create_commit_postgres": [
       "test_pg_manual_create_commit_abort_rolls_back_then_retry",
       "test_pg_unicode_create_and_all_typed_status_filters_round_trip"
+    ],
+    "test_waste_request_postgres": [
+      "test_pg_disposal_http_refusal_and_audit_failure_retry",
+      "test_pg_disposal_deferred_commit_failure_retry",
+      "test_pg_disposal_request_race_serializes_on_parent"
     ]
   },
   "isolated_supplemental_cases": [
