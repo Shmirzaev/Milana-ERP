@@ -22,3 +22,7 @@ class WasteOut(ORMModel):
     estimated_value: float
     status: WasteStatus
     created_at: datetime
+
+
+class WasteListOut(WasteOut):
+    remaining_quantity: Optional[float] = None

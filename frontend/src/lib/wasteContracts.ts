@@ -15,6 +15,7 @@ export type WasteRecord = {
   batch_id: number | null;
   waste_type: string;
   quantity: number;
+  remaining_quantity: number | null;
   unit: string;
   reason: string | null;
   sellable: boolean;

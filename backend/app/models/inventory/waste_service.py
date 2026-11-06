@@ -12,7 +12,7 @@ from fastapi import HTTPException
 
 from app.libs.dto.inventory.waste_input import WasteIn
 from app.libs.dto.inventory.waste_disposal_input import WasteDisposalIn
-from app.libs.dto.inventory.waste_output import WasteOut
+from app.libs.dto.inventory.waste_output import WasteListOut
 from app.libs.dto.inventory.waste_sale_input import WasteSaleIn
 from app.libs.dto.inventory.waste_sale_output import WasteSaleOut
 from app.libs.enums.inventory import WasteStatus
@@ -21,6 +21,7 @@ from app.models.idempotency_service import replay_idempotent_response, store_ide
 from app.schemas import Item, StockBatch, User, WasteDisposalRequest, WasteRecord, WasteSale
 from app.schemas.inventory.waste import add_disposal_request, apply_disposal_approval, mark_waste_disposed, persist_disposal_rejection
 from app.schemas.inventory.waste_create_persistence import insert_manual_waste
+from app.schemas.inventory.waste import insert_waste_sale, mark_waste_sold
 
 
 def _unit_cost_for_waste(db, item_id: int | None, batch_id: int | None) -> float:
@@ -48,16 +49,39 @@ def _estimated_value_for_waste(db, w: WasteRecord) -> float:
     return round(float(w.quantity or 0) * unit_cost, 2)
 
 
-def list_waste(db, status: WasteStatus | None = None, sellable: bool | None = None) -> list[WasteOut]:
+def list_waste(db, status: WasteStatus | None = None, sellable: bool | None = None) -> list[WasteListOut]:
     qry = db.query(WasteRecord)
     if status: qry = qry.filter(WasteRecord.status == status)
     if sellable is not None: qry = qry.filter(WasteRecord.sellable.is_(sellable))
     rows = qry.order_by(WasteRecord.id.desc()).all()
+    # Read sale quantities in one batch; invalid history remains readable.
+    sold: dict[int, Decimal | None] = {row.id: Decimal("0") for row in rows}
+    if sold:
+        for record_id, quantity in db.query(WasteSale.waste_record_id, WasteSale.quantity).filter(
+            WasteSale.waste_record_id.in_(sold)
+        ).all():
+            try:
+                amount = Decimal(str(quantity))
+                previous = sold[record_id]
+                sold[record_id] = previous + amount if previous is not None and amount.is_finite() and amount > 0 else None
+            except (InvalidOperation, TypeError, ValueError):
+                sold[record_id] = None
+
+    def remaining(row: WasteRecord) -> float | None:
+        try:
+            original = Decimal(str(row.quantity))
+            total = sold[row.id]
+            if not original.is_finite() or original <= 0 or total is None or total > original:
+                return None
+            return float(original - total)
+        except (InvalidOperation, TypeError, ValueError):
+            return None
+
     # Preserve the existing live-estimate response without rewriting the
     # valuation snapshot stored with the historical waste record.
     return [
-        WasteOut.model_validate(row).model_copy(
-            update={"estimated_value": _estimated_value_for_waste(db, row)},
+        WasteListOut.model_validate(row).model_copy(
+            update={"estimated_value": _estimated_value_for_waste(db, row), "remaining_quantity": remaining(row)},
         )
         for row in rows
     ]
@@ -171,7 +195,8 @@ def sell_waste(db, wid: int, payload: WasteSaleIn, current: User, idempotency_ke
     if quantity > remaining_quantity:
         raise HTTPException(400, f"Sale quantity exceeds remaining waste quantity {remaining_quantity:f}")
 
-    sale = WasteSale(
+    sale = insert_waste_sale(
+        db,
         waste_record_id=w.id,
         buyer_name=buyer_name,
         quantity=quantity,
@@ -180,13 +205,11 @@ def sell_waste(db, wid: int, payload: WasteSaleIn, current: User, idempotency_ke
         sold_by=current.id,
         sold_at=datetime.now(timezone.utc),
     )
-    db.add(sale)
-    db.flush()
     remaining_after_sale = remaining_quantity - quantity
     # Only a sale that exhausts the record closes it. Marking it sold on a
     # partial sale stranded the leftover waste as unsellable.
     if remaining_after_sale == 0:
-        w.status = "sold"
+        mark_waste_sold(w)
     log_action(db, current, "sell", "WasteRecord", w.id, new_value={
         "quantity": float(quantity),
         "remaining_quantity": float(remaining_after_sale),
