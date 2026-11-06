@@ -91,3 +91,75 @@ def test_pg_sale_auth_partial_then_exhaust_and_replay(pg_sessions):
         assert db.query(AuditLog).filter_by(entity_type='WasteRecord', entity_id=wid, action='sell').count() == 2
         assert db.query(IdempotencyRecord).filter(IdempotencyRecord.key.in_([f'partial-{suffix}', f'exhaust-{suffix}'])).count() == 2
         assert audit_service.verify_audit_hash_chain(db)['ok']
+
+
+def test_pg_sale_same_key_service_race_serializes_and_replays(pg_sessions):
+    from concurrent.futures import ThreadPoolExecutor
+    from queue import Queue
+    from threading import Event
+    from time import monotonic, sleep
+
+    from sqlalchemy import text
+    from app.libs.dto.inventory.waste_sale_input import WasteSaleIn
+    from app.models.idempotency_service import bind_idempotency_identity, request_fingerprint
+    from app.models.inventory.waste_service import sell_waste
+
+    actor, wid, _ = _setup(pg_sessions)
+    key = f'same-sale-{uuid4().hex}'
+    payload = WasteSaleIn(buyer_name='Buyer', quantity=4, unit_price=2)
+    ready, start = Queue(), Event()
+    engine = pg_sessions.kw['bind']
+
+    def sell():
+        with pg_sessions() as db:
+            parent = db.get(WasteRecord, wid)
+            user = db.get(User, actor)
+            assert parent.status == 'received_by_waste_department'
+            bind_idempotency_identity(db, user)
+            ready.put(db.execute(text('SELECT pg_backend_pid()')).scalar_one())
+            assert start.wait(10)
+            return sell_waste(db, wid, payload, user, key)
+
+    with engine.connect() as holder, ThreadPoolExecutor(max_workers=2) as workers:
+        holder_pid = holder.execute(text('SELECT pg_backend_pid()')).scalar_one()
+        holder.execute(text('SELECT id FROM waste_records WHERE id=:id FOR NO KEY UPDATE'), {'id': wid})
+        futures = [workers.submit(sell) for _ in range(2)]
+        try:
+            pids = [ready.get(timeout=10) for _ in futures]
+            assert len(set(pids)) == 2 and holder_pid not in pids
+            owned = {*pids, holder_pid}
+            start.set()
+            deadline = monotonic() + 10
+            graph = {}
+            def reaches_holder(pid, seen=frozenset()):
+                if pid == holder_pid:
+                    return True
+                if pid in seen:
+                    return False
+                return any(reaches_holder(blocker, seen | {pid}) for blocker in graph.get(pid, ()))
+            while monotonic() < deadline:
+                graph = {pid: holder.execute(text('SELECT pg_blocking_pids(:pid)'), {'pid': pid}).scalar_one() for pid in pids}
+                if (all(graph[pid] and set(graph[pid]) <= owned and reaches_holder(pid) for pid in pids)
+                        and all(not future.done() for future in futures)):
+                    break
+                sleep(0.01)
+            else:
+                raise AssertionError(f'same-key requests did not enter owned wait chain holder={holder_pid}, graph={graph}')
+        finally:
+            start.set()
+            holder.rollback()
+        results = [future.result(timeout=20) for future in futures]
+    assert results[0] == results[1]
+    with pg_sessions() as db:
+        parent = db.get(WasteRecord, wid)
+        assert parent.status == 'received_by_waste_department'
+        sales = db.query(WasteSale).filter_by(waste_record_id=wid).all()
+        assert len(sales) == 1 and sales[0].id == results[0]['id']
+        assert sales[0].quantity == Decimal('4') and Decimal(str(parent.quantity)) - sales[0].quantity == Decimal('6')
+        audits = db.query(AuditLog).filter_by(entity_type='WasteRecord', entity_id=wid, action='sell').all()
+        assert len(audits) == 1 and audits[0].user_id == actor
+        receipt = db.query(IdempotencyRecord).filter_by(key=key).one()
+        expected_payload = {'waste_record_id': wid, **payload.model_dump(mode='json')}
+        assert receipt.request_hash == request_fingerprint(expected_payload)
+        assert receipt.response_json == results[0] and receipt.user_id == actor and receipt.status_code == 200
+        assert audit_service.verify_audit_hash_chain(db)['ok']
