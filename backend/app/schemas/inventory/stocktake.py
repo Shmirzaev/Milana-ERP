@@ -38,3 +38,13 @@ def delete_stocktake(db: Session, count: WarehouseStocktake, rows: Query) -> Non
     """Delete a locked count and its rows in the caller's transaction."""
     rows.delete(synchronize_session=False)
     db.delete(count)
+
+
+def freeze_stocktake_completion(
+    db: Session, count: WarehouseStocktake, rows: list[WarehouseStocktakeRow],
+    snapshots: dict, completed_at: datetime,
+) -> None:
+    """Apply completion evidence in the caller's existing transaction."""
+    for row in rows:
+        row.final_snapshot = snapshots.get(row.package_id, {})
+    count.completed_at = completed_at

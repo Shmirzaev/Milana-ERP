@@ -159,25 +159,27 @@ export default function ForecastLineChart({
             </svg>
           </div>
 
-          <table className="sr-only">
-            <caption>{title}</caption>
-            <thead>
-              <tr>
-                <th scope="col">{title}</th>
-                {series.map((item) => <th key={item.key} scope="col">{item.label}</th>)}
-              </tr>
-            </thead>
-            <tbody>
-              {points.map((point, index) => (
-                <tr key={`${point.label}-accessible-${index}`}>
-                  <th scope="row">{point.tooltipLabel || point.label}</th>
-                  {series.map((item) => (
-                    <td key={item.key}>{valueFormatter(safeNumber(point.values[item.key]))}</td>
-                  ))}
+          <div className="sr-only">
+            <table>
+              <caption>{title}</caption>
+              <thead>
+                <tr>
+                  <th scope="col">{title}</th>
+                  {series.map((item) => <th key={item.key} scope="col">{item.label}</th>)}
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {points.map((point, index) => (
+                  <tr key={`${point.label}-accessible-${index}`}>
+                    <th scope="row">{point.tooltipLabel || point.label}</th>
+                    {series.map((item) => (
+                      <td key={item.key}>{valueFormatter(safeNumber(point.values[item.key]))}</td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </>
       )}
     </section>

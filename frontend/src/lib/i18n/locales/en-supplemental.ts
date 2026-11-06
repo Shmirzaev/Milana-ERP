@@ -59,6 +59,7 @@ export default {
     "page.hrEmployees.bank_details": "Bank details",
     "page.hrEmployees.payroll_id": "Payroll ID",
     "page.hrEmployees.saving": "Saving…",
+    "page.hrEmployees.saved": "Saved.",
     "page.hrEmployees.save": "Save employee profile",
     "hrWorkspace.dashboard": "Dashboard",
     "hrWorkspace.employees": "Employees",
@@ -1234,4 +1235,5 @@ export default {
     "departmentDashboard.printing": "Printing dashboard",
     "departmentDashboard.warehouse": "Warehouse dashboard",
     "departmentDashboard.unassigned": "Unassigned",
+    "page.admin.users.personName": "Name",
   } as Record<string, string>;

@@ -6,7 +6,10 @@ Employees, departments, attendance evidence, payroll periods, earnings and adjus
 
 SQLAlchemy definitions now live under app/schemas/; Pydantic DTOs live in
 app/libs/dto/. The links below show the authoritative definitions for this group's
-records. Business services live in models/*_service.py.
+records. Business services live in models/people/*_service.py; existing shared helpers
+remain directly under models/. Payroll persistence operations accompany the mapped
+definitions in payroll.py, payroll_qr_persistence.py, payroll_record_persistence.py
+and payroll_split_persistence.py.
 
 ## Authoritative definitions
 
@@ -96,3 +99,7 @@ revocation evidence; evidence detection checks the exact JSON action, not profil
 Compatible history can downgrade to the 0152 constraints. See the
 [REVOKE packet](../../../../docs/TURNSTILE_REVOKE_20261104.md); this slice remains
 **AI_VERIFIED_AWAITING_HUMAN** after independent source/evidence review.
+
+`payroll_adjustment_persistence.py` stages adjustment insert/delete using the supplied Session; services own commits.
+
+`payroll_qr_lifecycle_persistence.py` stages QR child insertion and batch deletion with no commit; caller preserves lock and flush order.

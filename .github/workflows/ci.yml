@@ -3,9 +3,25 @@ name: ERP validation and immutable release artifacts
 on:
   pull_request:
   push:
-    branches: [main, clone_main, "codex/**"]
+    branches:
+      - main
+      - clone_main
+      # These exact pushes produce the authorized QA runtime artifacts.
+      - codex/ismail-finance-pilot-20261025
+      - codex/ismail-brand-feedback-20261028
+      - codex/ismail-combined-review-20261028
+  schedule:
+    - cron: "23 2 * * *"
   workflow_dispatch:
     inputs:
+      security_scan_only:
+        description: "Run only the security gate; never publish release artifacts"
+        type: boolean
+        default: false
+      security_scan_ref:
+        description: "Source ref for security-only evidence (ignored for releases)"
+        type: string
+        default: clone_main
       release_id:
         description: "UTC release ID (YYYYMMDD_HHMMSS)"
         required: true
@@ -19,12 +35,45 @@ on:
         required: true
         type: string
 
+# Only PRs share a group; even pending main/clone_main pushes stay independent.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('{0}-{1}', github.ref, github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
   packages: write
 
 jobs:
+  security-scope:
+    permissions:
+      contents: read
+      pull-requests: read
+    runs-on: ubuntu-latest
+    outputs:
+      required: ${{ steps.scope.outputs.required }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Read PR changed paths
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files?per_page=100" --jq '.[].filename' > "$RUNNER_TEMP/security-changed.txt"
+      - name: Select security events
+        id: scope
+        run: |
+          touch "$RUNNER_TEMP/security-changed.txt"
+          python scripts/security_gate.py --scope --changed-files "$RUNNER_TEMP/security-changed.txt"
+  security-scan:
+    needs: security-scope
+    if: needs.security-scope.outputs.required == 'true'
+    uses: ./.github/workflows/security-scan.yml
+    with:
+      source_ref: ${{ github.event_name == 'schedule' && 'clone_main' || github.event_name == 'workflow_dispatch' && inputs.security_scan_only && inputs.security_scan_ref || github.sha }}
+      release_images: ${{ github.event_name == 'workflow_dispatch' && !inputs.security_scan_only }}
   backend:
+    if: github.event_name != 'schedule' && !(github.event_name == 'workflow_dispatch' && inputs.security_scan_only)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -36,6 +85,8 @@ jobs:
             backend/requirements.txt
             backend/requirements-dev.txt
       - run: python -m pip install -r backend/requirements.txt -r backend/requirements-dev.txt
+      - name: Check CI trigger and cancellation policy
+        run: python scripts/test_ci_trigger_policy.py
       - name: Start job-owned loopback PostgreSQL 16
         run: |
           docker run --detach --cidfile "$RUNNER_TEMP/ci-postgres.cid" --name milana-ci-postgres \
@@ -52,14 +103,25 @@ jobs:
       - name: Verify one Alembic head
         working-directory: backend
         run: python -c "from alembic.config import Config; from alembic.script import ScriptDirectory; heads=ScriptDirectory.from_config(Config('alembic.ini')).get_heads(); assert len(heads)==1, heads; print(heads[0])"
+      - name: Security gate policy and workflow regressions
+        run: python -m unittest discover -s scripts -p 'test_security_gate.py' -v
       - name: Ruff and compile
         working-directory: backend
         run: |
           python -m ruff check app
           python -m compileall -q app scripts
+      - name: Stabilization PostgreSQL auth and rate races
+        working-directory: backend
+        env:
+          STABILIZATION_POSTGRES_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/first_grade_qa_ci
+        run: >-
+          python -m pytest -v -rs
+          app/tests/test_password_change_races.py::test_postgres_same_current_password_changes_only_once
+          app/tests/test_rate_limit_scheduling.py::test_postgres_roster_lock_survives_concurrent_rate_store_workers
       - name: Backend regression suite
         working-directory: backend
-        run: python -m pytest -q
+        # This strict dual-engine suite runs in the approved-PG workflow instead.
+        run: python -m pytest -q --ignore=app/tests/test_readiness_operation_characterization.py
       - name: Purchasing approval PostgreSQL write boundary
         env:
           PUR_APPROVAL_PG_ADMIN_URL: postgresql://postgres@127.0.0.1:5432/postgres
@@ -158,6 +220,7 @@ jobs:
           fi
 
   frontend:
+    if: github.event_name != 'schedule' && !(github.event_name == 'workflow_dispatch' && inputs.security_scan_only)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -172,6 +235,13 @@ jobs:
         run: npm run lint
       - working-directory: frontend
         run: npm run typecheck:strict
+      - name: All node-only frontend tests (quarantines reported separately)
+        working-directory: frontend
+        timeout-minutes: 15
+        env:
+          TZ: UTC
+          LANG: en_US.UTF-8
+        run: node scripts/run-node-tests.mjs
       - name: Sales enum contracts and mutation checks
         working-directory: frontend
         run: npm run test:sales-enum-contracts
@@ -269,8 +339,8 @@ jobs:
           printf 'QA artifact digest: %s\n' "$ARTIFACT_DIGEST" >> "$GITHUB_STEP_SUMMARY"
 
   release:
-    if: github.event_name == 'workflow_dispatch'
-    needs: [backend, frontend]
+    if: github.event_name == 'workflow_dispatch' && !inputs.security_scan_only
+    needs: [backend, frontend, security-scan]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -298,17 +368,31 @@ jobs:
           owner="${REPOSITORY_OWNER,,}"
           echo "backend=ghcr.io/$owner/milana-erp-backend" >> "$GITHUB_OUTPUT"
           echo "frontend=ghcr.io/$owner/milana-erp-frontend" >> "$GITHUB_OUTPUT"
-      - name: Build and publish backend image
-        id: backend_image
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+      - uses: actions/download-artifact@v4
         with:
-          context: ./backend
-          pull: true
-          push: true
-          tags: ${{ steps.images.outputs.backend }}:${{ inputs.release_id }}
-          labels: org.opencontainers.image.revision=${{ github.sha }}
-          cache-from: type=gha,scope=milana-backend-v1
-          cache-to: type=gha,scope=milana-backend-v1,mode=max
+          name: scanned-release-images-${{ github.run_id }}
+          path: ${{ runner.temp }}/scanned-images
+      - name: Load and verify exact scanned images
+        run: |
+          docker load -i "$RUNNER_TEMP/scanned-images/images.tar"
+          python - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          identity = json.loads(Path(os.environ['RUNNER_TEMP'], 'scanned-images', 'identity.json').read_text())
+          assert identity['source_sha'] == os.environ['GITHUB_SHA']
+          for kind, expected in identity['images'].items():
+              actual = subprocess.check_output(['docker', 'image', 'inspect', '--format', '{{.Id}}', f'milana-security-{kind}:{os.environ["GITHUB_RUN_ID"]}'], text=True).strip()
+              assert actual == expected, (kind, actual, expected)
+          PY
+      - name: Publish scanned backend image
+        id: backend_image
+        env:
+          DESTINATION: ${{ steps.images.outputs.backend }}:${{ inputs.release_id }}
+        run: |
+          docker tag "milana-security-backend:$GITHUB_RUN_ID" "$DESTINATION"
+          docker push "$DESTINATION"
+          digest=$(docker image inspect --format '{{index .RepoDigests 0}}' "$DESTINATION")
+          echo "digest=${digest##*@}" >> "$GITHUB_OUTPUT"
       - name: Verify rollback image strict schema-0150 startup and worker recovery
         if: hashFiles('scripts/test_rollback_image_schema_0150.py') != '' && hashFiles('backend/app/models/fulfillment/package_customer_service.py') == ''
         timeout-minutes: 12
@@ -316,23 +400,15 @@ jobs:
           ROLLBACK_BACKEND_IMAGE: ${{ steps.images.outputs.backend }}@${{ steps.backend_image.outputs.digest }}
           ROLLBACK_SOURCE_REVISION: ${{ github.sha }}
         run: python scripts/test_rollback_image_schema_0150.py --image "$ROLLBACK_BACKEND_IMAGE" --revision "$ROLLBACK_SOURCE_REVISION"
-      - name: Build and publish frontend image
+      - name: Publish scanned frontend image
         id: frontend_image
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
-        with:
-          context: .
-          file: ./frontend/Dockerfile
-          pull: true
-          push: true
-          tags: ${{ steps.images.outputs.frontend }}:${{ inputs.release_id }}
-          labels: org.opencontainers.image.revision=${{ github.sha }}
-          build-args: |
-            NEXT_PUBLIC_API_URL=https://erp.milanapremium.uz
-            API_URL=http://172.16.10.4:8000
-          # Reuse dependencies, but always compile the checked-out application.
-          no-cache-filters: builder
-          cache-from: type=gha,scope=milana-frontend-v1
-          cache-to: type=gha,scope=milana-frontend-v1,mode=max
+        env:
+          DESTINATION: ${{ steps.images.outputs.frontend }}:${{ inputs.release_id }}
+        run: |
+          docker tag "milana-security-frontend:$GITHUB_RUN_ID" "$DESTINATION"
+          docker push "$DESTINATION"
+          digest=$(docker image inspect --format '{{index .RepoDigests 0}}' "$DESTINATION")
+          echo "digest=${digest##*@}" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v4
         with:
           name: milana-erp-${{ inputs.release_id }}
