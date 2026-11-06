@@ -1,4 +1,7 @@
 """Payroll period operations own validation, schedule locks, audit and commit."""
+from app.core.dt import utcnow
+from app.libs.dto.people.payroll import PayrollPeriodUpdate
+from app.schemas.people.payroll import apply_payroll_period_changes, update_period_record_status
 from app.libs.dto.people.payroll import PayrollPeriodUpdate
 from app.schemas.people.payroll import apply_payroll_period_changes, update_period_record_status
 
@@ -172,6 +175,21 @@ def approve_period(period_id: int, db: Session, current: User=None):
     apply_payroll_period_changes(period, {'status': 'approved', 'approved_by': current.id, 'approved_at': utcnow()})
     update_period_record_status(db, factory_code, period.id, ['recorded'], 'approved')
     log_action(db, current, 'approve', 'PayrollPeriod', period.id, old_value={'status': old_status}, new_value={'status': period.status})
+    db.commit()
+    db.refresh(period)
+    return period
+
+
+def mark_period_paid(period_id: int, db: Session, current: User=None):
+    factory_code = selected_factory_code(current)
+    period = db.query(PayrollPeriod).filter(PayrollPeriod.id == period_id, PayrollPeriod.factory_code == factory_code).populate_existing().with_for_update().first()
+    if not period:
+        raise HTTPException(404, 'Payroll period not found')
+    if period.status != 'approved':
+        raise HTTPException(409, 'Only approved payroll periods can be marked paid')
+    apply_payroll_period_changes(period, {'status': 'paid'})
+    update_period_record_status(db, factory_code, period.id, ['recorded', 'approved'], 'paid')
+    log_action(db, current, 'mark_paid', 'PayrollPeriod', period.id, new_value={'status': period.status})
     db.commit()
     db.refresh(period)
     return period

@@ -1284,25 +1284,7 @@ def mark_period_paid(
     db: DbSession,
     current: User = Depends(require_permissions("payroll.pay", "*")),
 ):
-    factory_code = selected_factory_code(current)
-    period = db.query(PayrollPeriod).filter(
-        PayrollPeriod.id == period_id,
-        PayrollPeriod.factory_code == factory_code,
-    ).populate_existing().with_for_update().first()
-    if not period:
-        raise HTTPException(404, "Payroll period not found")
-    if period.status != "approved":
-        raise HTTPException(409, "Only approved payroll periods can be marked paid")
-    period.status = "paid"
-    db.query(PayrollRecord).filter(
-        PayrollRecord.factory_code == factory_code,
-        PayrollRecord.payroll_period_id == period.id,
-        PayrollRecord.status.in_(["recorded", "approved"]),
-    ).update({"status": "paid"}, synchronize_session=False)
-    log_action(db, current, "mark_paid", "PayrollPeriod", period.id, new_value={"status": period.status})
-    db.commit()
-    db.refresh(period)
-    return period
+    return payroll_service.mark_period_paid(period_id, db, current)
 
 
 @router.get("/records", response_model=list[PayrollRecordOut] | PayrollRecordPageOut)
