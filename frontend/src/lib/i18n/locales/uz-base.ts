@@ -1829,7 +1829,7 @@ export default {
     "page.profile.validEmail": "To'g'ri email kiriting.",
     "page.profile.saved": "Profil saqlandi.",
     "page.profile.passwordsNoMatch": "Yangi parollar mos emas.",
-    "page.profile.passwordUpdated": "Parol yangilandi.",
+    "page.profile.passwordUpdated": "Parol yangilandi. Qayta kiring.",
     "batch.managedInsideWorkOrder": "Ushbu ish topshirig'i ichidagi partiyalar",
     "batch.recordAction": "Quyida har bir {operation} amalini partiya bo'yicha yozing. Buyurtma bitta ish topshirig'i bo'lib qoladi.",
     "batch.defineInsideWorkOrder": "Ushbu ish topshirig'i uchun ichki partiyalarni belgilang",

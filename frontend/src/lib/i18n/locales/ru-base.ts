@@ -1829,7 +1829,7 @@ export default {
     "page.profile.validEmail": "Введите корректный email.",
     "page.profile.saved": "Профиль сохранён.",
     "page.profile.passwordsNoMatch": "Новые пароли не совпадают.",
-    "page.profile.passwordUpdated": "Пароль обновлён.",
+    "page.profile.passwordUpdated": "Пароль обновлён. Войдите снова.",
     "batch.managedInsideWorkOrder": "Партии внутри этого задания",
     "batch.recordAction": "Записывайте каждое действие {operation} по партии ниже. Заказ остаётся одним заданием.",
     "batch.defineInsideWorkOrder": "Создать внутренние партии для этого задания",
