@@ -6,25 +6,26 @@ from unittest.mock import Mock
 import pytest
 
 from app import main
+from app.core import readiness as readiness_checks
 
 
 @pytest.fixture(autouse=True)
 def isolated_readiness_slot(monkeypatch):
-    monkeypatch.setattr(main, "_READINESS_CHECK_SLOT", Lock())
-    monkeypatch.setattr(main, "_READINESS_PROBE", None, raising=False)
+    monkeypatch.setattr(readiness_checks, "_READINESS_CHECK_SLOT", Lock())
+    monkeypatch.setattr(readiness_checks, "_READINESS_PROBE", None, raising=False)
 
 
 @pytest.fixture
 def store(monkeypatch):
     store = Mock()
     store.ttl.return_value = None
-    monkeypatch.setattr(main, "get_shared_counter_store", lambda: store)
+    monkeypatch.setattr(readiness_checks, "get_shared_counter_store", lambda: store)
     return store
 
 
 def test_readiness_reports_healthy_dependencies(client, monkeypatch, store):
     monkeypatch.setattr(main.settings, "RELEASE_ID", "20261027_120000", raising=False)
-    monkeypatch.setattr(main, "_probe_postgresql", lambda: None)
+    monkeypatch.setattr(readiness_checks, "_probe_postgresql", lambda: None)
 
     response = client.get("/ready")
 
@@ -43,11 +44,11 @@ def test_readiness_dependency_failure_without_secrets(client, monkeypatch, store
     def fail_probe(*args):
         raise RuntimeError("connection failed: scheme://user:do-not-leak@private-host/internal")
 
-    monkeypatch.setattr(main, "_probe_postgresql", fail_probe if failure == "postgresql" else lambda: None)
+    monkeypatch.setattr(readiness_checks, "_probe_postgresql", fail_probe if failure == "postgresql" else lambda: None)
     if failure == "shared_store":
         store.ttl.side_effect = fail_probe
     elif failure == "store_initialization":
-        monkeypatch.setattr(main, "get_shared_counter_store", fail_probe)
+        monkeypatch.setattr(readiness_checks, "get_shared_counter_store", fail_probe)
 
     response = client.get("/ready")
 
@@ -78,7 +79,7 @@ def test_readiness_deadline_is_bounded_and_stuck_probe_is_reused(client, monkeyp
             finished.set()
 
     monkeypatch.setattr(main, "_READINESS_TIMEOUT_SECONDS", 0.04)
-    monkeypatch.setattr(main, "_probe_postgresql", hang if blocked == "postgresql" else lambda: None)
+    monkeypatch.setattr(readiness_checks, "_probe_postgresql", hang if blocked == "postgresql" else lambda: None)
     if blocked == "shared_store":
         store.ttl.side_effect = hang
 
@@ -99,7 +100,7 @@ def test_readiness_deadline_is_bounded_and_stuck_probe_is_reused(client, monkeyp
 
 def test_readiness_dependencies_share_one_deadline(client, monkeypatch, store):
     monkeypatch.setattr(main, "_READINESS_TIMEOUT_SECONDS", 0.15)
-    monkeypatch.setattr(main, "_probe_postgresql", lambda: sleep(0.10))
+    monkeypatch.setattr(readiness_checks, "_probe_postgresql", lambda: sleep(0.10))
     store.ttl.side_effect = lambda key: sleep(0.10)
 
     started = monotonic()
@@ -125,7 +126,7 @@ def test_concurrent_callers_share_inflight_result_and_next_probe_recovers(monkey
             raise RuntimeError("database unavailable")
 
     monkeypatch.setattr(main, "_READINESS_TIMEOUT_SECONDS", 1.0)
-    monkeypatch.setattr(main, "_probe_postgresql", check_database)
+    monkeypatch.setattr(readiness_checks, "_probe_postgresql", check_database)
 
     def request_ready():
         callers.wait(timeout=2)
@@ -150,7 +151,7 @@ def test_concurrent_callers_share_inflight_result_and_next_probe_recovers(monkey
     else:
         assert responses == [{"status": "ready", "checks": {"postgresql": "ok", "shared_store": "ok"}, "release": main.settings.RELEASE_ID}] * 4
 
-    monkeypatch.setattr(main, "_probe_postgresql", lambda: None)
+    monkeypatch.setattr(readiness_checks, "_probe_postgresql", lambda: None)
     assert main.readiness() == {"status": "ready", "checks": {"postgresql": "ok", "shared_store": "ok"}, "release": main.settings.RELEASE_ID}
     assert store.ttl.call_count == 2
 
@@ -160,8 +161,8 @@ def test_health_remains_dependency_free(client, monkeypatch):
     def forbidden():
         pytest.fail("liveness must not probe dependencies")
 
-    monkeypatch.setattr(main, "_probe_postgresql", forbidden)
-    monkeypatch.setattr(main, "get_shared_counter_store", forbidden)
+    monkeypatch.setattr(readiness_checks, "_probe_postgresql", forbidden)
+    monkeypatch.setattr(readiness_checks, "get_shared_counter_store", forbidden)
 
     health = client.get("/health")
 

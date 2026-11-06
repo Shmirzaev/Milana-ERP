@@ -53,6 +53,19 @@ jobs:
         run: >-
           python scripts/run_refactor_pg_supplement_gate.py
           --report "$RUNNER_TEMP/purchasing-fabric-pg-gate.xml"
+      - name: Verify shared RF004 contracts on SQLite and approved PostgreSQL
+        env:
+          STABILIZATION_POSTGRES_URL: postgresql+psycopg2://postgres@127.0.0.1:55432/postgres
+        run: |
+          python -m pytest -q backend/app/tests/test_rf004_audit_read_characterization.py backend/app/tests/test_audit_chain_concurrency.py backend/app/tests/test_shipment_reopen_idempotency_characterization.py backend/app/tests/test_idempotency_identity.py backend/app/tests/test_readiness_operation_characterization.py scripts/test_refactor_pg_evidence_characterization.py scripts/test_run_local_postgres_tests.py backend/tests/test_refactor_boundary_audit.py --junitxml="$RUNNER_TEMP/rf004-runner-contracts.xml"
+          python - "$RUNNER_TEMP/rf004-runner-contracts.xml" <<'PY'
+          import sys
+          import xml.etree.ElementTree as ET
+          cases = list(ET.parse(sys.argv[1]).getroot().iter("testcase"))
+          assert cases and all(not any(case.find(tag) is not None for tag in ("skipped", "failure", "error")) for case in cases)
+          assert any("[sqlite]" in case.get("name", "") for case in cases)
+          assert any("[postgres]" in case.get("name", "") for case in cases)
+          PY
       - name: Preserve exact test reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -61,6 +74,7 @@ jobs:
           path: |
             ${{ runner.temp }}/refactor-pg-gate.xml
             ${{ runner.temp }}/purchasing-fabric-pg-gate.xml
+            ${{ runner.temp }}/rf004-runner-contracts.xml
           if-no-files-found: warn
       - name: Remove only this job's owned container
         if: always()
