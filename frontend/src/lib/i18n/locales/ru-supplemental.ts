@@ -1348,4 +1348,5 @@ export default {
     "departmentDashboard.printing": "Панель печати",
     "departmentDashboard.warehouse": "Панель склада",
     "departmentDashboard.unassigned": "Не назначено",
+    "page.admin.users.personName": "Имя",
   } as Record<string, string>;
