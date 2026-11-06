@@ -403,7 +403,7 @@ def create_usluga_model(
     current: User = Depends(require_permissions("usluga.manage", "*")),
 ):
     _require_eco(current)
-    return models_service.create_model(current, db, payload, "usluga")
+    return models_service.create_model(current, db, payload, CatalogScope.USLUGA)
 
 
 @router.get("/models/{mid}", response_model=ModelDetail)
