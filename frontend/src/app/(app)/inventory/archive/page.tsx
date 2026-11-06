@@ -167,7 +167,7 @@ export default function FabricInventoryArchivePage() {
         <div className="flex h-10 min-w-0 flex-1 items-center gap-2 rounded-md border border-[#ded9ca] bg-[#fdfcf8] px-3">
           <Search className="h-4 w-4 shrink-0 text-[#8a8472]" />
           <input
-            className="w-full min-w-0 bg-transparent text-sm text-[#14110b] placeholder:text-[#8a8472] focus:outline-none"
+            className="w-full min-w-0 bg-transparent text-sm text-[#14110b] placeholder:text-[#8a8472] focus:outline-hidden"
             placeholder={t("page.inventory.searchPlaceholder")}
             value={searchDraft}
             onChange={(event) => setSearchDraft(event.target.value)}

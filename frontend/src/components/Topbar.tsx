@@ -71,7 +71,7 @@ export default function Topbar() {
       {me && !me.sewing_band_id && <form onSubmit={submitSearch} className="order-3 flex h-10 w-full items-center gap-2 rounded-md border border-[#e3dfd3] bg-[#f1efe8] px-3 text-sm text-[#8a8472] md:order-none md:w-[320px] xl:w-[360px]">
         <Search className="h-4 w-4 shrink-0" />
         <input
-          className="min-w-0 flex-1 bg-transparent text-sm text-[#2c2920] placeholder:text-[#8a8472] focus:outline-none"
+          className="min-w-0 flex-1 bg-transparent text-sm text-[#2c2920] placeholder:text-[#8a8472] focus:outline-hidden"
           placeholder={t("top.searchPlaceholder")}
           value={search}
           onChange={(e) => setSearch(e.target.value)}

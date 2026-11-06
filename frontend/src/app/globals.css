@@ -1,6 +1,21 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+@config "../../tailwind.config.js";
+
+/* Preserve v3 defaults used by existing application classes. */
+@theme {
+  --radius-sm: 0.125rem;
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --color-gray-200: #e5e7eb;
+  --color-gray-400: #9ca3af;
+}
+
+@layer base {
+  *, ::before, ::after, ::backdrop, ::file-selector-button {
+    border-color: var(--color-gray-200, currentColor);
+  }
+  input::placeholder, textarea::placeholder { color: var(--color-gray-400); }
+  button:not(:disabled), [role="button"]:not(:disabled) { cursor: pointer; }
+}
 
 :root {
   color-scheme: light;
@@ -125,7 +140,7 @@ dd {
 .card { @apply min-w-0 max-w-full overflow-hidden rounded-xl border border-[#e3dfd3] bg-[#fdfcf8] shadow-sm; }
 .panel { @apply min-w-0 max-w-full rounded-xl border border-[#e3dfd3] bg-[#fdfcf8] shadow-sm; }
 .input {
-  @apply min-h-9 w-full min-w-0 rounded-md border border-[#ded9ca] bg-[#fdfcf8] px-3 py-2 text-sm text-[#14110b] shadow-sm transition placeholder:text-[#8a8472] focus:border-[#c2410c] focus:outline-none focus:ring-2 focus:ring-[#c2410c]/20;
+  @apply min-h-9 w-full min-w-0 rounded-md border border-[#ded9ca] bg-[#fdfcf8] px-3 py-2 text-sm text-[#14110b] shadow-sm transition placeholder:text-[#8a8472] focus:border-[#c2410c] focus:outline-hidden focus:ring-2 focus:ring-[#c2410c]/20;
 }
 .label { @apply mb-1 block break-words text-[11px] font-semibold uppercase leading-tight tracking-[0.08em] text-[#8a8472]; }
 .badge { @apply inline-flex min-w-0 max-w-full items-center gap-1 whitespace-normal break-words rounded-full bg-[#f1efe8] px-2 py-0.5 text-center text-[11px] font-medium leading-tight text-[#56503f]; }

@@ -1804,7 +1804,7 @@ export default function ProcessQrPage() {
               <div className="mb-3 flex items-center gap-2 rounded-md border border-[#ded9ca] bg-[#fdfcf8] px-3 py-2 shadow-sm">
                 <Search className="h-4 w-4 text-[#8a8472]" />
                 <input
-                  className="w-full bg-transparent text-sm text-[#14110b] placeholder:text-[#8a8472] focus:outline-none"
+                  className="w-full bg-transparent text-sm text-[#14110b] placeholder:text-[#8a8472] focus:outline-hidden"
                   placeholder={t("page.processQr.orderSearchPlaceholder")}
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
@@ -1870,7 +1870,7 @@ export default function ProcessQrPage() {
               <div className="mb-3 flex items-center gap-2 rounded-md border border-[#ded9ca] bg-[#fdfcf8] px-3 py-2 shadow-sm">
                 <Search className="h-4 w-4 text-[#8a8472]" />
                 <input
-                  className="w-full bg-transparent text-sm text-[#14110b] placeholder:text-[#8a8472] focus:outline-none"
+                  className="w-full bg-transparent text-sm text-[#14110b] placeholder:text-[#8a8472] focus:outline-hidden"
                   placeholder={t("page.processQr.variantSearchPlaceholder")}
                   value={manualModelQuery}
                   onChange={(event) => setManualModelQuery(event.target.value)}
@@ -2449,7 +2449,7 @@ export default function ProcessQrPage() {
             <div className="flex items-center gap-2 rounded-md border border-[#ded9ca] bg-[#fdfcf8] px-3 py-2 shadow-sm">
               <Search className="h-4 w-4 text-[#8a8472]" />
               <input
-                className="w-full bg-transparent text-sm text-[#14110b] placeholder:text-[#8a8472] focus:outline-none"
+                className="w-full bg-transparent text-sm text-[#14110b] placeholder:text-[#8a8472] focus:outline-hidden"
                 placeholder={t("page.processQr.employeeSearchPlaceholder")}
                 value={employeeQuery}
                 onChange={(event) => setEmployeeQuery(event.target.value)}
