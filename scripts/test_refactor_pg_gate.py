@@ -32,7 +32,23 @@ class RequiredPGGateTests(unittest.TestCase):
 
     def test_complete_evidence_passes(self):
         counts = gate.check_report(self.write_report(self.report()))
-        self.assertEqual(sum(counts.values()), 181)
+        self.assertEqual(sum(counts.values()), 470)
+
+    def test_postgres_old_bearer_cutoff_missing_or_skipped_fails(self):
+        module = "test_identity_admin_user_update"
+        name = "test_password_change_rejects_old_bearer_and_accepts_new_bearer[postgres]"
+        self.assertIn(name, gate.REQUIRED_CASES[module])
+        for mutation in ("missing", "skipped"):
+            with self.subTest(mutation=mutation):
+                tree = self.report()
+                suite = next(tree.iter("testsuite"))
+                case = next(row for row in suite if row.get("classname") == f"app.tests.{module}" and row.get("name") == name)
+                if mutation == "missing":
+                    suite.remove(case)
+                else:
+                    ET.SubElement(case, "skipped")
+                with self.assertRaises(ValueError):
+                    gate.check_report(self.write_report(tree))
 
     def test_catalog_create_groups_have_exact_registered_case_counts(self):
         for module, count in (("test_modelsize_create_postgres", 2), ("test_modelcolor_create_postgres", 27)):

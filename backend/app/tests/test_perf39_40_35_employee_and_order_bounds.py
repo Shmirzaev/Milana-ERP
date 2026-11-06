@@ -208,7 +208,7 @@ def receivable_order_batch():
         expected_ids = []
         # More than the former default page; excluded orders are inserted last.
         cases = [("sent", 5, 0)] * 51 + [("approved", 5, 1)] * 5 + [("partially_received", 5, 2)] * 5
-        cases += [("sent", 5, 5), ("approved", 5, 6), ("closed", 5, 0), ("draft", 5, 0)]
+        cases += [("sent", 5, 5), ("approved", 5, 6), ("closed", 5, 0), ("draft", 5, 0), ("legacy_unknown", 5, 0)]
         for index, (status, ordered, received) in enumerate(cases):
             order = PurchaseOrder(po_no=f"COUNT-{marker}-{index}", status=status)
             db.add(order)
@@ -243,3 +243,25 @@ def test_receivable_filter_excludes_closed_draft_and_fully_received_orders(clien
 
 def test_receivable_count_still_requires_authentication(client):
     assert client.get("/api/purchasing/orders?receivable_only=true&limit=1").status_code == 401
+
+
+def test_receivable_status_filter_preserves_exact_subset_and_unknown_values(client, auth_headers, receivable_order_batch):
+    for status, expected in (("sent", 51), ("approved", 5), ("partially_received", 5),
+                             ("draft", 0), ("closed", 0), ("legacy_unknown", 0)):
+        response = client.get(
+            "/api/purchasing/orders",
+            params={"receivable_only": "true", "status": status, "limit": 100},
+            headers=auth_headers,
+        )
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["total"] == expected
+        assert len(body["items"]) == expected
+        assert all(row["status"] == status for row in body["items"])
+
+    response = client.get(
+        "/api/purchasing/orders", params={"status": "  legacy_unknown  "}, headers=auth_headers
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["total"] == 1
+    assert response.json()["items"][0]["status"] == "legacy_unknown"

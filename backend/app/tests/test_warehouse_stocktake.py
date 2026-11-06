@@ -313,3 +313,40 @@ def test_stocktake_migration_roundtrip():
             migration.downgrade()
             assert inspect(connection).get_table_names() == []
     engine.dispose()
+
+
+def test_completion_freezes_missing_package_and_audits_only_once(client, auth_headers, packs):
+    from app.schemas.inventory.stocktake import WarehouseStocktakeRow
+
+    cid = start(client, auth_headers)
+    scan(client, auth_headers, cid, "UNKNOWN-COMPLETION")
+    first = client.post(f"{BASE}/{cid}/complete", headers=auth_headers)
+    assert first.status_code == 200
+    with SessionLocal() as db:
+        rows = db.query(WarehouseStocktakeRow).filter_by(stocktake_id=cid).all()
+        unknown = next(row for row in rows if row.package_id is None)
+        assert unknown.final_snapshot == {}
+        assert next(row for row in rows if row.package_id == packs[0]).final_snapshot["quantity"] == 60
+    assert client.post(f"{BASE}/{cid}/complete", headers=auth_headers).json() == first.json()
+    with SessionLocal() as db:
+        assert db.query(AuditLog).filter_by(entity_type="WarehouseStocktake", entity_id=cid, action="complete").count() == 1
+
+
+def test_completion_audit_failure_rolls_back_snapshots_and_timestamp(client, auth_headers, packs, monkeypatch):
+    from app.models import stocktake_service
+    from app.schemas.inventory.stocktake import WarehouseStocktake, WarehouseStocktakeRow
+
+    cid = start(client, auth_headers)
+    def fail_audit(*args, **kwargs):
+        raise RuntimeError("audit failed")
+
+    monkeypatch.setattr(stocktake_service, "log_action", fail_audit)
+    with SessionLocal() as db:
+        with pytest.raises(RuntimeError, match="audit failed"):
+            stocktake_service.complete_count(db, cid, None)
+        db.rollback()
+    with SessionLocal() as db:
+        assert db.get(WarehouseStocktake, cid).completed_at is None
+        rows = db.query(WarehouseStocktakeRow).filter_by(stocktake_id=cid).all()
+        assert rows and all(row.final_snapshot is None for row in rows)
+        assert db.query(AuditLog).filter_by(entity_type="WarehouseStocktake", entity_id=cid, action="complete").count() == 0

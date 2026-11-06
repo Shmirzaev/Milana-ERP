@@ -143,7 +143,7 @@ def test_filtered_search_keeps_department_scope_and_permission_denial(client, au
         db.get(PackagePrintRun, ids[0]).packaging_department_code = "ECP"
         department = db.query(Department).filter_by(code="PKG").one()
         role = Role(name=f"filter-reader-{marker}", permissions=["packaging.packages"])
-        denied_role = Role(name=f"filter-denied-{marker}", permissions=["dashboard.view"])
+        denied_role = Role(name=f"filter-denied-{marker}", permissions=[])
         db.add_all([role, denied_role])
         db.flush()
         reader = User(name="Filter reader", email=f"filter-{marker}@test.local", password_hash="unused",

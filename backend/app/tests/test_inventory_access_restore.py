@@ -109,6 +109,34 @@ def test_restore_returns_confirmed_stock_once_and_preserves_history(client, scop
     assert not any(row["id"] == batch_id for row in archive)
 
 
+def test_restore_audit_failure_rolls_back_batch_and_movement(client, scoped_headers, monkeypatch):
+    from app.models.inventory import stock_service
+
+    batch_id, _ = make_batch(explicit_archive=True)
+    with session_module.SessionLocal() as db:
+        batch = db.get(StockBatch, batch_id)
+        before = (batch.quantity, batch.archived_at, batch.archived_by, batch.qc_status,
+                  batch.roll_weights_kg, batch.roll_lengths_m, batch.piece_count)
+        movement_ids = [row.id for row in db.query(StockMovement).filter_by(batch_id=batch_id).all()]
+        audit_count = db.query(AuditLog).filter_by(entity_type="StockBatch", entity_id=batch_id).count()
+    original = stock_service.log_action
+
+    def fail_after_audit(*args, **kwargs):
+        original(*args, **kwargs)
+        raise RuntimeError("restore audit failure")
+
+    monkeypatch.setattr(stock_service, "log_action", fail_after_audit)
+    with pytest.raises(RuntimeError, match="restore audit failure"):
+        client.post(f"/api/inventory/batches/{batch_id}/restore", headers=scoped_headers,
+                    json={"quantity": "3.2500", "reason": "Physical stock returned"})
+    with session_module.SessionLocal() as db:
+        batch = db.get(StockBatch, batch_id)
+        assert (batch.quantity, batch.archived_at, batch.archived_by, batch.qc_status,
+                batch.roll_weights_kg, batch.roll_lengths_m, batch.piece_count) == before
+        assert [row.id for row in db.query(StockMovement).filter_by(batch_id=batch_id).all()] == movement_ids
+        assert db.query(AuditLog).filter_by(entity_type="StockBatch", entity_id=batch_id).count() == audit_count
+
+
 @pytest.mark.parametrize("quantity,reason", [(0, "Counted"), (-1, "Counted"), ("NaN", "Counted"), (1.00001, "Counted"), (1, "   ")])
 def test_restore_rejects_invalid_quantity_or_reason(client, scoped_headers, quantity, reason):
     batch_id, _ = make_batch()
