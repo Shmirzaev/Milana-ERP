@@ -1,5 +1,9 @@
 # Team bug tracker — clone_main
 
+## PERF37-CI-TIMING-20261106 — rate-store isolation timing test intermittently fails in hosted CI
+
+- **P3 · Flaky timing test, root cause unknown · Shared backend infrastructure · Owner: Dilmurod.** On [#485](https://github.com/Shmirzaev/Milana-ERP/pull/485), one hosted backend run measured a health p95 increase of 0.948 s over the 0.25 s limit under SQLite rate-store contention; its one rerun passed. The test passed 3/3 on current `clone_main` and 3/3 on #485 locally (about 11–12 s per run). #485 moves `/api/auth/me`'s existing last-seen update and single commit into the Identity service without adding a query or lock; the failing test exercises `/health` and OPTIONS, not `/api/auth/me`. Investigate hosted runner timing before changing the budget or runtime behavior. No production failure claimed.
+
 ## CUT-INBOX-CI-FLAKE-20261106 — cutting search pagination test intermittently fails in hosted CI
 
 - **P3 · Flaky test, root cause unknown · Production/Cutting · Owner: Mirshoir.** On [#495](https://github.com/Shmirzaev/Milana-ERP/pull/495), one hosted backend run reported 63 instead of 3 matching cutting cards in `test_cutting_search_matches_displayed_fields_before_paging_and_keeps_latest_passport`; its one rerun passed. The same test passed 3/3 on current `clone_main` and 3/3 on #495 locally (about 9.1–9.3 s per run). Running attendance characterization tests immediately before it also passed (27 passed, 26 PostgreSQL-only skips). The attendance fixture resets SQLite state per test; no attendance-to-cutting data leak was reproduced. Investigate the hosted full-suite order and search query before changing Production behavior. No production failure claimed.

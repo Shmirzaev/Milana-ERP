@@ -8,7 +8,6 @@ from sqlalchemy.exc import IntegrityError
 from app.core.config import settings
 from app.core.deps import (
     SUPER_ADMIN_PERMISSION,
-    SUPER_ADMIN_ROLE_NAME,
     DbSession,
     CurrentUser,
     is_super_admin,
@@ -20,7 +19,7 @@ from app.core.deps import (
 from fastapi import Depends
 from app.core.security import normalize_email
 from app.db.base import Base
-from app.schemas import User, Role, Department, AuditLog
+from app.schemas import User, Department, AuditLog
 from app.models.factory_scope_service import normalize_factory_code
 from app.libs.dto.catalog.catalog import (
     UserIn, UserUpdate, UserOut, RoleIn, RoleOut, DepartmentIn, DepartmentOut,
@@ -36,6 +35,10 @@ from app.models.identity.users_service import create_user as create_user_account
 from app.models.identity.access_service import (
     _access_subject, _user_access_values, _assert_policy_change,
     _assert_can_grant_role, _assert_can_grant_permissions,
+)
+
+from app.models.identity.roles_service import (
+    list_roles as list_identity_roles, create_role as create_identity_role,
 )
 
 router = APIRouter(tags=["admin"])
@@ -459,24 +462,12 @@ def delete_user(user_id: int, db: DbSession, current: User = Depends(require_per
 # ===== Roles =====
 @router.get("/roles", response_model=list[RoleOut])
 def list_roles(db: DbSession, _: CurrentUser):
-    return db.query(Role).all()
+    return list_identity_roles(db)
 
 
 @router.post("/roles", response_model=RoleOut, status_code=201)
 def create_role(payload: RoleIn, db: DbSession, current: User = Depends(require_permissions("*"))):
-    permissions = normalize_permissions(payload.permissions)
-    if payload.name.strip().lower() == SUPER_ADMIN_ROLE_NAME.lower() and not is_super_admin(current):
-        raise HTTPException(403, "Only a super admin can create the super admin role")
-    _assert_can_grant_permissions(current, permissions)
-    if len(payload.name) > 64:
-        raise HTTPException(422, "Role name must be at most 64 characters")
-    r = Role(name=payload.name, permissions=permissions)
-    db.add(r)
-    db.flush()
-    log_action(db, current, "create", "Role", r.id, new_value={"name": r.name})
-    db.commit()
-    db.refresh(r)
-    return r
+    return create_identity_role(db, payload, current)
 
 
 # ===== Departments =====

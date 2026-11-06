@@ -1821,6 +1821,8 @@ export default {
     "page.profile.title": "Profil",
     "page.profile.subtitle": "Hisob ma'lumotlari va parol",
     "page.profile.userProfile": "Foydalanuvchi profili",
+    "page.profile.personName": "Ism",
+    "page.profile.emailAdminHint": "Elektron pochtangizni faqat administrator o‘zgartira oladi.",
     "page.profile.changePassword": "Parolni o'zgartirish",
     "page.profile.savePassword": "Parolni saqlash",
     "page.profile.nameRequired": "Ism majburiy.",

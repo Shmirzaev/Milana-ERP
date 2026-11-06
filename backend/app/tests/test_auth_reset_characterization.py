@@ -13,7 +13,7 @@ from app.main import app
 from app.models.password_reset_service import password_reset_hash
 from app.schemas import AuditLog, PasswordResetToken, User
 from app.schemas.identity.user_persistence import add_password_reset_token
-from app.tests.test_auth_login_characterization import login_database  # noqa: F401 - pytest fixture, used by name
+from app.tests.test_auth_login_characterization import login_database as login_database  # noqa: F401 - pytest fixture, used by name
 
 OLD_PASSWORD = "ResetBefore!2026"
 NEW_PASSWORD = "ResetAfter!2026"

@@ -1947,6 +1947,8 @@ export default {
     "page.profile.title": "Profile",
     "page.profile.subtitle": "Account details and password",
     "page.profile.userProfile": "User Profile",
+    "page.profile.personName": "Name",
+    "page.profile.emailAdminHint": "Only an administrator can change your email.",
     "page.profile.changePassword": "Change Password",
     "page.profile.savePassword": "Save Password",
     "page.profile.nameRequired": "Name is required.",
