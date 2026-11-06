@@ -32,7 +32,7 @@ class RequiredPGGateTests(unittest.TestCase):
 
     def test_complete_evidence_passes(self):
         counts = gate.check_report(self.write_report(self.report()))
-        self.assertEqual(sum(counts.values()), 181)
+        self.assertEqual(sum(counts.values()), 183)
 
     def test_catalog_create_groups_have_exact_registered_case_counts(self):
         for module, count in (("test_modelsize_create_postgres", 2), ("test_modelcolor_create_postgres", 27)):
