@@ -1,5 +1,9 @@
 # Team bug tracker — clone_main
 
+## PEO-PAY-CREATE-20261106 — payroll extraction awaiting user browser acceptance
+
+- **USER BROWSER PENDING · People · Owner: Dilmurod; lead: Mirshoir (review delegated).** Payroll period/read stack and final three families are tracked in [task evidence](../docs/archive/payroll-create-2026-11-06/CONTINUATION.md). User explicitly owns browser checks and authorized one combined top-PR CI merge. Normal-routed QR44/adjustments24/records70 checks passed with zero skips; full combined payroll and hosted CI gates remain pending at this commit. Production acceptance remains unrecorded; no deployment.
+
 ## IDN-ROLES-NO-SCREEN-20261105 — role creation has no screen
 
 - **P3 · Open · Identity/Roles · Owner: Dilmurod. Decision pending Dilmurod.** No Roles screen; roles can only be created via the API by a Super Admin.

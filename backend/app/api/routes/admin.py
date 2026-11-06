@@ -19,7 +19,7 @@ from app.core.deps import (
 from fastapi import Depends
 from app.core.security import normalize_email
 from app.db.base import Base
-from app.schemas import User, Department, AuditLog, Employee, WorkOrder
+from app.schemas import User, Department, AuditLog
 from app.models.factory_scope_service import normalize_factory_code
 from app.libs.dto.catalog.catalog import (
     UserIn, UserUpdate, UserOut, RoleIn, RoleOut, DepartmentIn, DepartmentOut,
@@ -497,20 +497,7 @@ def delete_department(
     db: DbSession,
     current: User = Depends(require_permissions("*")),
 ):
-    d = db.get(Department, department_id)
-    if not d:
-        raise HTTPException(404, "Department not found")
-
-    if db.query(User).filter(User.department_id == department_id).first():
-        raise HTTPException(409, "Department is assigned to users. Reassign users before delete.")
-    if db.query(Employee).filter(Employee.department_id == department_id).first():
-        raise HTTPException(409, "Department is assigned to employees. Reassign employees before delete.")
-    if db.query(WorkOrder).filter(WorkOrder.department_id == department_id).first():
-        raise HTTPException(409, "Department is used by work orders. Delete is blocked.")
-
-    db.delete(d)
-    log_action(db, current, "delete", "Department", department_id)
-    db.commit()
+    departments_service.delete_department(department_id, db, current)
 
 
 # ===== Audit log =====

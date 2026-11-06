@@ -1,7 +1,7 @@
 """Attendance writes in the business operation's supplied Session."""
 from sqlalchemy.orm import Session
 
-from app.schemas import AttendanceDevice, AttendancePerson, SystemSetting
+from app.schemas import AttendanceDevice, AttendanceEvent, AttendancePerson, SystemSetting
 
 
 def insert_managed_device(db: Session, *, values: dict) -> AttendanceDevice:
@@ -42,3 +42,14 @@ def insert_source_checkpoint(db: Session, *, key: str, state: dict[str, object])
 
 def update_source_checkpoint(db: Session, *, row: SystemSetting, state: dict[str, object]) -> None:
     row.value_json = state
+
+
+def insert_attendance_event(db: Session, *, values: dict) -> None:
+    db.add(AttendanceEvent(**values))
+
+
+def update_attendance_photo(
+    db: Session, *, person: AttendancePerson, file_name: str, digest: str,
+) -> None:
+    person.photo_file_name = file_name
+    person.photo_sha256 = digest
