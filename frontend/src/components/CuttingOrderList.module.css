@@ -48,3 +48,10 @@ table.table thead th {
     min-width: 0;
   }
 }
+
+@media (max-width: 639px) {
+  .actions > a,
+  .actions > button {
+    min-height: 2.5rem;
+  }
+}
