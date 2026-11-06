@@ -4,7 +4,7 @@ from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import event
+from sqlalchemy import event, text
 
 from app.core.security import create_access_token
 from app.models import audit_service
@@ -36,6 +36,63 @@ def _effect(sessions, wid, rid, actor):
         audit = db.query(AuditLog).filter_by(entity_type='WasteDisposalRequest', entity_id=rid, action='mark_disposed').one()
         assert audit.user_id == actor and audit.entry_hash
         assert audit_service.verify_audit_hash_chain(db)['ok']
+
+
+def _refusal_snapshot(sessions, wid, rid):
+    # Project quantity as database text so numeric NaN compares deterministically.
+    with sessions() as db:
+        parent = db.execute(text("""SELECT (to_jsonb(w) - 'quantity')::text, quantity::text
+            FROM waste_records w WHERE id=:wid"""), {'wid': wid}).one()
+        request = db.execute(text("""SELECT row_to_json(r)::text FROM waste_disposal_requests r
+            WHERE id=:rid"""), {'rid': rid}).scalar_one()
+        audits = db.execute(text("""SELECT row_to_json(a)::text FROM audit_logs a
+            WHERE (entity_type='WasteRecord' AND entity_id=:wid)
+               OR (entity_type='WasteDisposalRequest' AND entity_id=:rid)
+            ORDER BY id"""), {'wid': wid, 'rid': rid}).scalars().all()
+        return tuple(parent), request, audits
+
+
+def _assert_refusal(sessions, actor, wid, rid, detail):
+    before = _refusal_snapshot(sessions, wid, rid)
+    headers = {'Authorization': f'Bearer {create_access_token(actor)}'}
+    with TestClient(_app(sessions)) as client:
+        response = client.post(f'/waste/disposal/{rid}/mark-disposed', headers=headers)
+    assert response.status_code == 400
+    assert response.json() == {'detail': detail}
+    assert _refusal_snapshot(sessions, wid, rid) == before
+
+
+@pytest.mark.parametrize('request_state', ['pending', 'rejected', 'disposed'])
+def test_pg_mark_refuses_request_before_invalid_parent(pg_sessions, request_state):
+    actor, _, wid, rid = _seed(pg_sessions)
+    with pg_sessions.begin() as db:
+        db.execute(text("UPDATE waste_records SET status='recorded', sellable=true, quantity=0 WHERE id=:wid"), {'wid': wid})
+        db.execute(text('UPDATE waste_disposal_requests SET status=:state WHERE id=:rid'), {'state': request_state, 'rid': rid})
+    _assert_refusal(pg_sessions, actor, wid, rid, 'Disposal not approved yet')
+
+
+@pytest.mark.parametrize('parent_state', [
+    'recorded', 'received_by_waste_department', 'sold', 'pending_disposal_approval', 'disposed',
+])
+def test_pg_mark_refuses_nonapproved_parent(pg_sessions, parent_state):
+    actor, _, wid, rid = _seed(pg_sessions)
+    with pg_sessions.begin() as db:
+        db.execute(text('UPDATE waste_records SET status=:state WHERE id=:wid'), {'state': parent_state, 'wid': wid})
+    _assert_refusal(pg_sessions, actor, wid, rid, f"Cannot dispose from status '{parent_state}'")
+
+
+@pytest.mark.parametrize(('sellable', 'quantity', 'detail'), [
+    pytest.param(True, '2', 'Cannot dispose sellable waste; sell it instead', id='sellable'),
+    pytest.param(False, '0', 'Waste quantity must be finite and greater than zero', id='zero'),
+    pytest.param(False, '-0.25', 'Waste quantity must be finite and greater than zero', id='negative'),
+    pytest.param(False, 'NaN', 'Waste quantity must be finite and greater than zero', id='nan'),
+])
+def test_pg_mark_refuses_invalid_waste(pg_sessions, sellable, quantity, detail):
+    actor, _, wid, rid = _seed(pg_sessions)
+    with pg_sessions.begin() as db:
+        db.execute(text('UPDATE waste_records SET sellable=:sellable, quantity=CAST(:quantity AS numeric) WHERE id=:wid'),
+                   {'sellable': sellable, 'quantity': quantity, 'wid': wid})
+    _assert_refusal(pg_sessions, actor, wid, rid, detail)
 
 
 def test_pg_mark_disposed_auth_refusal_audit_failure_retry(pg_sessions, monkeypatch):
