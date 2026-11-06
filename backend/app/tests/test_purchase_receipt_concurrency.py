@@ -1,4 +1,3 @@
-import os
 from concurrent.futures import ThreadPoolExecutor
 from threading import Event
 from time import monotonic, sleep
@@ -7,48 +6,17 @@ from uuid import uuid4
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import create_engine, text
-from sqlalchemy.engine import make_url
+from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 
-from app.db.base import Base
 from app.schemas import AuditLog, Item, PurchaseOrder, PurchaseOrderLine, StockBatch, StockMovement, Warehouse
 from app.models.purchasing_service import receive_purchase_order
+from app.tests.test_customer_create_postgres import customer_pg_sessions  # noqa: F401
 
 
-@pytest.fixture
-def receipt_postgres_engine():
-    raw_url = os.environ.get("STABILIZATION_POSTGRES_URL")
-    if not raw_url:
-        pytest.skip("Set STABILIZATION_POSTGRES_URL for PostgreSQL receipt concurrency coverage")
-    url = make_url(raw_url)
-    if url.get_backend_name() != "postgresql" or url.host not in {"127.0.0.1", "localhost", "::1"} or url.query:
-        pytest.fail("Receipt concurrency tests require a loopback PostgreSQL URL without connection overrides")
-    schema = f"receipt_concurrency_{uuid4().hex}"
-    engine = create_engine(
-        url, connect_args={"options": f"-csearch_path={schema} -clock_timeout=15000 -cstatement_timeout=20000"},
-        pool_size=4, max_overflow=0, isolation_level="READ COMMITTED",
-    )
-    with engine.begin() as connection:
-        connection.exec_driver_sql(f'CREATE SCHEMA "{schema}"')
-    try:
-        tables = {
-            AuditLog.__table__, Item.__table__, PurchaseOrder.__table__, PurchaseOrderLine.__table__,
-            StockBatch.__table__, StockMovement.__table__, Warehouse.__table__,
-        }
-        pending = list(tables)
-        while pending:
-            for foreign_key in pending.pop().foreign_keys:
-                target = foreign_key.column.table
-                if target not in tables:
-                    tables.add(target)
-                    pending.append(target)
-        Base.metadata.create_all(engine, tables=list(tables))
-        yield engine
-    finally:
-        with engine.begin() as connection:
-            connection.exec_driver_sql(f'DROP SCHEMA "{schema}" CASCADE')
-        engine.dispose()
+@pytest.fixture(scope="module")
+def receipt_postgres_engine(customer_pg_sessions):
+    return customer_pg_sessions.kw["bind"]
 
 
 @pytest.mark.parametrize("close_first", [False, True])
