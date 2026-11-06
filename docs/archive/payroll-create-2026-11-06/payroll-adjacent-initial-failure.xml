@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="35" time="49.031" timestamp="2026-11-06T13:13:40.198762+09:00" hostname="murmurMac"><testcase classname="backend.app.tests.test_payroll_qr_return_races" name="test_paid_qr_return_keeps_manager_denial_and_admin_override" time="10.476" /><testcase classname="backend.app.tests.test_payroll_qr_return_races" name="test_unassigned_qr_return_remains_a_conflict" time="0.408" /><testcase classname="backend.app.tests.test_payroll_qr_return_races" name="test_postgres_return_and_period_first_writer_do_not_deadlock" time="0.417" /><testcase classname="backend.app.tests.test_payroll_qr_return_races" name="test_postgres_concurrent_qr_returns_mutate_once" time="5.022" /><testcase classname="backend.app.tests.test_payroll_qr_return_races" name="test_postgres_qr_return_blocks_period_finalization" time="0.030" /><testcase classname="backend.app.tests.test_payroll_qr_return_races" name="test_postgres_finalized_period_rejects_waiting_qr_return_without_mutation" time="0.041" /><testcase classname="backend.app.tests.test_payroll_qr_return_races" name="test_postgres_new_assignment_during_periodless_return_requires_retry" time="0.198" /><testcase classname="backend.app.tests.test_payroll_split_correction_races" name="test_postgres_corrections_serialize_stale_conflict_or_identical_retry[False]" time="0.620" /><testcase classname="backend.app.tests.test_payroll_split_correction_races" name="test_postgres_corrections_serialize_stale_conflict_or_identical_retry[True]" time="0.608" /><testcase classname="backend.app.tests.test_payroll_split_correction_races" name="test_postgres_correction_and_return_or_nested_split_serialize[False-return]" time="0.946" /><testcase classname="backend.app.tests.test_payroll_split_correction_races" name="test_postgres_correction_and_return_or_nested_split_serialize[False-split]" time="1.055" /><testcase classname="backend.app.tests.test_payroll_split_correction_races" name="test_postgres_correction_and_return_or_nested_split_serialize[True-return]" time="0.970" /><testcase classname="backend.app.tests.test_payroll_split_correction_races" name="test_postgres_correction_and_return_or_nested_split_serialize[True-split]" time="0.874" /><testcase classname="backend.app.tests.test_payroll_split_correction_races" name="test_postgres_correction_and_period_schedule_or_lock_serialize[False-create]" time="10.724"><failure message="AssertionError: First operation did not reach its locked audit write&#10;assert False&#10; +  where False = wait(10)&#10; +    where wait = &lt;threading.Event at 0x1173107a0: unset&gt;.wait">split_postgres_sessions = sessionmaker(class_='Session', bind=Engine(postgresql+psycopg2://postgres@127.0.0.1:20000/postgres), autoflush=False, expire_on_commit=False)
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1171424b0&gt;
+operation = 'create', correction_first = False
+
+    @pytest.mark.parametrize("operation", ["create", "expand", "lock"])
+    @pytest.mark.parametrize("correction_first", [False, True])
+    def test_postgres_correction_and_period_schedule_or_lock_serialize(split_postgres_sessions, monkeypatch, operation, correction_first):
+        sessions = split_postgres_sessions
+        seed = _seed(sessions, assigned=operation == "lock")
+        if operation == "create":
+            other = lambda db, actor: payroll.create_period(PayrollPeriodIn(
+                name="New date period", start_date=STAMP - timedelta(days=1),
+                end_date=STAMP + timedelta(days=1), status="draft",
+            ), db, actor)
+            action = "create"
+        elif operation == "expand":
+            with sessions.begin() as db:
+                period = PayrollPeriod(factory_code="MIL", period_no="EXPAND", name="Expand date range", status="draft",
+                                       start_date=STAMP + timedelta(days=10), end_date=STAMP + timedelta(days=20))
+                db.add(period)
+                db.flush()
+                period_id = period.id
+            other = lambda db, actor: payroll.update_period(period_id, PayrollPeriodUpdate(
+                start_date=STAMP - timedelta(days=1),
+            ), db, actor)
+            action = "update"
+        else:
+            other = lambda db, actor: payroll.lock_period(seed["period_id"], db, actor)
+            action = "lock"
+        before = _snapshot(sessions)
+        ready, release = _pause(monkeypatch, correction if correction_first else payroll,
+                                "correct_split_allocation" if correction_first else action)
+&gt;       first, second = _race(sessions, seed, _correct(seed) if correction_first else other,
+                              other if correction_first else _correct(seed), ready, release)
+
+app/tests/test_payroll_split_correction_races.py:272: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+sessions = sessionmaker(class_='Session', bind=Engine(postgresql+psycopg2://postgres@127.0.0.1:20000/postgres), autoflush=False, expire_on_commit=False)
+seed = {'user_id': 1, 'parent_id': 1, 'label_id': 2, 'original_id': 1, ...}
+first = &lt;function test_postgres_correction_and_period_schedule_or_lock_serialize.&lt;locals&gt;.&lt;lambda&gt; at 0x117387ec0&gt;
+second = &lt;function _correct.&lt;locals&gt;.&lt;lambda&gt; at 0x1174be020&gt;
+ready = &lt;threading.Event at 0x1173107a0: unset&gt;
+release = &lt;threading.Event at 0x117480920: set&gt;
+
+    def _race(sessions, seed, first, second, ready, release):
+        """Prove actual database blocking before releasing the first writer."""
+        first_pids, second_pids = Queue(), Queue()
+        with ThreadPoolExecutor(max_workers=2) as workers:
+            winner = workers.submit(_run, sessions, seed, first, first_pids)
+            contender = None
+            try:
+&gt;               assert ready.wait(10), "First operation did not reach its locked audit write"
+E               AssertionError: First operation did not reach its locked audit write
+E               assert False
+E                +  where False = wait(10)
+E                +    where wait = &lt;threading.Event at 0x1173107a0: unset&gt;.wait
+
+app/tests/test_payroll_split_correction_races.py:139: AssertionError</failure></testcase><testcase classname="backend.app.tests.test_payroll_split_correction_races" name="test_postgres_correction_and_period_schedule_or_lock_serialize[False-expand]" time="0.630" /><testcase classname="backend.app.tests.test_payroll_split_correction_races" name="test_postgres_correction_and_period_schedule_or_lock_serialize[False-lock]" time="0.610" /><testcase classname="backend.app.tests.test_payroll_split_correction_races" name="test_postgres_correction_and_period_schedule_or_lock_serialize[True-create]" time="0.643" /><testcase classname="backend.app.tests.test_payroll_split_correction_races" name="test_postgres_correction_and_period_schedule_or_lock_serialize[True-expand]" time="0.598" /><testcase classname="backend.app.tests.test_payroll_split_correction_races" name="test_postgres_correction_and_period_schedule_or_lock_serialize[True-lock]" time="0.802" /><testcase classname="backend.app.tests.test_payroll_split_correction_races" name="test_postgres_failed_correction_rolls_back_and_releases_locks_for_retry" time="0.604" /><testcase classname="backend.app.tests.test_payroll_returned_split_races" name="test_postgres_returned_edits_serialize_stale_conflict_and_exact_retry[False]" time="0.610" /><testcase classname="backend.app.tests.test_payroll_returned_split_races" name="test_postgres_returned_edits_serialize_stale_conflict_and_exact_retry[True]" time="0.640" /><testcase classname="backend.app.tests.test_payroll_returned_split_races" name="test_postgres_returned_metadata_and_normal_rescan_serialize_without_rewriting_pay[False]" time="0.583" /><testcase classname="backend.app.tests.test_payroll_returned_split_races" name="test_postgres_returned_metadata_and_normal_rescan_serialize_without_rewriting_pay[True]" time="0.674" /><testcase classname="backend.app.tests.test_payroll_returned_split_races" name="test_postgres_returned_edit_and_active_sibling_return_serialize[False]" time="0.654" /><testcase classname="backend.app.tests.test_payroll_returned_split_races" name="test_postgres_returned_edit_and_active_sibling_return_serialize[True]" time="0.656" /><testcase classname="backend.app.tests.test_payroll_returned_split_races" name="test_postgres_returned_metadata_and_historical_period_lock_both_succeed_without_pay_mutation[False]" time="0.664" /><testcase classname="backend.app.tests.test_payroll_returned_split_races" name="test_postgres_returned_metadata_and_historical_period_lock_both_succeed_without_pay_mutation[True]" time="0.895" /><testcase classname="backend.app.tests.test_payroll_returned_split_races" name="test_postgres_historical_period_reassignment_during_returned_edit_requires_retry" time="0.643" /><testcase classname="backend.app.tests.test_payroll_returned_split_races" name="test_postgres_returned_edit_midwrite_rollback_preserves_history_and_allows_fresh_retry" time="0.659" /><testcase classname="backend.app.tests.test_payroll_period_matching" name="test_record_period_assignment_requires_date_match_unless_explicit" time="0.459" /><testcase classname="backend.app.tests.test_payroll_period_matching" name="test_bulk_period_assignment_leaves_only_unmatched_record_unassigned" time="0.438" /><testcase classname="backend.app.tests.test_payroll_payable_authorization" name="test_scan_only_grant_cannot_set_payable_values" time="1.202" /><testcase classname="backend.app.tests.test_payroll_payable_authorization" name="test_scan_only_uses_issued_snapshot_and_mixed_bulk_rolls_back" time="2.016" /><testcase classname="backend.app.tests.test_payroll_payable_authorization" name="test_manager_and_admin_keep_manual_payable_workflows" time="1.266" /></testsuite></testsuites>

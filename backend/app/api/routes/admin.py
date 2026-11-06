@@ -20,11 +20,12 @@ from app.core.deps import (
 from fastapi import Depends
 from app.core.security import normalize_email
 from app.db.base import Base
-from app.schemas import User, Role, Department, AuditLog, Employee, WorkOrder
+from app.schemas import User, Role, Department, AuditLog
 from app.models.factory_scope_service import normalize_factory_code
 from app.libs.dto.catalog.catalog import (
     UserIn, UserUpdate, UserOut, RoleIn, RoleOut, DepartmentIn, DepartmentOut,
 )
+from app.models.people import departments_service
 from app.models.credentials_service import apply_password_credential_change, lock_user_for_credential_change
 from app.models.audit_service import export_audit_hash_chain, log_action, verify_audit_hash_chain
 from app.models.password_reset_service import send_password_email_safely
@@ -486,13 +487,7 @@ def list_departments(db: DbSession, _: CurrentUser):
 
 @router.post("/departments", response_model=DepartmentOut, status_code=201)
 def create_department(payload: DepartmentIn, db: DbSession, current: User = Depends(require_permissions("*"))):
-    d = Department(name=payload.name, code=payload.code)
-    db.add(d)
-    db.flush()
-    log_action(db, current, "create", "Department", d.id, new_value={"name": d.name})
-    db.commit()
-    db.refresh(d)
-    return d
+    return departments_service.create_department(payload, db, current)
 
 
 @router.patch("/departments/{department_id}", response_model=DepartmentOut)
@@ -502,29 +497,7 @@ def update_department(
     db: DbSession,
     current: User = Depends(require_permissions("*")),
 ):
-    d = db.get(Department, department_id)
-    if not d:
-        raise HTTPException(404, "Department not found")
-
-    name = payload.name.strip()
-    code = payload.code.strip().upper()
-    if not name or not code:
-        raise HTTPException(400, "name and code are required")
-
-    name_exists = db.query(Department).filter(Department.name == name, Department.id != department_id).first()
-    if name_exists:
-        raise HTTPException(400, "Department name already exists")
-    code_exists = db.query(Department).filter(Department.code == code, Department.id != department_id).first()
-    if code_exists:
-        raise HTTPException(400, "Department code already exists")
-
-    old = {"name": d.name, "code": d.code}
-    d.name = name
-    d.code = code
-    log_action(db, current, "update", "Department", d.id, old_value=old, new_value={"name": d.name, "code": d.code})
-    db.commit()
-    db.refresh(d)
-    return d
+    return departments_service.update_department(department_id, payload, db, current)
 
 
 @router.delete("/departments/{department_id}", status_code=204)
@@ -533,20 +506,7 @@ def delete_department(
     db: DbSession,
     current: User = Depends(require_permissions("*")),
 ):
-    d = db.get(Department, department_id)
-    if not d:
-        raise HTTPException(404, "Department not found")
-
-    if db.query(User).filter(User.department_id == department_id).first():
-        raise HTTPException(409, "Department is assigned to users. Reassign users before delete.")
-    if db.query(Employee).filter(Employee.department_id == department_id).first():
-        raise HTTPException(409, "Department is assigned to employees. Reassign employees before delete.")
-    if db.query(WorkOrder).filter(WorkOrder.department_id == department_id).first():
-        raise HTTPException(409, "Department is used by work orders. Delete is blocked.")
-
-    db.delete(d)
-    log_action(db, current, "delete", "Department", department_id)
-    db.commit()
+    departments_service.delete_department(department_id, db, current)
 
 
 # ===== Audit log =====
