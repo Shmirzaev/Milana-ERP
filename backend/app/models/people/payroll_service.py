@@ -144,3 +144,18 @@ def update_period(period_id: int, payload: PayrollPeriodUpdate, db: Session, cur
     db.commit()
     db.refresh(period)
     return period
+
+
+def lock_period(period_id: int, db: Session, current: User=None):
+    factory_code = selected_factory_code(current)
+    period = db.query(PayrollPeriod).filter(PayrollPeriod.id == period_id, PayrollPeriod.factory_code == factory_code).populate_existing().with_for_update().first()
+    if not period:
+        raise HTTPException(404, 'Payroll period not found')
+    if period.status in {'approved', 'paid', 'cancelled'}:
+        raise HTTPException(409, f'Cannot lock a {period.status} payroll period')
+    old_status = period.status
+    apply_payroll_period_changes(period, {'status': 'locked'})
+    log_action(db, current, 'lock', 'PayrollPeriod', period.id, old_value={'status': old_status}, new_value={'status': period.status})
+    db.commit()
+    db.refresh(period)
+    return period
