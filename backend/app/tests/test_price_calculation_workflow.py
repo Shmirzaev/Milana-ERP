@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 
 from app.core.security import hash_password
 from app.db.session import SessionLocal
-from app.schemas import CuttingPassport, Department, Model, ModelImage, ModelSize, Role, User
+from app.schemas import AuditLog, CuttingPassport, Department, Model, ModelImage, ModelSize, Notification, PriceCalculationRequest, Role, User
 
 
 PASSWORD = "PriceWorkflow123!"
@@ -301,3 +301,51 @@ def test_price_request_creation_duplicate_and_validation(client):
     second = client.post(url, json={'model_id': data['model_id']}, headers=sales)
     assert first.status_code == second.status_code == 201
     assert first.json()['id'] != second.json()['id']
+
+
+def test_accessory_route_validation_authorization_and_empty_default(client):
+    data = _setup_workflow_data("accessory-boundary")
+    sales = _login(client, "sales.price.accessory-boundary@example.com")
+    accessories = _login(client, "accessory.price.accessory-boundary@example.com")
+    outsider = _login(client, "outsider.price.accessory-boundary@example.com")
+    created = client.post("/api/price-calculation/requests", json={"model_id": data["model_id"]}, headers=sales)
+    assert created.status_code == 201
+    url = f"/api/price-calculation/requests/{created.json()['id']}/accessories"
+    assert client.patch(url, json={}, headers=outsider).status_code == 403
+    assert client.patch(url, json={"accessories": [{"name": "x", "price": 1}] * 5}, headers=accessories).status_code == 422
+    partial = client.patch(url, json={"accessories": [{"name": " Label ", "price": 0}]}, headers=accessories)
+    assert partial.status_code == 200, partial.text
+    assert partial.json()["accessories"] == [{"name": "Label", "price": 0}]
+    assert partial.json()["accessories_status"] == "in_progress"
+    complete = client.patch(url, json={"accessories": [{"name": "Label", "price": 1}]}, headers=accessories)
+    assert complete.status_code == 200, complete.text
+    assert complete.json()["accessories_status"] == "complete"
+    result = client.patch(url, json={}, headers=accessories)
+    assert result.status_code == 200, result.text
+    assert result.json()["accessories"] == []
+    assert result.json()["accessories_status"] == "new"
+    request_id = created.json()["id"]
+    listed = client.get("/api/price-calculation/requests", headers=accessories)
+    assert listed.status_code == 200, listed.text
+    assert next(row for row in listed.json() if row["id"] == request_id)["accessories"] == []
+    db = SessionLocal()
+    try:
+        stored = db.get(PriceCalculationRequest, request_id)
+        actor = db.query(User).filter_by(email="accessory.price.accessory-boundary@example.com").one()
+        assert stored.accessories_json == []
+        assert stored.accessories_updated_by_id == actor.id
+        audits = (db.query(AuditLog).filter_by(action="update_accessory_costs", entity_type="PriceCalculationRequest", entity_id=request_id).order_by(AuditLog.id).all())
+        assert [row.new_value_json for row in audits] == [
+            {"accessories": [{"name": "Label", "price": 0}]},
+            {"accessories": [{"name": "Label", "price": 1}]},
+            {"accessories": []},
+        ]
+        notifications = db.query(Notification).filter_by(
+            title="Accessory costs completed",
+            message="Model PC-TEST-accessory-boundary-GRAY price request was updated.",
+            link="/finance/price-calculation",
+        ).all()
+        finance = db.query(User).filter_by(email="finance.price.accessory-boundary@example.com").one()
+        assert sum(row.user_id == finance.id for row in notifications) == 1
+    finally:
+        db.close()

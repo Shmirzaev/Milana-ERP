@@ -37,3 +37,16 @@ def insert_price_request(
     db.add(request)
     db.flush()
     return request
+
+
+def apply_accessory_contribution(
+    db: Session,
+    request: PriceCalculationRequest,
+    rows: list[dict],
+    *,
+    updated_by_id: int,
+) -> None:
+    """Apply normalized accessory rows and actor in the caller's transaction."""
+    request.accessories_json = rows
+    request.accessories_updated_by_id = updated_by_id
+    db.flush()
