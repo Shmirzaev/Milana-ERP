@@ -3,7 +3,13 @@ name: ERP validation and immutable release artifacts
 on:
   pull_request:
   push:
-    branches: [main, clone_main, "codex/**"]
+    branches:
+      - main
+      - clone_main
+      # These exact pushes produce the authorized QA runtime artifacts.
+      - codex/ismail-finance-pilot-20261025
+      - codex/ismail-brand-feedback-20261028
+      - codex/ismail-combined-review-20261028
   workflow_dispatch:
     inputs:
       release_id:
@@ -18,6 +24,11 @@ on:
         description: "Currently active SOURCE_MANIFEST.sha256 hash"
         required: true
         type: string
+
+# Only PRs share a group; even pending main/clone_main pushes stay independent.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('{0}-{1}', github.ref, github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -36,6 +47,8 @@ jobs:
             backend/requirements.txt
             backend/requirements-dev.txt
       - run: python -m pip install -r backend/requirements.txt -r backend/requirements-dev.txt
+      - name: Check CI trigger and cancellation policy
+        run: python scripts/test_ci_trigger_policy.py
       - name: Start job-owned loopback PostgreSQL 16
         run: |
           docker run --detach --cidfile "$RUNNER_TEMP/ci-postgres.cid" --name milana-ci-postgres \
@@ -57,6 +70,14 @@ jobs:
         run: |
           python -m ruff check app
           python -m compileall -q app scripts
+      - name: Stabilization PostgreSQL auth and rate races
+        working-directory: backend
+        env:
+          STABILIZATION_POSTGRES_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/first_grade_qa_ci
+        run: >-
+          python -m pytest -v -rs
+          app/tests/test_password_change_races.py::test_postgres_same_current_password_changes_only_once
+          app/tests/test_rate_limit_scheduling.py::test_postgres_roster_lock_survives_concurrent_rate_store_workers
       - name: Backend regression suite
         working-directory: backend
         run: python -m pytest -q
@@ -172,6 +193,13 @@ jobs:
         run: npm run lint
       - working-directory: frontend
         run: npm run typecheck:strict
+      - name: All node-only frontend tests (quarantines reported separately)
+        working-directory: frontend
+        timeout-minutes: 15
+        env:
+          TZ: UTC
+          LANG: en_US.UTF-8
+        run: node scripts/run-node-tests.mjs
       - name: Sales enum contracts and mutation checks
         working-directory: frontend
         run: npm run test:sales-enum-contracts
