@@ -30,3 +30,8 @@ def apply_task_update(db: Session, task: Task, changes: dict, *, completed_at: d
     for key, value in changes.items():
         setattr(task, key, value)
     task.completed_at = completed_at
+
+
+def complete_task_row(db: Session, task: Task, *, completed_at: datetime) -> None:
+    task.status = "completed"
+    task.completed_at = completed_at
