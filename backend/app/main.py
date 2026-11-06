@@ -1,6 +1,5 @@
 import os
 import logging
-from threading import Event, Lock, Thread
 from time import perf_counter
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -16,9 +15,9 @@ from starlette.middleware.gzip import GZipMiddleware
 from starlette.concurrency import run_in_threadpool
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse, Response
-from sqlalchemy import text
 
 from app.core.config import settings
+from app.core import readiness as readiness_checks
 from app.core.proxy_trust import client_ip, effective_request_scheme, validate_proxy_runtime_configuration
 from app.core.deps import CurrentUser, DbSession
 from app.core.security import decode_token
@@ -130,55 +129,6 @@ _RATE_LIMIT_IP_ONLY_PATHS = {
     "/api/session/reset-password",
 }
 _READINESS_TIMEOUT_SECONDS = 2.0
-_READINESS_CHECK_SLOT = Lock()
-_READINESS_PROBE: tuple[Event, dict[str, str], float] | None = None
-
-
-def _probe_postgresql() -> None:
-    with engine.connect() as connection:
-        connection.execute(text("SELECT 1")).scalar_one()
-
-
-def _probe_shared_store() -> None:
-    get_shared_counter_store().ttl("readiness")
-
-
-def _readiness_checks_within(timeout_seconds: float) -> dict[str, str]:
-    """Share one probe and deadline; a stuck dependency cannot spawn more threads."""
-    global _READINESS_PROBE
-    slot = _READINESS_CHECK_SLOT
-    with slot:
-        if _READINESS_PROBE is None or _READINESS_PROBE[0].is_set():
-            completed = Event()
-            checks = {"postgresql": "unavailable", "shared_store": "unavailable"}
-            deadline = perf_counter() + max(timeout_seconds, 0.001)
-            _READINESS_PROBE = (completed, checks, deadline)
-
-            def run_probe() -> None:
-                try:
-                    for name, probe in (("postgresql", _probe_postgresql), ("shared_store", _probe_shared_store)):
-                        if perf_counter() >= deadline:
-                            break
-                        try:
-                            probe()
-                        except Exception:
-                            pass
-                        else:
-                            with slot:
-                                if perf_counter() < deadline:
-                                    checks[name] = "ok"
-                finally:
-                    completed.set()
-
-            try:
-                Thread(target=run_probe, name="dependency-readiness", daemon=True).start()
-            except Exception:
-                completed.set()
-        completed, checks, deadline = _READINESS_PROBE
-
-    completed.wait(timeout=max(0.0, deadline - perf_counter()))
-    with slot:
-        return checks.copy()
 
 
 def _rate_limit_client_key(request: Request) -> str:
@@ -503,7 +453,7 @@ def health():
 
 @app.get("/ready", response_model=None)
 def readiness() -> dict[str, object] | JSONResponse:
-    checks = _readiness_checks_within(_READINESS_TIMEOUT_SECONDS)
+    checks = readiness_checks._readiness_checks_within(_READINESS_TIMEOUT_SECONDS)
     if all(result == "ok" for result in checks.values()):
         return {"status": "ready", "checks": checks, "release": settings.RELEASE_ID}
     return JSONResponse(
