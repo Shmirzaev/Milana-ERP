@@ -1,7 +1,7 @@
 from __future__ import annotations
 from datetime import datetime
 from typing import ClassVar
-from sqlalchemy import String, Integer, Boolean, ForeignKey, JSON, DateTime, Text, Numeric, UniqueConstraint, func
+from sqlalchemy import String, Integer, Boolean, ForeignKey, JSON, DateTime, Text, Numeric, UniqueConstraint, func, text
 from sqlalchemy.orm import Mapped, Session, mapped_column, relationship
 
 from app.db.base import Base, PkMixin, TimestampMixin
@@ -112,8 +112,40 @@ class PasswordResetToken(Base, PkMixin):
 class SystemSetting(Base, PkMixin, TimestampMixin):
     __tablename__ = "system_settings"
     MODEL_NUMBERING_KEY: ClassVar[str] = "model_numbering"
+    MODEL_VARIANT_NUMBERING_KEY: ClassVar[str] = "model_variant_numbering"
     key: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
     value_json: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+
+    @classmethod
+    def for_section_update(cls, db: Session, section: str) -> SystemSetting | None:
+        # Serialize first writes too; logo uploads use this same section lock.
+        if db.bind and db.bind.dialect.name == "postgresql":
+            db.execute(text("SELECT pg_advisory_xact_lock(:namespace, :section)"),
+                       {"namespace": 1_297_047_635,
+                        "section": {"company_info": 1, "financial": 2, "preferences": 3}[section]})
+        return db.query(cls).filter(cls.key == section).with_for_update().populate_existing().first()
+
+    @classmethod
+    def write_section(
+        cls, db: Session, *, section: str, setting: SystemSetting | None, value_json: dict,
+    ) -> SystemSetting:
+        if setting is not None:
+            setting.value_json = value_json
+        else:
+            setting = cls(key=section, value_json=value_json)
+            db.add(setting)
+            db.flush()
+        return setting
+
+    @classmethod
+    def write_model_variant_numbering(
+        cls, db: Session, *, setting: SystemSetting | None, value_json: dict[str, int],
+    ) -> None:
+        if setting is not None:
+            setting.value_json = value_json
+        else:
+            db.add(cls(key=cls.MODEL_VARIANT_NUMBERING_KEY, value_json=value_json))
+        db.flush()
 
     @classmethod
     def write_model_numbering(

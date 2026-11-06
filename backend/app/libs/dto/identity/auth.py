@@ -18,6 +18,12 @@ class ResetPasswordIn(BaseModel):
     confirm_new_password: str
 
 
+class ChangePasswordIn(BaseModel):
+    current_password: str
+    new_password: str
+    confirm_new_password: str
+
+
 class LoginOk(BaseModel):
     message: str = "logged_in"
 

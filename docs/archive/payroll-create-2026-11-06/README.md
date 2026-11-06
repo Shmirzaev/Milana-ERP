@@ -1,0 +1,25 @@
+# Payroll period CREATE — 6 November 2026
+
+Owner Dilmurod, lead Mirshoir. User delegated review, retains self-merge after green hosted CI. PR #511. Base current origin/clone_main `0da97aead1dc414985efcee15abb0983252f86e0`; unchanged characterization `ebe3afee`. Isolated checkout `.codex-work/people-payroll-20261106`, branch `codex/dilmurod-payroll-create-period`. No production access, merge or deployment.
+
+User scope retained: fast host dev servers, own PostgreSQL, focused tests + affected #322 groups, hosted CI for remaining groups, 15-minute box, disk guard, five-line report; operation inventory at top of first PR within ten minutes; two commits per operation; periods/locks/approval before records/QR/adjustments/reversals; unchanged Production work-evidence contracts; one final payroll-only browser block with non-Super-Admin payroll role and denied user. Email `dilmurod111804@gmail.com`.
+
+## Operation trace and remaining scope
+
+CREATE validates allowed initial status, dates, selected factory, factory-wide advisory schedule lock, number generation/uniqueness, name storage bound and inclusive overlap across every status. Service calls schema-owned insert/flush, existing schema-owned audit machinery, then one commit/refresh with the same Session. Shared date validation moves with it; UPDATE imports it. Routes retain request/response/dependencies; no service imports routes. Tables/values/storage/DTO contracts unchanged. PayrollPeriod status/factory string contracts deliberately retained for pure behavior parity; canonical enum adoption remains pending. Other fields are names, dates, notes and references; no new vocabulary.
+
+Dependency inventory is at the top of PR #511. Only period CREATE is extracted. Period list/update/lock/approval/payment, record/QR work and read/report/adjustment/reversal operations remain pending. Production supplies work evidence and is unchanged. No whole-domain completion claim.
+
+## Evidence
+
+- `payroll-baseline.xml`: 59 passed / zero skipped, on unchanged characterization revision. Includes SQLite payroll, overlap and name bounds plus the new CREATE characterization on both SQLite and task-owned PostgreSQL. Existing totals/reversals/approval tests in this run use SQLite; do not infer full PostgreSQL coverage from the suite total.
+- `payroll-baseline-races.xml`: unchanged revision 19 passed / zero skipped; payroll period and overlap repair PostgreSQL race/recovery groups.
+- `payroll-candidate.xml`: candidate 78 passed / zero skipped, same first run plus the 19 PostgreSQL cases. Persisted period/audit readback and rollback/retry are exercised on both databases.
+- Adjacent affected #322 groups initially 34 passed / one failed: split-correction race audit pause still targeted router `log_action` for CREATE. Test now targets service for CREATE, retaining router targets for other operations. Rerun evidence recorded below; original failure remains a failure.
+- Ruff on changed Python and whitespace checks PASS. Independent agent `/root/review_payroll_create` found no functional differences in validation/error order, schedule locks, persistence, audit and single commit; its report is not human acceptance.
+- Host PostgreSQL 20000; backend 20001; frontend 20002. Synthetic payroll-role user GET periods 200, denied user 403, frontend login HTTP 200. These are HTTP checks, not visual browser evidence. Only disposable local data touched. Host runtime `/private/tmp/payroll-20261106-runtime`; servers retained for review. Disk checks before/after setup: 35–36 GiB available, 82% filesystem use; no builds or broad cleanup.
+- Browser/computer skills require the Node browser-control tool; tool discovery exposes no such tool in this session. Required payroll visual block is **BLOCKED**. Broader dual-database adjustment/reversal coverage remains incomplete; hosted CI must be green and human review remains pending. Status **BLOCKED**, never AI_VERIFIED_AWAITING_HUMAN.
+
+Human visual checklist, once browser access is restored: sign in as the local payroll role; create a non-overlapping period, reopen and verify saved fields; reject overlap/invalid initial status with unchanged rows/audit; verify read access refusal for the denied user. Exercise lock/approval/reversal/adjustment screens when their own PRs are available. Reconcile persisted database/audit effects. No production data should be created.
+
+Final affected-group result: initial adjacent run 34 passed / one fixture-target failure, repeated before correction with the same outcome. Corrected split-correction group: **13 passed / zero skipped** (`payroll-fixture-fixed.xml`), including the previously failing case. Other adjacent groups had already passed; no runtime code changed after the 78-case candidate run. Independent follow-up review approved the fixture target, confirmed unchanged Production contracts, and requested removal of an unnecessary identical return/split-test hunk; that hunk and generated frontend files were restored before commit. Browser remains BLOCKED. Hosted CI is pending on the second commit. Obsidian Windows mirror is not accessible from this host.

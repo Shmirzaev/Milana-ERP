@@ -1,0 +1,12 @@
+{
+  "armed_at": "2026-10-31T13:45:56.734342+00:00",
+  "down_utc": "2026-10-31T14:00:00+00:00",
+  "up_utc": "2026-10-31T14:03:00+00:00",
+  "down_seoul": "2026-10-31T23:00:00+09:00",
+  "up_seoul": "2026-10-31T23:03:00+09:00",
+  "duration_seconds": 180,
+  "project": "milana-sec04-local-092614aa",
+  "fault": "temporarily rename owned SQLite store and place directory at its original path; restore same file, no app restart",
+  "probe_bounds": "two sequential health/ready GETs every5s during180s and30s recovery, each timeout3s; no writes, no stress burst",
+  "rerun_reason": "User missed earlier window due to site-permission prompt; same running stack, no restarts"
+}
