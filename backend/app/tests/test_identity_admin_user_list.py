@@ -41,3 +41,13 @@ def test_list_authentication_and_permission_refusals(identity_admin, actor, stat
     h = identity_admin
     response = h.client.get('/api/users', headers=h.actors[actor][1] if actor else {})
     assert (response.status_code, response.json()) == (status, {'detail': detail})
+
+
+def test_direct_service_rejects_unprivileged_actor(identity_admin):
+    from fastapi import HTTPException
+    from app.models.identity.users_service import list_users
+    with identity_admin.db() as db:
+        actor = db.get(User, identity_admin.actors["ordinary"][0])
+        with pytest.raises(HTTPException) as error:
+            list_users(db, actor)
+        assert error.value.status_code == 403
