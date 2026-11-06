@@ -87,6 +87,22 @@ from app.models.payroll_labels_service import split_labels_print_response
 from app.models.people import payroll_service
 from app.models.payroll_operation_service import is_control_operation as _is_control_operation
 
+from app.models.people.payroll_service import (
+    RECORD_STATUSES as RECORD_STATUSES,
+    _canonical_payroll_reference as _canonical_payroll_reference,
+    _canonical_payroll_snapshot as _canonical_payroll_snapshot,
+    _canonical_snapshot_reference as _canonical_snapshot_reference,
+    _dget as _dget,
+    _filtered_record_query as _filtered_record_query,
+    _load_employee_maps as _load_employee_maps,
+    _map_payroll_snapshot_references as _map_payroll_snapshot_references,
+    _normalize_production_batch_no as _normalize_production_batch_no,
+    _present as _present,
+    _serialize_record as _serialize_record,
+    _to_int as _to_int,
+    _to_text as _to_text,
+)
+
 router = APIRouter(prefix="/payroll", tags=["payroll"])
 
 # Payroll raw snapshots are retained and returned as open JSON objects. Keep
@@ -95,7 +111,6 @@ router = APIRouter(prefix="/payroll", tags=["payroll"])
 MAX_PAYROLL_SNAPSHOT_BYTES = 16 * 1024
 MAX_PAYROLL_SNAPSHOT_DEPTH = 16
 
-RECORD_STATUSES = {"recorded", "voided", "approved", "paid"}
 MUTATION_LOCKED_PERIOD_STATUSES = {"locked", "approved", "paid", "cancelled"}
 ADJUSTMENT_TYPES = {"bonus", "deduction"}
 PAYROLL_RECORD_COMPONENT_MAX = Decimal("9999999999.9999")
@@ -108,24 +123,10 @@ PAYROLL_WORK_TOKEN_PREFIX = "2"
 PAYROLL_QR_TOKEN_ID_WIDTH = PAYROLL_QR_TOKEN_LENGTH - 1
 
 
-def _present(value: Any) -> bool:
-    return value is not None and value != ""
 
 
-def _to_int(value: Any) -> int | None:
-    if not _present(value):
-        return None
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
 
 
-def _to_text(value: Any) -> str | None:
-    if not _present(value):
-        return None
-    text = str(value).strip()
-    return text or None
 
 
 def _to_decimal(value: Any, default: Decimal = Decimal("0")) -> Decimal:
@@ -227,44 +228,14 @@ def _compact_number(value: str | None) -> int | None:
     return _to_int(_compact_field(value))
 
 
-def _normalize_production_batch_no(value: Any) -> str | None:
-    text = _to_text(value)
-    if text and text.upper().startswith("BT-"):
-        return text[3:] or None
-    return text
-
-
-def _canonical_payroll_reference(db, namespace: str, reference: str | None, *, entity_id: int | None = None, production_order_id: int | None = None, lookup=None) -> str | None:
-    if db is None or (not reference and entity_id is None):
-        return reference
-    cache = db.info.setdefault("payroll_order_reference_cache", {})
-    key = (namespace, reference, entity_id, production_order_id)
-    if key not in cache:
-        cache[key] = canonical_order_reference(db, namespace, reference, entity_id=entity_id, production_order_id=production_order_id, lookup=lookup)
-    return cache[key]
 
 
 
-def _canonical_snapshot_reference(db, namespace: str, reference: str, *, entity_id: int | None = None, production_order_id: int | None = None, lookup=None) -> str:
-    canonical = _canonical_payroll_reference(db, namespace, reference, entity_id=entity_id, production_order_id=production_order_id, lookup=lookup)
-    if canonical == reference or db is None:
-        return reference
-    cache = db.info.setdefault("payroll_order_variant_cache", {})
-    key = (namespace, canonical, entity_id, production_order_id)
-    if key not in cache:
-        cache[key] = order_reference_variants(db, namespace, canonical, entity_id=entity_id, production_order_id=production_order_id, lookup=lookup)
-    # An ID hint disambiguates real aliases; it must not conceal unrelated text
-    # if this snapshot is later compared against the actual printed payload.
-    return canonical if reference in cache[key] else reference
 
 
 
-def _canonical_payroll_snapshot(db, value: Any, *, production_order_id: int | None = None, sales_order_id: int | None = None, lookup=None) -> Any:
-    """Only translate explicit order fields; never rewrite QR identities or money."""
-    def resolve(namespace, reference, **identities):
-        return _canonical_snapshot_reference(db, namespace, reference, lookup=lookup, **identities)
 
-    return _map_payroll_snapshot_references(value, resolve, production_order_id=production_order_id, sales_order_id=sales_order_id)
+
 
 
 
@@ -444,12 +415,6 @@ def _first(*values: Any) -> Any:
     return None
 
 
-def _dget(data: dict[str, Any], *keys: str) -> Any:
-    for key in keys:
-        value = data.get(key)
-        if _present(value):
-            return value
-    return None
 
 
 def _normalize_scan_uid(payload: PayrollRecordIn, work_payload: dict[str, Any]) -> str | None:
@@ -856,93 +821,9 @@ def _validate_and_enrich_record(
     return data
 
 
-def _load_employee_maps(
-    db: DbSession,
-    employee_ids: set[int],
-    *,
-    include_search_fields: bool = False,
-) -> tuple[dict[int, Employee], dict[int, Department]]:
-    employee_fields = [Employee.id, Employee.full_name, Employee.department_id]
-    department_fields = [Department.id, Department.name]
-    if include_search_fields:
-        employee_fields.append(Employee.employee_no)
-        department_fields.append(Department.code)
-    employees = {
-        int(e.id): e
-        for e in (
-            db.query(Employee)
-            .options(load_only(*employee_fields))
-            .filter(Employee.id.in_(employee_ids))
-            .all()
-            if employee_ids
-            else []
-        )
-    }
-    department_ids = {int(e.department_id) for e in employees.values() if e.department_id}
-    departments = {
-        int(d.id): d
-        for d in (
-            db.query(Department)
-            .options(load_only(*department_fields))
-            .filter(Department.id.in_(department_ids))
-            .all()
-            if department_ids
-            else []
-        )
-    }
-    return employees, departments
 
 
 
-def _serialize_record(
-    record: PayrollRecord,
-    *,
-    duplicate: bool = False,
-    employees: dict[int, Employee] | None = None,
-    departments: dict[int, Department] | None = None,
-) -> dict[str, Any]:
-    employee = (employees or {}).get(int(record.employee_id))
-    department = None
-    if employee and employee.department_id:
-        department = (departments or {}).get(int(employee.department_id))
-    return {
-        "id": record.id,
-        "factory_code": record.factory_code,
-        "payroll_period_id": record.payroll_period_id,
-        "scan_uid": record.scan_uid,
-        "original_scan_uid": record.original_scan_uid,
-        "employee_id": record.employee_id,
-        "employee_user_id": record.employee_user_id,
-        "employee_name": employee.full_name if employee else None,
-        "department_id": employee.department_id if employee else None,
-        "department_name": department.name if department else None,
-        "production_order_id": record.production_order_id,
-        "sales_order_id": record.sales_order_id,
-        "work_order_id": record.work_order_id,
-        "production_batch_id": record.production_batch_id,
-        "model_id": record.model_id,
-        "production_no": _canonical_payroll_reference(object_session(record), "PO", record.production_no, entity_id=record.production_order_id),
-        "sales_order_no": _canonical_payroll_reference(object_session(record), "SO", record.sales_order_no, entity_id=record.sales_order_id, production_order_id=record.production_order_id),
-        "batch_no": _normalize_production_batch_no(record.batch_no),
-        "model_code": record.model_code,
-        "operation_section": record.operation_section,
-        "operation_code": record.operation_code,
-        "operation_name": record.operation_name,
-        "quantity": record.quantity,
-        "rate_per_piece": record.rate_per_piece,
-        "currency": record.currency,
-        "total_amount": record.total_amount,
-        "scanned_by": record.scanned_by,
-        "scanned_at": record.scanned_at,
-        "source": record.source,
-        "raw_employee_json": record.raw_employee_json,
-        "raw_work_json": _canonical_payroll_snapshot(object_session(record), record.raw_work_json, production_order_id=record.production_order_id, sales_order_id=record.sales_order_id),
-        "status": record.status,
-        "notes": record.notes,
-        "created_at": record.created_at,
-        "updated_at": record.updated_at,
-        "duplicate": duplicate,
-    }
 
 
 def _mark_qr_label_scanned(
@@ -1184,28 +1065,6 @@ def _create_record_from_payload(
     return record, True
 
 
-def _filtered_record_query(
-    db: DbSession,
-    *,
-    factory_code: str,
-    period_id: int | None = None,
-    employee_id: int | None = None,
-    department_id: int | None = None,
-    date_from: datetime | None = None,
-    date_to: datetime | None = None,
-):
-    qry = db.query(PayrollRecord).filter(PayrollRecord.factory_code == factory_code)
-    if department_id is not None:
-        qry = qry.join(Employee, Employee.id == PayrollRecord.employee_id).filter(Employee.department_id == department_id)
-    if period_id is not None:
-        qry = qry.filter(PayrollRecord.payroll_period_id == period_id)
-    if employee_id is not None:
-        qry = qry.filter(PayrollRecord.employee_id == employee_id)
-    if date_from is not None:
-        qry = qry.filter(PayrollRecord.scanned_at >= as_utc(date_from))
-    if date_to is not None:
-        qry = qry.filter(PayrollRecord.scanned_at <= as_utc(date_to))
-    return qry
 
 
 def _filtered_adjustment_query(
@@ -1301,43 +1160,7 @@ def list_records(
     page: Annotated[int | None, Query(ge=1)] = None,
     page_size: Annotated[int | None, Query(ge=1, le=500)] = None,
 ):
-    qry = _filtered_record_query(
-        db,
-        factory_code=selected_factory_code(current),
-        period_id=period_id,
-        employee_id=employee_id,
-        department_id=department_id,
-        date_from=date_from,
-        date_to=date_to,
-    )
-    if status == "active":
-        qry = qry.filter(PayrollRecord.status != "voided")
-    elif status in RECORD_STATUSES:
-        qry = qry.filter(PayrollRecord.status == status)
-    elif status:
-        raise HTTPException(400, "Invalid payroll record status")
-    total = None
-    if page is not None or page_size is not None:
-        page = page or 1
-        page_size = page_size or 200
-        total = qry.order_by(None).count()
-    qry = qry.order_by(PayrollRecord.scanned_at.desc(), PayrollRecord.id.desc())
-    if total is None:
-        qry = qry.limit(max(1, min(limit, 1000)))
-    else:
-        qry = qry.offset((page - 1) * page_size).limit(page_size)
-    rows = qry.all()
-    employees, departments = _load_employee_maps(db, {int(r.employee_id) for r in rows})
-    payloads = [_serialize_record(r, employees=employees, departments=departments) for r in rows]
-    if total is None:
-        return payloads
-    return {
-        "rows": payloads,
-        "total": total,
-        "page": page,
-        "page_size": page_size,
-        "has_more": page * page_size < total,
-    }
+    return payroll_service.list_records(db, current, period_id, employee_id, department_id, date_from, date_to, status, limit, page, page_size)
 
 
 
@@ -4487,36 +4310,6 @@ def list_payroll_employee_options(
     }
 
 
-def _map_payroll_snapshot_references(value, resolve, *, production_order_id=None, sales_order_id=None):
-    """Share the exact payload parsing path between batch preparation and output."""
-    if isinstance(value, dict):
-        updated = dict(value)
-        production_order_id = production_order_id or _to_int(_dget(value, "production_order_id", "pid"))
-        sales_order_id = sales_order_id or _to_int(_dget(value, "sales_order_id", "soid"))
-        for namespace, keys in (
-            ("PO", ("production_no", "productionNo", "po")),
-            ("SO", ("sales_order_no", "salesOrderNo", "so")),
-        ):
-            for key in keys:
-                if isinstance(value.get(key), str):
-                    updated[key] = resolve(namespace, value[key], entity_id=production_order_id if namespace == "PO" else sales_order_id, production_order_id=production_order_id if namespace == "SO" else None)
-        return updated
-    if not isinstance(value, str):
-        return value
-    parts = value.split("*")
-    if parts[0].upper() == "MW2":
-        production_order_id = production_order_id or (_to_int(parts[1]) if len(parts) > 1 else None)
-        sales_order_id = sales_order_id or (_to_int(parts[14]) if len(parts) > 14 else None)
-        for index, namespace in ((2, "PO"), (15, "SO")):
-            if len(parts) > index and parts[index] != "-":
-                parts[index] = resolve(namespace, parts[index], entity_id=production_order_id if namespace == "PO" else sales_order_id, production_order_id=production_order_id if namespace == "SO" else None)
-        return "*".join(parts)
-    try:
-        parsed = json.loads(value)
-    except (ValueError, TypeError):
-        return value
-    canonical = _map_payroll_snapshot_references(parsed, resolve, production_order_id=production_order_id, sales_order_id=sales_order_id) if isinstance(parsed, dict) else parsed
-    return json.dumps(canonical, ensure_ascii=False, separators=(",", ":")) if canonical != parsed else value
 
 
 
