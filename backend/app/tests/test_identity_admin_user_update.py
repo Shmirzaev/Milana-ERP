@@ -232,3 +232,13 @@ def test_duplicate_email_failure_preserves_user_and_audit(identity_admin):
     response = patch(h, 'manager', 'ordinary', {'email': email, 'name': 'No'})
     assert response.status_code == 500
     assert snapshot(h, h.actors['ordinary'][0]) == before
+
+
+def test_direct_service_rejects_unprivileged_actor(identity_admin):
+    from fastapi import HTTPException
+    from app.models.identity.users_service import update_user
+    with identity_admin.db() as db:
+        actor = db.get(User, identity_admin.actors["ordinary"][0])
+        with pytest.raises(HTTPException) as error:
+            update_user(db, 2147483647, None, actor)
+        assert error.value.status_code == 403
