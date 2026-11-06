@@ -7,6 +7,7 @@ from fastapi import HTTPException
 from sqlalchemy import event
 
 from app.api.routes import payroll
+from app.core.dt import as_utc
 from app.libs.dto.people.payroll import PayrollPeriodIn
 from app.schemas import AuditLog, PayrollPeriod, User
 from app.tests.conftest import TestSessionLocal
@@ -55,3 +56,16 @@ def test_period_create_persistence_audit_refusals_and_failure_retry(sessions):
         assert caught.value.status_code == 409
         db.rollback()
         assert db.query(PayrollPeriod).filter_by(name=key).count() == 1
+
+
+def test_generated_period_number_uses_factory_month_at_utc_boundary(sessions):
+    key = uuid4().hex
+    start = datetime(2002, 10, 31, 19, tzinfo=timezone.utc)  # 1 Nov in Tashkent
+    end = datetime(2002, 11, 29, 18, 59, 59, tzinfo=timezone.utc)
+    with sessions() as db:
+        actor = User(name='Payroll manager', email=f'{key}@example.invalid', password_hash='unused', factory_code='BST', extra_permissions=['payroll.manage'])
+        db.add(actor)
+        db.commit()
+        result = payroll.create_period(PayrollPeriodIn(name=key, start_date=start, end_date=end), db, actor)
+        assert result.period_no == 'PAY-2002-11'
+        assert (as_utc(result.start_date), as_utc(result.end_date)) == (start, end)
