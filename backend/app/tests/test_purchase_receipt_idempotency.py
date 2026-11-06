@@ -5,7 +5,6 @@ accepted receipt created a second StockBatch and a second stock movement.
 These tests pin caller/order/payload-scoped replay for the receive endpoint.
 """
 
-import os
 from concurrent.futures import ThreadPoolExecutor
 from queue import Queue
 from threading import Event
@@ -14,8 +13,7 @@ from uuid import uuid4
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import create_engine, text
-from sqlalchemy.engine import make_url
+from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 
 from app.api.routes import purchasing
@@ -23,7 +21,6 @@ from app.models.idempotency_service import bind_idempotency_identity
 from app.models.purchasing import receiving_service
 from app.core.security import create_access_token
 from app.db import session as session_module
-from app.db.base import Base
 from app.schemas import (
     AuditLog,
     IdempotencyRecord,
@@ -38,6 +35,7 @@ from app.schemas import (
 )
 from app.libs.dto.purchasing.purchase_order_input import PurchaseOrderReceiveIn
 from app.libs.dto.purchasing.purchase_order_output import PurchaseOrderOut
+from app.tests.test_customer_create_postgres import customer_pg_sessions  # noqa: F401
 
 
 def create_receipt_order(session_factory, *, unit_cost=None, ordered_quantity=100):
@@ -447,47 +445,8 @@ def test_repeated_line_in_one_receipt_retains_preceding_explicit_price(client, a
 
 
 @pytest.fixture(scope="module")
-def receipt_postgres_engine():
-    raw_url = os.environ.get("STABILIZATION_POSTGRES_URL")
-    if not raw_url:
-        pytest.skip(
-            "Set STABILIZATION_POSTGRES_URL to a local PostgreSQL 16 instance "
-            "for real receipt concurrency coverage (SQLite cannot prove FOR UPDATE)"
-        )
-    url = make_url(raw_url)
-    if url.get_backend_name() != "postgresql" or url.host not in {"127.0.0.1", "localhost", "::1"} or url.query:
-        pytest.fail("Receipt concurrency tests require a loopback PostgreSQL URL without connection overrides")
-    schema = f"st01_receipts_{uuid4().hex}"
-    engine = create_engine(
-        url,
-        connect_args={"options": f"-csearch_path={schema} -clock_timeout=15000 -cstatement_timeout=20000"},
-        pool_size=6,
-        max_overflow=0,
-        isolation_level="READ COMMITTED",
-    )
-    with engine.begin() as connection:
-        connection.exec_driver_sql(f'CREATE SCHEMA "{schema}"')
-    try:
-        tables = {
-            StockBatch.__table__,
-            StockMovement.__table__,
-            PurchaseOrderLine.__table__,
-            AuditLog.__table__,
-            IdempotencyRecord.__table__,
-        }
-        pending = list(tables)
-        while pending:
-            for foreign_key in pending.pop().foreign_keys:
-                target = foreign_key.column.table
-                if target not in tables:
-                    tables.add(target)
-                    pending.append(target)
-        Base.metadata.create_all(engine, tables=list(tables))
-        yield engine
-    finally:
-        with engine.begin() as connection:
-            connection.exec_driver_sql(f'DROP SCHEMA "{schema}" CASCADE')
-        engine.dispose()
+def receipt_postgres_engine(customer_pg_sessions):
+    return customer_pg_sessions.kw["bind"]
 
 
 @pytest.mark.parametrize("same_key", [True, False])
