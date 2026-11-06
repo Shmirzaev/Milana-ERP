@@ -450,6 +450,25 @@
         "test_pg_disposal_deferred_commit_failure_retry",
         "test_pg_disposal_request_race_serializes_on_parent"
       ]
+    },
+    "test_waste_mark_disposed_postgres": {
+      "revision": "7074bc0536f8f5aefba361d693d82b034f20f4a7",
+      "git_blob_sha256": "935cc49faeafc6054c9140e725b6cea9ddbd8c1ff1dbcb22c65114e0f34c6957",
+      "selected_functions": [
+        "test_pg_mark_refuses_request_before_invalid_parent",
+        "test_pg_mark_refuses_nonapproved_parent",
+        "test_pg_mark_refuses_invalid_waste",
+        "test_pg_mark_disposed_auth_refusal_audit_failure_retry",
+        "test_pg_mark_disposed_deferred_commit_failure_retry",
+        "test_pg_mark_disposed_race_serializes_on_parent"
+      ]
+    },
+    "test_waste_disposal_integrity": {
+      "revision": "7074bc0536f8f5aefba361d693d82b034f20f4a7",
+      "git_blob_sha256": "d25a647575509fe6b7f6e6163fe046636f4510366330d14bdff08968c2508ace",
+      "selected_functions": [
+        "test_postgres_concurrent_disposal_has_one_effect_and_refreshes_cached_state"
+      ]
     }
   },
   "cases": {
@@ -1059,6 +1078,29 @@
       "test_pg_disposal_http_refusal_and_audit_failure_retry",
       "test_pg_disposal_deferred_commit_failure_retry",
       "test_pg_disposal_request_race_serializes_on_parent"
+    ],
+    "test_waste_mark_disposed_postgres": [
+      "test_pg_mark_refuses_request_before_invalid_parent[pending]",
+      "test_pg_mark_refuses_request_before_invalid_parent[rejected]",
+      "test_pg_mark_refuses_request_before_invalid_parent[disposed]",
+      "test_pg_mark_refuses_nonapproved_parent[recorded]",
+      "test_pg_mark_refuses_nonapproved_parent[received_by_waste_department]",
+      "test_pg_mark_refuses_nonapproved_parent[sold]",
+      "test_pg_mark_refuses_nonapproved_parent[pending_disposal_approval]",
+      "test_pg_mark_refuses_nonapproved_parent[disposed]",
+      "test_pg_mark_refuses_invalid_waste[sellable]",
+      "test_pg_mark_refuses_invalid_waste[zero]",
+      "test_pg_mark_refuses_invalid_waste[negative]",
+      "test_pg_mark_refuses_invalid_waste[nan]",
+      "test_pg_mark_disposed_auth_refusal_audit_failure_retry",
+      "test_pg_mark_disposed_deferred_commit_failure_retry",
+      "test_pg_mark_disposed_race_serializes_on_parent"
+    ],
+    "test_waste_disposal_integrity": [
+      "test_postgres_concurrent_disposal_has_one_effect_and_refreshes_cached_state[actions0]",
+      "test_postgres_concurrent_disposal_has_one_effect_and_refreshes_cached_state[actions1]",
+      "test_postgres_concurrent_disposal_has_one_effect_and_refreshes_cached_state[actions2]",
+      "test_postgres_concurrent_disposal_has_one_effect_and_refreshes_cached_state[actions3]"
     ]
   },
   "isolated_supplemental_cases": [
