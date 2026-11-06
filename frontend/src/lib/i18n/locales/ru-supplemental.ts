@@ -59,6 +59,7 @@ export default {
     "page.hrEmployees.bank_details": "Банковские реквизиты",
     "page.hrEmployees.payroll_id": "Табельный номер для расчёта зарплаты",
     "page.hrEmployees.saving": "Сохранение…",
+    "page.hrEmployees.saved": "Сохранено.",
     "page.hrEmployees.save": "Сохранить карточку сотрудника",
     "hrWorkspace.dashboard": "Обзор",
     "hrWorkspace.employees": "Сотрудники",

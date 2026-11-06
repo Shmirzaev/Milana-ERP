@@ -7,6 +7,7 @@ import Modal from "@/components/Modal";
 import { HrHeader, LoadState, MetricGrid } from "@/components/hr/HrUi";
 import { useT } from "@/lib/i18n";
 import { useMe } from "@/lib/auth";
+import { employeeNumberPayload } from "@/lib/employeeNumberPayload";
 import dynamic from "next/dynamic";
 import { PREVIEW_ENABLED, BACKEND_ENABLED } from "@/components/hr/turnstile/turnstilePreview";
 import { backendCopy } from "@/components/hr/turnstile/turnstileBackendCopy";
@@ -104,6 +105,7 @@ export default function EmployeesPage() {
   const { data: managerOptions } = useSWR<ManagerOptions>(managerKey, fetcher);
   const [section, setSection] = useState<keyof typeof PROFILE_FIELDS>("Personal");
   const [message, setMessage] = useState("");
+  const [saveNotice, setSaveNotice] = useState(false);
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState("");
@@ -133,15 +135,17 @@ export default function EmployeesPage() {
   const filtered = useMemo(() => employees, [employees]);
   function changeQuery(value: string) { setEmployees([]); setPage(1); setQuery(value); }
 
-  function open(employee?: Employee) { setEditing(employee || "new"); setForm(toForm(employee)); setManagerSearch(""); setPositionSearch(""); setSection("Personal"); setMessage(""); }
+  function open(employee?: Employee) { setEditing(employee || "new"); setForm(toForm(employee)); setManagerSearch(""); setPositionSearch(""); setSection("Personal"); setMessage(""); setSaveNotice(false); }
   function profileValue(key: string) { return form.profile[key] || ""; }
   function setProfile(key: string, value: string) { setForm((old) => ({ ...old, profile: { ...old.profile, [key]: value } })); }
 
   async function save(event: React.FormEvent) {
     event.preventDefault(); setSaving(true); setMessage("");
     const edit = form;
+    const originalNumber = editing && editing !== "new" ? editing.employee_no : undefined;
     const payload = {
-      employee_no: edit.employee_no.trim() || null, full_name: form.full_name.trim(),
+      ...employeeNumberPayload(originalNumber, edit.employee_no),
+      full_name: form.full_name.trim(),
       department_id: form.department_id ? Number(form.department_id) : null,
       position: form.position.trim() || null, phone: form.phone.trim() || null,
       salary: form.salary === "" ? null : Number(form.salary), status: form.status,
@@ -156,7 +160,7 @@ export default function EmployeesPage() {
     try {
       if (editing === "new") await api.post("/api/employees", payload);
       else await api.patch(`/api/employees/${editing?.id}`, payload);
-      setEmployees([]); setPage(1); await refreshDirectory(); setEditing(null);
+      setEmployees([]); setPage(1); await refreshDirectory(); setEditing(null); setSaveNotice(true);
     } catch (saveError: unknown) { setMessage(String((saveError as Error)?.message || saveError)); }
     finally { setSaving(false); }
   }
@@ -178,8 +182,10 @@ export default function EmployeesPage() {
     finally { setSaving(false); }
   }
 
+  const editingLegacyNumber = Boolean(editing && editing !== "new" && editing.employee_no && !/^\d+$/.test(editing.employee_no));
   return <div>
     <HrHeader title={t("page.hrEmployees.title")} subtitle={t("page.hrEmployees.subtitle")} actions={<><button className="btn" onClick={downloadEmployees} disabled={exporting}>{t(exporting ? "employeeExport.loading" : "employeeExport.download")}</button><button className="btn btn-primary" onClick={() => open()}>{t("page.hrEmployees.add")}</button></>} />
+    {saveNotice && <p role="status" className="mb-4 text-sm text-green-700">{t("page.hrEmployees.saved")}</p>}
     {(PREVIEW_ENABLED || BACKEND_ENABLED) && <div className="card mb-5 flex flex-wrap items-center justify-between gap-4 border-l-4 border-l-[#7c915b] p-5"><div className="min-w-0 flex-1"><p className="text-[10px] font-semibold uppercase tracking-widest text-[#82916d]">{BACKEND_ENABLED ? backendCopy[lang].banner : gateCopy[lang].preview}</p><h2 className="mt-1 text-base font-semibold">{gateCopy[lang].overview}</h2><p className="mt-1 text-xs text-[#787e6b]">{gateCopy[lang].overviewHelp}</p></div><button type="button" className="btn btn-primary" disabled={!employees.length} onClick={() => setGateEmployee(employees[0])}>{BACKEND_ENABLED ? gateCopy[lang].title : gateCopy[lang].open}</button></div>}
     {exportError && <p role="alert" className="mb-4 text-sm text-red-600">{exportError}</p>}
     <MetricGrid items={[{ label: t("page.hrEmployees.total"), value: activePageData?.total ?? "—" }, { label: t("page.hrEmployees.active"), value: activePageData?.active_total ?? "—" }, { label: t("page.hrEmployees.inactiveTotal"), value: activePageData?.inactive_total ?? "—" }, { label: t("page.hrEmployees.coverage"), value: activePageData?.profile_coverage_percent == null ? "—" : `${activePageData.profile_coverage_percent}%` }]} />
@@ -203,7 +209,7 @@ export default function EmployeesPage() {
     <Modal open={editing !== null} onClose={() => setEditing(null)} title={editing === "new" ? t("page.hrEmployees.newEmployee") : t("page.hrEmployees.profileTitle", { name: form.full_name })} wide>
       <form onSubmit={save} className="space-y-5">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <label><span className="label">{t("field.employeeNo")}</span><input className="input" inputMode="numeric" pattern="[0-9]+" value={form.employee_no} onChange={(e) => setForm({ ...form, employee_no: e.target.value })} /></label>
+          <label><span className="label">{t("field.employeeNo")}</span><input className="input" inputMode={editingLegacyNumber ? undefined : "numeric"} pattern={editingLegacyNumber ? undefined : "[0-9]+"} value={form.employee_no} onChange={(e) => setForm({ ...form, employee_no: e.target.value })} /></label>
           <label className="lg:col-span-2"><span className="label">{t("page.hrEmployees.fullName")}</span><input className="input" required value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} /></label>
           <label><span className="label">{t("page.hrEmployees.phone")}</span><input className="input" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></label>
           <label><span className="label">{t("page.hrEmployees.department")}</span><select className="input" value={form.department_id} onChange={(e) => setForm({ ...form, department_id: e.target.value })}><option value="">{t("page.hrEmployees.unassigned")}</option>{departments?.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</select></label>
