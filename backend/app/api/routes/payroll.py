@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import Response
 from sqlalchemy import String, and_, case, cast, func, or_
-from sqlalchemy.orm import load_only, object_session
+from sqlalchemy.orm import load_only
 
 from app.core.deps import DbSession, require_permissions, is_admin, user_permissions
 from app.core.dt import as_utc, utcnow
@@ -135,6 +135,10 @@ from app.models.people.payroll_service import (
     PAYROLL_EMPLOYEE_TOKEN_PREFIX as PAYROLL_EMPLOYEE_TOKEN_PREFIX,
     _employee_qr_token as _employee_qr_token,
     _employee_scan_payload as _employee_scan_payload,
+)
+
+from app.models.people.payroll_service import (
+    _qr_label_scan_payload as _qr_label_scan_payload,
 )
 
 router = APIRouter(prefix="/payroll", tags=["payroll"])
@@ -1495,37 +1499,6 @@ def resolve_employee_number(
     return payroll_service.resolve_employee_number(employee_no, db, current)
 
 
-def _qr_label_scan_payload(label: PayrollQrLabel) -> dict[str, Any]:
-    return {
-        "type": "process_payroll",
-        "source": "milana_erp_token",
-        "label_id": label.label_uid,
-        "production_order_id": label.production_order_id,
-        "production_no": _canonical_payroll_reference(object_session(label), "PO", label.production_no, entity_id=label.production_order_id),
-        "sales_order_id": label.sales_order_id,
-        "sales_order_no": _canonical_payroll_reference(object_session(label), "SO", label.sales_order_no, entity_id=label.sales_order_id, production_order_id=label.production_order_id),
-        "work_order_id": label.work_order_id,
-        "batch_id": label.production_batch_id,
-        "batch_no": _normalize_production_batch_no(label.batch_no),
-        "model_id": label.model_id,
-        "model_code": label.model_code,
-        "size": label.size,
-        "operation_section": label.operation_section,
-        "operation_code": label.operation_code,
-        "operation_name": label.operation_name,
-        "quantity": label.quantity,
-        "rate_per_piece": label.rate_per_piece,
-        "currency": label.currency,
-        "payroll_unit": "piece",
-        "copy_index": label.copy_index,
-        "sewing_flow_id": label.sewing_flow_id,
-        "sewing_line_code": label.sewing_line_code,
-        "sewing_line_name": label.sewing_line_name,
-        "cutting_passport_id": label.cutting_passport_id,
-        "cutting_passport_no": label.cutting_passport_no,
-        "label_status": label.status,
-        "requires_control_confirmation": _is_control_operation(label),
-    }
 
 
 def _control_review_token(label: PayrollQrLabel, employee_id: int) -> str:
@@ -1762,40 +1735,7 @@ def resolve_qr_token(
     db: DbSession,
     current: User = Depends(require_permissions("payroll.scan", "payroll.manage", "*")),
 ):
-    normalized = token.strip()
-    if len(normalized) != PAYROLL_QR_TOKEN_LENGTH or not normalized.isdigit():
-        raise HTTPException(400, "Payroll QR token must contain exactly 9 digits")
-
-    record_id = int(normalized[1:])
-    factory_code = selected_factory_code(current)
-    if normalized.startswith(PAYROLL_EMPLOYEE_TOKEN_PREFIX):
-        employee = db.query(Employee).filter(
-            Employee.id == record_id,
-            Employee.factory_code == factory_code,
-        ).first()
-        if not employee:
-            employee = merged_employee(db, factory_code, employee_id=record_id)
-        if not employee:
-            raise HTTPException(404, "Payroll employee QR was not found")
-        return _employee_scan_payload(
-            employee,
-            badge_id=normalized,
-            source="milana_erp_token",
-            db=db,
-        )
-
-    if normalized.startswith(PAYROLL_WORK_TOKEN_PREFIX):
-        label = db.query(PayrollQrLabel).filter(
-            PayrollQrLabel.id == record_id,
-            PayrollQrLabel.factory_code == factory_code,
-        ).first()
-        if not label:
-            raise HTTPException(404, "Payroll work QR was not found")
-        if label.status == "superseded":
-            raise HTTPException(409, "This payroll QR was replaced by split labels and can no longer be scanned")
-        return _qr_label_scan_payload(label)
-
-    raise HTTPException(400, "Unknown payroll QR token type")
+    return payroll_service.resolve_qr_token(token, db, current)
 
 
 
