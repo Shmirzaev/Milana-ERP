@@ -2,6 +2,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from fastapi import HTTPException
+from app.libs.enums.production import WorkOrderStatus
 from app.models.user_access_service import apply_policy, denied_for, policy_for
 
 if TYPE_CHECKING:
@@ -128,6 +129,12 @@ def refresh_cutting_work_order_for_write(db: Session, work_order: WorkOrder) -> 
         from app.schemas import ProductionOrder, WorkOrder
         db.query(ProductionOrder.id).filter_by(id=work_order.production_order_id).with_for_update().one()
         db.refresh(work_order, with_for_update={"of": WorkOrder})
+        require_cutting_work_order_not_rejected(work_order)
+
+
+def require_cutting_work_order_not_rejected(work_order: WorkOrder) -> None:
+    if work_order.operation == "cutting" and work_order.status == WorkOrderStatus.REJECTED:
+        raise HTTPException(409, "This cutting order has been rejected and cannot be changed")
 
 
 def cutting_department_scope(user, requested: str | None) -> str:

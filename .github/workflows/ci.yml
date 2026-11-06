@@ -78,6 +78,17 @@ jobs:
       - name: Backend regression suite
         working-directory: backend
         run: python -m pytest -q
+      - name: Combined Cutting rejection, Qolip CAD and passport allocation PostgreSQL regressions
+        working-directory: backend
+        env:
+          PLANNING_CUTTING_POSTGRES_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/first_grade_qa_ci
+          STABILIZATION_POSTGRES_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/first_grade_qa_ci
+          PASSPORT_ALLOCATION_POSTGRES_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/first_grade_qa_ci
+        run: >-
+          python -m pytest -q
+          app/tests/test_cutting_order_rejection_postgres.py
+          app/tests/test_model_pattern_cad_postgres.py
+          app/tests/test_passport_batch_allocations_postgres.py
       - name: Purchasing approval PostgreSQL write boundary
         env:
           PUR_APPROVAL_PG_ADMIN_URL: postgresql://postgres@127.0.0.1:5432/postgres

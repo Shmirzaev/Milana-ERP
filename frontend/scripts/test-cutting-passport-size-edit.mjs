@@ -18,6 +18,7 @@ const state = {};
 const context = vm.createContext({
   orderRequest: { current: 0 }, EMPTY_FORM: {},
   resetMaterialPicker() {}, setMaterialForms() {}, setEditing() {}, setShowForm() {},
+  setBatchInfos() {}, rememberBatches() {},
   setSizeChoices: sizes => { state.sizes = Array.from(sizes); },
   setForm: form => { state.form = form; }, setErr: error => { state.error = error; },
   api: { get: url => new Promise(resolve => requests.push({ url, resolve })) },

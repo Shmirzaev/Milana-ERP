@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import PageHeader from "@/components/PageHeader";
+import { Search } from "lucide-react";
+import EcoFabricStock from "@/components/inventory/EcoFabricStock";
 import EcoReceiptForm from "@/components/inventory/EcoReceiptForm";
 import EcoReceiptDetailsView from "@/components/inventory/EcoReceiptDetails";
 import { ecoReceiptText, ecoQualityText, type EcoReceiptBody } from "@/lib/ecoReceipt";
@@ -84,7 +86,7 @@ export default function EcoInventoryPage() {
   const activeRows = view === "stock" ? rows : history;
   const formatDate = (value: string) => new Date(value).toLocaleString(lang === "ru" ? "ru-RU" : lang === "uz" ? "uz-UZ" : "en-GB", { timeZone: "Asia/Tashkent" });
   return <div className="space-y-5">
-    <PageHeader title={text.title} />
+    <PageHeader title={text.title} subtitle={kind === "fabric" ? t("page.inventory.materialSubtitle") : undefined} />
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div className="flex gap-2">{(["fabric", "accessory"] as const).map(value => <button key={value} className={`btn ${kind === value ? "btn-primary" : ""}`} disabled={busy || uncertain} onClick={() => changeKind(value)}>{text[value]}</button>)}</div>
       <div className="flex flex-wrap gap-2">{can(me, "storage.items", "storage.suppliers") && <Link className="btn" href={`/eco-inventory/catalog?group=${kind === "fabric" ? "materials" : "accessories"}`}>{receipt.catalog}</Link>}<Link className="btn" href="/factory-fabric-transfers">{text.incoming}</Link>{can(me, "eco_accessories.read") && <Link className="btn" href="/eco-accessories">{text.plans}</Link>}
@@ -107,14 +109,24 @@ export default function EcoInventoryPage() {
     </section>}
     {uncertain && <div role="status" className="space-y-2"><p>{text.retryHint}</p><button className="btn btn-primary" disabled={busy} onClick={() => void submit()}>{text.retry}</button></div>}
     {error && <p role="alert" className="text-red-700">{error}</p>}{message && <p role="status">{message}</p>}
-    <section className="card p-4 space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex gap-2">{(["stock", "history"] as const).map(value => <button key={value} className={`btn ${view === value ? "btn-primary" : ""}`} onClick={() => { setView(value); setPage(0); }}>{text[value]}</button>)}</div>
-        {view === "stock" && <input className="input max-w-sm" aria-label={text.search} placeholder={text.search} value={search} onChange={event => {setSearch(event.target.value); setPage(0);}} />}</div>
+    {kind === "fabric" && view === "stock" && <form role="search" className="flex flex-col gap-2 sm:flex-row sm:items-center" onSubmit={event => { event.preventDefault(); void refreshStock(); }}>
+      <div className="flex h-10 min-w-0 flex-1 items-center gap-2 rounded-md border border-[#ded9ca] bg-[#fdfcf8] px-3">
+        <Search className="h-4 w-4 shrink-0 text-[#8a8472]" aria-hidden="true" />
+        <input type="search" className="w-full min-w-0 bg-transparent text-sm text-[#14110b] placeholder:text-[#8a8472] focus:outline-none"
+          aria-label={text.search} placeholder={text.search} value={search} onChange={event => { setSearch(event.target.value); setPage(0); }} />
+      </div>
+      <button type="submit" className="btn btn-primary"><Search className="h-4 w-4" aria-hidden="true" />{t("common.search")}</button>
+    </form>}
+    <section className={kind === "fabric" ? "card overflow-hidden" : "card p-4 space-y-4"}>
+      <div className={`flex flex-wrap items-center justify-between gap-3 ${kind === "fabric" ? "border-b border-[#ecebe3] px-4 py-3" : ""}`}><div className="flex gap-2">{(["stock", "history"] as const).map(value => <button key={value} className={`btn ${view === value ? "btn-primary" : ""}`} onClick={() => { setView(value); setPage(0); }}>{text[value]}</button>)}</div>
+        {view === "stock" && kind !== "fabric" && <input className="input max-w-sm" aria-label={text.search} placeholder={text.search} value={search} onChange={event => {setSearch(event.target.value); setPage(0);}} />}</div>
       {(stockError || historyError) && <p role="alert">{text.error}</p>}
-      {(view === "stock" ? isLoading : historyLoading) ? <p>{text.loading}</p> : <div className="overflow-x-auto"><table className="table w-full"><thead><tr>{(view === "stock" ? [text.item, text.batch, text.color, text.balance, text.reserved, text.available, receipt.inspection, text.actions] : [text.date, text.item, text.batch, text.status, text.quantity, text.productionOrder, text.operator, text.notes]).map((label, index) => <th key={index}>{label}</th>)}</tr></thead>
+      {(view === "stock" ? isLoading : historyLoading) ? <p className="p-4">{text.loading}</p> : view === "stock" && kind === "fabric" ? <EcoFabricStock rows={shownRows} busy={busy} uncertain={uncertain}
+        canUpdateQuality={can(me, "eco_inventory.receive")} canConsume={can(me, "eco_inventory.consume")}
+        onQuality={(row, value) => void updateQuality(row, value)} onConsume={openForm} /> : <div className="overflow-x-auto"><table className="table w-full"><thead><tr>{(view === "stock" ? [text.item, text.batch, text.color, text.balance, text.reserved, text.available, receipt.inspection, text.actions] : [text.date, text.item, text.batch, text.status, text.quantity, text.productionOrder, text.operator, text.notes]).map((label, index) => <th key={index}>{label}</th>)}</tr></thead>
         <tbody>{view === "stock" ? shownRows.map(row => <tr key={row.id}><td>{row.item_name}<div className="text-xs text-[var(--erp-muted)]">{row.sku}</div><EcoReceiptDetailsView details={row.receipt_details} quantity={row.quantity} /></td><td>{row.batch_no}</td><td>{row.color || "—"}</td><td>{Number(row.quantity).toLocaleString()} {row.unit}</td><td>{Number(row.reserved_quantity).toLocaleString()} {row.unit}</td><td>{Number(row.available_quantity).toLocaleString()} {row.unit}</td><td>{can(me, "eco_inventory.receive") ? <select className="input" aria-label={`${receipt.inspection} ${row.batch_no}`} value={row.receipt_details?.qc_status || "passed"} disabled={busy} onChange={event => void updateQuality(row, event.target.value as InventoryQcStatus)}>{INVENTORY_QC_STATUSES.map(value => <option key={value} value={value}>{ecoQualityText(value, t, receipt)}</option>)}</select> : ecoQualityText(row.receipt_details?.qc_status || "passed", t, receipt)}</td><td>{row.kind === "fabric" && can(me, "eco_inventory.consume") && <button className="btn" disabled={busy || uncertain || Number(row.available_quantity) <= 0} onClick={() => openForm(row)}>{text.consume}</button>}</td></tr>) : (history || []).map(row => <tr key={row.id}><td className="whitespace-nowrap">{formatDate(row.created_at)}</td><td>{row.item_name}</td><td>{row.batch_no}</td><td>{row.kind === "receive" || row.kind === "transfer_receipt" ? text.received : text.consume}</td><td>{row.kind === "consume" || row.kind === "issue" ? "−" : "+"}{Number(row.quantity).toLocaleString()} {row.unit}</td><td>{row.order_no || "—"}</td><td>{row.operator_name}</td><td>{row.notes || "—"}</td></tr>)}</tbody></table>
         {(view === "stock" ? shownRows : history || []).length === 0 && <p className="py-4">{text.empty}</p>}</div>}
-      <div className="flex justify-end gap-2"><button className="btn" disabled={page === 0} onClick={() => setPage(value => value - 1)}>{text.previous}</button><button className="btn" disabled={(activeRows?.length || 0) < pageSize} onClick={() => setPage(value => value + 1)}>{text.next}</button></div>
+      <div className={`flex justify-end gap-2 ${kind === "fabric" ? "border-t border-[#ecebe3] px-4 py-3" : ""}`}><button className="btn" disabled={page === 0} onClick={() => setPage(value => value - 1)}>{text.previous}</button><button className="btn" disabled={(activeRows?.length || 0) < pageSize} onClick={() => setPage(value => value + 1)}>{text.next}</button></div>
     </section>
   </div>;
 }

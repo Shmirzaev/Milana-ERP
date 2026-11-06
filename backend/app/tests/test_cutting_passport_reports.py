@@ -149,6 +149,26 @@ def test_linked_passport_image_fallback_matches_screen(client, auth_headers):
     assert sheet["N2"].value is None
 
 
+@pytest.mark.parametrize(("independent", "tepa", "expected"), [(False, False, 600), (True, False, 800), (True, True, 1600)])
+def test_combined_grouped_sources_count_output_once_and_export_source_labels(client, auth_headers, independent, tepa, expected):
+    pid = _create(client, auth_headers, pieces=600, tepa_pass=tepa)["id"]
+    with SessionLocal() as db:
+        grouped = PassportMaterial(stock_batch_id=1, pieces=600, layer_weight_kg=3, total_layers=100,
+            rolls_count=12, batch_allocations=[{"stock_batch_id": 1, "quantity": 100, "batch_no": "A"},
+                                             {"stock_batch_id": 2, "quantity": 200, "batch_no": "B"}]).model_dump()
+        db.get(CuttingPassport, pid).materials = [grouped] + ([PassportMaterial(stock_batch_id=3, pieces=200).model_dump()] if independent else [])
+        db.commit()
+    response = client.get("/api/cutting-passports/dashboard", headers=auth_headers)
+    assert response.status_code == 200, response.text
+    assert response.json()["totals"]["pieces"] == expected
+    assert response.json()["totals"]["fabric_kg"] == 300
+    assert response.json()["totals"]["rolls"] == 12
+    sheet = load_workbook(BytesIO(client.get("/api/cutting-passports/export.xlsx", headers=auth_headers).content))["Materials"]
+    assert sheet["J2"].value == "A (100 kg) + B (200 kg)"
+    assert sheet["R2"].value == 600
+    assert sheet["AG1"].value == "Model picture"
+
+
 def test_export_and_dashboard_include_more_than_500_and_date_end_is_inclusive(client, auth_headers):
     with SessionLocal() as db:
         db.add_all([CuttingPassport(passport_no=f"MANY-{i}", date=datetime(2026, 10, 17, 23, 59, 59, tzinfo=timezone.utc),

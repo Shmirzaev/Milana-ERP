@@ -207,10 +207,7 @@ function uniqueSortedSizes(values: Array<string | null | undefined>): string[] {
 
 function distributeExistingQuantityAcrossSizes(sizes: string[], lines: BrandedLine[]): BrandedLine[] {
   if (!sizes.length) return lines;
-  const total = Math.max(
-    sizes.length,
-    lines.reduce((sum, line) => sum + Math.max(0, numberOrZero(line.quantity)), 0),
-  );
+  const total = lines.reduce((sum, line) => sum + Math.max(0, numberOrZero(line.quantity)), 0);
   const baseQuantity = Math.floor(total / sizes.length);
   let remainder = total % sizes.length;
   const color = String(lines[0]?.color || "white").trim() || "white";
@@ -218,7 +215,7 @@ function distributeExistingQuantityAcrossSizes(sizes: string[], lines: BrandedLi
   return sizes.map((size) => {
     const quantity = baseQuantity + (remainder > 0 ? 1 : 0);
     if (remainder > 0) remainder -= 1;
-    return { color, size, quantity, printing_required: printingRequired };
+    return { color, size, quantity: total > 0 ? quantity : "", printing_required: printingRequired };
   });
 }
 
@@ -353,11 +350,11 @@ export default function PlanningDashboard() {
     deadline: "",
     cutting_department_code: "CUT",
     sewing_factory_code: "MIL",
-    lines: [{ color: "white", size: "", quantity: 600, printing_required: false }],
+    lines: [{ color: "white", size: "", quantity: "", printing_required: false }],
   });
   const [brandedSizeFrom, setBrandedSizeFrom] = useState("");
   const [brandedSizeTo, setBrandedSizeTo] = useState("");
-  const [brandedDistributeQty, setBrandedDistributeQty] = useState<NumberInputValue>(6000);
+  const [brandedDistributeQty, setBrandedDistributeQty] = useState<NumberInputValue>("");
   const [brandedLinesEditing, setBrandedLinesEditing] = useState(false);
   const [brandedLinesModelId, setBrandedLinesModelId] = useState(0);
   const [brandedDialogOpen, setBrandedDialogOpen] = useState(false);
@@ -614,7 +611,7 @@ export default function PlanningDashboard() {
     if (!brandedSizesReady) return;
     setBrandedForm((prev) => ({
       ...prev,
-      lines: [...prev.lines, { color: prev.lines[0]?.color || "white", size: brandedSizeOptions.find((size) => !prev.lines.some((line) => line.size === size)) || brandedSizeOptions[0], quantity: 1, printing_required: false }],
+      lines: [...prev.lines, { color: prev.lines[0]?.color || "white", size: brandedSizeOptions.find((size) => !prev.lines.some((line) => line.size === size)) || brandedSizeOptions[0], quantity: "", printing_required: false }],
     }));
   }
 
@@ -1021,7 +1018,7 @@ export default function PlanningDashboard() {
         brand_id: 0,
         materials: [{ fabric_batch_id: 0, estimated_material_amount: "" }],
         deadline: "",
-        lines: [{ color: "white", size: "", quantity: 600, printing_required: false }],
+        lines: [{ color: "white", size: "", quantity: "", printing_required: false }],
       }));
       setBrandedLinesModelId(0);
       setBrandedLinesEditing(false);

@@ -41,6 +41,45 @@ outside this narrow repair. Candidate tests, independent review, actual browser
 checks and isolated PostgreSQL concurrency evidence are recorded in the packet;
 human acceptance, shared-source integration and deployment remain separate.
 
+## Production-based Cutting/order UI candidate (5 November)
+
+Both production hosts were verified on `20261105_065721` / `488f3d654`, manifest
+`e6c603d4c1954c64a75962cf189427eb5e316c039ea23de4699b9bd4f3112095`;
+rollback is `20261105_043000` / `94e4cfc54`. Older runtime pointers below are
+historical. The owner explicitly chose this exact production source for an isolated
+candidate and deferred integration into clone_main. No deployment is authorized.
+
+The [task packet](SEARCH_CUTTING_ORDER_FIXES_20261105.md) records shared search-icon
+padding, blank Planning quantities, package model/variant identities and Cutting
+rejection with a required reason. Rejection blocks only the unrecorded Cutting WO,
+preserves PO/downstream plans, audits and notifies its creator; execution/history
+and stale-writer guards prevent bypass. No migration or production data changed.
+Scoped automated/PostgreSQL and connected Edge visual/readback checks passed;
+independent AI review found no remaining blocker. Human acceptance, source
+integration and release authorization remain separate. The inherited missing
+`common.noData` i18n check and extension-injected browser hydration warnings are
+disclosed in the packet; neither is claimed fixed by this task.
+
+The follow-up [ECO fabric/Qolip packet](ECO_FABRIC_QOLIP_FIXES_20261105.md) records
+Milana-style ECO batch photos/metadata and responsive stock views, plus opaque
+20 MiB .gem/.gemx pattern attachments on standard/Usluga models. Final frontend
+build, 161 scoped backend cases, isolated HTTP byte-preserving readback and
+inventory browser checks pass; independent AI source review found no blocker.
+Complete browser file upload remains BLOCKED by extension/native policy checks;
+genuine Gemini and human acceptance are not claimed. No migration/deployment or
+production data change; both hosts remain065721. Owned QA services/database were
+removed; automatic command review blocked temporary QA configuration-file cleanup.
+
+The approved [cutting passport batch split](CUTTING_PASSPORT_BATCH_SPLIT_20261105.md)
+adds one shared calculation with exact per-batch allocations (100+200kg), preserving
+separate stock movements and one garment output.163 backend cases including7 real
+PostgreSQL cases, frontend build/type checks, actual save/reopen/confirmation and
+independent AI review pass; human acceptance remains pending. No migration or
+production change; both hosts remain065721. Older binaries do not understand new
+grouped JSON, so any future rollback needs explicit data compatibility review.
+Owned QA services/database were removed; temporary JSON cleanup was blocked by
+automatic review. Existing grouped-shortage reconciliation remains unchanged.
+
 ## Current ECO runtime and narrow feature candidate (4 November)
 
 Both production hosts were reverified on blue `20261104_080711`, runtime

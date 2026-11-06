@@ -414,6 +414,7 @@ function FactoryDepartmentInboxPage() {
             rows={cuttingWorkOrders}
             cuttingDepartment={code}
             onSearch={setCuttingSearch}
+            onChanged={async () => { await Promise.all([mutate(), mutateCuttingOrderPages()]); }}
             total={cuttingOrdersTotal}
             t={t}
           />

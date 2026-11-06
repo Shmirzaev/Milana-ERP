@@ -149,6 +149,7 @@ for (const serverSearch of [true, false]) {
     "@/lib/auth": { useMe: () => ({ me: { id: 1 } }), can: () => false },
     "@/lib/variantDisplay": { formatVariantNumber: value => value },
     "@/components/ImageThumbnail": { default: () => null },
+    "@/components/CuttingRejectOrder": { default: () => null },
     "@/components/StagePipeline": { statusLabel: value => value },
     "@/lib/orderRef": { orderReference: (row, fallback) => row.production_no || fallback },
   };

@@ -1,6 +1,20 @@
 from enum import StrEnum
 
 
+class WorkOrderStatus(StrEnum):
+    NEW = "new"
+    PLANNING = "planning"
+    WAITING = "waiting"
+    PENDING = "pending"
+    READY = "ready"
+    COLLECTED = "collected"
+    IN_PROGRESS = "in_progress"
+    PAUSED = "paused"
+    COMPLETED = "completed"
+    REJECTED = "rejected"
+    CANCELLED = "cancelled"
+
+
 class SewingFactoryCode(StrEnum):
     MILANA = "MIL"
     BESTTEX = "BST"

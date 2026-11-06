@@ -416,13 +416,12 @@ def render_cutting_sheet_html(db: Session, record: CuttingRecord, bundle_ids: li
         for label in _ACCESSORY_ROWS
     )
     material_rows = []
-    for usage in record.materials:
-        details = usage.details
-        if details is None:
-            continue
-        stock = usage.stock_batch
+    from app.models.production.passport_material_allocation_service import material_sheet_entries
+    for entry in material_sheet_entries(record.materials):
+        details = entry["details"]
+        stock = entry["stock"]
         name = stock.item.name if stock and stock.item else ""
-        values = [name, _composition_text(stock.item.composition_json if stock and stock.item else None), stock.batch_no if stock else "", f"{_format_quantity(usage.quantity)} {usage.unit}",
+        values = [name, _composition_text(stock.item.composition_json if stock and stock.item else None), entry["lot_no"], f"{_format_quantity(entry['quantity'])} {entry['unit']}",
                   _format_quantity(details.get("layer_material_kg")), _format_quantity(details.get("beika_kg")),
                   _format_quantity(details.get("material_rolls_used")), details.get("layup_operator_name"),
                   _format_quantity(details.get("cut_pieces")),
