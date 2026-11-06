@@ -1,6 +1,7 @@
 """Employee creation and shared HR validation used by the existing update route."""
 
 import json
+from collections.abc import Callable
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from math import isfinite
 
@@ -14,7 +15,7 @@ from app.libs.dto.people.employee_profile import EmployeeProfileJson
 from app.models.audit_service import log_action
 from app.models.factory_scope_service import factory_for_department, selected_factory_code
 from app.schemas import Employee, User
-from app.schemas.people.employee_persistence import insert_employee
+from app.schemas.people.employee_persistence import insert_employee, update_employee_fields
 
 MAX_EMPLOYEE_SALARY = Decimal("9999999999.99")
 EMPLOYEE_SALARY_STEP = Decimal("0.0001")
@@ -235,3 +236,34 @@ def _validate_employee_references(
         ).first()
         if not position:
             raise HTTPException(404, "HR position not found in this factory")
+
+
+def update_employee(db: Session, current: User, eid: int, changes: dict, *, audit: Callable) -> Employee:
+    factory_code = selected_factory_code(current)
+    e = db.query(Employee).filter(Employee.id == eid, Employee.factory_code == factory_code).first()
+    if not e: raise HTTPException(404, "Employee not found")
+    changes = changes.copy()
+    _validate_employee_references(
+        db,
+        factory_code,
+        changes.get("user_id", e.user_id),
+        changes.get("department_id", e.department_id),
+        changes.get("manager_employee_id", e.manager_employee_id),
+        changes.get("hr_position_id", e.hr_position_id),
+        employee_id=e.id,
+    )
+    if "employee_no" in changes:
+        _ensure_employee_no_available(db, factory_code, changes["employee_no"], exclude_id=e.id)
+    if "salary" in changes:
+        changes["salary"] = _validated_employee_salary(changes["salary"])
+    if "hr_profile_json" in changes:
+        changes["hr_profile_json"] = _validate_hr_profile_json(changes["hr_profile_json"], existing_profile=e.hr_profile_json)
+    update_employee_fields(db, employee=e, changes=changes)
+    try:
+        audit(db, current, "update", "Employee", e.id, new_value=changes)
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(409, "Employee number already exists in this factory") from exc
+    db.refresh(e)
+    return e
