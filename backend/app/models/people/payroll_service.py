@@ -5,13 +5,12 @@ import json
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
 from fastapi import HTTPException
-from sqlalchemy import String, cast, func, or_
+from sqlalchemy import or_
 from app.core.dt import as_utc, utcnow
 from app.core.order_reference import (
     order_reference_variants,
 )
 from app.schemas import (
-    Department,
     Employee,
     Model,
     PayrollAdjustment,
@@ -37,6 +36,8 @@ from app.models.factory_scope_service import selected_factory_code
 from app.models.payroll_reports_service import ReportLanguage
 from app.models.employee_aliases_service import merged_employee
 from app.models.payroll_operation_service import is_control_operation as _is_control_operation
+from sqlalchemy import String, cast, func
+from app.schemas import Department
 from sqlalchemy import and_
 from sqlalchemy.orm import load_only
 from app.libs.dto.people.payroll import PayrollSummaryEmployeeOut, PayrollSummaryOperationOut
@@ -2297,3 +2298,24 @@ def list_payroll_employee_options(db: Session, current: User, search: str='', pa
         "search": normalized_search,
         "has_more": len(rows) > page_size,
     }
+
+
+def print_split_record_labels(record_id: int, db: Session, current: User):
+    from app.models.payroll_labels_service import split_label_card, split_labels_html
+
+    factory = selected_factory_code(current)
+    original = db.query(PayrollQrLabel).filter_by(payroll_record_id=record_id, factory_code=factory).first()
+    if not original:
+        raise HTTPException(404, "Issued payroll QR record not found")
+    labels = db.query(PayrollQrLabel).filter_by(split_from_label_id=original.id, factory_code=factory).order_by(PayrollQrLabel.id).all()
+    if not labels or any(label.status == "superseded" for label in labels):
+        raise HTTPException(409, "Split labels changed; reload the current allocations")
+    cards = []
+    for label in labels:
+        record = db.get(PayrollRecord, label.payroll_record_id) if label.payroll_record_id else None
+        employee = db.get(Employee, record.employee_id) if record else None
+        if not record or record.status != "recorded" or not employee or employee.factory_code != factory:
+            raise HTTPException(409, "Split allocations are no longer recorded")
+        token = _work_qr_token(label.id)
+        cards.append(split_label_card(label, employee, token))
+    return split_labels_html(cards)

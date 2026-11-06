@@ -2447,24 +2447,8 @@ def split_scanned_record(
 def print_split_record_labels(record_id: int, db: DbSession,
                               current: User = Depends(require_permissions("payroll.scan", "payroll.manage", "*"))):
     from fastapi.responses import HTMLResponse
-    from app.models.payroll_labels_service import split_label_card, split_labels_html
-
-    factory = selected_factory_code(current)
-    original = db.query(PayrollQrLabel).filter_by(payroll_record_id=record_id, factory_code=factory).first()
-    if not original:
-        raise HTTPException(404, "Issued payroll QR record not found")
-    labels = db.query(PayrollQrLabel).filter_by(split_from_label_id=original.id, factory_code=factory).order_by(PayrollQrLabel.id).all()
-    if not labels or any(label.status == "superseded" for label in labels):
-        raise HTTPException(409, "Split labels changed; reload the current allocations")
-    cards = []
-    for label in labels:
-        record = db.get(PayrollRecord, label.payroll_record_id) if label.payroll_record_id else None
-        employee = db.get(Employee, record.employee_id) if record else None
-        if not record or record.status != "recorded" or not employee or employee.factory_code != factory:
-            raise HTTPException(409, "Split allocations are no longer recorded")
-        token = _work_qr_token(label.id)
-        cards.append(split_label_card(label, employee, token))
-    return HTMLResponse(split_labels_html(cards), headers={"Cache-Control": "no-store"})
+    markup = payroll_service.print_split_record_labels(record_id, db, current)
+    return HTMLResponse(markup, headers={"Cache-Control": "no-store"})
 
 
 @router.post("/records/{record_id}/void", response_model=PayrollRecordOut)
