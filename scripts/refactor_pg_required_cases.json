@@ -236,6 +236,16 @@
         "test_pg_canonical_scope_accepted"
       ]
     },
+    "test_purchase_receipt_concurrency": {
+      "revision": "eb8584504008fb3b1e843e328b580cec57d9006c",
+      "git_blob_sha256": "70f943f8630f564ac8cf899a34b48df3e436d3d400812abaff3a9da1064af8dc",
+      "selected_functions": ["test_postgres_receipts_serialize_line_totals_and_closed_order_no_write"]
+    },
+    "test_purchase_receipt_idempotency": {
+      "revision": "e919a4dfffbe57f1d376fc9c6f6547d59990c38d",
+      "git_blob_sha256": "881f848dd704ee34f2f1005adb297e626f3d9836727e4efabda192560b669e1e",
+      "selected_functions": ["test_postgres_concurrent_receipts_serialize_before_replay", "test_postgres_receipt_audit_finalization_failure_rolls_back_then_replays"]
+    },
     "test_shipment_reopen_invoice_postgres": {
       "revision": "bb00ca3921404fe8482f774752ee0d05db45c180",
       "git_blob_sha256": "e03a4da9b9da696ede2f908fa9a5b1f6d95fdad17fd77c310167c2950cd24f97",
@@ -479,6 +489,15 @@
       "test_pg_bounded_concurrent_independent_and_duplicate_values[False]",
       "test_pg_canonical_scope_accepted[standard-standard]",
       "test_pg_canonical_scope_accepted[usluga-eco]"
+    ],
+    "test_purchase_receipt_concurrency": [
+      "test_postgres_receipts_serialize_line_totals_and_closed_order_no_write[False]",
+      "test_postgres_receipts_serialize_line_totals_and_closed_order_no_write[True]"
+    ],
+    "test_purchase_receipt_idempotency": [
+      "test_postgres_concurrent_receipts_serialize_before_replay[True]",
+      "test_postgres_concurrent_receipts_serialize_before_replay[False]",
+      "test_postgres_receipt_audit_finalization_failure_rolls_back_then_replays"
     ],
     "test_shipment_reopen_invoice_postgres": [
       "test_pg_shipment_reopen_finance_participant_same_session_and_no_early_commit",

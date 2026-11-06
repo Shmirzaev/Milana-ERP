@@ -58,6 +58,8 @@ GROUPS = {
         "test_pg_shipment_reopen_audit_failure_rolls_back_and_retry_commits_all",
         "test_pg_invoice_payment_and_shipment_reopen_serialize_on_invoice_row",
     )),
+    "test_purchase_receipt_concurrency": (2, ("test_postgres_receipts_serialize_line_totals_and_closed_order_no_write",)),
+    "test_purchase_receipt_idempotency": (3, ("test_postgres_concurrent_receipts_serialize_before_replay", "test_postgres_receipt_audit_finalization_failure_rolls_back_then_replays")),
     "test_modelsize_create_postgres": (2, ("test_pg_create_atomic_audit_and_failure_retry", "test_pg_concurrent_duplicate_creates")),
     "test_modelcolor_create_postgres": (27, ()),
 }
