@@ -14,14 +14,18 @@ from sqlalchemy.orm import load_only
 from app.libs.dto.inventory.warehouse_stocktake_input import (
     CreateCount, DeleteCounts, DeleteScans, ScanCount,
 )
+from app.libs.enums.packaging import PackageStatus
+from app.libs.enums.stocktake import StocktakeCategory, StocktakeFilter, StocktakeResult
+from app.libs.types.stocktake import StocktakeSnapshot
 from app.models.audit_service import log_action
 from app.schemas import FinishedGoodsStock, Model, Package, PackageItem, User
 from app.schemas.inventory.stocktake import (
-    WarehouseStocktake, WarehouseStocktakeRow, delete_stocktake, freeze_stocktake_completion,
+    WarehouseStocktake, WarehouseStocktakeRow, add_expected_stocktake_row, add_stocktake,
+    delete_stocktake, freeze_stocktake_completion,
 )
 from app.models.package_identity_service import resolve_warehouse_package
 
-STORAGE_STATUSES = ("received_in_storage", "reserved", "damaged")
+STORAGE_STATUSES: tuple[PackageStatus, ...] = (PackageStatus.RECEIVED, PackageStatus.RESERVED, PackageStatus.DAMAGED)
 
 # Detail and export read a count's evidence and the live package state that evidence is
 # compared against. At READ COMMITTED a scan committed between those two statements is
@@ -32,7 +36,7 @@ DETAIL_ISOLATION = "REPEATABLE READ"
 EXPORT_BATCH_SIZE = 500
 
 
-def package_snapshots(db, package_ids=None, *, expected_only=False, include_items=False):
+def package_snapshots(db, package_ids=None, *, expected_only=False, include_items=False) -> dict[int, StocktakeSnapshot]:
     balance = (
         db.query(
             FinishedGoodsStock.package_id.label("package_id"),
@@ -56,7 +60,7 @@ def package_snapshots(db, package_ids=None, *, expected_only=False, include_item
         query = query.filter(Package.id.in_(package_ids))
     rows = query.all()
     dispatched = {p.id: p.dispatched_quantities or {} for p, *_ in rows}
-    snapshots = {
+    snapshots: dict[int, StocktakeSnapshot] = {
         p.id: {
             "package_no": p.package_no,
             "barcode": p.barcode,
@@ -134,7 +138,7 @@ def scan_summary(rows):
 def row_payload(row, current):
     now = current.get(row.package_id, {}) if row.package_id else None
     changed = row.package_id is not None and now != row.snapshot
-    result = ("found" if row.scanned_at else "missing") if row.expected else row.category
+    result = (StocktakeResult.FOUND.value if row.scanned_at else StocktakeResult.MISSING.value) if row.expected else row.category
     return {
         **scan_fields(row),
         "id": row.id,
@@ -307,7 +311,7 @@ def _scan_totals(seen_scans, scanned_rows):
     return totals
 
 
-def detail_rows(db, count, *, result="all", q="", offset=0, limit=100):
+def detail_rows(db, count, *, result: StocktakeFilter = StocktakeFilter.ALL, q="", offset=0, limit=100):
     """One bounded page of a count's rows plus the exact whole-count summary.
 
     The summary always describes the whole count, not the filtered page, so it is
@@ -344,7 +348,7 @@ def detail_rows(db, count, *, result="all", q="", offset=0, limit=100):
     # The page is a separate walk in the caller's order, so `changed`/search filtering
     # still happens before the offset/limit window, as it did when the whole count was
     # filtered and sorted in memory first.
-    for batch in iter_result_batches(db, count, newest_scanned_first=result == "scanned"):
+    for batch in iter_result_batches(db, count, newest_scanned_first=result == StocktakeFilter.SCANNED):
         for row in batch:
             if not _row_selected(row, result, needle):
                 continue
@@ -356,13 +360,13 @@ def detail_rows(db, count, *, result="all", q="", offset=0, limit=100):
     return {"summary": summary, "total": matched, "rows": page}
 
 
-def _row_selected(row, result, needle):
-    if result == "all":
+def _row_selected(row, result: StocktakeFilter, needle):
+    if result == StocktakeFilter.ALL:
         pass
-    elif result == "scanned":
+    elif result == StocktakeFilter.SCANNED:
         if row["scanned_at"] is None:
             return False
-    elif result == "changed":
+    elif result == StocktakeFilter.CHANGED:
         if not row["changed"]:
             return False
     elif row["result"] != result:
@@ -395,8 +399,7 @@ def create_count(db, body: CreateCount, current: User) -> dict:
     existing = db.query(WarehouseStocktake).filter_by(request_key=key).first()
     if existing:
         return count_info(existing)
-    count = WarehouseStocktake(request_key=key, title=title, created_by=current.id)
-    db.add(count)
+    count = add_stocktake(db, request_key=key, title=title, created_by=current.id)
     try:
         db.flush()
     except IntegrityError:
@@ -406,16 +409,7 @@ def create_count(db, body: CreateCount, current: User) -> dict:
             return count_info(existing)
         raise
     for pid, snapshot in package_snapshots(db, expected_only=True).items():
-        db.add(
-            WarehouseStocktakeRow(
-                stocktake_id=count.id,
-                identity=f"package:{pid}",
-                package_id=pid,
-                expected=True,
-                category="expected",
-                snapshot=snapshot,
-            )
-        )
+        add_expected_stocktake_row(db, stocktake_id=count.id, package_id=pid, snapshot=snapshot)
     log_action(db, current, "start", "WarehouseStocktake", count.id, new_value={"title": title})
     db.commit()
     return count_info(count)
@@ -440,7 +434,7 @@ def delete_counts(db, body: DeleteCounts, current: User) -> dict:
     return {"deleted": ids}
 
 
-def count_detail(db, count_id: int, *, result="all", q="", offset=0, limit=100) -> dict:
+def count_detail(db, count_id: int, *, result: StocktakeFilter = StocktakeFilter.ALL, q="", offset=0, limit=100) -> dict:
     count = get_count(db, count_id)
     with consistent_read_snapshot(db):
         # The header is read inside the snapshot too: after it closes the session rolls
@@ -471,7 +465,7 @@ def scan_count(db, count_id: int, body: ScanCount, current: User) -> dict:
             identity=identity,
             package_id=pid,
             expected=False,
-            category="ambiguous" if ambiguous else "unexpected" if pid else "unknown",
+            category=(StocktakeCategory.AMBIGUOUS.value if ambiguous else StocktakeCategory.UNEXPECTED.value if pid else StocktakeCategory.UNKNOWN.value),
             snapshot=snapshot,
         )
         db.add(row)

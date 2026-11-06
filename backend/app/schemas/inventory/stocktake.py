@@ -4,6 +4,8 @@ from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, Uni
 from sqlalchemy.orm import Mapped, Query, Session, mapped_column
 
 from app.db.base import Base, PkMixin, TimestampMixin
+from app.libs.enums.stocktake import StocktakeCategory
+from app.libs.types.stocktake import StocktakeSnapshot
 
 
 class WarehouseStocktake(Base, PkMixin, TimestampMixin):
@@ -32,6 +34,21 @@ class WarehouseStocktakeRow(Base, PkMixin):
     scan_code: Mapped[str | None] = mapped_column(String(512))
     scanned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     scanned_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+
+
+def add_stocktake(db: Session, *, request_key: str, title: str, created_by: int) -> WarehouseStocktake:
+    """Add the count to the caller's session; the service controls flushing."""
+    count = WarehouseStocktake(request_key=request_key, title=title, created_by=created_by)
+    db.add(count)
+    return count
+
+
+def add_expected_stocktake_row(db: Session, *, stocktake_id: int, package_id: int, snapshot: StocktakeSnapshot) -> None:
+    """Record one count-start snapshot in the caller's session."""
+    db.add(WarehouseStocktakeRow(
+        stocktake_id=stocktake_id, identity=f"package:{package_id}",
+        package_id=package_id, expected=True, category=StocktakeCategory.EXPECTED.value, snapshot=snapshot,
+    ))
 
 
 def delete_stocktake(db: Session, count: WarehouseStocktake, rows: Query) -> None:

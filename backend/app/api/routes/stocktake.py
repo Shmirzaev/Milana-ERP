@@ -1,5 +1,3 @@
-from typing import Literal
-
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import Response
 
@@ -7,6 +5,7 @@ from app.core.deps import DbSession, require_permissions
 from app.libs.dto.inventory.warehouse_stocktake_input import (
     CreateCount, DeleteCounts, DeleteScans, ScanCount,
 )
+from app.libs.enums.stocktake import StocktakeFilter
 from app.models import stocktake_service
 from app.schemas import User
 
@@ -34,7 +33,7 @@ def detail(
     count_id: int,
     db: DbSession,
     _: User = Depends(access),
-    result: Literal["all", "scanned", "found", "missing", "unknown", "unexpected", "ambiguous", "changed"] = "all",
+    result: StocktakeFilter = StocktakeFilter.ALL,
     q: str = Query("", max_length=120),
     offset: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=200),
