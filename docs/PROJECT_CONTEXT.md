@@ -55,6 +55,27 @@ disk headroom remains a maintenance follow-up. See the
 images, backups, limitations, exceptions and closing evidence. This deployment
 does not complete system-wide refactoring, enum adoption or factory acceptance.
 
+## ECT and warehouse workflow candidate (7 November)
+
+Dedicated candidate `codex/ect-warehouse-workflows-20261107`, runtime source
+`49af995a1`, starts at user-approved verified `origin/clone_main` / `b21b51e6c`.
+It adds table ECT receiving, older compatible-fabric lookup, passport order opening,
+manual Sewing line choice, Top/Bottom Excel, selected multi-Nastil packaging,
+read-only shipment reporting and the shared warehouse stock/map workspace.
+No migration or permission was added. Production remains `20261107_043754`;
+no production writes, merge or deployment occurred for this task.
+
+Feature backend/PostgreSQL, optimized frontend, strict TypeScript, lint, isolated
+browser saves/readbacks and independent AI reviews passed. Broad-suite results and
+publication/email evidence are recorded in the [task packet](ECT_WAREHOUSE_WORKFLOWS_20261107.md).
+The branch is pushed and all 12 screenshots were emailed. Final feature PG: 25 pass;
+frozen broad suite has 6,622 pass, four baseline Windows failures, five readiness
+configuration errors and 1,538 skips. Requested workflows are
+AI_VERIFIED_AWAITING_HUMAN; the broad suite is not fully green.
+Operator acceptance remains pending. Unlinked direct ECO receipts still do not
+become central cutting stock sources. A pre-existing cancelled-Printing usable-input
+cap inconsistency remains separate; no general production audit closure is claimed.
+
 ## Dilmurod source classification (7 November)
 
 Behavior-preserving Identity #546, People #545, Support #547 and Work #544 code

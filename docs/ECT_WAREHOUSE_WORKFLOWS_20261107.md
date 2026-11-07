@@ -1,8 +1,9 @@
 # ECT receiving, production handoffs and warehouse improvements
 
-State: CODE_TESTED; affected browser workflows verified. Broad-suite comparison
-and final publication evidence are being closed. Requested 7 November 2026;
-human acceptance and deployment are not authorized/completed by these checks.
+State: AI_VERIFIED_AWAITING_HUMAN for the requested workflows. The broad suite is
+not fully green: baseline Windows failures and unconfigured readiness cases remain
+listed below. Requested 7 November 2026; human acceptance and deployment are not
+authorized/completed by these checks.
 
 User approved `origin/clone_main` after the required baseline stop. Both production
 hosts were read-only verified on `20261107_043754`, manifest
@@ -91,8 +92,9 @@ receipt operation and the caller's transaction; reports/projections perform no w
 
 Integrated worker source: receipt 67e88e0e6/e463f0104, sewing
 5df36ac8e/92ede3b44/7c00c955d, packaging b22a93475/3f3b83f75.
-Root cherry-picks end at 58eec7d90; final root implementation commit is recorded in
-the closing section. Independent review record is ROOT_WAREHOUSE_REVIEW_20261107.md.
+Root implementation is 714891c7c; final runtime source is 49af995a1, including the
+catalog namespace correction and concurrency-safe Sewing follow-ups. Independent
+review record is ROOT_WAREHOUSE_REVIEW_20261107.md.
 Root reviewed worker API/service/schema/DTO and UI boundaries. Separate workers
 reviewed root report/map, the Printing-loss correction, final receipt integration
 and the sibling-source projection. Final map summary blob reviewed independently:
@@ -148,10 +150,9 @@ optimized build are recorded separately. No production-browser success is claime
 
 ## Remaining limits and acceptance
 
-The broad pinned backend suite is being recorded separately; a Windows symlink
-attendance failure already reproduces on unchanged b21b51e6c. Feature PostgreSQL
-checks use the owned disposable local server, not production. Broad PG skips are
-not passes. A pre-existing cancelled-Printing inconsistency remains: completion
+The broad pinned backend suite is not green; exact closing results follow below.
+Feature PostgreSQL checks use the owned disposable local server, not production.
+Broad PG skips are not passes. A pre-existing cancelled-Printing inconsistency remains: completion
 excludes cancelled Printing but existing output context can still cap usable input
 at100 versus128. It reproduces before this correction and is outside this task's
 production.py scope. No cancellation fix or system-wide audit closure is claimed.
@@ -165,5 +166,67 @@ Excel. Shavkat/operator acceptance must be recorded before deployment readiness.
 
 Production remains 20261107_043754. No production writes, migration, merge or
 deployment occurred for this task. Local synthetic fixtures, images and private
-credentials are isolated/ignored. Local service cleanup and screenshot email are
-recorded in the closing section when complete.
+credentials are isolated/ignored.
+
+## Closing record (7 November)
+
+Final frozen runtime: **49af995a1d4d7e956924ed82f99517261218af1e**. Its frontend
+tree exactly equals the optimized-build/browser candidate 714891c7c. The final
+backend follow-ups change retry namespace and fresh Printing reads, with unchanged
+UI/response contracts. Root independently reviewed those changes and their tests.
+
+- Final real PostgreSQL integration: **25 passed**, 30.84 s, covering ECT bulk
+  receipt, multi-Nastil packages and Sewing receipt, including actual lock waits.
+- Frozen complete backend collection: **8,169 cases / 746 files**, split by file
+  across six separate Python processes with independent SQLite databases and
+  shared-counter files. Exact source stayed fixed throughout. Aggregate:
+  **6,622 passed, 1,538 skipped, 4 failed, 5 errors**, plus 36 passing subtests.
+  Logs: final-full-backend-frozen.log and final-backend-shard-0.log through -5.log.
+  This is an explicitly failing broad gate, not an all-tests-pass claim.
+- All four failures reproduce on unchanged b21b51e6c: Windows symlink privilege,
+  Unix file-mode expectation, unsupported pass_fds and SQLite file rename while
+  Windows retains a handle. The last requires the whole shared-store test module
+  to reproduce: baseline **34 passed / 1 failed**, 22.99 s. The other three are
+  recorded in baseline-failures-comparison.log. Five readiness errors in both
+  candidates require MILANA_TEST_PG_INSTANCE; these are configuration-blocked and
+  do not substitute for the separate successful feature PostgreSQL checks.
+- An earlier exploratory long run overlapped later source additions. Its label
+  source-inspection failure does not reproduce with frozen source. Final package
+  label and SQLite single-test rerun: **3 passed**, 8.00 s. That initial sweep is
+  retained as diagnostic evidence, not final-source certification.
+- That sweep exposed six stale performance-test dependency seams after receipt
+  extraction plus one permission-catalog namespace collision. Scope changed from
+  eco_inventory.receive_bulk to eco_inventory:receive-bulk without granting a new
+  permission; catalog/receipt regressions **31 passed** after a reproduced red.
+  The audit double now patches the service owner and asserts every audit call;
+  real PostgreSQL checks also validate persisted audit counts and hash chains.
+- Root rejected the intermediate joined Printing aggregate after a meaningful
+  real-PG legacy publication race assigned 128 instead of 100. Final reads Printing
+  with a fresh statement after bundle-lock waits. Modern FK publication control
+  and legacy coalesced publication both assign 100 from 128 with 28 rejects.
+  Constant SQLite query budgets at 1/50/401 bundles are 20 unassigned manual,
+  30 QR and 25 chosen-line manual; the extra correctness read is deliberate.
+  Real-audit PostgreSQL counts are23/32/27 at all three sizes. Worker final scope:
+  **76 SQLite / 17 PostgreSQL passed**. No audit or quantity guard was removed.
+- Final Ruff and whitespace checks pass. Optimized frontend/strict TypeScript
+  and ESLint (zero errors / 14 warnings) remain valid: no frontend source changed
+  after that build. Fresh origin/clone_main still equals b21b51e6c.
+
+Dedicated branch **codex/ect-warehouse-workflows-20261107** was pushed through
+49af995a1. Final documentation is committed separately. No merge or deployment.
+Runtime rollback is a source revert before any release; no production data rollback
+is needed because this task changed no production business data.
+
+The Gmail connector confirmed SENT to the authenticated user's own account with
+**all 12 screenshot attachments**, subject “Milana ERP — screenshots of ECT and
+warehouse changes — 7 November”. The message identifies synthetic data, source,
+test limits and absence of deployment. No production/credential screenshot is used.
+
+Owned API on port 18107 and frontend on port 3107 stopped. Packaging's disposable
+PostgreSQL on port 15567 was automatically removed on stop. The retained Sewing
+PostgreSQL container on port 15568 is
+stopped; its owned volume remains. Final checks find no listener on those four
+owned QA ports. Source, logs, screenshots and local SQLite readback fixtures remain
+retained; private credentials and fixtures remain ignored. No unrelated service or
+legacy checkout change was discarded. Human checklist and cancelled-Printing risk
+above remain open.
