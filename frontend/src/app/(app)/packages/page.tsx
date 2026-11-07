@@ -1,4 +1,6 @@
 "use client";
+import SewingFactoryFilter from "@/components/SewingFactoryFilter";
+import { packageIdentityText, sewingFactoryLabel } from "@/lib/packageIdentity";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Fragment, useMemo, useState, type FormEvent } from "react";
@@ -35,6 +37,8 @@ type EditForm = {
 
 export default function PackagesPage() {
   const { lang, t } = useT();
+  const identityText = packageIdentityText[lang];
+  const [sewingFactory, setSewingFactory] = useState("");
   const searchParams = useSearchParams();
   const { me } = useMe();
   const requestedDepartment = searchParams.get("packaging_department");
@@ -50,7 +54,7 @@ export default function PackagesPage() {
   const canTraceability = can(me, "traceability.view");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
-  const listPager = useLoadMore<any>(`/api/packages?include_total=true&page=${page}&page_size=${pageSize}${returnedOnly ? "&status=returned_to_packaging" : ""}&packaging_department_code=${packagingDepartment}`, fetcher);
+  const listPager = useLoadMore<any>(`/api/packages?include_total=true&page=${page}&page_size=${pageSize}${returnedOnly ? "&status=returned_to_packaging" : ""}&packaging_department_code=${packagingDepartment}${sewingFactory ? `&sewing_factory_code=${sewingFactory}` : ""}`, fetcher);
   const { data: pageData, mutate } = listPager;
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
   const pendingRequestsKey = Object.values(expandedGroups).some(Boolean)
@@ -321,6 +325,7 @@ export default function PackagesPage() {
       <PendingPackageWorkflow path="/api/packages/resend-corrected" onResolved={refreshPackages} />
       {message && <div className="mb-3 rounded border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">{message}</div>}
       {error && <div className="mb-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
+      <div className="mb-4 max-w-xs"><SewingFactoryFilter value={sewingFactory} onChange={value => { setSewingFactory(value); setPage(1); }} /></div>
       <div className="card overflow-x-auto">
         <table className="table">
           <thead>
@@ -329,6 +334,7 @@ export default function PackagesPage() {
               <th>{t("field.order")}</th>
               <th>{t("field.barcode")}</th>
               <th>{t("field.model")}</th>
+              <th>{identityText.factory}</th>
               <th>{t("field.color")}</th>
               <th>{t("field.totalQty")}</th>
               <th>{t("field.cell")}</th>
@@ -367,6 +373,7 @@ export default function PackagesPage() {
                     </td>
                     <td><code>{g.packages.length}</code></td>
                     <td>{sameModel ? first.model_code || first.manual_source?.evidence?.model_code || "-" : "-"}</td>
+                    <td>{Array.from(new Set(g.packages.map((p: any) => sewingFactoryLabel(p, identityText.unknown)))).join("; ")}</td>
                     <td>{sameColor ? first.color : "-"}</td>
                     <td>{g.total_quantity}</td>
                     <td>{sameCell ? (first.storage_cell || "-") : "-"}</td>
@@ -413,6 +420,7 @@ export default function PackagesPage() {
                         </td>
                         <td><code>{p.barcode}</code></td>
                         <td>{p.model_code || p.manual_source?.evidence?.model_code || "-"}</td>
+                        <td>{sewingFactoryLabel(p, identityText.unknown)}</td>
                         <td>{p.color}</td>
                         <td>{p.total_quantity}</td>
                         <td>{p.storage_cell || "-"}</td>
@@ -454,7 +462,7 @@ export default function PackagesPage() {
             })}
             {groups.length === 0 && (
               <tr>
-                <td colSpan={10} className="text-sm text-slate-400">
+                <td colSpan={11} className="text-sm text-slate-400">
                   {data ? t("page.packages.empty") : t("common.loading")}
                 </td>
               </tr>

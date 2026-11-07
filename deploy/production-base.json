@@ -1,6 +1,7 @@
 {
-  "release": "20261103_094602",
-  "source_manifest_sha256": "ee765f999e782193878390897873c7b5865749460d4d776cf321fcd28490f8a9",
-  "database_revision": "0150_package_customer_release",
-  "git_baseline_commit": "11f80a2995daeeb90b5c01318aec9e9c6a40f1c9"
+  "release": "20261105_065721",
+  "source_manifest_sha256": "e6c603d4c1954c64a75962cf189427eb5e316c039ea23de4699b9bd4f3112095",
+  "database_revision": "0154_eco_receipt_details",
+  "git_baseline_commit": "488f3d654b0669a9878b8efd3d34298994e9dc45",
+  "confirmation_status": "to be confirmed by Shavkat against both production manifests"
 }

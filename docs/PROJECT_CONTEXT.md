@@ -15,6 +15,15 @@ Last updated 2026-11-07. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
+## Production-source reconciliation candidate (7 November)
+
+This draft merges the 5 November `20261105_065721` source `488f3d65` into
+`clone_main`, retaining the later integration changes. The base manifest in
+`deploy/production-base.json` is to be confirmed by Shavkat against both live
+application hosts. The ECO merge revision precedes the gate migrations, which
+are tested from `0154_eco_receipt_details` on isolated PostgreSQL. No release,
+production migration or deployment is claimed.
+
 ## Dilmurod source classification (7 November)
 
 Behavior-preserving Identity #546, People #545, Support #547 and Work #544 code
@@ -45,6 +54,47 @@ then merge and closure of included lower PRs. User owns one final browser check;
 the payroll QA servers/data/caches were removed after the user declared payroll done. Automated evidence and the complete
 operation/type retention ledger live in [the payroll record](archive/payroll-create-2026-11-06/CONTINUATION.md).
 No production deployment, visual acceptance or system-wide enum completion is claimed.
+
+## ECO runtime and narrow feature candidate recorded 4 November
+
+Both production hosts were reverified on blue `20261104_080711`, runtime
+`984aeffb22aedd3262d7cd61e2d88a905b589e8d`, manifest
+`0221829adfc216391679b744ae512b6c4d96913bb0316c31dfe12fb9a1641be7`.
+Live database readback is `0154_eco_receipt_details`; compatible retained rollback
+is green `20261104_093330` / `bd7d572282b50886e9d03a650bcf886ca9109175`.
+
+The owner approved reconciling the deployed ECO application into clone_main while
+preserving existing integration work, and preparing Planning cutting-factory
+reassignment, floor print pictures and a BST master handoff. This narrow runtime
+candidate starts from exact deployed984 source and ports only those small changes.
+No migration file or dependency version changes; it retains0154. Undeployed
+turnstile and other clone_main changes remain preserved in the separate source
+integration candidate, not included implicitly in this release. A future combined
+migration graph needs separate approval. See [candidate evidence](PLANNING_FLOORS_RELEASE_20261104.md).
+
+No production mutation, cutover or timed observation occurred. Connected-browser
+verification is BLOCKED after the policy helper could not reliably establish the
+current URL. BST execution also awaits confirmation whether stored employee620,
+Yo'ldasheva Dilfuzaxon, is the requested Yoldashova Dilfuza. Payroll rows remain
+untouched; existing historical reports would regroup under current managers.
+Historical performance exceptions apply only to the old release, not this candidate.
+
+## Historical ECO inventory deployment preparation (4 November)
+
+The owner authorized PR375 deployment and explicitly waived the30-minute timed
+monitoring window. The [narrow release record](archive/ECO_INVENTORY_RELEASE_2026-11-04.md)
+starts from freshly verified live11f80a29/blue20261103_094602 and preserves its
+customer-pack/FG fixes. Only reviewed ECO inventory/transfers/approval and package
+origin changes are included; unrelated clone_main runtime work remains excluded.
+The bounded sewing follow-up resolves the assigned line's factory and actual
+batch before the approval gate, including shared-work ECO assignments in order
+ownership. Approval and physical issue remain separate; no migration or role
+grant is added by that correction.
+The follow-up also recognizes a persisted direct sewing line when no active
+split assignment exists. Historical factory aliases use the existing shared
+mapping in both gate selection and SQL ownership; unknown values refuse safely.
+A restart-safe compatibility rollback is required before additive ECO migrations.
+No deployment, migration or production business-data changes have occurred yet.
 
 ## Current refactor: Finance shipment invoice reversal (4 November)
 

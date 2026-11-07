@@ -21,6 +21,19 @@ const compiled = ts.transpileModule(source, {
   },
 }).outputText;
 
+function loadTsModule(path, dependencies = {}) {
+  const loaded = { exports: {} };
+  const code = ts.transpileModule(fs.readFileSync(new URL(path, import.meta.url), "utf8"), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.ReactJSX },
+  }).outputText;
+  new Function("require", "exports", "module", code)((name) => {
+    assert.ok(name in dependencies, `Unexpected dependency ${name}`);
+    return dependencies[name];
+  }, loaded.exports, loaded);
+  return loaded.exports;
+}
+const packageIdentity = loadTsModule("../src/lib/packageIdentity.ts");
+
 const packagePage = {
   rows: [{
     id: 71,
@@ -33,6 +46,7 @@ const packagePage = {
     customer_name: "Client Four",
     order_type: "client_order",
     model_id: 12,
+    sewing_factory_codes: ["ECO"],
     color: "Navy",
     total_quantity: 30,
     storage_cell: "A-01",
@@ -83,6 +97,7 @@ function createHarness({ denied = false } = {}) {
     "@/components/PendingPackageWorkflow": { default: "pending-workflow" },
     "@/lib/packageReturnText": { packageReturnText: { en: {} } },
     "@/lib/packageWorkflow": { packageWorkflowCopy: { en: {} }, postPackageWorkflow: async () => ({}) },
+    "@/lib/packageIdentity": packageIdentity,
     "@/lib/auth": { can: () => true, useMe: () => ({ me: { id: 1, permissions: ["management.approve"] } }) },
     "@/components/ConfirmDialog": { default: "confirm-dialog" },
     "@/components/Modal": { default: "modal" },
@@ -92,6 +107,7 @@ function createHarness({ denied = false } = {}) {
     "@/lib/i18n": { useT: () => ({ lang: "en", t: (key) => key }) },
     "@/lib/orderRef": { orderReference: (row) => row.sales_order_no || row.production_no || "-" },
   };
+  dependencies["@/components/SewingFactoryFilter"] = loadTsModule("../src/components/SewingFactoryFilter.tsx", dependencies);
   const loadedModule = { exports: {} };
   new Function("require", "exports", "module", compiled)((name) => {
     assert.ok((name === "@/lib/useLoadMore" || name in dependencies), `Unexpected dependency ${name}`);
@@ -143,6 +159,18 @@ let activeTree = active.render();
 assert.equal(active.requests.filter((key) => key?.startsWith(pendingPrefix)).length, 0);
 assert.match(textContent(activeTree), /PKG-71/);
 assert.doesNotMatch(textContent(activeTree), /page\.packages\.pendingEdit/);
+assert.match(textContent(activeTree), /Eco Cotton/);
+const factoryFilter = find(activeTree, node => typeof node.type === "function");
+assert.ok(factoryFilter, "the real sewing-factory selector must render");
+const renderedFilter = factoryFilter.type(factoryFilter.props);
+const factorySelect = find(renderedFilter, node => node.type === "select");
+assert.ok(factorySelect);
+factorySelect.props.onChange({ target: { value: "ECO" } });
+activeTree = active.render();
+const filteredListKey = active.requests.filter(key => key?.startsWith("/api/packages?")).at(-1);
+assert.equal(new URL(filteredListKey, "https://erp.example").searchParams.get("sewing_factory_code"), "ECO");
+assert.equal(new URL(filteredListKey, "https://erp.example").searchParams.get("packaging_department_code"), "PKG");
+assert.equal(active.requests.filter(key => key?.startsWith(pendingPrefix)).length, 0, "changing sewing origin must not fetch collapsed pending changes");
 
 const openButton = find(activeTree, (node) => node.type === "button" && textContent(node) === "btn.open");
 assert.ok(openButton, "the real package group open control must render");
