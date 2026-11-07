@@ -17,20 +17,43 @@ not appended here. This summary does not replace live release verification.
 
 ## Production and clone_main reconciliation (7 November)
 
-The user authorized merging the verified November 6 production fixes into
-`clone_main` and deploying the combined candidate after all checks pass. The
-[reconciliation record](archive/PRODUCTION_CLONE_RECONCILIATION_2026-11-07.md)
-tracks the exact source parents, preserved release state, migration/recovery
-requirements and independent verification. The dedicated candidate joins the
-ECO and turnstile histories without rewriting existing migrations; source
-integration is not deployment evidence. DEPLOYMENT.md now specifies early failure
-checks, independent parallel work, exact scanned-image promotion and advance disk
-maintenance; backend test sharding remains a CI tooling follow-up. Production
-remains green `20261106_061725` until a separately verified cutover succeeds.
-The owner recorded a passed local application QA review on7November; full release
-gates remain required. The initial compatibility image failed security checks;
-its narrow dependency/base-image update must pass fresh immutable-image checks
-before any production migration or cutover.
+Both hosts serve green `20261107_043754`, application
+`3c6ccc82a8521d74ce274151024ccd5bc1942fde`, manifest
+`43b30accbabc4674a395eaa46eecd2c7f554a2513adc33dc859131355526bddd`,
+on schema `0155_eco_gate_merge`. Backend activated at 07:04:59 UTC and frontend
+at 07:05:35 UTC. Running compatible recovery is blue `20261107_043753` /
+`493fd5906809f23bd571949d63b192629e901b84`; older a857 is superseded.
+
+Reviewed source was normally fast-forwarded into `clone_main` at `d157b652e`;
+its complete backend/frontend trees equal immutable application 3c. Final backend
+CI passed 6,578 tests; required PostgreSQL, frontend, published-image provenance,
+security policy, strict two-worker startup/recovery, owner application review,
+staged performance, public functional parity and signed Edge checks passed.
+Fresh validated backups preceded migration/staging. No production business QA
+rows or business backfill were created. Fresh final read-only closing passed all
+four supported health checks, internal readiness, source/image/worker/router,
+database/index and disabled/empty gate recovery checks. Owned deployment leases
+were released; owned local QA services stopped with their data retained.
+
+Public model-picker p95 **failed** twice (+25.99%, +27.21%, limit +15%). The owner
+explicitly selected **Keep merged release; approve this performance exception**.
+All other original metrics and ordered facts passed; failed reports and budgets
+remain unchanged. A separate current diagnostic measured an extra DNS/TCP
+connection delay while the application took 36.5 ms; DNS versus TCP and the earlier
+samples' cause remain unproved. No latency fix or general performance waiver is
+claimed. The owner separately said **do not monitor it for 30 minutes**: no timed
+observer or start anchor ran, and observation is not recorded as completed.
+
+The closing checker initially expected unsupported public `/ready` (actual 404);
+public `/health` reported 200 with the correct release. Its narrow correction
+kept internal `/ready` on both backend slots/stable port and all four required
+postflight endpoints, without changing application or routing configuration.
+Unfixed image findings remain: active backend: 53 HIGH / 0 CRITICAL; retained recovery
+54 HIGH and one CRITICAL python-jose finding with no published fix. Both hosts'
+disk headroom remains a maintenance follow-up. See the
+[release record](archive/PRODUCTION_CLONE_RECONCILIATION_2026-11-07.md) for exact
+images, backups, limitations, exceptions and closing evidence. This deployment
+does not complete system-wide refactoring, enum adoption or factory acceptance.
 
 ## Dilmurod source classification (7 November)
 
@@ -63,13 +86,14 @@ the payroll QA servers/data/caches were removed after the user declared payroll 
 operation/type retention ledger live in [the payroll record](archive/payroll-create-2026-11-06/CONTINUATION.md).
 No production deployment, visual acceptance or system-wide enum completion is claimed.
 
-## Passport totals, pictures and transferred ECT fabric (6 November)
+## Historical passport, pictures and ECT release (6 November; superseded)
 
-**Deployed together with the seven 5 November fixes.** Both hosts now serve
+**Historical 6 November release, superseded by the current runtime above.**
+At that release completion, both hosts served
 green `20261106_061725`, exact application
 `a8579e64efbb2f9545d6df1c35d527c1d4ae2f01`, manifest
 `7f52cf7bf61e6fa4159d65e590d9cefaa6a493992e8b80197343490e5ee09fb0`.
-Database remains `0154_eco_receipt_details`; no business backfill or production
+Database then used `0154_eco_receipt_details`; no business backfill or production
 test rows were created. The historical saved rows now report automatically:
 PO-0749 and PO-0750 each show 1,200 pieces, totaling 2,400. Actual public Edge
 screenshots and signed immutable API checks agree. Export pictures and the
@@ -84,7 +108,7 @@ Fresh 113,383,511-byte PostgreSQL backup validated 1,329 restore objects.
 User explicitly waived timed observation; none was run. Owned deployment leases
 were released, and owned local QA services were stopped without deleting data.
 
-Compatible **read-only** rollback is retained on blue `20261106_054000` /
+The historical **read-only** rollback at that checkpoint was blue `20261106_054000` /
 `bf9cb9f0e738e82b9a21909b22e4cdecae7bed37`. Plain writable 488 is unsafe after
 new grouped/Eco/rejection facts. Recovery uses read-only PostgreSQL and business
 storage, with a separate private writable SQLite security counter store; login

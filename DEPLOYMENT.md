@@ -101,6 +101,14 @@ Use this order for every release:
    PostgreSQL migration/concurrency/query-budget checks before the long full
    regression suite. Keep every required suite; an early pass does not replace it.
    Preserve failure evidence and fix the cause before starting another full run.
+   Validate the real read-only QA selections against the actual mapped schema and
+   both API contracts early. A Python property such as ProductionOrder.order_no
+   is not automatically a SQL column. Use owned fixtures and bounded read-only
+   query/response checks; do not seed production data to make a selection pass.
+   Freeze complete ordered business projections and per-path hashes before timing,
+   rather than accepting equal row counts/bytes as proof of equal facts. If live
+   business activity invalidates a mutable benchmark epoch, preserve the failed
+   reports and protected functional baseline; review a fresh paired epoch explicitly.
 3. **Overlap independent checks.** Backend and frontend validation may run at the
    same time on isolated runners. PostgreSQL jobs need their own databases and
    fixture state. Do not run concurrent writers against a shared test database.
@@ -400,6 +408,11 @@ ln -sfn /opt/milana-erp/releases/<release_id> /opt/milana-erp/current
 
 ## Required postflight
 
+Check `/ready` on the backend slots and stable backend port. The public frontend
+forwards `/health`; use the four supported public/internal endpoints below in the
+final checker. Validate these routing/response contracts during staging so an
+observer assumption does not delay closing after activation.
+
 ```sh
 curl --fail http://172.16.10.4:8000/health
 curl --fail --head http://172.16.10.5:3000/login
@@ -447,6 +460,13 @@ area in `--reason`. There is no arbitrary duration override. Before starting,
 verify that the supplied identity matches both active slot states and the reviewed
 artifact. Compare the `release` field from internal and public `/health` with that
 identity: the observer records the supplied ID but checks HTTP status only.
+
+Bind any timed observation to a fresh actual post-cutover runtime/UTC anchor,
+including both hosts' activation timestamps, current journal/CAS and served release.
+The supplied CLI identity and HTTP200 alone cannot prove which release was observed.
+When the owner explicitly waives only timed observation, record the exact current
+waiver and do not start an observer or substitute monitor; all final public QA,
+performance and fresh closing checks still apply.
 
 The observer automatically checks all four required endpoints every 30 seconds
 using GET/HEAD only, records evidence, and reports start, failures and finish.
