@@ -1,6 +1,7 @@
 """Frozen bootstrap and opt-in PostgreSQL QA against reviewed known schema drift."""
 
 import importlib.util
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -272,7 +273,7 @@ def _assert_schema_contract_with_known_drift(engine):
         assert generated_keys_seen == {"model_group_key", "is_legacy_import"}, "0084 must preserve its generated lookup columns"
         normalized = _describe_difference(known_drift)
         print("KNOWN_SCHEMA_DRIFT=" + json.dumps(normalized, sort_keys=True))
-        _assert_known_drift_baseline(normalized, _known_drift_baseline())
+        _assert_known_drift_baseline(normalized, _known_drift_baseline() + _gate_compatibility_drift(connection))
 
 
 def test_postgres_fresh_head_rerun_and_known_drift_baseline(postgres_migrations):
@@ -667,3 +668,364 @@ def test_postgres_duplicate_audit_does_not_count_a_constraint_against_itself(
         signature = index_signature(RESERVATIONS, ["reservation_no"], unique=True)
         assert len(grouped[signature]) == 1, "a constraint is one object, not two"
         assert grouped[signature][0]["type"] == "unique_constraint"
+
+
+# Compatibility-only storage contract: reviewed additive turnstile history on
+# the unchanged a857 application. Keep the shared 94-entry DB08 baseline intact.
+# Exact migration hashes, complete storage signatures and the exact ten extra
+# Alembic descriptors prevent this supplement from hiding unknown schema drift.
+_GATE_COMPATIBILITY_MIGRATIONS = {'0151_gate_enrollment.py': '821334fc3b05c12bc216b6b9ff0d1c43bec944aab29606d6ba035d4dc6e74899',
+ '0152_gate_edit_baseline.py': 'daf368aecebf081366141502fa88bdcae26557d60e60868a237479e9fb072a9b',
+ '0153_gate_revoke_tombstone.py': '3d0edaf46eeb4b834c66ad96a07429ca95ebe917eb085cca24226f27d01435e3',
+ '0155_eco_gate_merge.py': 'b899f4f87086ae2254cf4d86ecd38c72fbc9b6d563de8150827f973d30a29e61'}
+_GATE_COMPATIBILITY_STORAGE = {'gate_employee_devices': {'columns': [['employee_id', 'INTEGER', False, None, False, None],
+                                       ['factory_code', 'VARCHAR(3)', False, None, False, None],
+                                       ['device_id', 'INTEGER', False, None, False, None],
+                                       ['external_person_id', 'VARCHAR(64)', False, None, False, None],
+                                       ['state', 'VARCHAR(7)', False, None, False, None],
+                                       ['desired_revision', 'INTEGER', False, None, False, None],
+                                       ['id', 'INTEGER', False, "nextval('gate_employee_devices_id_seq'::regclass)",
+                                        True, None]],
+                           'primary_key': {'name': 'gate_employee_devices_pkey', 'constrained_columns': ['id']},
+                           'foreign_keys': [{'name': 'gate_employee_devices_device_id_factory_code_fkey',
+                                             'constrained_columns': ['device_id', 'factory_code'],
+                                             'referred_schema': None,
+                                             'referred_table': 'attendance_devices',
+                                             'referred_columns': ['id', 'factory_code'],
+                                             'options': {}},
+                                            {'name': 'gate_employee_devices_employee_id_factory_code_fkey',
+                                             'constrained_columns': ['employee_id', 'factory_code'],
+                                             'referred_schema': None,
+                                             'referred_table': 'employees',
+                                             'referred_columns': ['id', 'factory_code'],
+                                             'options': {}}],
+                           'unique_constraints': [{'name': 'uq_gate_binding_device_external',
+                                                   'column_names': ['device_id', 'external_person_id']},
+                                                  {'name': 'uq_gate_binding_employee_device',
+                                                   'column_names': ['employee_id', 'device_id']},
+                                                  {'name': 'uq_gate_binding_scope',
+                                                   'column_names': ['id', 'employee_id', 'factory_code',
+                                                                    'device_id']}],
+                           'checks': [{'name': 'ck_gate_binding_revision', 'sqltext': 'desired_revision > 0'},
+                                      {'name': 'gate_gatebindingstate',
+                                       'sqltext': "state::text = ANY (ARRAY['pending'::character varying, "
+                                                  "'active'::character varying, 'revoked'::character "
+                                                  'varying]::text[])'}],
+                           'indexes': [{'name': 'uq_gate_binding_device_external',
+                                        'column_names': ['device_id', 'external_person_id'],
+                                        'unique': True,
+                                        'dialect_options': {'postgresql_include': []},
+                                        'duplicates_constraint': 'uq_gate_binding_device_external'},
+                                       {'name': 'uq_gate_binding_employee_device',
+                                        'column_names': ['employee_id', 'device_id'],
+                                        'unique': True,
+                                        'dialect_options': {'postgresql_include': []},
+                                        'duplicates_constraint': 'uq_gate_binding_employee_device'},
+                                       {'name': 'uq_gate_binding_scope',
+                                        'column_names': ['id', 'employee_id', 'factory_code', 'device_id'],
+                                        'unique': True,
+                                        'dialect_options': {'postgresql_include': []},
+                                        'duplicates_constraint': 'uq_gate_binding_scope'}]},
+ 'gate_operations': {'columns': [['employee_id', 'INTEGER', False, None, False, None],
+                                 ['factory_code', 'VARCHAR(3)', False, None, False, None],
+                                 ['requested_by', 'INTEGER', False, None, False, None],
+                                 ['action', 'VARCHAR(6)', False, None, False, None],
+                                 ['mode', 'VARCHAR(9)', False, None, False, None],
+                                 ['revision', 'INTEGER', False, None, False, None],
+                                 ['full_name', 'VARCHAR(255)', False, None, False, None],
+                                 ['photo_asset_id', 'INTEGER', True, None, False, None],
+                                 ['external_person_id', 'VARCHAR(64)', False, None, False, None],
+                                 ['snapshot_hash', 'VARCHAR(64)', False, None, False, None],
+                                 ['created_at', 'TIMESTAMP', False, 'now()', False, True],
+                                 ['id', 'INTEGER', False, "nextval('gate_operations_id_seq'::regclass)", True, None]],
+                     'primary_key': {'name': 'gate_operations_pkey', 'constrained_columns': ['id']},
+                     'foreign_keys': [{'name': 'gate_operations_employee_id_factory_code_fkey',
+                                       'constrained_columns': ['employee_id', 'factory_code'],
+                                       'referred_schema': None,
+                                       'referred_table': 'employees',
+                                       'referred_columns': ['id', 'factory_code'],
+                                       'options': {}},
+                                      {'name': 'gate_operations_photo_asset_id_employee_id_factory_code_fkey',
+                                       'constrained_columns': ['photo_asset_id', 'employee_id', 'factory_code'],
+                                       'referred_schema': None,
+                                       'referred_table': 'gate_photo_assets',
+                                       'referred_columns': ['id', 'employee_id', 'factory_code'],
+                                       'options': {}},
+                                      {'name': 'gate_operations_requested_by_fkey',
+                                       'constrained_columns': ['requested_by'],
+                                       'referred_schema': None,
+                                       'referred_table': 'users',
+                                       'referred_columns': ['id'],
+                                       'options': {}}],
+                     'unique_constraints': [{'name': 'uq_gate_operation_scope',
+                                             'column_names': ['id', 'employee_id', 'factory_code', 'revision']}],
+                     'checks': [{'name': 'ck_gate_operation_photo_action',
+                                 'sqltext': "(action::text = ANY (ARRAY['edit'::character varying, "
+                                            "'revoke'::character varying]::text[])) AND photo_asset_id IS NULL OR "
+                                            "(action::text = ANY (ARRAY['enroll'::character varying, "
+                                            "'photo'::character varying]::text[])) AND photo_asset_id IS NOT NULL"},
+                                {'name': 'ck_gate_operation_revision', 'sqltext': 'revision > 0'},
+                                {'name': 'gate_gateaction',
+                                 'sqltext': "action::text = ANY (ARRAY['enroll'::character varying, 'edit'::character "
+                                            "varying, 'photo'::character varying, 'revoke'::character "
+                                            'varying]::text[])'},
+                                {'name': 'gate_gatemode',
+                                 'sqltext': "mode::text = ANY (ARRAY['disabled'::character varying, "
+                                            "'simulator'::character varying]::text[])"}],
+                     'indexes': [{'name': 'uq_gate_operation_scope',
+                                  'column_names': ['id', 'employee_id', 'factory_code', 'revision'],
+                                  'unique': True,
+                                  'dialect_options': {'postgresql_include': []},
+                                  'duplicates_constraint': 'uq_gate_operation_scope'}]},
+ 'gate_photo_assets': {'columns': [['employee_id', 'INTEGER', False, None, False, None],
+                                   ['factory_code', 'VARCHAR(3)', False, None, False, None],
+                                   ['created_by', 'INTEGER', False, None, False, None],
+                                   ['stored_name', 'VARCHAR(255)', False, None, False, None],
+                                   ['sha256', 'VARCHAR(64)', False, None, False, None],
+                                   ['width', 'INTEGER', False, None, False, None],
+                                   ['height', 'INTEGER', False, None, False, None],
+                                   ['content_type', 'VARCHAR(64)', False, None, False, None],
+                                   ['validation', 'VARCHAR(19)', False, None, False, None],
+                                   ['created_at', 'TIMESTAMP', False, 'now()', False, True],
+                                   ['id', 'INTEGER', False, "nextval('gate_photo_assets_id_seq'::regclass)", True,
+                                    None]],
+                       'primary_key': {'name': 'gate_photo_assets_pkey', 'constrained_columns': ['id']},
+                       'foreign_keys': [{'name': 'gate_photo_assets_created_by_fkey',
+                                         'constrained_columns': ['created_by'],
+                                         'referred_schema': None,
+                                         'referred_table': 'users',
+                                         'referred_columns': ['id'],
+                                         'options': {}},
+                                        {'name': 'gate_photo_assets_employee_id_factory_code_fkey',
+                                         'constrained_columns': ['employee_id', 'factory_code'],
+                                         'referred_schema': None,
+                                         'referred_table': 'employees',
+                                         'referred_columns': ['id', 'factory_code'],
+                                         'options': {}}],
+                       'unique_constraints': [{'name': 'gate_photo_assets_stored_name_key',
+                                               'column_names': ['stored_name']},
+                                              {'name': 'uq_gate_photo_scope',
+                                               'column_names': ['id', 'employee_id', 'factory_code']}],
+                       'checks': [{'name': 'ck_gate_photo_dimensions', 'sqltext': 'width > 0 AND height > 0'},
+                                  {'name': 'gate_gatephotovalidation',
+                                   'sqltext': "validation::text = 'technical_validated'::text"}],
+                       'indexes': [{'name': 'gate_photo_assets_stored_name_key',
+                                    'column_names': ['stored_name'],
+                                    'unique': True,
+                                    'dialect_options': {'postgresql_include': []},
+                                    'duplicates_constraint': 'gate_photo_assets_stored_name_key'},
+                                   {'name': 'uq_gate_photo_scope',
+                                    'column_names': ['id', 'employee_id', 'factory_code'],
+                                    'unique': True,
+                                    'dialect_options': {'postgresql_include': []},
+                                    'duplicates_constraint': 'uq_gate_photo_scope'}]},
+ 'gate_simulator_devices': {'columns': [['device_id', 'INTEGER', False, None, False, None],
+                                        ['factory_code', 'VARCHAR(3)', False, None, False, None],
+                                        ['online', 'BOOLEAN', False, None, False, None],
+                                        ['mode', 'VARCHAR(9)', False, None, False, None],
+                                        ['id', 'INTEGER', False, "nextval('gate_simulator_devices_id_seq'::regclass)",
+                                         True, None]],
+                            'primary_key': {'name': 'gate_simulator_devices_pkey', 'constrained_columns': ['id']},
+                            'foreign_keys': [{'name': 'gate_simulator_devices_device_id_factory_code_fkey',
+                                              'constrained_columns': ['device_id', 'factory_code'],
+                                              'referred_schema': None,
+                                              'referred_table': 'attendance_devices',
+                                              'referred_columns': ['id', 'factory_code'],
+                                              'options': {}}],
+                            'unique_constraints': [{'name': 'uq_gate_simulator_device',
+                                                    'column_names': ['device_id']}],
+                            'checks': [{'name': 'gate_gatemode',
+                                        'sqltext': "mode::text = ANY (ARRAY['disabled'::character varying, "
+                                                   "'simulator'::character varying]::text[])"}],
+                            'indexes': [{'name': 'uq_gate_simulator_device',
+                                         'column_names': ['device_id'],
+                                         'unique': True,
+                                         'dialect_options': {'postgresql_include': []},
+                                         'duplicates_constraint': 'uq_gate_simulator_device'}]},
+ 'gate_simulator_people': {'columns': [['binding_id', 'INTEGER', False, None, False, None],
+                                       ['external_person_id', 'VARCHAR(64)', False, None, False, None],
+                                       ['accepted_payload_hash', 'VARCHAR(64)', False, None, False, None],
+                                       ['accepted_revision', 'INTEGER', False, None, False, None],
+                                       ['full_name', 'VARCHAR(255)', False, None, False, None],
+                                       ['photo_sha256', 'VARCHAR(64)', False, None, False, None],
+                                       ['write_count', 'INTEGER', False, None, False, None],
+                                       ['id', 'INTEGER', False, "nextval('gate_simulator_people_id_seq'::regclass)",
+                                        True, None],
+                                       ['present', 'BOOLEAN', False, 'true', False, None]],
+                           'primary_key': {'name': 'gate_simulator_people_pkey', 'constrained_columns': ['id']},
+                           'foreign_keys': [{'name': 'gate_simulator_people_binding_id_fkey',
+                                             'constrained_columns': ['binding_id'],
+                                             'referred_schema': None,
+                                             'referred_table': 'gate_employee_devices',
+                                             'referred_columns': ['id'],
+                                             'options': {}}],
+                           'unique_constraints': [{'name': 'gate_simulator_people_binding_id_key',
+                                                   'column_names': ['binding_id']}],
+                           'checks': [{'name': 'ck_gate_simulator_person_counters',
+                                       'sqltext': 'accepted_revision > 0 AND write_count > 0'}],
+                           'indexes': [{'name': 'gate_simulator_people_binding_id_key',
+                                        'column_names': ['binding_id'],
+                                        'unique': True,
+                                        'dialect_options': {'postgresql_include': []},
+                                        'duplicates_constraint': 'gate_simulator_people_binding_id_key'}]},
+ 'gate_targets': {'columns': [['operation_id', 'INTEGER', False, None, False, None],
+                              ['binding_id', 'INTEGER', False, None, False, None],
+                              ['device_id', 'INTEGER', False, None, False, None],
+                              ['device_name', 'VARCHAR(255)', False, None, False, None],
+                              ['factory_code', 'VARCHAR(3)', False, None, False, None],
+                              ['employee_id', 'INTEGER', False, None, False, None],
+                              ['revision', 'INTEGER', False, None, False, None],
+                              ['state', 'VARCHAR(10)', False, None, False, None],
+                              ['attempts', 'INTEGER', False, None, False, None],
+                              ['error_code', 'VARCHAR(17)', True, None, False, None],
+                              ['lease_token', 'VARCHAR(64)', True, None, False, None],
+                              ['lease_expires_at', 'TIMESTAMP', True, None, False, True],
+                              ['observed_evidence', 'JSON', True, None, False, None],
+                              ['id', 'INTEGER', False, "nextval('gate_targets_id_seq'::regclass)", True, None],
+                              ['baseline_revision', 'INTEGER', True, None, False, None],
+                              ['baseline_payload_hash', 'VARCHAR(64)', True, None, False, None],
+                              ['baseline_full_name', 'VARCHAR(255)', True, None, False, None],
+                              ['baseline_external_person_id', 'VARCHAR(64)', True, None, False, None],
+                              ['baseline_photo_sha256', 'VARCHAR(64)', True, None, False, None],
+                              ['baseline_profile_hash', 'VARCHAR(64)', True, None, False, None],
+                              ['desired_payload_hash', 'VARCHAR(64)', True, None, False, None]],
+                  'primary_key': {'name': 'gate_targets_pkey', 'constrained_columns': ['id']},
+                  'foreign_keys': [{'name': 'gate_targets_binding_id_employee_id_factory_code_device_id_fkey',
+                                    'constrained_columns': ['binding_id', 'employee_id', 'factory_code', 'device_id'],
+                                    'referred_schema': None,
+                                    'referred_table': 'gate_employee_devices',
+                                    'referred_columns': ['id', 'employee_id', 'factory_code', 'device_id'],
+                                    'options': {}},
+                                   {'name': 'gate_targets_operation_id_employee_id_factory_code_revisio_fkey',
+                                    'constrained_columns': ['operation_id', 'employee_id', 'factory_code', 'revision'],
+                                    'referred_schema': None,
+                                    'referred_table': 'gate_operations',
+                                    'referred_columns': ['id', 'employee_id', 'factory_code', 'revision'],
+                                    'options': {}}],
+                  'unique_constraints': [{'name': 'uq_gate_target_operation_device',
+                                          'column_names': ['operation_id', 'device_id']}],
+                  'checks': [{'name': 'ck_gate_target_counters', 'sqltext': 'revision > 0 AND attempts >= 0'},
+                             {'name': 'ck_gate_target_edit_baseline',
+                              'sqltext': 'baseline_revision IS NULL AND baseline_payload_hash IS NULL AND '
+                                         'baseline_full_name IS NULL AND baseline_external_person_id IS NULL AND '
+                                         'baseline_photo_sha256 IS NULL AND baseline_profile_hash IS NULL AND '
+                                         'desired_payload_hash IS NULL OR baseline_revision IS NOT NULL AND '
+                                         'baseline_revision > 0 AND baseline_payload_hash IS NOT NULL AND '
+                                         'length(baseline_payload_hash::text) = 64 AND baseline_full_name IS NOT NULL '
+                                         'AND baseline_external_person_id IS NOT NULL AND baseline_photo_sha256 IS '
+                                         'NOT NULL AND length(baseline_photo_sha256::text) = 64 AND '
+                                         'baseline_profile_hash IS NOT NULL AND length(baseline_profile_hash::text) = '
+                                         '64 AND desired_payload_hash IS NOT NULL AND '
+                                         'length(desired_payload_hash::text) = 64'},
+                             {'name': 'gate_gateerrorcode',
+                              'sqltext': "error_code::text = ANY (ARRAY['device_offline'::character varying, "
+                                         "'identity_conflict'::character varying, 'payload_conflict'::character "
+                                         "varying, 'stale_revision'::character varying, 'lease_expired'::character "
+                                         "varying, 'simulator_error'::character varying]::text[])"},
+                             {'name': 'gate_gatetargetstate',
+                              'sqltext': "state::text = ANY (ARRAY['queued'::character varying, "
+                                         "'processing'::character varying, 'verifying'::character varying, "
+                                         "'succeeded'::character varying, 'waiting'::character varying, "
+                                         "'failed'::character varying, 'conflict'::character varying, "
+                                         "'uncertain'::character varying, 'cancelled'::character varying, "
+                                         "'superseded'::character varying]::text[])"}],
+                  'indexes': [{'name': 'ix_gate_targets_operation_id',
+                               'column_names': ['operation_id'],
+                               'unique': False,
+                               'dialect_options': {'postgresql_include': []}},
+                              {'name': 'ix_gate_targets_state',
+                               'column_names': ['state'],
+                               'unique': False,
+                               'dialect_options': {'postgresql_include': []}},
+                              {'name': 'uq_gate_target_operation_device',
+                               'column_names': ['operation_id', 'device_id'],
+                               'unique': True,
+                               'dialect_options': {'postgresql_include': []},
+                               'duplicates_constraint': 'uq_gate_target_operation_device'}]}}
+_GATE_COMPATIBILITY_DIFFS = [['remove_table', 'gate_simulator_people'], ['remove_table', 'gate_simulator_devices'],
+ ['remove_table', 'gate_operations'],
+ ['remove_index',
+  {'expressions': ['gate_targets.operation_id'],
+   'index': 'ix_gate_targets_operation_id',
+   'options': {},
+   'table': 'gate_targets',
+   'unique': False}],
+ ['remove_index',
+  {'expressions': ['gate_targets.state'],
+   'index': 'ix_gate_targets_state',
+   'options': {},
+   'table': 'gate_targets',
+   'unique': False}],
+ ['remove_table', 'gate_targets'], ['remove_table', 'gate_photo_assets'], ['remove_table', 'gate_employee_devices'],
+ ['remove_constraint',
+  {'columns': ['id', 'factory_code'],
+   'constraint': 'UniqueConstraint',
+   'name': 'uq_attendance_devices_id_factory',
+   'table': 'attendance_devices'}],
+ ['remove_constraint',
+  {'columns': ['id', 'factory_code'],
+   'constraint': 'UniqueConstraint',
+   'name': 'uq_employees_id_factory',
+   'table': 'employees'}]]
+
+
+def _gate_compatibility_drift(connection):
+    from app.db.base import Base
+
+    tables = set(_GATE_COMPATIBILITY_STORAGE)
+    if tables <= set(Base.metadata.tables):
+        return []  # The actual gate application owns these mapped tables.
+    assert not tables.intersection(Base.metadata.tables), "Partial gate mapping needs separate contract review"
+    assert MigrationContext.configure(connection).get_current_heads() == ("0155_eco_gate_merge",)
+    for filename, expected_hash in _GATE_COMPATIBILITY_MIGRATIONS.items():
+        assert hashlib.sha256((VERSIONS / filename).read_bytes().replace(b"\r\n", b"\n")).hexdigest() == expected_hash
+    inspector = sa.inspect(connection)
+    assert {name for name in inspector.get_table_names() if name.startswith("gate_")} == tables
+    actual = {}
+    for table in sorted(tables):
+        primary = inspector.get_pk_constraint(table)
+        actual[table] = {
+            "columns": [[column["name"], str(column["type"]), column["nullable"], column["default"],
+                         column.get("autoincrement", False), getattr(column["type"], "timezone", None)]
+                        for column in inspector.get_columns(table)],
+            "primary_key": {key: primary[key] for key in ("name", "constrained_columns")},
+            "foreign_keys": [{key: constraint[key] for key in ("name", "constrained_columns", "referred_schema",
+                "referred_table", "referred_columns", "options")} for constraint in sorted(
+                    inspector.get_foreign_keys(table), key=lambda item: item["name"])],
+            "unique_constraints": [{key: constraint[key] for key in ("name", "column_names")} for constraint in sorted(
+                inspector.get_unique_constraints(table), key=lambda item: item["name"])],
+            "checks": [{key: constraint[key] for key in ("name", "sqltext")} for constraint in sorted(
+                inspector.get_check_constraints(table), key=lambda item: item["name"])],
+            "indexes": [{key: index[key] for key in ("name", "column_names", "unique", "dialect_options",
+                "duplicates_constraint") if key in index} for index in sorted(
+                    inspector.get_indexes(table), key=lambda item: item["name"])],
+        }
+    assert actual == _GATE_COMPATIBILITY_STORAGE, "Gate compatibility storage contract changed"
+    for table, name in (("employees", "uq_employees_id_factory"),
+                        ("attendance_devices", "uq_attendance_devices_id_factory")):
+        constraints = inspector.get_unique_constraints(table)
+        assert [{"name": row["name"], "column_names": row["column_names"]} for row in constraints
+                if row["name"] == name] == [{"name": name, "column_names": ["id", "factory_code"]}]
+    return _GATE_COMPATIBILITY_DIFFS
+
+
+@pytest.mark.parametrize("change", ["missing_column", "missing_index", "extra_column", "missing_check", "timezone"])
+def test_postgres_gate_compatibility_contract_rejects_storage_drift(postgres_migrations, change):
+    from app.db.base import Base
+
+    if set(_GATE_COMPATIBILITY_STORAGE) <= set(Base.metadata.tables):
+        pytest.skip("Unmapped old-application schema-0155 compatibility candidate only")
+    engine, config = postgres_migrations.engine, postgres_migrations.config
+    command.upgrade(config, "head")
+    with engine.begin() as connection:
+        assert _gate_compatibility_drift(connection) == _GATE_COMPATIBILITY_DIFFS
+        statements = {
+            "missing_column": "ALTER TABLE gate_simulator_people DROP COLUMN present",
+            "missing_index": "DROP INDEX ix_gate_targets_state",
+            "extra_column": "ALTER TABLE gate_simulator_people ADD COLUMN unreviewed INTEGER",
+            "missing_check": "ALTER TABLE gate_operations DROP CONSTRAINT ck_gate_operation_photo_action",
+            "timezone": "ALTER TABLE gate_targets ALTER COLUMN lease_expires_at TYPE timestamp without time zone",
+        }
+        connection.exec_driver_sql(statements[change])
+        with pytest.raises(AssertionError, match="Gate compatibility storage contract changed"):
+            _gate_compatibility_drift(connection)
