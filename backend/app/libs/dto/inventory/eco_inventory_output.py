@@ -1,7 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
 from pydantic import BaseModel, ConfigDict
-from app.libs.enums.eco_inventory import EcoMaterialKind, EcoMaterialMovementKind, FactoryFabricTransferStatus
+from app.libs.enums.eco_inventory import EcoCatalogCategory, EcoMaterialKind, EcoMaterialMovementKind, FactoryFabricTransferStatus
 from app.libs.dto.inventory.eco_inventory_input import EcoReceiptDetails
 
 
@@ -21,6 +21,7 @@ class EcoMaterialItemOut(BaseModel):
     name: str
     unit: str
     kind: EcoMaterialKind
+    category: EcoCatalogCategory
 
 
 class EcoMaterialOrderOut(BaseModel):

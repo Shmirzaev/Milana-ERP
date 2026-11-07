@@ -477,9 +477,10 @@ def passport_material_batches(
     db: DbSession,
     current: User = Depends(require_permissions("cutting.records", "*")),
     q: str = Query("", max_length=200),
+    item_id: int | None = Query(None, gt=0),
 ):
     _passport_order(db, production_order_id, current)
-    return list_passport_fabrics(db, current, production_order_id, q)
+    return list_passport_fabrics(db, current, production_order_id, q, item_id)
 
 
 @router.get("/operators", response_model=list[CuttingOperatorOut])

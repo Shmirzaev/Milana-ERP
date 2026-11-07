@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.core.deps import user_permissions
 from app.core.dt import as_utc
-from app.libs.dto.inventory.eco_inventory_input import EcoMaterialConsumeIn, EcoMaterialReceiveIn, EcoReceiptDetails, EcoQualityIn, EcoWarehouseIn
+from app.libs.dto.inventory.eco_inventory_input import EcoMaterialConsumeIn, EcoMaterialReceiveIn, EcoMaterialReceiveLineIn, EcoMaterialBulkReceiveIn, EcoReceiptDetails, EcoQualityIn, EcoWarehouseIn
 from app.libs.dto.inventory.eco_inventory_output import EcoMaterialBatchOut, EcoMaterialItemOut, EcoMaterialMovementOut, EcoMaterialMutationOut, EcoMaterialOrderOut, EcoNamedOptionOut
 from app.libs.enums.inventory import StockBatchQcStatus
 from app.libs.enums.eco_inventory import EcoMaterialKind, EcoMaterialMovementKind
@@ -109,7 +109,7 @@ def list_items(db: Session, current: User, kind: EcoMaterialKind) -> list[EcoMat
     require_eco(current, "eco_inventory.read")
     kind = scoped_kind(current, kind)
     categories = ("fabric", "semi_finished") if kind == EcoMaterialKind.FABRIC else ("accessory", "packaging")
-    return [EcoMaterialItemOut(id=item.id, sku=item.sku, name=item.name, unit=item.unit, kind=kind)
+    return [EcoMaterialItemOut(id=item.id, sku=item.sku, name=item.name, unit=item.unit, kind=kind, category=item.category)
             for item in db.query(Item).filter(Item.category.in_(categories), Item.is_active.is_(True)).order_by(Item.name).all()]
 
 
@@ -143,6 +143,35 @@ def receive_stock(db: Session, payload: EcoMaterialReceiveIn, current: User) -> 
     replay = replay_idempotent_response(db, scope="eco_inventory.receive", key=payload.request_key, payload=body)
     if replay is not None:
         return EcoMaterialMutationOut.model_validate(replay)
+    result = _receive_stock_line(db, payload, current)
+    store_idempotent_response(db, scope="eco_inventory.receive", key=payload.request_key,
+                              payload=body, response=result.model_dump(mode="json"), user=current)
+    db.commit()
+    return result
+
+
+def receive_stock_bulk(db: Session, payload: EcoMaterialBulkReceiveIn, current: User) -> list[EcoMaterialMutationOut]:
+    """One receipt table is atomic and retries replay its original complete result."""
+    require_eco(current, "eco_inventory.receive")
+    for line in payload.lines:
+        scoped_kind(current, line.kind)
+    body = payload.model_dump(mode="json")
+    replay = replay_idempotent_response(db, scope="eco_inventory.receive_bulk", key=payload.request_key, payload=body)
+    if replay is not None:
+        return [EcoMaterialMutationOut.model_validate(row) for row in replay["lines"]]
+    # Stable catalog lock order also covers repeated material rows with different lots.
+    db.execute(select(Item).where(Item.id.in_(sorted({line.item_id for line in payload.lines})))
+               .order_by(Item.id).with_for_update().execution_options(populate_existing=True)).scalars().all()
+    results = [_receive_stock_line(db, line, current) for line in payload.lines]
+    store_idempotent_response(db, scope="eco_inventory.receive_bulk", key=payload.request_key,
+                              payload=body, response={"lines": [row.model_dump(mode="json") for row in results]}, user=current)
+    db.commit()
+    return results
+
+
+def _receive_stock_line(db: Session, payload: EcoMaterialReceiveLineIn, current: User) -> EcoMaterialMutationOut:
+    """Participates in the public operation's transaction; never commits or retries."""
+    body = payload.model_dump(mode="json")
     item = db.execute(select(Item).where(Item.id == payload.item_id).with_for_update()
                       .execution_options(populate_existing=True)).scalar_one_or_none()
     categories = ("fabric", "semi_finished") if payload.kind == EcoMaterialKind.FABRIC else ("accessory", "packaging")
@@ -179,9 +208,6 @@ def receive_stock(db: Session, payload: EcoMaterialReceiveIn, current: User) -> 
                                            production_order_id=payload.production_order_id)
     result = EcoMaterialMutationOut(batch=batch_output(db, batch), movement_id=movement.id)
     log_action(db, current, "receive", "EcoMaterialBatch", batch.id, new_value=body)
-    store_idempotent_response(db, scope="eco_inventory.receive", key=payload.request_key,
-                              payload=body, response=result.model_dump(mode="json"), user=current)
-    db.commit()
     return result
 
 

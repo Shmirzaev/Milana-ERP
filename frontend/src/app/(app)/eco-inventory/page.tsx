@@ -8,7 +8,7 @@ import { Search } from "lucide-react";
 import EcoFabricStock from "@/components/inventory/EcoFabricStock";
 import EcoReceiptForm from "@/components/inventory/EcoReceiptForm";
 import EcoReceiptDetailsView from "@/components/inventory/EcoReceiptDetails";
-import { ecoReceiptText, ecoQualityText, type EcoReceiptBody } from "@/lib/ecoReceipt";
+import { ecoReceiptText, ecoQualityText, type EcoReceiptBody, type EcoReceiptBulkBody } from "@/lib/ecoReceipt";
 import { INVENTORY_QC_STATUSES, type InventoryQcStatus } from "@/lib/inventoryQcStatus";
 import SearchableSelect from "@/components/SearchableSelect";
 import { api, fetcher } from "@/lib/api";
@@ -18,7 +18,7 @@ import { hasInventoryPathAccess } from "@/lib/access";
 import { useT } from "@/lib/i18n";
 import { ecoInventoryText, loadEcoPendingAttempt, retainEcoPendingAfterFailure, saveEcoPendingAttempt, type EcoBatch, type EcoMaterialKind, type EcoMovement } from "@/lib/ecoInventory";
 
-type ReceiveBody = EcoReceiptBody;
+type ReceiveBody = EcoReceiptBody | EcoReceiptBulkBody;
 type ConsumeBody = { request_key: string; batch_id: number; quantity: string; production_order_id: number | null; notes: string | null };
 type Attempt = { endpoint: string; body: ReceiveBody | ConsumeBody };
 const pageSize = 100;
@@ -40,7 +40,7 @@ export default function EcoInventoryPage() {
   useEffect(() => {
     if (!storageKey) return;
     const saved = loadEcoPendingAttempt<Attempt>(storageKey);
-    if (saved && (saved.endpoint === "/api/eco-inventory/receive" || saved.endpoint === "/api/eco-inventory/consume") && saved.body?.request_key) {
+    if (saved && (["/api/eco-inventory/receive", "/api/eco-inventory/receive-bulk", "/api/eco-inventory/consume"].includes(saved.endpoint)) && saved.body?.request_key) {
       pending.current = saved; setUncertain(true);
     }
   }, [storageKey]);
@@ -52,12 +52,12 @@ export default function EcoInventoryPage() {
     setForm(value); setQuantity(""); setNotes(""); setOrderId(null); setError(""); setMessage("");
   }
   function changeKind(value: EcoMaterialKind) { router.replace(`/eco-inventory?kind=${value}`); setPage(0); setSearch(""); openForm(null); }
-  async function submit(receiveBody?: EcoReceiptBody) {
+  async function submit(receiveBody?: EcoReceiptBulkBody) {
     if (busy || inFlight.current || (!form && !pending.current)) return;
     if (!pending.current) {
       if (!form) return;
       if (!receiveBody && (Number(quantity) <= 0 || !Number.isFinite(Number(quantity)) || (form !== "receive" && Number(quantity) > Number(form.available_quantity)))) { setError(text.validQuantity); return; }
-      if (receiveBody) pending.current = {endpoint: "/api/eco-inventory/receive", body: receiveBody};
+      if (receiveBody) pending.current = {endpoint: "/api/eco-inventory/receive-bulk", body: receiveBody};
       else if (form === "receive") return;
       else pending.current = { endpoint: "/api/eco-inventory/consume", body: { request_key: crypto.randomUUID(), batch_id: form.id, quantity, production_order_id: orderId, notes: notes.trim() || null } };
     }

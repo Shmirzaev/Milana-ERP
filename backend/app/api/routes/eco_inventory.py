@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Query, Response
 
 from app.core.deps import CurrentUser, DbSession
-from app.libs.dto.inventory.eco_inventory_input import EcoMaterialConsumeIn, EcoMaterialReceiveIn, FactoryFabricDispatchIn, FactoryFabricReceiptIn, EcoWarehouseIn, EcoQualityIn
+from app.libs.dto.inventory.eco_inventory_input import EcoMaterialConsumeIn, EcoMaterialReceiveIn, EcoMaterialBulkReceiveIn, FactoryFabricDispatchIn, FactoryFabricReceiptIn, EcoWarehouseIn, EcoQualityIn
 from app.libs.dto.inventory.eco_inventory_output import EcoMaterialBatchOut, EcoMaterialItemOut, EcoMaterialMovementOut, EcoMaterialMutationOut, EcoMaterialOrderOut, FactoryFabricSourceBatchOut, FactoryFabricTransferOut, EcoNamedOptionOut
 from app.libs.enums.eco_inventory import EcoMaterialKind, FactoryFabricTransferStatus
 from app.models.inventory import eco_inventory_service as stock
@@ -56,6 +56,11 @@ def list_history(db: DbSession, current: CurrentUser, kind: EcoMaterialKind | No
 @router.post("/eco-inventory/receive", response_model=EcoMaterialMutationOut)
 def receive_stock(payload: EcoMaterialReceiveIn, db: DbSession, current: CurrentUser):
     return stock.receive_stock(db, payload, current)
+
+
+@router.post("/eco-inventory/receive-bulk", response_model=list[EcoMaterialMutationOut])
+def receive_stock_bulk(payload: EcoMaterialBulkReceiveIn, db: DbSession, current: CurrentUser):
+    return stock.receive_stock_bulk(db, payload, current)
 
 
 @router.post("/eco-inventory/consume", response_model=EcoMaterialMutationOut)

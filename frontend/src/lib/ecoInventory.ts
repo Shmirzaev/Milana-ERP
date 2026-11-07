@@ -4,7 +4,7 @@ export type FabricTransferStatus = "in_transit" | "partially_received" | "receiv
 export type EcoBatch = { id: number; item_id: number; item_name: string; sku: string; kind: EcoMaterialKind;
   batch_no: string; color: string | null; unit: string; quantity: string; reserved_quantity: string;
   available_quantity: string; received_at: string; receipt_details?: import("./ecoReceipt").EcoReceiptDetails };
-export type EcoMaterialItem = { id: number; name: string; sku: string; unit: string; kind: EcoMaterialKind };
+export type EcoMaterialItem = { id: number; name: string; sku: string; unit: string; kind: EcoMaterialKind; category: "fabric" | "semi_finished" | "accessory" | "packaging" };
 export type EcoMovement = { id: number; batch_id: number; batch_no: string; item_name: string; unit: string;
   kind: EcoMovementKind; quantity: string; order_no: string | null; notes: string | null; created_at: string; operator_name: string };
 export type FabricSourceBatch = { id: number; item_name: string; batch_no: string; color: string | null;

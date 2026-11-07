@@ -78,7 +78,7 @@ def transferred_fabric_balances(db: Session, production_order_id: int, batches: 
     return {source_id: available_transferred_fabric(rows) for source_id, rows in grouped.items()}
 
 
-def list_transferred_passport_fabrics(db: Session, current: User, production_order_id: int, q: str = "") -> list[dict]:
+def list_transferred_passport_fabrics(db: Session, current: User, production_order_id: int, q: str = "", item_id: int | None = None) -> list[dict]:
     """Small cutting lookup; no ECO row IDs are exposed as central batch IDs."""
     require_factory_access(current, "ECO")
     if not is_ect_order(db, production_order_id):
@@ -86,6 +86,8 @@ def list_transferred_passport_fabrics(db: Session, current: User, production_ord
     query = db.query(StockBatch, Item, EcoMaterialBatch).join(Item, Item.id == StockBatch.item_id).join(
         EcoMaterialBatch, EcoMaterialBatch.source_stock_batch_id == StockBatch.id,
     ).filter(EcoMaterialBatch.kind == "fabric", Item.category.in_(("fabric", "semi_finished")))
+    if item_id is not None:
+        query = query.filter(Item.id == item_id)
     grouped = {}
     search = q.strip().casefold()
     for source, item, receipt in query.order_by(StockBatch.id.desc(), EcoMaterialBatch.id).all():
@@ -105,16 +107,16 @@ def list_transferred_passport_fabrics(db: Session, current: User, production_ord
             for row in grouped.values() if row["available_quantity"] > 0]
 
 
-def list_passport_fabrics(db: Session, current: User, production_order_id: int, q: str = "") -> list[dict]:
+def list_passport_fabrics(db: Session, current: User, production_order_id: int, q: str = "", item_id: int | None = None) -> list[dict]:
     """Caller first authorizes the selected production order's cutting work."""
     from app.models.inventory.stock_service import list_batches
     allowed = ("id", "item_id", "item_name", "item_sku", "batch_no", "internal_batch_no", "color", "unit",
                "width", "gsm", "warehouse_name", "quantity", "available_quantity")
     central = [{key: row.get(key) for key in allowed} for row in
-        list_batches(db, current, group="materials", hide_empty=True, page_size=1000, q=q)]
+        list_batches(db, current, group="materials", hide_empty=True, page_size=500, q=q, item_id=item_id)]
     if not is_ect_order(db, production_order_id):
         return central
-    transferred = list_transferred_passport_fabrics(db, current, production_order_id, q)
+    transferred = list_transferred_passport_fabrics(db, current, production_order_id, q, item_id)
     # A depleted/held transferred receipt must never fall back to Milana stock.
     linked_ids = {row[0] for row in db.query(EcoMaterialBatch.source_stock_batch_id).filter(
         EcoMaterialBatch.kind == "fabric", EcoMaterialBatch.source_stock_batch_id.isnot(None)).distinct()}

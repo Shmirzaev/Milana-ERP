@@ -34,9 +34,8 @@ class EcoReceiptDetails(BaseModel):
     image_url: str | None = Field(default=None, max_length=512)
 
 
-class EcoMaterialReceiveIn(EcoReceiptDetails):
+class EcoMaterialReceiveLineIn(EcoReceiptDetails):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
-    request_key: str = Field(min_length=1, max_length=128)
     item_id: int = Field(gt=0)
     kind: EcoMaterialKind
     batch_no: str = Field(min_length=1, max_length=64)
@@ -56,6 +55,16 @@ class EcoMaterialReceiveIn(EcoReceiptDetails):
         if self.kind == EcoMaterialKind.ACCESSORY and (self.roll_weights_kg or self.roll_lengths_m):
             raise ValueError("Individual fabric rolls are not accessory receipts")
         return self
+
+
+class EcoMaterialReceiveIn(EcoMaterialReceiveLineIn):
+    request_key: str = Field(min_length=1, max_length=128)
+
+
+class EcoMaterialBulkReceiveIn(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    request_key: str = Field(min_length=1, max_length=128)
+    lines: list[EcoMaterialReceiveLineIn] = Field(min_length=1, max_length=100)
 
 
 class EcoWarehouseIn(BaseModel):

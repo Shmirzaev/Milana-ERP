@@ -7,6 +7,13 @@ class EcoMaterialKind(str, Enum):
     ACCESSORY = "accessory"
 
 
+class EcoCatalogCategory(str, Enum):
+    FABRIC = "fabric"
+    SEMI_FINISHED = "semi_finished"
+    ACCESSORY = "accessory"
+    PACKAGING = "packaging"
+
+
 class EcoReceiptSource(str, Enum):
     PURCHASE = "purchase"
     OPENING_BALANCE = "opening_balance"
