@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { api, fetcher } from "@/lib/api";
 import { sewingBandText } from "@/lib/sewingBandText";
+import { sewingReceiptText } from "@/lib/sewingReceiptText";
 import PageHeader from "@/components/PageHeader";
 import FabricThumbnail from "@/components/FabricThumbnail";
 import Modal from "@/components/Modal";
@@ -119,6 +120,7 @@ function sewingBatchIdFromScan(rawCode: string): number | null {
 export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
   const { t, lang } = useT();
   const bandText = sewingBandText(lang);
+  const receiptText = sewingReceiptText(lang);
   const { me } = useMe();
   const bandOnly = Boolean(me?.sewing_band_id);
   const receiptBusy = useRef(false);
@@ -143,6 +145,7 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
   const [manualSearchDraft, setManualSearchDraft] = useState("");
   const [manualSearch, setManualSearch] = useState("");
   const [manualBusyKey, setManualBusyKey] = useState("");
+  const [manualFlowIds, setManualFlowIds] = useState<Record<string, number>>({});
   const [manualMsg, setManualMsg] = useState("");
   const canCuttingScan = can(me, "*", "cutting.bundles");
   const canPrintingScan = can(me, "*", "printing.bundles");
@@ -368,6 +371,7 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
         production_batch_id: option.production_batch_id,
         model_id: option.model_id,
         factory_code: factoryCode,
+        sewing_flow_id: manualFlowIds[key] || null,
       });
       const order = option.order_no || option.production_no || `#${option.production_order_id}`;
       setManualMsg(t("page.bundleScan.manualReceived", {
@@ -697,18 +701,19 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
                   <th>{t("field.model")}</th>
                   <th>{t("nav.bundles")}</th>
                   <th>{t("field.qty")}</th>
+                  {!bandOnly && <th>{t("page.bundleScan.sewingLine")}</th>}
                   <th>{t("field.actions")}</th>
                 </tr>
               </thead>
               <tbody>
                 {manualLoading && manualOptions.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="text-slate-500">{t("common.loading")}</td>
+                    <td colSpan={bandOnly ? 6 : 7} className="text-slate-500">{t("common.loading")}</td>
                   </tr>
                 )}
                 {!manualLoading && manualOptions.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="text-slate-500">{t("page.bundleScan.manualEmpty")}</td>
+                    <td colSpan={bandOnly ? 6 : 7} className="text-slate-500">{t("page.bundleScan.manualEmpty")}</td>
                   </tr>
                 )}
                 {manualOptions.map((option) => {
@@ -737,6 +742,23 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
                       </td>
                       <td>{option.bundle_count}</td>
                       <td>{option.quantity}</td>
+                      {!bandOnly && (
+                        <td className="min-w-[220px]">
+                          <select
+                            className="input"
+                            aria-label={`${t("page.bundleScan.sewingLine")} · ${option.batch_label || option.order_no || option.production_no || ""}`}
+                            value={manualFlowIds[key] || ""}
+                            disabled={Boolean(manualBusyKey) || option.production_batch_id === null}
+                            onChange={(event) => setManualFlowIds((previous) => ({ ...previous, [key]: Number(event.target.value || 0) }))}
+                          >
+                            <option value="">{receiptText.keepOrUnassigned}</option>
+                            {sewingFlows.filter((flow) => flow.is_active).map((flow) => (
+                              <option key={flow.id} value={flow.id}>{flow.code} - {flow.name}</option>
+                            ))}
+                          </select>
+                          {option.production_batch_id === null && <p className="mt-1 text-xs text-[var(--erp-text-muted)]">{receiptText.legacyReceipt}</p>}
+                        </td>
+                      )}
                       <td>
                         <button
                           type="button"

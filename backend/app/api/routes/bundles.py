@@ -4,8 +4,8 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import HTMLResponse
-from pydantic import BaseModel, ConfigDict
-from sqlalchemy import and_, func, or_, text
+from pydantic import BaseModel
+from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import selectinload, noload
 from sqlalchemy.orm.attributes import set_committed_value
 import base64
@@ -40,8 +40,6 @@ from app.models.bundles_service import (
     receive_at_printing,
     send_to_sewing,
     receive_at_sewing,
-    receive_many_at_sewing,
-    verify_sewing_accessory_gate,
     bundle_qr_payload,
     bundle_qr_payload_from_references,
     format_batch_passport,
@@ -51,25 +49,22 @@ from app.models.barcode_service import qr_png_data_uri
 from app.models.label_images_service import is_preview_model_image, material_label_image_src
 from app.models.model_images_service import material_preview_image_url
 from app.models.audit_service import log_action
-from app.models.sewing_scope_service import require_sewing_flow_access, sewing_line_factory_scope
+from app.models.sewing_scope_service import sewing_line_factory_scope
 from app.models.department_dashboards_service import cutting_inventory_condition, cutting_origin_condition, destination_column, inventory_totals
 from typing import Literal
 
+from app.libs.dto.production.sewing_manual_receive import SewingManualReceiveIn
+from app.models.production.sewing_receipt_service import (
+    accept_sewing_batch as accept_sewing_batch_receipt,
+    receive_manual_sewing,
+    _sewing_work_order_for_batch,
+    _sewing_receive_department_ids,
+    _sewing_receive_eligible_filter,
+)
+
 router = APIRouter(prefix="/bundles", tags=["bundles"])
 
-SEWING_RECEIVE_DEPARTMENT_CODES = ("SEW", "MIL", "BST", "ECO")
 _BUNDLE_LABEL_LIMIT = 200
-
-
-class SewingManualReceiveIn(BaseModel):
-    model_config = ConfigDict(protected_namespaces=())
-
-    production_order_id: int
-    # Required even for legacy unbatched bundles (explicit null). Never infer
-    # an order-wide receipt from a stale client that omitted the batch.
-    production_batch_id: int | None
-    model_id: int | None = None
-    factory_code: str | None = None
 
 
 class SewingBatchAcceptIn(BaseModel):
@@ -527,26 +522,6 @@ def _get_bundle_for_update(db: DbSession, bid: int) -> Bundle:
     return b
 
 
-def _sewing_receive_department_ids(db: DbSession) -> list[int]:
-    return [
-        int(id_)
-        for (id_,) in db.query(Department.id)
-        .filter(Department.code.in_(SEWING_RECEIVE_DEPARTMENT_CODES))
-        .all()
-    ]
-
-
-def _sewing_receive_eligible_filter(db: DbSession):
-    department_ids = _sewing_receive_department_ids(db)
-    direct_to_sewing = Bundle.status == "sent_to_sewing"
-    if not department_ids:
-        return direct_to_sewing
-    return or_(
-        direct_to_sewing,
-        and_(Bundle.status == "created", Bundle.next_department_id.in_(department_ids)),
-    )
-
-
 @router.get("")
 def list_bundles(db: DbSession, current: CurrentUser,
                  production_order_id: int | None = None, status: str | None = None,
@@ -772,55 +747,7 @@ def manual_receive_sewing(
     db: DbSession,
     current: User = Depends(require_permissions("sewing.bundles", "*")),
 ):
-    factory = sewing_line_factory_scope(current, payload.factory_code)
-    # Serialize manual receipts of sibling batches without reversing the existing
-    # bundle -> work-order lock order used by individual scanner receipts.
-    if db.get_bind().dialect.name == "postgresql":
-        db.execute(text("SELECT pg_advisory_xact_lock(74201, :order_id)"), {"order_id": payload.production_order_id})
-    qry = db.query(Bundle).filter(
-        _sewing_receive_eligible_filter(db),
-        Bundle.production_order_id == payload.production_order_id,
-        Bundle.production_batch_id == payload.production_batch_id,
-        Bundle.sewing_factory_code == factory,
-    )
-    if payload.model_id is not None:
-        qry = qry.filter(Bundle.model_id == payload.model_id)
-    bundles = qry.order_by(Bundle.id.asc()).with_for_update().all()
-    if not bundles:
-        raise HTTPException(404, "No bundles are waiting for sewing receive")
-
-    accessory_gate = verify_sewing_accessory_gate(db, payload.production_order_id, sewing_factory_code=factory)
-    received_ids = receive_many_at_sewing(
-        db,
-        bundles,
-        current,
-        accessory_gate,
-        after_receive=lambda bundle: log_action(
-            db, current, "manual_receive_at_sewing", "Bundle", bundle.id
-        ),
-    )
-    received_quantity = sum(int(bundle.quantity or 0) for bundle in bundles)
-    db.commit()
-
-    return {
-        "received_count": len(received_ids),
-        "received_quantity": received_quantity,
-        "bundle_ids": received_ids,
-    }
-
-
-def _sewing_work_order_for_batch(db: DbSession, batch: ProductionBatch) -> WorkOrder | None:
-    qry = db.query(WorkOrder).filter(
-        WorkOrder.production_order_id == batch.production_order_id,
-        WorkOrder.operation == "sewing",
-    )
-    scoped = qry.filter(WorkOrder.production_batch_id == batch.id).order_by(WorkOrder.id.asc()).first()
-    if scoped:
-        return scoped
-    return (
-        qry.filter(WorkOrder.production_batch_id.is_(None)).order_by(WorkOrder.id.asc()).first()
-        or qry.order_by(WorkOrder.id.asc()).first()
-    )
+    return receive_manual_sewing(db, payload, current)
 
 
 def _sewing_batch_payload(
@@ -916,181 +843,15 @@ def accept_sewing_batch(
     db: DbSession,
     current: User = Depends(require_permissions("sewing.bundles", "*")),
 ):
-    batch = (
-        db.query(ProductionBatch)
-        .filter(ProductionBatch.id == production_batch_id)
-        .with_for_update()
-        .first()
-    )
-    if not batch:
-        raise HTTPException(404, "Production batch not found")
-
-    flow = db.get(SewingFlow, payload.sewing_flow_id)
-    if not flow:
-        raise HTTPException(404, "Sewing line not found")
-    require_sewing_flow_access(current, flow)
-    if not flow.is_active:
-        raise HTTPException(400, "Sewing line is inactive")
-
-    bundles = (
-        db.query(Bundle)
-        .filter(
-            Bundle.production_batch_id == batch.id,
-            Bundle.production_order_id == batch.production_order_id,
-            Bundle.status != "cancelled",
-        )
-        .order_by(Bundle.id.asc())
-        .with_for_update()
-        .all()
-    )
-    if not bundles:
-        raise HTTPException(404, "No bundles found for this production batch")
-
-    factory_codes = {resolve_sewing_factory_code(bundle.sewing_factory_code) for bundle in bundles}
-    if len(factory_codes) != 1 or factory_codes != {flow.factory_code}:
-        raise HTTPException(409, "The selected sewing line belongs to a different sewing factory")
-
-    sewing_department_ids = set(_sewing_receive_department_ids(db))
-    blocked = [
-        bundle
-        for bundle in bundles
-        if bundle.status != "received_sewing"
-        and bundle.status != "sent_to_sewing"
-        and not (bundle.status == "created" and bundle.next_department_id in sewing_department_ids)
-    ]
-    if blocked:
-        statuses = ", ".join(sorted({str(bundle.status) for bundle in blocked}))
-        raise HTTPException(
-            409,
-            f"This batch is not fully ready for sewing acceptance. Blocking bundle status: {statuses}",
-        )
-
-    wo = _sewing_work_order_for_batch(db, batch)
-    if not wo:
-        raise HTTPException(404, "Sewing work order not found for this production batch")
-
-    managed_statuses = ("planned", "in_progress", "completed")
-    all_assignments = (
-        db.query(SewingAssignment)
-        .filter(
-            SewingAssignment.work_order_id == wo.id,
-            SewingAssignment.status.in_(managed_statuses),
-        )
-        .with_for_update()
-        .all()
-    )
-    unscoped = [assignment for assignment in all_assignments if assignment.production_batch_id is None]
-    if unscoped:
-        raise HTTPException(409, "This sewing work order already has an order-level line assignment")
-
-    batch_assignments = [
-        assignment
-        for assignment in all_assignments
-        if int(assignment.production_batch_id or 0) == int(batch.id)
-    ]
-    has_unreceived_bundles = any(bundle.status != "received_sewing" for bundle in bundles)
-    if has_unreceived_bundles and any(assignment.status == "completed" for assignment in batch_assignments):
-        raise HTTPException(409, "This batch has a completed sewing assignment and cannot be accepted again")
-    assigned_flow_ids = {int(assignment.sewing_flow_id) for assignment in batch_assignments}
-    if assigned_flow_ids and assigned_flow_ids != {int(flow.id)}:
-        assigned_names = [
-            row.name or row.code
-            for row in db.query(SewingFlow).filter(SewingFlow.id.in_(assigned_flow_ids)).all()
-        ]
-        raise HTTPException(409, f"This batch is already assigned to: {', '.join(assigned_names)}")
-
-    if not all_assignments and wo.sewing_flow_id and int(wo.sewing_flow_id) != int(flow.id):
-        current_flow = db.get(SewingFlow, wo.sewing_flow_id)
-        raise HTTPException(
-            409,
-            f"This sewing work order is already assigned to {current_flow.name if current_flow else wo.sewing_flow_id}",
-        )
-
-    accessory_gate = (
-        verify_sewing_accessory_gate(db, int(batch.production_order_id), sewing_factory_code=flow.factory_code)
-        if has_unreceived_bundles
-        else None
-    )
-    total_quantity = sum(int(bundle.quantity or 0) for bundle in bundles)
-    assignment: SewingAssignment
-    if batch_assignments:
-        assigned_quantity = sum(int(row.quantity or 0) for row in batch_assignments)
-        if assigned_quantity != total_quantity:
-            can_resize = (
-                len(batch_assignments) == 1
-                and int(batch_assignments[0].completed_qty or 0) == 0
-                and assigned_quantity <= total_quantity
-            )
-            if not can_resize:
-                raise HTTPException(
-                    409,
-                    f"Existing batch assignment quantity ({assigned_quantity}) does not match bundle quantity ({total_quantity})",
-                )
-            batch_assignments[0].quantity = total_quantity
-        assignment = batch_assignments[0]
-    else:
-        now = datetime.now(timezone.utc)
-        assignment = SewingAssignment(
-            work_order_id=wo.id,
-            production_batch_id=batch.id,
-            sewing_flow_id=flow.id,
-            quantity=total_quantity,
-            planned_start=now,
-            planned_end=batch.deadline,
-            actual_start=now,
-            status="in_progress",
-            notes="Accepted from cutting-sheet batch QR",
-            created_by=current.id,
-        )
-        db.add(assignment)
-        db.flush()
-
-    if assignment.status == "planned":
-        assignment.status = "in_progress"
-    if assignment.actual_start is None:
-        assignment.actual_start = datetime.now(timezone.utc)
-    if not wo.sewing_flow_id:
-        wo.sewing_flow_id = flow.id
-
-    received_ids = (
-        receive_many_at_sewing(
-            db,
-            [bundle for bundle in bundles if bundle.status != "received_sewing"],
-            current,
-            accessory_gate,
-        )
-        if accessory_gate
-        else []
-    )
-
-    if wo.status == "completed":
-        from app.models.sewing_progress_service import reconcile_sewing_order
-        reconcile_sewing_order(db, batch.production_order_id, current=current, reason="Sewing batch accepted and assigned")
-
-    log_action(
-        db,
-        current,
-        "accept_sewing_batch_qr",
-        "ProductionBatch",
-        batch.id,
-        new_value={
-            "sewing_flow_id": int(flow.id),
-            "sewing_assignment_id": int(assignment.id),
-            "bundle_ids": [int(bundle.id) for bundle in bundles],
-            "received_bundle_ids": received_ids,
-            "quantity": total_quantity,
-        },
-    )
-    db.commit()
-
-    result = _sewing_batch_payload(db, batch, bundles)
+    accepted = accept_sewing_batch_receipt(db, production_batch_id, payload.sewing_flow_id, current)
+    result = _sewing_batch_payload(db, accepted.batch, accepted.bundles)
     result.update({
-        "sewing_assignment_id": int(assignment.id),
-        "sewing_flow_id": int(flow.id),
-        "sewing_flow_code": flow.code,
-        "sewing_flow_name": flow.name,
-        "received_count": len(received_ids),
-        "already_accepted": len(received_ids) == 0,
+        "sewing_assignment_id": int(accepted.assignment.id),
+        "sewing_flow_id": int(accepted.flow.id),
+        "sewing_flow_code": accepted.flow.code,
+        "sewing_flow_name": accepted.flow.name,
+        "received_count": len(accepted.received_ids),
+        "already_accepted": len(accepted.received_ids) == 0,
     })
     return result
 

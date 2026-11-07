@@ -1,5 +1,18 @@
 # Production execution
 
+## Optional sewing line at manual receipt
+
+`sewing_receipt_service.py` owns manual receipt and the existing batch-QR acceptance
+operation. Manual input may include `sewing_flow_id` for a real Nastil; the canonical
+batch acceptance validates the complete locked batch, line/factory, accessory gate,
+existing assignment and quantities, then receives and assigns in one transaction.
+Omitting/null line retains the receipt-only behavior and preserves existing plans.
+Explicit-null legacy Nastils remain receipt-only. Model-filtered manual requests
+cannot silently accept another model in a mixed historical batch. Assignment writes
+use `schemas/production/sewing_receipt.py`; established bundle/progress/audit helpers
+remain shared migration debt. No migration, new permission or production write is
+introduced by source publication. See the [task packet](../../../../docs/SEWING_RECEIVING_EXPORT_20261107.md).
+
 ## Transferred fabric for ECT passports
 
 `ect_passport_fabric_service.py` resolves only authoritative

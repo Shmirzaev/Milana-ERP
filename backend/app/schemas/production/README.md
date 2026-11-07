@@ -61,3 +61,12 @@ duplicate classes or empty implementation files.
 See [schema migration rules](../README.md), [DTO conventions](../../libs/dto/README.md),
 [the business plan](../../../../docs/REFACTOR_PLAN.md) and
 [team ownership](../../../../docs/TEAM_OWNERSHIP.md).
+
+## Sewing receipt assignment writes
+
+[sewing_receipt.py](sewing_receipt.py) creates, resizes and starts the existing
+`SewingAssignment`, including the WorkOrder's first primary line. It operates on
+the caller's supplied Session/attached objects without committing. Business rules,
+locks, authorization and the outer transaction belong to the production receipt
+service; the existing shared bundle/progress/audit writers remain separately
+tracked legacy boundaries. No table, field or migration is added.

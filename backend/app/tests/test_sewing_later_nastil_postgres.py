@@ -1,5 +1,7 @@
 """Real PostgreSQL receipt locks, reconciliation, audit and sibling preservation."""
 from datetime import datetime, timedelta, timezone
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
 from uuid import uuid4
 
 import pytest
@@ -12,9 +14,9 @@ from app.tests.test_password_change_races import password_change_postgres_sessio
 
 
 @pytest.mark.parametrize('factory', ['MIL', 'BST', 'ECO'])
-@pytest.mark.parametrize('printing_loss', [0, 28])
-def test_postgres_later_receipt_reopens_and_preserves_history(password_change_postgres_sessions, factory, printing_loss):
-    from app.schemas import PrintingRecord
+@pytest.mark.parametrize(('printing_loss', 'receipt_line'), [(0, False), (28, False), (0, True)])
+def test_postgres_later_receipt_reopens_and_preserves_history(password_change_postgres_sessions, factory, printing_loss, receipt_line):
+    from app.schemas import PrintingRecord, SewingAssignment, SewingFlow
     sessions, _ = password_change_postgres_sessions
     marker = uuid4().hex[:10]
     with sessions() as db:
@@ -72,7 +74,10 @@ def test_postgres_later_receipt_reopens_and_preserves_history(password_change_po
                           color='white', size='M', quantity=32, status='created', sewing_factory_code=factory,
                           current_department_id=cut_dept.id, next_department_id=sew_dept.id) for i in range(4)]
         db.add_all(bundles)
+        flow = SewingFlow(factory_code=factory, code='PG-' + marker, name='PostgreSQL later line ' + marker)
+        db.add(flow)
         db.commit()
+        flow_id = flow.id
         actor_id, order_id, sewing_id, packing_id, batch_id, first_id = actor.id, order.id, sewing.id, packing.id, batches[1].id, first.id
         identities = [(b.id, b.barcode, b.quantity) for b in bundles]
     with sessions() as blocker, sessions() as contender:
@@ -85,9 +90,33 @@ def test_postgres_later_receipt_reopens_and_preserves_history(password_change_po
     with sessions() as db:
         actor = db.get(User, actor_id)
         actor.session_factory_code = factory
-        result = manual_receive_sewing(SewingManualReceiveIn(production_order_id=order_id,
-            production_batch_id=batch_id, model_id=model.id, factory_code=factory), db, actor)
+        def receipt():
+            with sessions() as writer:
+                worker_actor = writer.get(User, actor_id)
+                worker_actor.session_factory_code = factory
+                barrier.wait(timeout=5)
+                return manual_receive_sewing(SewingManualReceiveIn(production_order_id=order_id,
+                    production_batch_id=batch_id, model_id=model.id, factory_code=factory, sewing_flow_id=flow_id), writer, worker_actor)
+
+        if receipt_line:
+            barrier = Barrier(2)
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                results = list(pool.map(lambda _: receipt(), range(2)))
+            assert sorted(item['received_count'] for item in results) == [0, 4]
+            assert len({item['sewing_assignment_id'] for item in results}) == 1
+            result = max(results, key=lambda item: item['received_quantity'])
+        else:
+            result = manual_receive_sewing(SewingManualReceiveIn(production_order_id=order_id,
+                production_batch_id=batch_id, model_id=model.id, factory_code=factory), db, actor)
         assert result['received_quantity'] == 128
+        if receipt_line:
+            assigned_id = result['sewing_assignment_id']
+            # Bounded retry challenge on the actual PostgreSQL row locks.
+            for _ in range(12):
+                retry = manual_receive_sewing(SewingManualReceiveIn(production_order_id=order_id,
+                    production_batch_id=batch_id, model_id=model.id, factory_code=factory, sewing_flow_id=flow_id), db, actor)
+                assert retry['received_count'] == 0 and retry['sewing_assignment_id'] == assigned_id
+            assert db.query(SewingAssignment).filter_by(work_order_id=sewing_id, production_batch_id=batch_id).count() == 1
     with sessions() as db:
         sewing = db.get(WorkOrder, sewing_id)
         assert sewing.status == 'in_progress' and sewing.end_time is None
@@ -103,16 +132,15 @@ def test_postgres_later_receipt_reopens_and_preserves_history(password_change_po
         assert db.query(AuditLog).filter_by(action='reopen_later_nastil', entity_id=sewing_id).count() == 1
         from app.api.routes.production import post_packaging, post_sewing
         from app.api.routes.production_extra import create_assignment
-        from app.schemas import SewingFlow
         from app.libs.dto.production.production import PackagingRecordIn, SewingRecordIn
         from app.libs.dto.production.sewing_assignment import SewingAssignmentIn
-        flow = SewingFlow(factory_code=factory, code='PG-' + marker, name='PostgreSQL later line ' + marker)
-        db.add(flow)
-        db.commit()
         actor = db.get(User, actor_id)
         actor.session_factory_code = factory
-        assignment = create_assignment(sewing_id, SewingAssignmentIn(work_order_id=sewing_id,
-            production_batch_id=batch_id, sewing_flow_id=flow.id, quantity=128-printing_loss), db, actor)
+        if receipt_line:
+            assignment = db.get(SewingAssignment, assigned_id)
+        else:
+            assignment = create_assignment(sewing_id, SewingAssignmentIn(work_order_id=sewing_id,
+                production_batch_id=batch_id, sewing_flow_id=flow_id, quantity=128-printing_loss), db, actor)
         post_sewing(SewingRecordIn(work_order_id=sewing_id, production_batch_id=batch_id,
             sewing_assignment_id=assignment.id, input_qty=128-printing_loss, sewn_qty=128-printing_loss,
             passed_qty=128-printing_loss), db, actor,

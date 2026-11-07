@@ -40,6 +40,11 @@ REPORT_TEXT = {
         "model_no": "Model No.",
         "variant_no": "Variant No.",
         "kroy_no": "Kroy No.",
+        "part": "Garment part",
+        "top_qty": "Top qty",
+        "bottom_qty": "Bottom qty",
+        "top": "Top",
+        "bottom": "Bottom",
         "sewn": "Sewn qty",
         "defective": "Defect qty",
         "reason": "Defect reason",
@@ -64,6 +69,11 @@ REPORT_TEXT = {
         "model_no": "Модель №",
         "variant_no": "Вариант №",
         "kroy_no": "Крой №",
+        "part": "Часть изделия",
+        "top_qty": "Количество верха",
+        "bottom_qty": "Количество низа",
+        "top": "Верх",
+        "bottom": "Низ",
         "sewn": "Сшито",
         "defective": "Брак",
         "reason": "Причина брака",
@@ -88,6 +98,11 @@ REPORT_TEXT = {
         "model_no": "Model raqami",
         "variant_no": "Variant raqami",
         "kroy_no": "Kroy No",
+        "part": "Kiyim qismi",
+        "top_qty": "Tepa miqdori",
+        "bottom_qty": "Past miqdori",
+        "top": "Tepa",
+        "bottom": "Past",
         "sewn": "Tikilgan miqdor",
         "defective": "Brak miqdori",
         "reason": "Brak sababi",
@@ -164,6 +179,14 @@ def _entry_values(row: SewingDailyReportOut, index: int, lang: ReportLanguage) -
     ]
 
 
+def _garment_part(row: SewingDailyReportOut, lang: ReportLanguage) -> str:
+    # The saved split is authoritative. A zero opposite quantity represents the
+    # single selected part; absent splits must not be guessed from the model.
+    text = REPORT_TEXT[lang]
+    parts = [text[key] for key, quantity in (("top", row.top_qty), ("bottom", row.bottom_qty)) if quantity is not None and quantity > 0]
+    return " / ".join(parts) or text["none"]
+
+
 def build_sewing_daily_report_xlsx(
     report: SewingDailyReportListOut,
     generated_label: str,
@@ -183,13 +206,13 @@ def build_sewing_daily_report_xlsx(
     muted_font = Font(size=9, color="625B4B")
     thin_bottom = Border(bottom=Side(style="thin", color="D8D1C0"))
 
-    entries_sheet.merge_cells("A1:E1")
+    entries_sheet.merge_cells("A1:H1")
     entries_sheet["A1"] = text["entries"]
     entries_sheet["A1"].font = title_font
-    entries_sheet.merge_cells("A2:E2")
+    entries_sheet.merge_cells("A2:H2")
     entries_sheet["A2"] = f'{text["period"]}: {_period_label(report)}'
     entries_sheet["A2"].font = muted_font
-    entries_sheet.merge_cells("A3:E3")
+    entries_sheet.merge_cells("A3:H3")
     entries_sheet["A3"] = f'{text["generated"]}: {generated_label}'
     entries_sheet["A3"].font = muted_font
 
@@ -199,6 +222,9 @@ def build_sewing_daily_report_xlsx(
         text["model_no"],
         text["kroy_no"],
         text["sewn"],
+        text["part"],
+        text["top_qty"],
+        text["bottom_qty"],
     ]
     for column, value in enumerate(entry_headers, 1):
         cell = entries_sheet.cell(5, column, value)
@@ -213,12 +239,15 @@ def build_sewing_daily_report_xlsx(
             report_row.model_no or report_row.model_code or text["none"],
             report_row.kroy_no or text["none"],
             int(report_row.sewn_qty or 0),
+            _garment_part(report_row, lang),
+            report_row.top_qty,
+            report_row.bottom_qty,
         ]
         for column, value in enumerate(values, 1):
             cell = entries_sheet.cell(row_index, column, value)
             cell.border = thin_bottom
             cell.alignment = Alignment(
-                horizontal="right" if column in {1, 5} else "left",
+                horizontal="right" if column in {1, 5, 7, 8} else "left",
                 vertical="top",
                 wrap_text=column == 2,
             )
@@ -229,11 +258,14 @@ def build_sewing_daily_report_xlsx(
         "C": 20,
         "D": 20,
         "E": 18,
+        "F": 20,
+        "G": 18,
+        "H": 18,
     }
     for column, width in widths.items():
         entries_sheet.column_dimensions[column].width = width
     entries_sheet.freeze_panes = "A6"
-    entries_sheet.auto_filter.ref = f"A5:E{max(5, 5 + len(report.rows))}"
+    entries_sheet.auto_filter.ref = f"A5:H{max(5, 5 + len(report.rows))}"
     entries_sheet.sheet_view.showGridLines = False
     entries_sheet.page_setup.orientation = "landscape"
     entries_sheet.page_setup.fitToWidth = 1

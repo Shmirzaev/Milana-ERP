@@ -76,6 +76,7 @@ const messages = [];
 let refreshed = 0;
 const receiptEnv = {
   factoryCode: "BST", bundle: null, bandOnly: false,
+  manualFlowIds: { "204:89:5459": 7 },
   setManualBusyKey: key => busyKeys.push(key), setManualMsg: value => messages.push(value),
   api: { post: async (path, payload) => {
     receiptCalls.push({ path, payload });
@@ -90,6 +91,7 @@ for (const batch of [89, 95, null]) {
                   order_no: "PO-0182", batch_label: batch === null ? null : `Batch ${batch}` });
 }
 assert.deepEqual(receiptCalls.map(call => call.payload.production_batch_id), [89, 95, null]);
+assert.deepEqual(receiptCalls.map(call => call.payload.sewing_flow_id), [7, null, null]);
 assert.ok(receiptCalls.every(call => call.path === "/api/bundles/manual-receive-sewing" && call.payload.production_order_id === 204));
 assert.equal(new Set(busyKeys.filter(Boolean)).size, 3);
 assert.equal(refreshed, 3);
