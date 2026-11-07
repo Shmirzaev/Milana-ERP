@@ -27,6 +27,10 @@ integration is not deployment evidence. DEPLOYMENT.md now specifies early failur
 checks, independent parallel work, exact scanned-image promotion and advance disk
 maintenance; backend test sharding remains a CI tooling follow-up. Production
 remains green `20261106_061725` until a separately verified cutover succeeds.
+The owner recorded a passed local application QA review on7November; full release
+gates remain required. The initial compatibility image failed security checks;
+its narrow dependency/base-image update must pass fresh immutable-image checks
+before any production migration or cutover.
 
 ## Dilmurod source classification (7 November)
 

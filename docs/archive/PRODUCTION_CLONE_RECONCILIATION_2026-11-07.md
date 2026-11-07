@@ -100,6 +100,10 @@ reviewed hardened backend/frontend Dockerfiles. Preserve business/authentication
 code and other dependency choices, verify React18 peer compatibility, and require
 fresh build, compatibility and exact published-image security evidence. Preserve
 the initial failed reports; do not change policy acceptances to turn them green.
+A separate npm audit identified development-only Zod4.4.3 HIGH advisory
+GHSA-mrhx-c7xc-m3w5, absent from that Trivy snapshot. The recovery lock also moves
+that one entry to the final candidate's already reviewed4.6.6; retain its dev-only
+classification and all unrelated pins.
 
 Combined candidate7d17ece passed its frontend build/contracts/security scan and
 the separate PostgreSQL gate:639 required,17 purchasing/fabric and84 shared
@@ -110,7 +114,11 @@ reservation (consumed0); physical stock, payroll2500 and shipment8 stayed unchan
 The20-request/concurrency2 read smoke passed with unchanged selected facts; it is
 not capacity or fault-abort proof. Full backend CI and recovery hardening remain
 pending. Browser extension-injected hydration warnings and the unexercised blank
-quantity entry remain explicit limitations; human pre-deployment review is pending.
+quantity entry remain explicit limitations. On7November2026 at04:35UTC the owner
+answered the explicit pre-deployment checklist question with **Review passed — I
+completed it**. Record the reviewer as the authenticated user/owner in this chat;
+no separate personal name was supplied. This is the human application review,
+not a technical/security/backup/observation waiver or earlier acceptance backfill.
 
 Integration and validation are in progress. No merge, production migration,
 cutover, observation or human acceptance is claimed by this planning record.
