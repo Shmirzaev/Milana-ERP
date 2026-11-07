@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from typing import NotRequired, TypedDict
 
 from fastapi import HTTPException
-from sqlalchemy import and_, or_, text
+from sqlalchemy import and_, or_, text, true
 from sqlalchemy.orm import Session
 
 from app.libs.dto.production.sewing_manual_receive import SewingManualReceiveIn
@@ -17,7 +17,7 @@ from app.schemas.production.sewing_receipt import create_receipt_assignment, res
 from app.models.audit_service import log_action
 from app.models.bundles_service import receive_many_at_sewing, resolve_sewing_factory_code, verify_sewing_accessory_gate
 from app.models.sewing_scope_service import require_sewing_flow_access, sewing_line_factory_scope
-from app.models.sewing_input_service import usable_sewing_receipt_quantity
+from app.models.sewing_input_service import sewing_receipt_printing_totals, usable_sewing_receipt_quantity
 
 SEWING_RECEIVE_DEPARTMENT_CODES = ("SEW", "MIL", "BST", "ECO")
 
@@ -145,17 +145,20 @@ def accept_sewing_batch(
     if not flow.is_active:
         raise HTTPException(400, "Sewing line is inactive")
 
-    bundles = (
-        db.query(Bundle)
+    printing = sewing_receipt_printing_totals(batch.production_order_id, batch.id)
+    bundle_rows = (
+        db.query(Bundle, printing.c.printing_passed_qty, printing.c.printing_rejected_qty)
+        .join(printing, true())
         .filter(
             Bundle.production_batch_id == batch.id,
             Bundle.production_order_id == batch.production_order_id,
             Bundle.status != "cancelled",
         )
         .order_by(Bundle.id.asc())
-        .with_for_update()
+        .with_for_update(of=Bundle)
         .all()
     )
+    bundles = [row[0] for row in bundle_rows]
     if not bundles:
         raise HTTPException(404, "No bundles found for this production batch")
 
@@ -234,7 +237,10 @@ def accept_sewing_batch(
         else None
     )
     total_quantity = sum(int(bundle.quantity or 0) for bundle in bundles)
-    assignment_quantity = usable_sewing_receipt_quantity(db, wo, batch.id, total_quantity)
+    assignment_quantity = usable_sewing_receipt_quantity(
+        received_qty=total_quantity, printing_passed_qty=int(bundle_rows[0][1]),
+        printing_rejected_qty=int(bundle_rows[0][2]),
+    )
     if assignment_quantity <= 0:
         raise HTTPException(409, "This Nastil has no usable Sewing input after Printing rejects")
     assignment: SewingAssignment

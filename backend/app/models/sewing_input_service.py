@@ -1,6 +1,7 @@
 """Keep bundle receipts and Sewing record input from crediting pieces twice."""
-from sqlalchemy import func
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
+from sqlalchemy.sql.selectable import Subquery
 
 from app.schemas import Bundle, PrintingRecord, SewingRecord, WorkOrder
 
@@ -19,24 +20,32 @@ def usable_sewing_input_quantity(
                received_qty - printing_rejected_qty, printing_passed_qty)
 
 
-def usable_sewing_receipt_quantity(
-    db: Session, work_order: WorkOrder, production_batch_id: int, received_qty: int,
-) -> int:
+def sewing_receipt_printing_totals(production_order_id: int, production_batch_id: int) -> Subquery:
+    """One aggregate row joined to the existing locked bundle read.
+
+    Constructing this statement performs no query. It scans Printing evidence
+    once for the selected Nastil, independently of how many bundles are received.
+    """
     print_batch = func.coalesce(PrintingRecord.production_batch_id, WorkOrder.production_batch_id)
-    passed, rejected = db.query(
-        func.coalesce(func.sum(PrintingRecord.passed_qty), 0),
-        func.coalesce(func.sum(PrintingRecord.rejected_qty), 0),
-    ).join(WorkOrder, WorkOrder.id == PrintingRecord.work_order_id).filter(
-        WorkOrder.production_order_id == work_order.production_order_id,
+    return select(
+        func.coalesce(func.sum(PrintingRecord.passed_qty), 0).label("printing_passed_qty"),
+        func.coalesce(func.sum(PrintingRecord.rejected_qty), 0).label("printing_rejected_qty"),
+    ).select_from(PrintingRecord).join(WorkOrder, WorkOrder.id == PrintingRecord.work_order_id).where(
+        WorkOrder.production_order_id == production_order_id,
         WorkOrder.operation == "printing",
         WorkOrder.status.notin_(("cancelled", "rejected", "skipped")),
         print_batch == production_batch_id,
-    ).one()
+    ).subquery()
+
+
+def usable_sewing_receipt_quantity(
+    *, received_qty: int, printing_passed_qty: int, printing_rejected_qty: int,
+) -> int:
     # An upstream record must never manufacture more line work than this exact
     # batch's physical receipt. No bundle labels/quantities are rewritten.
     return min(received_qty, usable_sewing_input_quantity(
-        received_qty=received_qty, printing_passed_qty=int(passed or 0),
-        printing_rejected_qty=int(rejected or 0),
+        received_qty=received_qty, printing_passed_qty=printing_passed_qty,
+        printing_rejected_qty=printing_rejected_qty,
     ))
 
 

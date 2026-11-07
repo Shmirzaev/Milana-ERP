@@ -175,3 +175,35 @@ this characterization and changes no `production.py` source. This is an unresolv
 adjacent workflow risk, not a claimed passing cancelled-Printing completion.
 Parent owns its separate prioritization and the actual browser/independent review
 of the combined active-Printing-loss fix. No production rows are changed.
+
+## Full-suite query-budget followup
+
+The parent's frozen full-suite check found six failures introduced by this slice;
+these are not classified as inherited. Original manual measurements became
+21/70/421 SELECTs at 1/50/401 bundles and QR acceptance became 31 instead of 29.
+The operation extraction moved its audit dependency into the new service, but the
+performance test still replaced the HTTP module's old logger. The resulting SQLite
+audit-chain lookup ran once per bundle inside a boundary that intentionally
+excluded auditing. The Printing-loss correction also added one constant read.
+
+The test now replaces the owning service logger and records/asserts every expected
+per-bundle/manual or per-batch/QR audit call. Its receipt-sum classifier matches
+`sum(bundles.quantity)` precisely, since the new Printing projection selects raw
+bundle quantity alongside a different aggregate. Actual audit writes are not
+removed, postponed or changed. To avoid increasing even the existing constant SQL
+budgets, the Printing totals are one independent aggregate joined into the existing
+locked Bundle read, after the batch lock. PostgreSQL uses `FOR UPDATE OF bundles`,
+retaining batch -> bundle lock order without locking aggregate rows. The aggregate
+runs once for the exact Nastil, independently of its bundle count; target arithmetic,
+all-reject refusal, receipt labels and active-loss completion are unchanged.
+
+The original exact budgets remain 20 manual / 29 QR SELECTs for 1/50/401 bundles.
+New selected-manual coverage has a tighter 24-query budget at all three sizes.
+There is no query-budget increase. A separate real PostgreSQL test runs all three
+modes without audit mocks at 1/50/401 bundles, checks persisted per-bundle audit rows
+and verifies the entire audit hash chain. Counts remain constant: manual 23/23/23,
+QR 31/31/31 and selected-manual 26/26/26. All 15 PostgreSQL cases pass in 17.28 seconds,
+including the 12 active-loss/concurrency/completion regressions. The scoped SQLite
+query-growth, shared accessory gate, manual line, later-Nastil and completion suites
+pass 76 cases in 42.72 seconds. Ruff and diff checks pass. Parent
+independent review and frozen combined-suite verification remain required.

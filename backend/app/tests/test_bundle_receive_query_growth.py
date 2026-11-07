@@ -4,18 +4,22 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy import event
 
-from app.api.routes import bundles as bundle_routes
 from app.schemas import Bundle, BundleScanLog, ProductionBatch, ProductionOrder, User, WorkOrder
 from app.models import bundles_service as bundle_services
+from app.models.production import sewing_receipt_service as receipt_services
 from app.tests.conftest import TestSessionLocal
 from app.tests.test_bundle_accessory_gate_batching import _bundle_batch, _run_bulk
 
 
-@pytest.mark.parametrize("mode", ["manual", "accept"])
+@pytest.mark.parametrize("mode", ["manual", "accept", "manual_line"])
 @pytest.mark.parametrize("bundle_count", [1, 50, 401])
 def test_bulk_sewing_receipt_has_bounded_shared_context_queries(monkeypatch, mode, bundle_count):
     case = _bundle_batch(bundle_count)
-    monkeypatch.setattr(bundle_routes, "log_action", lambda *_args, **_kwargs: None)
+    audit_calls = []
+    # The operation (including its audit dependency) moved from the HTTP module
+    # to this service. Keep the performance boundary's original audit exclusion,
+    # and assert every expected audit still runs rather than dropping them.
+    monkeypatch.setattr(receipt_services, "log_action", lambda *args, **kwargs: audit_calls.append((args[2], args[3], args[4])))
     with TestSessionLocal() as db:
         statements: list[str] = []
 
@@ -25,16 +29,29 @@ def test_bulk_sewing_receipt_has_bounded_shared_context_queries(monkeypatch, mod
 
         event.listen(db.bind, "before_cursor_execute", capture)
         try:
-            result = _run_bulk(db, case, mode)
+            if mode == "manual_line":
+                result = receipt_services.receive_manual_sewing(
+                    db, receipt_services.SewingManualReceiveIn(production_order_id=case["order_id"],
+                        production_batch_id=case["batch_id"], factory_code="MIL", sewing_flow_id=case["flow_id"]),
+                    _current_user(db),
+                )
+            else:
+                result = _run_bulk(db, case, mode)
         finally:
             event.remove(db.bind, "before_cursor_execute", capture)
 
     assert result["received_count"] == bundle_count
+    expected_actions = {
+        "manual": ["manual_receive_at_sewing"] * bundle_count,
+        "accept": ["accept_sewing_batch_qr"],
+        "manual_line": ["manual_receive_at_sewing"] * bundle_count + ["accept_sewing_batch_manual"],
+    }
+    assert [action for action, _, _ in audit_calls] == expected_actions[mode]
     normalized = [statement.lower() for statement in statements]
     department_reads = [statement for statement in normalized if "from departments" in statement]
     received_sum_reads = [
         statement for statement in normalized
-        if "sum(" in statement and "bundles.quantity" in statement
+        if "sum(bundles.quantity)" in statement
     ]
     work_order_reads = [statement for statement in normalized if "from work_orders" in statement]
     production_order_reads = [
@@ -44,6 +61,10 @@ def test_bulk_sewing_receipt_has_bounded_shared_context_queries(monkeypatch, mod
         statement for statement in production_order_reads
         if "where production_orders.id in" in statement
     ]
+    printing_reads = [statement for statement in normalized if "sum(printing_records.rejected_qty)" in statement]
+    assert len(printing_reads) == (0 if mode == "manual" else 1)
+    if printing_reads:
+        assert "from bundles join (select" in printing_reads[0]
     assert len(department_reads) <= 2
     assert len(received_sum_reads) <= 1
     # Receipt status synchronization stays live per bundle, but its already
@@ -56,7 +77,7 @@ def test_bulk_sewing_receipt_has_bounded_shared_context_queries(monkeypatch, mod
     assert "production_orders.service_handover_notes" not in receipt_order_reads[0]
     assert len(work_order_reads) <= 4
     print(f"{mode} {bundle_count}: {len(statements)} SELECTs")
-    assert len(statements) == (20 if mode == "manual" else 29)
+    assert len(statements) == {"manual": 20, "accept": 29, "manual_line": 24}[mode]
     with TestSessionLocal() as db:
         bundles = db.query(Bundle).filter(Bundle.id.in_(case["bundle_ids"])).all()
         assert {bundle.status for bundle in bundles} == {"received_sewing"}

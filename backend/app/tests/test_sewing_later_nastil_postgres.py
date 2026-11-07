@@ -165,3 +165,76 @@ def test_postgres_later_receipt_reopens_and_preserves_history(password_change_po
         reconcile_sewing_order(db, order_id)
         db.commit()
         assert sewing.status == 'cancelled'
+
+
+@pytest.mark.parametrize("mode", ["manual", "accept", "manual_line"])
+def test_postgres_receipt_queries_stay_constant_with_real_audits(password_change_postgres_sessions, mode):
+    from sqlalchemy import event
+    from app.api.routes.bundles import SewingBatchAcceptIn, accept_sewing_batch
+    from app.models.audit_service import verify_audit_hash_chain
+    from app.schemas import SewingFlow
+
+    sessions, engine = password_change_postgres_sessions
+    counts = []
+    for count in (1, 50, 401):
+        marker = uuid4().hex[:10]
+        with sessions() as db:
+            departments = {}
+            for code in ("CUT", "MIL", "PKG"):
+                department = db.query(Department).filter_by(code=code).first()
+                if department is None:
+                    department = Department(code=code, name=code)
+                    db.add(department)
+                    db.flush()
+                departments[code] = department.id
+            actor = User(name="Receipt query QA", email=f"query-{marker}@example.invalid",
+                password_hash="local-only", factory_code="MIL", extra_permissions=["*"])
+            model = Model(code="QUERY-" + marker, name="Query QA")
+            flow = SewingFlow(factory_code="MIL", code="QUERY-" + marker, name="Query QA line " + marker)
+            db.add_all([actor, model, flow])
+            db.flush()
+            order = ProductionOrder(production_no="QUERY-" + marker, production_type="branded_stock",
+                model_id=model.id, planned_quantity=count, status="cutting")
+            db.add(order)
+            db.flush()
+            batch = ProductionBatch(production_order_id=order.id, batch_no="QUERY-" + marker,
+                batch_index=1, planned_quantity=count)
+            db.add(batch)
+            db.flush()
+            db.add_all([WorkOrder(production_order_id=order.id, operation="cutting", department_id=departments["CUT"],
+                status="completed", passed_qty=count, planned_output_qty=count),
+                WorkOrder(production_order_id=order.id, production_batch_id=batch.id, operation="sewing",
+                    department_id=departments["MIL"], status="waiting", planned_input_qty=count, planned_output_qty=count),
+                WorkOrder(production_order_id=order.id, operation="packaging", department_id=departments["PKG"],
+                    status="waiting", planned_input_qty=count, planned_output_qty=count)])
+            bundles = [Bundle(production_order_id=order.id, production_batch_id=batch.id, model_id=model.id,
+                bundle_no=f"{marker}-{index}", barcode=f"{marker}-bar-{index}", color="white", size="M",
+                quantity=1, status="created", sewing_factory_code="MIL",
+                current_department_id=departments["CUT"], next_department_id=departments["MIL"]) for index in range(count)]
+            db.add_all(bundles)
+            db.commit()
+            actor_id, order_id, batch_id, flow_id = actor.id, order.id, batch.id, flow.id
+            bundle_ids = [bundle.id for bundle in bundles]
+        with sessions() as db:
+            actor = db.get(User, actor_id)
+            actor.session_factory_code = "MIL"
+            statements = []
+            def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+                if statement.lstrip().upper().startswith("SELECT"):
+                    statements.append(statement)
+            event.listen(engine, "before_cursor_execute", capture)
+            try:
+                if mode == "accept":
+                    result = accept_sewing_batch(batch_id, SewingBatchAcceptIn(sewing_flow_id=flow_id), db, actor)
+                else:
+                    result = manual_receive_sewing(SewingManualReceiveIn(production_order_id=order_id,
+                        production_batch_id=batch_id, factory_code="MIL", sewing_flow_id=flow_id if mode == "manual_line" else None), db, actor)
+            finally:
+                event.remove(engine, "before_cursor_execute", capture)
+            assert result["received_count"] == count
+            counts.append(len(statements))
+            assert db.query(AuditLog).filter(AuditLog.entity_type == "Bundle", AuditLog.entity_id.in_(bundle_ids),
+                AuditLog.action == "manual_receive_at_sewing").count() == (0 if mode == "accept" else count)
+            assert verify_audit_hash_chain(db)["ok"]
+    print(f"PostgreSQL {mode}: {counts} SELECTs for 1/50/401 bundles with real audits")
+    assert len(set(counts)) == 1
