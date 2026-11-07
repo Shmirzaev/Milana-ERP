@@ -38,11 +38,13 @@ from app.core.model_search import (
     model_group_prefix_number_column,
 )
 from app.core.uploads import (
+    MODEL_PATTERN_CAD_EXTENSIONS,
     SAFE_DOCUMENT_EXTENSIONS,
     SAFE_IMAGE_EXTENSIONS,
     extension_for_upload,
     safe_content_type,
     read_validated_upload_content,
+    read_validated_pattern_cad_upload,
 )
 from app.libs.dto.catalog.model_bom_input import ModelBOMIn
 from app.libs.dto.catalog.model_bom_update import ModelBOMUpdate
@@ -2517,8 +2519,11 @@ async def upload_image(
         worker_sessions,
         partial(_require_catalog_upload_model, model_id=mid, catalog_scope=catalog_scope),
     )
-    ext = extension_for_upload(file, SAFE_IMAGE_EXTENSIONS | SAFE_DOCUMENT_EXTENSIONS)
     normalized_image_type = _normalize_image_type(image_type)
+    allowed_extensions = SAFE_IMAGE_EXTENSIONS | SAFE_DOCUMENT_EXTENSIONS
+    if normalized_image_type == "pattern":
+        allowed_extensions = allowed_extensions | MODEL_PATTERN_CAD_EXTENSIONS
+    ext = extension_for_upload(file, allowed_extensions)
     stored_image = None
     document_target = None
     document_state = UploadFileWriteState()
@@ -2540,7 +2545,10 @@ async def upload_image(
             safe_name = f"model_{mid}_{uuid4().hex}{ext}"
             document_target = Path(settings.MODEL_FILES_DIR) / safe_name
             async with upload_processing_slot():
-                content = await read_validated_upload_content(file, ext, 20 * 1024 * 1024)
+                if ext in MODEL_PATTERN_CAD_EXTENSIONS:
+                    content = await read_validated_pattern_cad_upload(file, ext, 20 * 1024 * 1024)
+                else:
+                    content = await read_validated_upload_content(file, ext, 20 * 1024 * 1024)
                 await run_upload_file_write(
                     partial(_write_new_model_document, document_target, content),
                     document_state,

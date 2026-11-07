@@ -2,6 +2,7 @@
 
 import { formatVariantNumber } from "@/lib/variantDisplay";
 import Link from "next/link";
+import CuttingRejectOrder from "@/components/CuttingRejectOrder";
 import { Check } from "lucide-react";
 import { useMe, can } from "@/lib/auth";
 import { useMemo, useState } from "react";
@@ -27,6 +28,7 @@ type CuttingOrder = {
   variant_no?: string | null;
   model_name?: string | null;
   model_image_url?: string | null;
+  print_image_url?: string | null;
   material_image_url?: string | null;
   material_item_sku?: string | null;
   material_item_name?: string | null;
@@ -81,12 +83,14 @@ export default function CuttingOrderList({
   cuttingDepartment,
   total,
   onSearch,
+  onChanged,
   t,
 }: {
   rows: CuttingOrder[];
   cuttingDepartment: string;
   total?: number;
   onSearch?: (query: string) => void;
+  onChanged?: () => Promise<unknown>;
   t: CtxT;
 }) {
   const { me } = useMe();
@@ -181,6 +185,7 @@ export default function CuttingOrderList({
                       <tr>
                         <th className="w-16">{t("page.workOrder.modelPicture")}</th>
                         <th className="w-16">{t("cuttingInbox.variantPicture")}</th>
+                        <th className="w-16">{t("page.modelDetail.printPicture")}</th>
                         <th>{t("field.production")}</th>
                         <th>{t("field.sewingFactory")}</th>
                         <th>{t("field.modelNo")}</th>
@@ -216,6 +221,7 @@ export default function CuttingOrderList({
                                 emptyLabel={t("page.workOrder.noImage")}
                               />
                             </td>
+                            <td><ImageThumbnail imageUrl={row.print_image_url} label={t("page.modelDetail.printPicture")} title={t("page.modelDetail.printPicture")} emptyLabel={t("page.workOrder.noImage")} fit="contain" /></td>
                             <td className="mono whitespace-nowrap font-semibold text-[#14110b]">{orderReference(row, `#${row.production_order_id}`)}</td>
                             <td className="whitespace-nowrap">{sewingFactoryLabel(row.sewing_factory_code, t)}</td>
                             <td className="whitespace-nowrap">{row.model_no || row.model_name || "-"}</td>
@@ -238,6 +244,9 @@ export default function CuttingOrderList({
                                     {t("floor.addPassport")}
                                   </Link>
                                 ) : null}
+                                <CuttingRejectOrder workOrderId={row.id} status={row.status}
+                                  hasOutput={Boolean(row.cutting_passport_id) || Number(row.passed_qty || 0) > 0 || Number(row.received_bundle_count || 0) > 0}
+                                  orderLabel={orderReference(row, row.production_no || "-")} onRejected={onChanged || (async () => {})} />
                                 <Link className="btn btn-primary h-8 px-3 text-[11px]" href={`/work-orders/${row.id}/cutting`}>
                                   {t("btn.open")}
                                 </Link>

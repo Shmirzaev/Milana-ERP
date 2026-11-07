@@ -364,9 +364,14 @@ def _require_model_file_token(_user: CurrentUser, db: DbSession) -> None:
 @app.get("/storage/model-files/{name}", dependencies=[Depends(_require_model_file_token)])
 def serve_model_file(name: str, request: Request):
     from fastapi import HTTPException
+    from fastapi.responses import FileResponse
 
     abs_path = _model_file_path_if_exists(name)
     if abs_path:
+        from app.core.uploads import MODEL_PATTERN_CAD_EXTENSIONS
+        if Path(name).suffix.lower() in MODEL_PATTERN_CAD_EXTENSIONS:
+            return FileResponse(abs_path, media_type="application/octet-stream", filename=name,
+                                headers={"X-Content-Type-Options": "nosniff"})
         return _conditional_model_file_response(abs_path, request)
 
     with SessionLocal() as db:

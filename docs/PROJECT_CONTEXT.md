@@ -15,6 +15,19 @@ Last updated 2026-11-07. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
+## Production and clone_main reconciliation (7 November)
+
+The user authorized merging the verified November 6 production fixes into
+`clone_main` and deploying the combined candidate after all checks pass. The
+[reconciliation record](archive/PRODUCTION_CLONE_RECONCILIATION_2026-11-07.md)
+tracks the exact source parents, preserved release state, migration/recovery
+requirements and independent verification. The dedicated candidate joins the
+ECO and turnstile histories without rewriting existing migrations; source
+integration is not deployment evidence. DEPLOYMENT.md now specifies early failure
+checks, independent parallel work, exact scanned-image promotion and advance disk
+maintenance; backend test sharding remains a CI tooling follow-up. Production
+remains green `20261106_061725` until a separately verified cutover succeeds.
+
 ## Dilmurod source classification (7 November)
 
 Behavior-preserving Identity #546, People #545, Support #547 and Work #544 code
@@ -45,6 +58,151 @@ then merge and closure of included lower PRs. User owns one final browser check;
 the payroll QA servers/data/caches were removed after the user declared payroll done. Automated evidence and the complete
 operation/type retention ledger live in [the payroll record](archive/payroll-create-2026-11-06/CONTINUATION.md).
 No production deployment, visual acceptance or system-wide enum completion is claimed.
+
+## Passport totals, pictures and transferred ECT fabric (6 November)
+
+**Deployed together with the seven 5 November fixes.** Both hosts now serve
+green `20261106_061725`, exact application
+`a8579e64efbb2f9545d6df1c35d527c1d4ae2f01`, manifest
+`7f52cf7bf61e6fa4159d65e590d9cefaa6a493992e8b80197343490e5ee09fb0`.
+Database remains `0154_eco_receipt_details`; no business backfill or production
+test rows were created. The historical saved rows now report automatically:
+PO-0749 and PO-0750 each show 1,200 pieces, totaling 2,400. Actual public Edge
+screenshots and signed immutable API checks agree. Export pictures and the
+authoritative ECT 5A picker also passed; fresh available 5A was 151.8 kg at QA.
+
+CI run 42173510387 passed for this exact source: 5,245 backend tests passed, 644
+skipped; separate required PostgreSQL gates passed 180/23/176 cases without
+skips. Frontend lint, strict types, build and contracts passed. Combined local
+Edge flows, independent review, staging/public performance comparisons, all four
+health checks, strict startup/router/log checks and database integrity passed.
+Fresh 113,383,511-byte PostgreSQL backup validated 1,329 restore objects.
+User explicitly waived timed observation; none was run. Owned deployment leases
+were released, and owned local QA services were stopped without deleting data.
+
+Compatible **read-only** rollback is retained on blue `20261106_054000` /
+`bf9cb9f0e738e82b9a21909b22e4cdecae7bed37`. Plain writable 488 is unsafe after
+new grouped/Eco/rejection facts. Recovery uses read-only PostgreSQL and business
+storage, with a separate private writable SQLite security counter store; login
+locks/rate limits remain enabled across two workers. The retained counter copy
+is a rehearsal snapshot: before incident activation, quiesce green and refresh
+from its authoritative store using the separately reviewed recovery procedure.
+Direct old `activate-readonly-backend` authorization is superseded; no automatic
+fallback or completed recovery activation is claimed.
+
+See [combined release record](COMBINED_PASSPORT_FLOOR_RELEASE_20261106.md) for
+immutable identities, backup and actual evidence. Branch
+`codex/deploy-passport-floor-20261106` is pushed and unmerged; shared-source
+integration and human factory acceptance remain pending. The earlier candidate
+records below describe their pre-deployment snapshots and are superseded by this
+release state; they do not prohibit the owner's later explicit deployment request.
+The durable [recovery restriction](archive/passport-floor-release-2026-11-06/READONLY_RECOVERY.md)
+records the required fresh operational counter snapshot before emergency use.
+
+At task start both application hosts were verified on `20261105_065721` / `488f3d654`,
+manifest `e6c603d4c1954c64a75962cf189427eb5e316c039ea23de4699b9bd4f3112095`.
+All 1,905 manifest entries match the candidate base; database remains
+`0154_eco_receipt_details`, rollback source `20261105_043000`. The user approved
+using this exact source after the required baseline drift stop. Older runtime
+pointers below are historical. The initial standalone task did not deploy;
+the combined release above subsequently deployed its changes.
+
+The [passport repair packet](PASSPORT_TOTALS_ECT_20261106.md) records a reporting-only
+correction: sum saved fabric-row pieces, with a legacy parent fallback and the
+existing dashboard-only Tepa multiplier. Screenshot passports 800/801 total 2,400,
+not 1,200. Read-only live-history comparison finds 65 affected CUT passports and
+342,110 corrected all-time pieces versus 307,880 before; ECT totals are unchanged.
+No Nastil, bundle, stock or confirmed production quantity is rewritten. Excel adds
+separate embedded family-model/exact-variant pictures while retaining quantity columns.
+
+For transferred batch 5A, ECT passport lookup/validation and Cutting consumption
+use authoritative Eco receipt links to the central source batch, including split
+receipts and archived/empty Milana sources. Physical consumption and reversal stay
+in the Eco ledger; fabric-usage reports include that evidence. Direct unlinked Eco
+receipts and the separate central-only batch replacement/Planning workflows are
+outside this narrow repair. Candidate tests, independent review, actual browser
+checks and isolated PostgreSQL concurrency evidence are recorded in the packet;
+human acceptance, shared-source integration and deployment remain separate.
+
+## Production-based Cutting/order UI candidate (5 November)
+
+Both production hosts were verified on `20261105_065721` / `488f3d654`, manifest
+`e6c603d4c1954c64a75962cf189427eb5e316c039ea23de4699b9bd4f3112095`;
+rollback is `20261105_043000` / `94e4cfc54`. Older runtime pointers below are
+historical. The owner explicitly chose this exact production source for an isolated
+candidate and deferred integration into clone_main. No deployment is authorized.
+
+The [task packet](SEARCH_CUTTING_ORDER_FIXES_20261105.md) records shared search-icon
+padding, blank Planning quantities, package model/variant identities and Cutting
+rejection with a required reason. Rejection blocks only the unrecorded Cutting WO,
+preserves PO/downstream plans, audits and notifies its creator; execution/history
+and stale-writer guards prevent bypass. No migration or production data changed.
+Scoped automated/PostgreSQL and connected Edge visual/readback checks passed;
+independent AI review found no remaining blocker. Human acceptance, source
+integration and release authorization remain separate. The inherited missing
+`common.noData` i18n check and extension-injected browser hydration warnings are
+disclosed in the packet; neither is claimed fixed by this task.
+
+The follow-up [ECO fabric/Qolip packet](ECO_FABRIC_QOLIP_FIXES_20261105.md) records
+Milana-style ECO batch photos/metadata and responsive stock views, plus opaque
+20 MiB .gem/.gemx pattern attachments on standard/Usluga models. Final frontend
+build, 161 scoped backend cases, isolated HTTP byte-preserving readback and
+inventory browser checks pass; independent AI source review found no blocker.
+Complete browser file upload remains BLOCKED by extension/native policy checks;
+genuine Gemini and human acceptance are not claimed. No migration/deployment or
+production data change; both hosts remain065721. Owned QA services/database were
+removed; automatic command review blocked temporary QA configuration-file cleanup.
+
+The approved [cutting passport batch split](CUTTING_PASSPORT_BATCH_SPLIT_20261105.md)
+adds one shared calculation with exact per-batch allocations (100+200kg), preserving
+separate stock movements and one garment output.163 backend cases including7 real
+PostgreSQL cases, frontend build/type checks, actual save/reopen/confirmation and
+independent AI review pass; human acceptance remains pending. No migration or
+production change; both hosts remain065721. Older binaries do not understand new
+grouped JSON, so any future rollback needs explicit data compatibility review.
+Owned QA services/database were removed; temporary JSON cleanup was blocked by
+automatic review. Existing grouped-shortage reconciliation remains unchanged.
+
+## Current ECO runtime and narrow feature candidate (4 November)
+
+Both production hosts were reverified on blue `20261104_080711`, runtime
+`984aeffb22aedd3262d7cd61e2d88a905b589e8d`, manifest
+`0221829adfc216391679b744ae512b6c4d96913bb0316c31dfe12fb9a1641be7`.
+Live database readback is `0154_eco_receipt_details`; compatible retained rollback
+is green `20261104_093330` / `bd7d572282b50886e9d03a650bcf886ca9109175`.
+
+The owner approved reconciling the deployed ECO application into clone_main while
+preserving existing integration work, and preparing Planning cutting-factory
+reassignment, floor print pictures and a BST master handoff. This narrow runtime
+candidate starts from exact deployed984 source and ports only those small changes.
+No migration file or dependency version changes; it retains0154. Undeployed
+turnstile and other clone_main changes remain preserved in the separate source
+integration candidate, not included implicitly in this release. A future combined
+migration graph needs separate approval. See [candidate evidence](PLANNING_FLOORS_RELEASE_20261104.md).
+
+No production mutation, cutover or timed observation occurred. Connected-browser
+verification is BLOCKED after the policy helper could not reliably establish the
+current URL. BST execution also awaits confirmation whether stored employee620,
+Yo'ldasheva Dilfuzaxon, is the requested Yoldashova Dilfuza. Payroll rows remain
+untouched; existing historical reports would regroup under current managers.
+Historical performance exceptions apply only to the old release, not this candidate.
+
+## Historical ECO inventory deployment preparation (4 November)
+
+The owner authorized PR375 deployment and explicitly waived the30-minute timed
+monitoring window. The [narrow release record](archive/ECO_INVENTORY_RELEASE_2026-11-04.md)
+starts from freshly verified live11f80a29/blue20261103_094602 and preserves its
+customer-pack/FG fixes. Only reviewed ECO inventory/transfers/approval and package
+origin changes are included; unrelated clone_main runtime work remains excluded.
+The bounded sewing follow-up resolves the assigned line's factory and actual
+batch before the approval gate, including shared-work ECO assignments in order
+ownership. Approval and physical issue remain separate; no migration or role
+grant is added by that correction.
+The follow-up also recognizes a persisted direct sewing line when no active
+split assignment exists. Historical factory aliases use the existing shared
+mapping in both gate selection and SQL ownership; unknown values refuse safely.
+A restart-safe compatibility rollback is required before additive ECO migrations.
+No deployment, migration or production business-data changes have occurred yet.
 
 ## Current refactor: Finance shipment invoice reversal (4 November)
 

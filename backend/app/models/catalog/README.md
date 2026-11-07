@@ -16,6 +16,17 @@ the remaining proposed files describe later approved operation extractions.
 This owner covers the feature's routes, DTOs, enums, database definitions and tests.
 See [team ownership](../../../../docs/TEAM_OWNERSHIP.md) for shared-layer coordination.
 
+Qolip uploads: the standard and Usluga model image-upload aliases accept `.gem`
+and `.gemx` only with `image_type=pattern`. These are opaque CAD attachments capped
+at 20 MiB, with known executable/HTML headers refused; no proprietary Gemini parser
+or format-validity claim is made. MIME supplied by the browser is not authoritative.
+The existing file-write/worker-Session lifecycle preserves bytes, scope recheck,
+audit and failure cleanup. CAD files download as authenticated octet-stream
+attachments with nosniff, while raster/BOM and other document allowlists stay
+unchanged. Run `test_model_pattern_cad_upload.py`, its PostgreSQL companion and
+`test_image_upload_scheduling.py` for the affected operation. This narrow extension
+does not claim completion of Catalog's wider schema-write/type migration.
+
 ## Implemented services
 
 | File | Responsibility |

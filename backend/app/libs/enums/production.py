@@ -1,7 +1,34 @@
 from enum import StrEnum
 
 
+class WorkOrderStatus(StrEnum):
+    NEW = "new"
+    PLANNING = "planning"
+    WAITING = "waiting"
+    PENDING = "pending"
+    READY = "ready"
+    COLLECTED = "collected"
+    IN_PROGRESS = "in_progress"
+    PAUSED = "paused"
+    COMPLETED = "completed"
+    REJECTED = "rejected"
+    CANCELLED = "cancelled"
+
+
 class SewingFactoryCode(StrEnum):
     MILANA = "MIL"
     BESTTEX = "BST"
     ECO_COTTON = "ECO"
+
+
+class CuttingDepartmentCode(StrEnum):
+    MILANA = "CUT"
+    ECO_COTTON = "ECT"
+
+
+class CuttingFactoryLockReason(StrEnum):
+    ORDER_LOCKED = "CUTTING_FACTORY_ORDER_LOCKED"
+    HISTORY_LOCKED = "CUTTING_FACTORY_HISTORY_LOCKED"
+    ROUTING_LOCKED = "CUTTING_FACTORY_ROUTING_LOCKED"
+    ASSIGNMENT_LOCKED = "CUTTING_FACTORY_ASSIGNMENT_LOCKED"
+    DESTINATION_DENIED = "CUTTING_FACTORY_DESTINATION_DENIED"

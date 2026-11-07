@@ -6,6 +6,16 @@ test rejects new authorization keys that administrators cannot configure.
 
 _ROWS = """
 Attendance|attendance.provision|Apply employee access to turnstiles|Применять доступ сотрудников к турникетам|Xodimlarning turniketga kirishini qo‘llash
+Inventory|eco_inventory.read|View ECO material balances and history|Остатки и история материалов ECO|ECO material qoldig‘i va tarixi
+Inventory|eco_inventory.receive|Receive ECO materials|Приём материалов ECO|ECO materiallarini qabul qilish
+Inventory|eco_inventory.consume|Record ECO fabric consumption|Расход ткани ECO|ECO mato sarfini qayd etish
+Inventory|factory_fabric_transfers.read|View Milana–ECO fabric transfers|Просмотр передач ткани Milana–ECO|Milana–ECO mato o‘tkazmalarini ko‘rish
+Inventory|factory_fabric_transfers.dispatch|Dispatch Milana fabric to ECO|Отправка ткани Milana в ECO|Milana matosini ECOga yuborish
+Inventory|factory_fabric_transfers.receive|Confirm ECO fabric receipt|Подтверждение приёма ткани ECO|ECO mato qabulini tasdiqlash
+Inventory|eco_accessories.read|View ECO order accessory plans|Просмотр потребности ECO в фурнитуре|ECO buyurtma furnitura talabini ko‘rish
+Inventory|eco_accessories.manage|Prepare ECO order accessory requirements|Подготовка потребности ECO в фурнитуре|ECO furnitura talabini tayyorlash
+Inventory|eco_accessories.approve|Approve and allocate ECO order accessories|Утверждение и резервирование фурнитуры ECO|ECO furniturasini tasdiqlash va band qilish
+Inventory|eco_accessories.issue|Issue approved ECO order accessories|Выдача утверждённой фурнитуры ECO|Tasdiqlangan ECO furniturasini berish
 Sewing|besttex.cutting_sheets|View Besttex cut orders and print cutting sheets|Просмотр раскроенных заказов Besttex и печать листов раскроя|Besttex uchun bichilgan buyurtmalarni ko‘rish va bichish varaqlarini chop etish
 Inventory|inventory.eco_transfers|Send fabric to Eco Cotton and register returns|Отправка ткани в Eco Cotton и возвраты|Eco Cottonga mato yuborish va qaytarish
 Sales|sales.orders|Sales orders: view, create, edit and delete|Заказы: просмотр, создание, изменение и удаление|Buyurtmalar: ko‘rish, yaratish, tahrirlash va o‘chirish

@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { formatVariantNumber } from "@/lib/variantDisplay";
 import { api } from "@/lib/api";
 import { can, useMe } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
@@ -10,7 +11,7 @@ import type { ShipmentPreparation } from "@/components/ShipmentPreparationWorksp
 export default function ShipmentReviewPanel({ preparation, onChanged }: {
   preparation: ShipmentPreparation; onChanged: () => Promise<unknown>;
 }) {
-  const { lang } = useT();
+  const { lang, t } = useT();
   const text = shipmentReviewText[lang]; const warehouse = warehousePackageText[lang];
   const [keepRemainder, setKeepRemainder] = useState(true);
   const { me } = useMe();
@@ -92,7 +93,13 @@ export default function ShipmentReviewPanel({ preparation, onChanged }: {
     {editing === "amount" && editor}
     {allowed && preparation.packages.some(row => row.scanned) && <details><summary className="cursor-pointer text-sm">{text.edit}</summary>
       <div className="divide-y mt-2">{preparation.packages.filter(row => row.scanned).map(row => <div key={row.id} className="py-2 text-sm">
-        <div className="flex items-center justify-between gap-3"><span>{row.package_no} · {row.quantity} {text.pieces}</span><button type="button" className="btn" disabled={busy} aria-expanded={editing === row.id} onClick={() => begin(row.id)}>{text.edit}</button></div>
+        <div className="flex flex-wrap items-center justify-between gap-3"><div className="min-w-0 space-y-1">
+          <div>{row.package_no} · {row.quantity} {text.pieces}</div>
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-[#56503f]">
+            <span>{t("field.modelNo")}: {row.model_no || row.model_code || row.model_name || "-"}</span>
+            <span>{t("field.variantNo")}: {formatVariantNumber(row.variant_no) || "-"}</span>
+          </div>
+        </div><button type="button" className="btn" disabled={busy} aria-expanded={editing === row.id} onClick={() => begin(row.id)}>{text.edit}</button></div>
         {editing === row.id && <div className="mt-3">{editor}</div>}
       </div>)}</div>
     </details>}

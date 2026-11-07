@@ -83,11 +83,56 @@ Both VMs must name the same release and manifest. If either differs from `deploy
 6. Review and test the exact change, then land into `clone_main` through the single
    integration queue when authorized. Re-fetch and rerun affected checks if another
    change landed first. Require passing CI for the exact release candidate before
-   promotion; never copy uncommitted files directly to production. At inspected
-   source `5c45531d`, direct `clone_main` pushes are not included in the CI push
-   trigger, so do not infer a pass from a push. RF-004 in `docs/REFACTOR_PLAN.md`
-   tracks that separately approved tooling correction; until then use the existing
-   explicit candidate validation/artifact workflow and verify its source SHA.
+   promotion; never copy uncommitted files directly to production. Both `main`
+   and `clone_main` pushes now trigger validation. Verify the actual run's source
+   SHA and result; a successful push is not a successful validation or deployment.
+
+## Reduce elapsed time without removing gates
+
+Use this order for every release:
+
+1. **Preflight early.** Reconcile both live releases/manifests with the recorded
+   production baseline before coding or building. Check disk space, registry
+   access and rollback compatibility immediately. Resolve the 70% disk alert
+   through the protected retention procedure before staging reaches its 80% stop.
+   Keep routine retention outside the release's critical path. Never blanket-prune
+   Docker on these shared hosts or remove active/rollback images and backups.
+2. **Find affected failures first.** Run changed-workflow, authorization and real
+   PostgreSQL migration/concurrency/query-budget checks before the long full
+   regression suite. Keep every required suite; an early pass does not replace it.
+   Preserve failure evidence and fix the cause before starting another full run.
+3. **Overlap independent checks.** Backend and frontend validation may run at the
+   same time on isolated runners. PostgreSQL jobs need their own databases and
+   fixture state. Do not run concurrent writers against a shared test database.
+4. **Freeze one candidate.** Record the exact source SHA, build configuration,
+   base release/manifest and all gate results. Reuse valid evidence for that same
+   candidate; rerun checks invalidated by source, configuration, baseline or
+   environment changes. Never substitute a parent commit's green run. The manual
+   artifact workflow still runs every gate encoded in its job dependencies.
+5. **Build once, promote the scanned images.** Use the exact cached immutable
+   images from the required security scan. The release job verifies their source
+   SHA and image IDs, then publishes those same images. Do not rebuild between
+   scanning and publication or on a serving VM.
+6. **Prepare both hosts concurrently.** After artifact verification and exclusive
+   deployment ownership, source transfer/verification and image pulls on separate
+   hosts may overlap. Keep backup completion before migration, successful migration
+   before candidate startup/QA, and every candidate gate before activation.
+   Activate backend first, verify it, then activate frontend.
+7. **Report each milestone promptly.** Record timestamps for preflight, validation,
+   artifacts ready, staging, QA, activation and observation completion. Report
+   Live after immediate postflight passes while continuing the required observer.
+   Observation is a separate phase, not additional application downtime. A waiver
+   applies only when the user explicitly grants it for that deployment.
+
+The 6 November release took 33m17s to artifacts ready: its backend job took
+26m53s, and image publication followed for 6m16s. Frontend validation ran alongside
+backend and finished in 4m34s. Failed earlier candidates and runtime/recovery/disk
+preparation added elapsed time; use these measurements to prioritize improvements,
+not as a guaranteed deployment duration.
+
+Collect slow-test timings with `pytest --durations=25` and retain the report.
+Splitting the backend suite into balanced jobs is a separately tested CI tooling
+follow-up: this document does not install sharding or authorize skipping tests.
 
 ## Build immutable artifacts
 
@@ -99,11 +144,13 @@ Run `.github/workflows/ci.yml` with **Run workflow** and provide:
 
 The workflow validates backend/frontend, verifies the production base, packages deterministic source, builds both images once outside production, pushes release-tagged images to GHCR, and retains the source/evidence artifact.
 
+The security workflow builds and scans both images, including the dependency
+lockfiles, before handing exact image identities to the manual release job.
 Docker Buildx imports and exports separate backend/frontend layer caches. A cache
 miss uses a normal build. Dependency-file changes invalidate their install layers;
-source changes invalidate dependent layers. The frontend `builder` stage explicitly
-disables cache reuse, so every release compiles the checked-out application even
-when its dependency layer is reused. Both builds still pull base images, and all
+source changes invalidate dependent layers. Verify the scanned image's source
+revision and effective build arguments; cache reuse must not substitute another
+candidate's frontend/API configuration. Both builds still pull base images, and all
 local/CI validation and production gates remain required. The first cache export
 may add time; later releases can reuse those layers.
 

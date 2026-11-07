@@ -11,6 +11,7 @@ from app.core.pagination import clamp_pagination
 from app.core.model_search import model_code_contains
 from app.schemas import (
     CuttingRecord,
+    Department,
     Item,
     ManualAccessoryIssue,
     MaterialReservation,
@@ -1300,6 +1301,10 @@ def consume_material_reservations_for_stock_batch(
     quantity = float(quantity or 0)
     if quantity <= 0:
         return 0.0
+    from app.models.production.ect_passport_fabric_service import eco_cutting_actor, transferred_fabric_rows
+    if eco_cutting_actor(db, user_id, reference_type) and transferred_fabric_rows(db, production_order_id, stock_batch_id) is not None:
+        # The Milana reservation does not own transferred ECO physical stock.
+        return 0.0
     stock_batch_cache, item_cache = _locked_stock_batches_for_consumption(db, [stock_batch_id])
     reservations = _locked_reservations_by_stock_batch(
         db,
@@ -1355,6 +1360,9 @@ def consume_cutting_materials(
         db, production_order_id=production_order_id, lines=lines,
     )
     stock_batch_ids = sorted({int(line["stock_batch_id"]) for line in lines})
+    from app.models.production.ect_passport_fabric_service import eco_cutting_actor, transferred_fabric_rows
+    transferred_ids = {batch_id for batch_id in stock_batch_ids
+        if transferred_fabric_rows(db, production_order_id, batch_id) is not None} if eco_cutting_actor(db, user_id, reference_type) else set()
     if require_full:
         remaining_reserved = {
             batch_id: sum(
@@ -1365,6 +1373,8 @@ def consume_cutting_materials(
         }
         for line in lines:
             batch_id = int(line["stock_batch_id"])
+            if batch_id in transferred_ids:
+                continue
             quantity = float(line["quantity"])
             available = remaining_reserved.get(batch_id, 0.0)
             if available + EPSILON < quantity:
@@ -1378,6 +1388,11 @@ def consume_cutting_materials(
     for line in lines:
         batch_id = int(line["stock_batch_id"])
         input_quantity = float(line["quantity"])
+        if batch_id in transferred_ids:
+            consume_stock_batch(db, batch_id=batch_id, quantity=input_quantity, unit=str(line["unit"]),
+                reference_type=reference_type, reference_id=reference_id, user_id=user_id,
+                batch_cache=stock_batch_cache, item_cache=item_cache)
+            continue
         reserved_consumed = _consume_loaded_stock_batch_reservations(
             db,
             reservations_by_batch.get(batch_id, []),
@@ -2878,7 +2893,17 @@ def accessory_issue_requests(
     return (rows, len(all_rows)) if include_total else rows
 
 
-def sync_sewing_accessory_block(db: Session, production_order_id: int) -> dict:
+def sync_sewing_accessory_block(db: Session, production_order_id: int, *, sewing_factory_code: str | None = None,
+                              production_batch_id: int | None = None) -> dict:
+    from app.models.inventory.eco_accessory_service import accessory_gate_factories, canonical_sewing_factory, sewing_assignment_work_ids, sync_eco_accessory_block
+    if sewing_factory_code is not None:
+        sewing_factory_code = canonical_sewing_factory(sewing_factory_code)
+    factories = {sewing_factory_code} if sewing_factory_code is not None else accessory_gate_factories(db, production_order_id, production_batch_id)
+    eco_plan = sync_eco_accessory_block(db, production_order_id, batch_id=production_batch_id) if "ECO" in factories else None
+    if factories == {"ECO"} and eco_plan is not None:
+        return eco_plan
+    legacy_factories = factories - {"ECO"} if eco_plan is not None else factories
+    legacy_departments = legacy_factories | ({"SEW"} if "MIL" in legacy_factories else set())
     plan = accessory_issue_plan(db, production_order_id)
     upstream_output = float(
         db.query(func.coalesce(func.sum(CuttingRecord.passed_pieces), 0))
@@ -2896,16 +2921,22 @@ def sync_sewing_accessory_block(db: Session, production_order_id: int) -> dict:
     plan["sewing_gate_active"] = upstream_output > EPSILON
     sewing_orders = (
         db.query(WorkOrder)
+        .join(Department, Department.id == WorkOrder.department_id)
         .filter(
             WorkOrder.production_order_id == production_order_id,
             WorkOrder.operation == "sewing",
+            or_(Department.code.in_(legacy_departments), WorkOrder.id.in_(sewing_assignment_work_ids(legacy_factories, production_batch_id))),
             WorkOrder.status.notin_(("completed", "cancelled", "rejected")),
         )
         .all()
     )
+    if production_batch_id is not None:
+        sewing_orders = [wo for wo in sewing_orders if wo.production_batch_id in (None, production_batch_id)]
     if upstream_output <= EPSILON or plan.get("is_complete"):
         for wo in sewing_orders:
-            if wo.block_reason == ACCESSORY_SEWING_BLOCK_REASON:
+            if wo.block_reason == ACCESSORY_SEWING_BLOCK_REASON or (
+                sewing_factory_code in {"MIL", "BST", "SEW"} and wo.block_reason == "ecoAccessories.approvalRequired"
+            ):
                 wo.is_blocked = False
                 wo.block_reason = None
     else:
@@ -2913,6 +2944,9 @@ def sync_sewing_accessory_block(db: Session, production_order_id: int) -> dict:
             wo.is_blocked = True
             wo.block_reason = ACCESSORY_SEWING_BLOCK_REASON
     db.flush()
+    if eco_plan is not None and not eco_plan["is_complete"]:
+        plan["is_complete"] = False
+        plan["warning"] = eco_plan["warning"]
     return plan
 
 
@@ -2921,8 +2955,12 @@ def missing_accessory_issue_for_sewing(db: Session, production_order_id: int) ->
     return not bool(plan.get("is_complete"))
 
 
-def ensure_accessories_issued_for_sewing(db: Session, production_order_id: int) -> dict:
-    plan = sync_sewing_accessory_block(db, production_order_id)
+def ensure_accessories_issued_for_sewing(db: Session, production_order_id: int, *, sewing_factory_code: str | None = None,
+                                       production_batch_id: int | None = None) -> dict:
+    plan = sync_sewing_accessory_block(db, production_order_id, sewing_factory_code=sewing_factory_code,
+                                     production_batch_id=production_batch_id)
+    if plan.get("warning") == "ecoAccessories.approvalRequired":
+        raise HTTPException(409, "ecoAccessories.approvalRequired")
     if plan.get("sewing_gate_active") and not plan.get("is_complete"):
         summary = plan.get("summary") or {}
         remaining = float(summary.get("remaining_quantity") or 0)

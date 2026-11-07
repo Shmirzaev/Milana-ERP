@@ -1,5 +1,20 @@
 # Team bug tracker — clone_main
 
+## CUT-PASSPORT-20261106 — row totals, Excel pictures and transferred 5A at ECT
+
+- **Deployed green `20261106_061725`; awaiting human production verification.** Mirshoir
+  owns Production; Ismail reviews. Dashboard sums historical saved fabric rows,
+  Excel embeds separate model/variant pictures, and ECT passports/Cutting use the
+  authoritative transferred Eco balance without deducting Milana twice.
+- Exact runtime `a8579e64efbb2f9545d6df1c35d527c1d4ae2f01` passed CI, required
+  PostgreSQL suites, independent review, combined local Edge flows and public
+  Edge dashboard checks (1,200 + 1,200 = 2,400). Staged exports embed both pictures;
+  ECT sees authoritative transferred 5A. Four health and performance gates passed;
+  no production business test data/backfill or timed monitoring was used.
+  Compatible read-only rollback is retained. Keep this entry open for human
+  acceptance. [Deployment record](../docs/COMBINED_PASSPORT_FLOOR_RELEASE_20261106.md)
+  and [operator checklist](../docs/PASSPORT_TOTALS_ECT_20261106.md).
+
 ## UX-KEEP-DECISIONS-20261106 — behavior retained by Dilmurod
 
 - **Decision (Dilmurod, 6 Nov) · Keep · Work/Tasks.** “Everyone” assigns to all users, with no recipient limit.

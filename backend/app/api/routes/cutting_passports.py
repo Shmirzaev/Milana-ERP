@@ -2,7 +2,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from typing import Literal
 from types import SimpleNamespace
 from fastapi.responses import Response
-from app.models.cutting_passport_reports_service import build_dashboard, export_workbook
+from app.models.cutting_passport_reports_service import build_dashboard, export_passport_workbook
 from app.core.order_reference import canonical_business_order_reference, order_reference_contains
 from fastapi import APIRouter, HTTPException, Depends, Query
 from sqlalchemy import or_, select
@@ -19,12 +19,19 @@ from app.models.inventory_service import create_material_reservations
 from app.models.cutting_batch_guard_service import require_cutting_batch_mutable, sewing_output_batch_ids, sewing_output_batch_query
 from app.models.factory_scope_service import require_work_order_factory_access
 from app.libs.dto.production.cutting_passport import CuttingOperatorOut, CuttingPassportIn, CuttingPassportOut
+from app.libs.dto.production.cutting_passport_fabric_output import CuttingPassportFabricOut
 from app.models.audit_service import log_action
 from app.models.passport_sizes_service import passport_order_sizes, size_count_from_range as _size_count_from_range
 from app.models.cutting_passport_usage_service import validate_passport_stock
+from app.models.production.passport_material_allocation_service import (
+    material_source_ids, material_stock_metadata, normalize_grouped_materials,
+    require_unchanged_used_allocations, grouped_material_computed_fields, passport_primary_computed_fields,
+    grouped_passport_has_execution,
+)
 from app.models.passport_nastil_service import passport_batch_map, sync_passport_nastil
 from app.models.factory_scope_service import available_factory_codes, selected_factory_code
 from app.models.model_images_service import model_display_image_url
+from app.models.production.ect_passport_fabric_service import list_passport_fabrics, transferred_fabric_balances
 
 router = APIRouter(prefix="/cutting-passports", tags=["cutting_passports"])
 _MATERIAL_CATEGORIES = ("fabric", "semi_finished")
@@ -87,7 +94,8 @@ def _material_values(passport, row):
     values = dict(row)
     if values.get("size_range") is None:
         values["size_range"] = passport.size_range
-    return {**values, **_compute(SimpleNamespace(**values), passport_order_sizes(passport))}
+    computed = grouped_material_computed_fields(row, _compute(SimpleNamespace(**values), passport_order_sizes(passport)))
+    return {**values, **computed}
 
 
 def _serialize(p: CuttingPassport, db=None, model_cache: dict | None = None, batch_map: dict | None = None) -> dict:
@@ -149,7 +157,7 @@ def _serialize(p: CuttingPassport, db=None, model_cache: dict | None = None, bat
         "operator_name": op.name if op else p.operator_name_manual,
     }
     d["materials"] = [_material_values(p, row) for row in (p.materials or [])]
-    d.update(_compute(p))
+    d.update(passport_primary_computed_fields(p, _compute(p)))
     return d
 
 
@@ -313,6 +321,7 @@ def _passport_defaults_payload(
     has_print: bool | None = None,
     sizes: list[str] | None = None,
     can_add_material: bool | None = None,
+    stock_metadata: dict | None = None,
 ) -> dict:
     model_no, variant_no = _model_code_parts(model)
     if has_print is None:
@@ -330,7 +339,9 @@ def _passport_defaults_payload(
     sizes = _size_options(db, po, model) if sizes is None else list(sizes)
     if can_add_material is None:
         can_add_material = po.source_type != "usluga" and po.status not in {"completed", "cancelled", "rejected"} and not sewing_output_batch_ids(db, po.id)
+    metadata = (stock_metadata if stock_metadata is not None else material_stock_metadata(db, [batch.id], po.id) if batch else {}).get(batch.id, {}) if batch else {}
     return {
+        **metadata,
         "source_type": po.source_type,
         "can_add_material": can_add_material,
         "production_order_id": int(po.id),
@@ -360,6 +371,7 @@ def _passport_defaults_payload(
         "lot_no": batch.batch_no if batch else None,
         "material_order_no": batch.order_no if batch else None,
         "gramage": float(batch.gsm) if batch and batch.gsm is not None else None,
+        "gsm": float(batch.gsm) if batch and batch.gsm is not None else None,
         "width": float(batch.width) if batch and batch.width is not None else None,
         "fabric_width_m": float(batch.width) if batch and batch.width is not None else None,
     }
@@ -388,6 +400,7 @@ def material_defaults(
 
     if po.materials:
         materials = sorted(po.materials, key=lambda row: row.position)
+        stock_metadata = material_stock_metadata(db, [row.stock_batch_id for row in materials], po.id)
         batches = {
             int(batch.id): batch
             for chunk in _query_chunks(material.stock_batch_id for material in materials)
@@ -401,6 +414,7 @@ def material_defaults(
             row = _passport_defaults_payload(
                 db=db, po=po, model=model, item=item, batch=batch,
                 has_print=has_print, sizes=sizes, can_add_material=can_add_material,
+                stock_metadata=stock_metadata,
             )
             row["stock_batch_id"] = material.stock_batch_id
             row["planned_kg"] = float(material.estimated_quantity) if material.unit.lower() == "kg" else None
@@ -455,6 +469,17 @@ def material_defaults(
 
     batch, item = min(candidates, key=score)
     return _passport_defaults_payload(db=db, po=po, model=model, item=item, batch=batch, has_print=has_print, can_add_material=can_add_material)
+
+
+@router.get("/material-batches", response_model=list[CuttingPassportFabricOut])
+def passport_material_batches(
+    production_order_id: int,
+    db: DbSession,
+    current: User = Depends(require_permissions("cutting.records", "*")),
+    q: str = Query("", max_length=200),
+):
+    _passport_order(db, production_order_id, current)
+    return list_passport_fabrics(db, current, production_order_id, q)
 
 
 @router.get("/operators", response_model=list[CuttingOperatorOut])
@@ -607,7 +632,7 @@ def export_passports(
     date_to: date | None = None,
     lang: Literal["en", "ru", "uz"] = "en",
 ):
-    content = export_workbook(_report_passports(db, current, q, cutting_department_code, date_from, date_to), lang)
+    content = export_passport_workbook(db, _report_passports(db, current, q, cutting_department_code, date_from, date_to), lang)
     filename = f"cutting-passports-{date_from or 'all'}-{date_to or 'all'}.xlsx"
     return Response(content, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     headers={"Content-Disposition": f'attachment; filename="{filename}"', "Cache-Control": "no-store"})
@@ -626,7 +651,7 @@ def get_passport(pid: int, db: DbSession, current: CurrentUser):
 def _passport_order(db, order_id, current, *, lock=False):
     order = db.query(ProductionOrder).filter(ProductionOrder.id == order_id)
     if lock:
-        order = order.with_for_update(of=ProductionOrder)
+        order = order.with_for_update(of=ProductionOrder).populate_existing()
     order = order.first()
     if order is None:
         raise HTTPException(404, "Production order not found")
@@ -634,11 +659,14 @@ def _passport_order(db, order_id, current, *, lock=False):
         WorkOrder.production_order_id == order.id, WorkOrder.operation == "cutting",
     )
     if lock:
-        work_order = work_order.with_for_update(of=WorkOrder)
+        work_order = work_order.with_for_update(of=WorkOrder).populate_existing()
     work_order = work_order.first()
     if work_order is None:
         raise HTTPException(400, "The order has no cutting work order")
     require_work_order_factory_access(current, db, work_order)
+    if lock:
+        from app.models.factory_scope_service import require_cutting_work_order_not_rejected
+        require_cutting_work_order_not_rejected(work_order)
     return order, work_order
 
 
@@ -651,7 +679,7 @@ def _add_passport_materials(db, order, work_order, payload, current):
         raise HTTPException(409, "Materials cannot be added to a closed or cancelled production order")
     require_cutting_batch_mutable(db, work_order, None)
     ids = [row.stock_batch_id for row in payload.additional_materials]
-    passport_ids = [row.stock_batch_id for row in payload.materials]
+    passport_ids = material_source_ids([row.model_dump() for row in payload.materials])
     if len(ids) != len(set(ids)) or not set(ids).issubset(passport_ids):
         raise HTTPException(400, "Each additional material must appear once in the passport")
     existing = {row.stock_batch_id: row for row in order.materials}
@@ -697,6 +725,10 @@ def _add_passport_materials(db, order, work_order, payload, current):
     reservations_by_batch = {}
     for reservation in active_reservations:
         reservations_by_batch.setdefault(reservation.stock_batch_id, []).append(reservation)
+    # _passport_order has already authorized the exact session factory. Keep
+    # MIL's existing fixed query cost; ECT resolves all linked receipts together.
+    transferred_balances = (transferred_fabric_balances(db, order.id, batches)
+                            if selected_factory_code(current) == "ECO" else {})
     reservation_lines = []
     pending_additions = []
     for addition in payload.additional_materials:
@@ -710,14 +742,17 @@ def _add_passport_materials(db, order, work_order, payload, current):
         item = items.get(batch.item_id) if batch else None
         if not batch or not item or item.category not in _MATERIAL_CATEGORIES:
             raise HTTPException(400, "Select a fabric inventory batch")
-        if batch.archived_at is not None or float(batch.quantity or 0) <= 0:
+        transferred = transferred_balances.get(batch.id)
+        if transferred is not None and addition.estimated_quantity > float(transferred):
+            raise HTTPException(409, f"Insufficient transferred Eco Cotton fabric: available {transferred:g} {batch.unit}")
+        if transferred is None and (batch.archived_at is not None or float(batch.quantity or 0) <= 0):
             raise HTTPException(409, "This fabric batch is archived or empty")
         if addition.unit != batch.unit:
             raise HTTPException(400, "Material unit must match the selected stock batch")
         reservations = reservations_by_batch.get(batch.id, ())
         already_reserved = sum(max(0, float(row.reserved_quantity) - float(row.consumed_quantity or 0) - float(row.released_quantity or 0)) for row in reservations)
         missing = addition.estimated_quantity - already_reserved
-        if missing > 0.0001:
+        if transferred is None and missing > 0.0001:
             reservation_lines.append({
                 "item_id": batch.item_id, "stock_batch_id": batch.id, "warehouse_id": batch.warehouse_id,
                 "reserved_quantity": missing, "unit": batch.unit,
@@ -753,16 +788,17 @@ def _passport_values(db, payload: CuttingPassportIn, current, passport_id=None) 
     values = payload.model_dump(exclude={"additional_materials"})
     if payload.production_order_id:
         order, work_order = _passport_order(db, payload.production_order_id, current, lock=True)
+        values["materials"] = normalize_grouped_materials(db, order, values["materials"], current, passport_id=passport_id)
         _add_passport_materials(db, order, work_order, payload, current)
         if payload.materials:
-            ids = [row.stock_batch_id for row in payload.materials]
+            ids = material_source_ids(values["materials"])
             planned = {row.stock_batch_id for row in order.materials}
             if len(ids) != len(set(ids)) or set(ids) != planned:
                 raise HTTPException(400, "Passport materials must match the fabrics selected in planning")
             for material in values["materials"]:
                 if material["size_range"] is None:
                     material["size_range"] = payload.size_range
-            values.update({key: value for key, value in values["materials"][0].items() if key != "stock_batch_id"})
+            values.update({key: value for key, value in values["materials"][0].items() if key not in {"stock_batch_id", "batch_allocations"}})
         # A stale form must not overwrite the linked order's live reference.
         values["order_no"] = order.order_no
         validate_passport_stock(db, order, values, passport_id)
@@ -817,12 +853,14 @@ def update_passport(
         _, cutting_work = _passport_order(db, p.production_order_id, current)
         require_cutting_batch_mutable(db, cutting_work, linked_batch.id if linked_batch else None)
     used = db.query(CuttingRecord.id).filter(CuttingRecord.cutting_passport_id == p.id).first()
+    used = used or grouped_passport_has_execution(db, p, linked_batch.id if linked_batch else None)
     if payload.production_order_id != p.production_order_id and (used or linked_batch):
         raise HTTPException(409, "A passport used by Cutting cannot be moved to another order")
     values = _passport_values(db, payload, current, p.id)
     if used and values.get("pieces") != p.pieces:
         raise HTTPException(409, "The passport piece count is locked after cutting records have been created")
     if used:
+        require_unchanged_used_allocations(p.materials or [], values.get("materials", []))
         old_modes = {row["stock_batch_id"]: bool(row.get("meter_mode")) for row in (p.materials or [])}
         new_modes = {row["stock_batch_id"]: bool(row.get("meter_mode")) for row in values.get("materials", [])}
         if values["meter_mode"] != p.meter_mode or any(new_modes.get(key) != mode for key, mode in old_modes.items()):

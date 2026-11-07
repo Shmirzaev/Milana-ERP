@@ -1,6 +1,6 @@
 {
-  "release": "20261103_094602",
-  "source_manifest_sha256": "ee765f999e782193878390897873c7b5865749460d4d776cf321fcd28490f8a9",
-  "database_revision": "0150_package_customer_release",
-  "git_baseline_commit": "11f80a2995daeeb90b5c01318aec9e9c6a40f1c9"
+  "release": "20261106_061725",
+  "source_manifest_sha256": "7f52cf7bf61e6fa4159d65e590d9cefaa6a493992e8b80197343490e5ee09fb0",
+  "database_revision": "0154_eco_receipt_details",
+  "git_baseline_commit": "a8579e64efbb2f9545d6df1c35d527c1d4ae2f01"
 }

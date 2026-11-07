@@ -17,11 +17,12 @@ from sqlalchemy.orm import sessionmaker
 from app.api.routes import cutting_passports
 from app.db.base import Base
 from app.schemas import (
-    AuditLog, CuttingMaterialUsage, CuttingRecord, Item, ManualAccessoryIssue, MaterialReservation, Model, ModelBOM,
+    AuditLog, CuttingMaterialUsage, CuttingRecord, Department, Item, ManualAccessoryIssue, MaterialReservation, Model, ModelBOM,
     PackagingRecord, PrintingRecord, ProductionOrder, ProductionOrderItem, ProductionOrderMaterial,
-    SewingAssignment, SewingDailyReport, SewingRecord, StockBatch, StockMovement, Warehouse, WasteRecord, WorkOrder,
+    SewingAssignment, SewingDailyReport, SewingRecord, StockBatch, StockMovement, User, Warehouse, WasteRecord, WorkOrder,
 )
 from app.schemas.inventory.eco_transfer import EcoFabricRoll
+from app.schemas.inventory.eco_inventory import EcoMaterialBatch
 from app.libs.dto.production.cutting_passport import CuttingPassportIn
 from app.models import inventory_service as inventory, numbering_service as numbering
 from app.tests.conftest import TestSessionLocal
@@ -72,12 +73,13 @@ def _passport_payload(ids, reverse):
     )
 
 
-def _add_passport_materials(db, ids, payload):
+def _add_passport_materials(db, ids, payload, *, factory_code="MIL"):
     order = db.query(ProductionOrder).filter(
         ProductionOrder.id == ids["orders"][0],
     ).with_for_update(of=ProductionOrder).one()
     cutting_passports._add_passport_materials(
-        db, order, SimpleNamespace(status="in_progress", production_order_id=order.id), payload, SimpleNamespace(id=None),
+        db, order, SimpleNamespace(operation="cutting", status="in_progress", production_order_id=order.id), payload,
+        SimpleNamespace(id=None, factory_code=factory_code),
     )
 
 
@@ -250,7 +252,7 @@ def reservation_postgres_engine():
             AuditLog.__table__, ModelBOM.__table__, ProductionOrderItem.__table__, ManualAccessoryIssue.__table__,
             WorkOrder.__table__, CuttingRecord.__table__, PrintingRecord.__table__, SewingRecord.__table__,
             SewingDailyReport.__table__, SewingAssignment.__table__,
-            PackagingRecord.__table__, EcoFabricRoll.__table__, CuttingMaterialUsage.__table__, WasteRecord.__table__,
+            PackagingRecord.__table__, EcoFabricRoll.__table__, EcoMaterialBatch.__table__, CuttingMaterialUsage.__table__, WasteRecord.__table__,
         }
         pending = list(tables)
         while pending:
@@ -545,6 +547,132 @@ def test_postgres_cutting_addition_reads_and_write_transfers_are_batched(
         assert db.query(AuditLog).filter_by(
             action="add_cutting_passport_material", entity_id=ids["orders"][0],
         ).count() == material_count
+
+
+def _transferred_sources(sessions, ids, *, ect=True):
+    """Split physical receipts: held QC and reservations must not inflate capacity."""
+    with sessions() as db:
+        if ect:
+            department = db.query(Department).filter_by(code="ECT").first()
+            if department is None:
+                department = Department(code="ECT", name="Eco cutting"); db.add(department); db.flush()
+            db.add(WorkOrder(production_order_id=ids["orders"][0], operation="cutting", department_id=department.id,
+                             planned_input_qty=10, planned_output_qty=10, status="in_progress"))
+        marker = uuid4().hex
+        actor = User(name="Receipt test actor", email=f"receipt-{marker}@example.com", password_hash="unused", factory_code="ECO")
+        db.add(actor); db.flush()
+        for source_id in ids["batches"]:
+            source = db.get(StockBatch, source_id)
+            if ect:
+                source.quantity = 0
+                source.archived_at = datetime.now(timezone.utc)
+            for quantity, reserved, qc in ((4, 1, "passed"), (2, 0, "pending"), (3, 0, "passed")):
+                db.add(EcoMaterialBatch(item_id=source.item_id, source_stock_batch_id=source_id, batch_no=source.batch_no,
+                    kind="fabric", unit=source.unit, quantity=quantity, reserved_quantity=reserved,
+                    receipt_details={"qc_status": qc}, created_by=actor.id))
+        db.commit()
+
+
+@pytest.mark.parametrize("material_count", [1, 50, 401])
+def test_postgres_ect_additions_resolve_split_receipts_once(reservation_postgres_engine, material_count):
+    engine = reservation_postgres_engine
+    sessions = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+    ids = _stock(sessions, item_count=material_count)
+    _transferred_sources(sessions, ids)
+    payload = _passport_payload(ids, reverse=False)
+    statements = []
+    def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+        statements.append(" ".join(statement.lower().split()))
+    event.listen(engine, "before_cursor_execute", capture)
+    try:
+        with sessions() as db:
+            _add_passport_materials(db, ids, payload, factory_code="ECO")
+            db.commit()
+    finally:
+        event.remove(engine, "before_cursor_execute", capture)
+    selects = [sql for sql in statements if sql.startswith("select")]
+    receipts = [sql for sql in selects if "from eco_material_batches" in sql]
+    assert len(receipts) == 1 and "exists (select" in receipts[0]
+    assert len(selects) <= 10, "ECT addition reads must stay bounded for 1/50/401 sources"
+    with sessions() as db:
+        assert db.query(ProductionOrderMaterial).filter_by(production_order_id=ids["orders"][0]).count() == material_count
+        assert db.query(MaterialReservation).filter_by(production_order_id=ids["orders"][0]).count() == 0
+        assert all(db.get(StockBatch, key).quantity == 0 for key in ids["batches"])
+        assert db.query(EcoMaterialBatch).filter(EcoMaterialBatch.source_stock_batch_id.in_(ids["batches"])).count() == 3 * material_count
+
+
+@pytest.mark.parametrize("material_count", [1, 50, 401])
+@pytest.mark.parametrize("factory", ["MIL", "ECO"])
+def test_postgres_passport_stock_validation_preloads_sources(reservation_postgres_engine, material_count, factory):
+    from app.models.cutting_passport_usage_service import validate_passport_stock
+    engine = reservation_postgres_engine
+    sessions = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+    ids = _stock(sessions, item_count=material_count)
+    _transferred_sources(sessions, ids, ect=factory == "ECO")
+    statements = []
+    with sessions() as db:
+        order = db.get(ProductionOrder, ids["orders"][0])
+        values = {"materials": [{"stock_batch_id": key, "planned_kg": 6} for key in ids["batches"]]}
+        def capture(_connection, _cursor, statement, _parameters, _context, _executemany):
+            if statement.lstrip().lower().startswith("select"):
+                statements.append(" ".join(statement.lower().split()))
+        event.listen(engine, "before_cursor_execute", capture)
+        try:
+            validate_passport_stock(db, order, values)
+        finally:
+            event.remove(engine, "before_cursor_execute", capture)
+        assert len(statements) == 2, "One central preload and one ECT-scoped receipts projection"
+        if factory == "ECO":
+            values["materials"][0]["planned_kg"] = 6.001
+            with pytest.raises(HTTPException, match="Insufficient fabric") as rejected:
+                validate_passport_stock(db, order, values)
+            assert rejected.value.status_code == 409
+
+
+@pytest.mark.parametrize("problem", ["held", "reserved", "depleted", "identity", "unit"])
+def test_postgres_ect_addition_refusal_keeps_mapping_and_ledgers(reservation_postgres_engine, problem):
+    sessions = sessionmaker(bind=reservation_postgres_engine, autoflush=False, expire_on_commit=False)
+    ids = _stock(sessions, item_count=2)
+    _transferred_sources(sessions, ids)
+    with sessions() as db:
+        rows = db.query(EcoMaterialBatch).filter_by(source_stock_batch_id=ids["batches"][0]).all()
+        # A generous central balance must never rescue an unavailable mapping.
+        db.get(StockBatch, ids["batches"][0]).quantity = 1000
+        for row in rows:
+            if problem == "held": row.receipt_details = {"qc_status": "pending"}
+            elif problem == "reserved": row.reserved_quantity = row.quantity
+            elif problem == "depleted": row.quantity = row.reserved_quantity = 0
+            elif problem == "identity": row.item_id = ids["items"][1]
+            elif problem == "unit": row.unit = "m"
+        db.commit()
+    with sessions() as db:
+        with pytest.raises(HTTPException) as rejected:
+            _add_passport_materials(db, ids, _passport_payload(ids, reverse=False), factory_code="ECO")
+        assert rejected.value.status_code == 409
+        db.rollback()
+        assert db.query(ProductionOrderMaterial).filter_by(production_order_id=ids["orders"][0]).count() == 0
+        assert db.query(MaterialReservation).filter_by(production_order_id=ids["orders"][0]).count() == 0
+        assert db.query(AuditLog).filter_by(entity_id=ids["orders"][0], action="add_cutting_passport_material").count() == 0
+        assert db.get(StockBatch, ids["batches"][0]).quantity == 1000
+
+
+def test_postgres_incomplete_zero_usage_keeps_prior_receipt_validation_boundary(reservation_postgres_engine):
+    from app.models.cutting_passport_usage_service import validate_passport_stock
+    sessions = sessionmaker(bind=reservation_postgres_engine, autoflush=False, expire_on_commit=False)
+    ids = _stock(sessions, item_count=2)
+    _transferred_sources(sessions, ids)
+    with sessions() as db:
+        db.query(EcoMaterialBatch).filter_by(source_stock_batch_id=ids["batches"][0]).update({"unit": "m"})
+        db.commit()
+    with sessions() as db:
+        order = db.get(ProductionOrder, ids["orders"][0])
+        values = {"materials": [{"stock_batch_id": ids["batches"][0], "planned_kg": 0},
+                                {"stock_batch_id": ids["batches"][1], "planned_kg": 6}]}
+        validate_passport_stock(db, order, values)
+        values["materials"][0]["planned_kg"] = .1
+        with pytest.raises(HTTPException, match="identity or unit") as rejected:
+            validate_passport_stock(db, order, values)
+        assert rejected.value.status_code == 409
 
 
 def test_postgres_bulk_reservation_numbers_are_reused_after_rollback(reservation_postgres_engine):

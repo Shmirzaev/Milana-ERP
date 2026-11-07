@@ -17,6 +17,13 @@ const catalogRows = fs.readFileSync("../backend/app/core/permission_catalog.py",
 assert.ok(catalogRows, "Permission catalog rows missing");
 const catalogGroups = [...new Set(catalogRows.trim().split("\n").map((row) => row.split("|")[0]))].sort();
 const access = load("src/lib/access.ts");
+const { packageIdentityText, sewingFactoryLabel } = load("src/lib/packageIdentity.ts");
+for (const language of ["en", "ru", "uz"]) {
+  const text = packageIdentityText[language];
+  assert.ok(text.factory && text.model && text.variant && text.unknown);
+  assert.equal(sewingFactoryLabel({ sewing_factory_codes: [] }, text.unknown), text.unknown);
+  assert.equal(sewingFactoryLabel({ sewing_factory_codes: ["ECO", "MIL"] }, text.unknown), "Eco Cotton, Milana");
+}
 const { isSewingRole, factoryWorkspaceHome } = access;
 assert.equal(factoryWorkspaceHome({ factory_code: "BST", permissions: ["besttex.cutting_sheets"] }), "/besttex/cutting-orders");
 let value = { MIL: { allow: ["finance.view"], deny: ["sales.orders"] } };
@@ -114,13 +121,15 @@ for (const page of ["packages", "packaging/queue", "packaging/receive", "packagi
   const queryCode = ts.transpileModule(declarations.join("\n"), { compilerOptions: { target: ts.ScriptTarget.ES2020 } }).outputText;
   for (const [factory, department] of [["MIL", "PKG"], ["BST", "BPK"], ["ECO", "ECP"]]) {
     for (const query of ["", `packaging_department=${department}`]) {
+      for (const origin of page === "packages" ? ["", "MIL", "BST", "ECO"] : [""]) {
       const keys = [];
+      let stateIndex = 0;
       vm.runInNewContext(queryCode, {
-        URLSearchParams, Intl, Date, packageReturnText: { en: {} }, packageWorkflowCopy: { en: {} },
+        URLSearchParams, Intl, Date, packageReturnText: { en: {} }, packageWorkflowCopy: { en: {} }, packageIdentityText, sewingFactoryLabel,
         useT: () => ({ t: value => value, lang: "en" }),
         useMe: () => ({ me: { factory_code: factory, permissions: packingPermissions } }),
         useSearchParams: () => new URLSearchParams(query),
-        useState: initial => [typeof initial === "function" ? initial() : initial, () => {}],
+        useState: initial => [page === "packages" && stateIndex++ === 0 ? origin : typeof initial === "function" ? initial() : initial, () => {}],
         useRef: initial => ({ current: initial }),
         useMemo: fn => fn(),
         useSWR: key => { if (key) keys.push(key); return {}; },
@@ -130,6 +139,12 @@ for (const page of ["packages", "packaging/queue", "packaging/receive", "packagi
       });
       assert.ok(keys.length > 0, page);
       for (const key of keys) assert.equal(new URL(key, "https://erp.example").searchParams.get("packaging_department_code"), department, `${factory} ${page} ${key}`);
+      if (page === "packages") {
+        const listKey = keys.find(key => new URL(key, "https://erp.example").pathname === "/api/packages");
+        assert.ok(listKey);
+        assert.equal(new URL(listKey, "https://erp.example").searchParams.get("sewing_factory_code"), origin || null);
+      }
+      }
     }
   }
 }

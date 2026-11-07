@@ -165,7 +165,7 @@ def list_items(
 @router.post("/items/image/upload", status_code=201)
 async def upload_item_image(
     file: UploadFile = File(...),
-    _: User = Depends(require_permissions("storage.items", "storage.receive", "*")),
+    _: User = Depends(require_permissions("storage.items", "storage.receive", "eco_inventory.receive", "*")),
 ):
     from app.models.image_storage_service import store_uploaded_image
 

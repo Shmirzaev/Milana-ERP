@@ -103,6 +103,11 @@ jobs:
       - name: Verify one Alembic head
         working-directory: backend
         run: python -c "from alembic.config import Config; from alembic.script import ScriptDirectory; heads=ScriptDirectory.from_config(Config('alembic.ini')).get_heads(); assert len(heads)==1, heads; print(heads[0])"
+      - name: Rehearse fresh and both ECO/turnstile migration histories
+        working-directory: backend
+        env:
+          MIGRATION_REHEARSAL_ADMIN_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/postgres
+        run: python scripts/verify_eco_gate_migration_merge.py
       - name: Security gate policy and workflow regressions
         run: python -m unittest discover -s scripts -p 'test_security_gate.py' -v
       - name: Ruff and compile
@@ -118,10 +123,39 @@ jobs:
           python -m pytest -v -rs
           app/tests/test_password_change_races.py::test_postgres_same_current_password_changes_only_once
           app/tests/test_rate_limit_scheduling.py::test_postgres_roster_lock_survives_concurrent_rate_store_workers
+      - name: Planning cutting factory PostgreSQL routing and stale-scope races
+        working-directory: backend
+        env:
+          PLANNING_CUTTING_POSTGRES_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/first_grade_qa_ci
+        run: python -m pytest -q app/tests/test_planning_cutting_factory_postgres.py
+      - name: BST handoff PostgreSQL preservation and recovery
+        env:
+          PYTHONPATH: ./backend
+          BST_HANDOFF_TEST_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/bst_handoff_test
+        run: |
+          docker exec milana-ci-postgres createdb -U postgres bst_handoff_test
+          trap 'docker exec milana-ci-postgres dropdb -U postgres bst_handoff_test' EXIT
+          python -m pytest -q backend/tests/test_bst_master_handoff_postgres.py
+      - name: ECO material PostgreSQL migration and concurrency
+        working-directory: backend
+        env:
+          STABILIZATION_POSTGRES_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/first_grade_qa_ci
+        run: python -m pytest -q app/tests/test_eco_inventory_postgres.py
+      - name: Combined Cutting rejection, Qolip CAD and passport allocation PostgreSQL regressions
+        working-directory: backend
+        env:
+          PLANNING_CUTTING_POSTGRES_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/first_grade_qa_ci
+          STABILIZATION_POSTGRES_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/first_grade_qa_ci
+          PASSPORT_ALLOCATION_POSTGRES_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/first_grade_qa_ci
+        run: >-
+          python -m pytest -q
+          app/tests/test_cutting_order_rejection_postgres.py
+          app/tests/test_model_pattern_cad_postgres.py
+          app/tests/test_passport_batch_allocations_postgres.py
       - name: Backend regression suite
         working-directory: backend
         # This strict dual-engine suite runs in the approved-PG workflow instead.
-        run: python -m pytest -q --ignore=app/tests/test_readiness_operation_characterization.py
+        run: python -m pytest -q --ignore=app/tests/test_readiness_operation_characterization.py --durations=25
       - name: Purchasing approval PostgreSQL write boundary
         env:
           PUR_APPROVAL_PG_ADMIN_URL: postgresql://postgres@127.0.0.1:5432/postgres

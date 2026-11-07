@@ -27,6 +27,7 @@ from app.models.model_images_service import model_display_image_url
 from app.models.notifications_service import notify
 from app.models.bundles_service import resolve_sewing_factory_code
 from app.models.factory_scope_service import require_factory_access, require_work_order_factory_access
+from app.models.factory_scope_service import refresh_cutting_work_order_for_write
 from app.models.payroll_factory_scope_service import production_order_factory_condition
 from app.models.sewing_scope_service import require_sewing_flow_access
 
@@ -131,6 +132,7 @@ class BlockIn(BaseModel):
 def block_wo(wid: int, payload: BlockIn, db: DbSession, current: User = Depends(require_permissions(*_WO_BLOCK_PERMS))):
     wo = db.get(WorkOrder, wid)
     if not wo: raise HTTPException(404, "Work order not found")
+    refresh_cutting_work_order_for_write(db, wo)
     _authorize_work_order_command(db, current, wo)
     reason = (payload.reason or "Blocked").strip()
     wo.is_blocked = True
@@ -152,6 +154,7 @@ def block_wo(wid: int, payload: BlockIn, db: DbSession, current: User = Depends(
 def unblock_wo(wid: int, db: DbSession, current: User = Depends(require_permissions(*_WO_BLOCK_PERMS))):
     wo = db.get(WorkOrder, wid)
     if not wo: raise HTTPException(404, "Work order not found")
+    refresh_cutting_work_order_for_write(db, wo)
     _authorize_work_order_command(db, current, wo)
     wo.is_blocked = False
     wo.block_reason = None

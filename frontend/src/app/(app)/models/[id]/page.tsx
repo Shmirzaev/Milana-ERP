@@ -1085,7 +1085,7 @@ export default function ModelDetail() {
           <input
             className="input"
             type="file"
-            accept={imageType === "model" ? "image/png,image/jpeg,image/webp,image/gif" : "image/png,image/jpeg,image/webp,image/gif,.pdf,.dxf,.ai"}
+            accept={imageType === "model" ? "image/png,image/jpeg,image/webp,image/gif" : "image/png,image/jpeg,image/webp,image/gif,.pdf,.dxf,.ai,.gem,.gemx"}
             onChange={(e) => setImageFiles((prev) => ({ ...prev, [imageType]: e.target.files?.[0] || null }))}
           />
           <input
@@ -1740,7 +1740,7 @@ export default function ModelDetail() {
                       <td>{name}</td>
                       <td>{img.created_at ? new Date(img.created_at).toLocaleString() : "-"}</td>
                       <td className="flex gap-3">
-                        <a className="text-brand-600 hover:underline" href={img.file_url} download>{t("common.download")}</a>
+                        <a className="text-brand-600 hover:underline" href={img.file_url} download={name}>{t("common.download")}</a>
                         <button className="text-red-600 hover:underline" onClick={() => deleteImage(img.id)}>{t("btn.delete")}</button>
                       </td>
                     </tr>

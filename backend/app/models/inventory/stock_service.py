@@ -302,9 +302,13 @@ def create_item(db, payload: ItemIn, current: User) -> Item:
 def update_item(db, item_id: int, payload: ItemIn, current: User) -> Item:
     inventory_access.require_item(db, current, item_id)
     inventory_access.require_category(current, payload.category)
-    it = db.get(Item, item_id)
+    it = db.execute(select(Item).where(Item.id == item_id).with_for_update()
+                    .execution_options(populate_existing=True)).scalar_one_or_none()
     if not it:
         raise HTTPException(404, "Item not found")
+    from app.schemas.inventory.eco_inventory import EcoMaterialBatch
+    if (it.unit != payload.unit or it.category != payload.category) and db.query(EcoMaterialBatch.id).filter_by(item_id=item_id).first():
+        raise HTTPException(409, "Material unit/category cannot change after ECO inventory receipt")
     duplicate = db.query(Item).filter(Item.sku == payload.sku, Item.id != item_id).first()
     if duplicate:
         raise HTTPException(400, "SKU already exists")
@@ -331,7 +335,8 @@ def delete_item(db, item_id: int, current: User, force: bool = False) -> bool:
     """
     inventory_access.require_item(db, current, item_id)
     _require_admin_force(current, force)
-    it = db.get(Item, item_id)
+    it = db.execute(select(Item).where(Item.id == item_id).with_for_update()
+                    .execution_options(populate_existing=True)).scalar_one_or_none()
     if not it:
         raise HTTPException(404, "Item not found")
     linked = (
@@ -342,6 +347,10 @@ def delete_item(db, item_id: int, current: User, force: bool = False) -> bool:
         or db.query(PurchaseOrderLine.id).filter(PurchaseOrderLine.item_id == item_id).first()
         or db.query(WasteRecord.id).filter(WasteRecord.item_id == item_id).first()
     )
+    from app.schemas.inventory.eco_inventory import EcoMaterialBatch
+    from app.schemas.inventory.eco_accessory import EcoAccessoryRequirement
+    linked = linked or db.query(EcoMaterialBatch.id).filter_by(item_id=item_id).first() or db.query(
+        EcoAccessoryRequirement.id).filter_by(item_id=item_id).first()
     if linked and not force:
         raise HTTPException(409, "Item is linked to stock, BOM, purchasing, or waste records")
     if linked:

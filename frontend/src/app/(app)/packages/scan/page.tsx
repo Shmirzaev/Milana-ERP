@@ -1,4 +1,5 @@
 "use client";
+import { packageIdentityText, sewingFactoryLabel } from "@/lib/packageIdentity";
 import { formatOrderReference } from "@/lib/orderRef";
 
 import { useMemo, useRef, useState } from "react";
@@ -26,6 +27,9 @@ type ScannedPackage = {
   sales_order_no?: string | null;
   model_id?: number | null;
   model_code?: string | null;
+  model_no?: string | null;
+  variant_no?: string | null;
+  sewing_factory_codes?: string[];
   model_name?: string | null;
   model_image_url?: string | null;
   color?: string | null;
@@ -59,7 +63,7 @@ function packageOrderLabel(pkg: ScannedPackage) {
 }
 
 function packageModelLabel(pkg: ScannedPackage) {
-  return [pkg.model_code || pkg.model_id, pkg.model_name].filter(Boolean).join(" - ") || "-";
+  return [pkg.model_code || pkg.model_no, pkg.model_name].filter(Boolean).join(" - ") || "-";
 }
 
 const BLOCKED_MAP_MOVE_STATUSES = new Set(["shipped", "delivered", "damaged"]);
@@ -67,6 +71,7 @@ const BLOCKED_MAP_MOVE_STATUSES = new Set(["shipped", "delivered", "damaged"]);
 export default function ScanPackagePage() {
   const { lang } = useT();
   const copy = packageWorkflowCopy[lang];
+  const identityText = packageIdentityText[lang];
   const { t } = useT();
   const { me } = useMe();
   const codeInputRef = useRef<HTMLInputElement>(null);
@@ -361,6 +366,9 @@ export default function ScanPackagePage() {
                     <th>{t("field.packageNo")}</th>
                     <th>{t("field.orderNo")}</th>
                     <th className="min-w-[280px]">{t("field.model")}</th>
+                    <th>{identityText.model}</th>
+                    <th>{identityText.variant}</th>
+                    <th>{identityText.factory}</th>
                     <th className="text-right">{t("field.qty")}</th>
                     <th>{t("field.status")}</th>
                     <th>{t("field.cell")}</th>
@@ -405,6 +413,9 @@ export default function ScanPackagePage() {
                             </div>
                           </div>
                         </td>
+                        <td>{pkg.model_no || identityText.unknown}</td>
+                        <td>{pkg.variant_no || identityText.unknown}</td>
+                        <td>{sewingFactoryLabel(pkg, identityText.unknown)}</td>
                         <td className="text-right tabular-nums whitespace-nowrap">{Number(pkg.total_quantity || 0)}</td>
                         <td><span className="badge whitespace-nowrap">{statusLabel(pkg.status, t)}</span></td>
                         <td>{pkg.storage_cell ? `${pkg.storage_cell}/${pkg.storage_shelf || "S1"}` : "-"}</td>
@@ -425,7 +436,7 @@ export default function ScanPackagePage() {
                   })}
                   {!scannedPackages.length && (
                     <tr>
-                      <td colSpan={8} className="text-sm text-[#8a8472]">{t("page.packageScan.emptyQueue")}</td>
+                      <td colSpan={11} className="text-sm text-[#8a8472]">{t("page.packageScan.emptyQueue")}</td>
                     </tr>
                   )}
                 </tbody>
