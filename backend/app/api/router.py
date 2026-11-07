@@ -1,4 +1,5 @@
 from app.api.routes import warehouse_reservations, usluga_packaging
+from app.api.routes import warehouse_reports
 from app.api.routes import besttex_cutting
 from app.api.routes import eco_transfers, sewing_corrections
 from fastapi import APIRouter
@@ -19,6 +20,7 @@ from app.api.routes import (
 )
 
 api_router = APIRouter(prefix="/api")
+api_router.include_router(warehouse_reports.router)
 api_router.include_router(eco_accessories.router)
 api_router.include_router(eco_inventory.router)
 api_router.include_router(sewing_bands.router)

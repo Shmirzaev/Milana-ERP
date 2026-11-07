@@ -2,9 +2,10 @@
 import { formatModelVariantCode, formatVariantNumber } from "@/lib/variantDisplay";
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import Link from "next/link";
 import useSWR, { useSWRConfig } from "swr";
 import SearchableSelect from "@/components/SearchableSelect";
-import { Plus, Search, Pencil, Trash2, BookOpen, Download } from "lucide-react";
+import { Plus, Search, Pencil, Trash2, BookOpen, Download, ExternalLink } from "lucide-react";
 import CuttingPassportDashboard from "@/components/CuttingPassportDashboard";
 import { fetcher, api, fetchResponse } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
@@ -354,7 +355,7 @@ export default function CuttingPassportsPage() {
   const [materialPickerBusy, setMaterialPickerBusy] = useState(false);
   const [saving, setSaving] = useState(false);
   const { data: materialBatches = [], error: materialBatchError, isLoading: materialBatchLoading } = useSWR<any[]>(
-    materialPickerOpen && form.production_order_id ? `/api/cutting-passports/material-batches?production_order_id=${form.production_order_id}&q=${encodeURIComponent(materialSearch)}` : null, fetcher,
+    materialPickerOpen && form.production_order_id ? `/api/cutting-passports/material-batches?production_order_id=${form.production_order_id}&q=${encodeURIComponent(materialSearch)}${splitTarget !== null && batchInfos[splitTarget]?.item_id ? `&item_id=${batchInfos[splitTarget].item_id}` : ""}` : null, fetcher,
   );
   const resetMaterialPicker = () => { setAdditionalMaterials([]); setMaterialPickerOpen(false); setSelectedMaterial(null); setMaterialAmount(""); setMaterialSearch(""); setSplitTarget(null); };
   const splitText = passportBatchText(lang);
@@ -957,6 +958,7 @@ export default function CuttingPassportsPage() {
                   {/* Frozen right */}
                   <td className="bg-white group-hover:bg-stone-50 px-2 py-2 lg:sticky lg:right-0 lg:z-10 lg:shadow-[-2px_0_6px_-1px_rgba(0,0,0,0.08)]">
                     <div className="flex gap-1">
+                      {p.production_order_id && <Link className="btn btn-ghost p-1 whitespace-nowrap" href={`/production-orders/${p.production_order_id}`} title={lang === "ru" ? "Открыть заказ" : lang === "uz" ? "Buyurtmani ochish" : "Open order"}><ExternalLink className="h-3.5 w-3.5" />{lang === "ru" ? "Открыть" : lang === "uz" ? "Ochish" : "Open"}</Link>}
                       <button type="button" className="btn btn-ghost p-1 whitespace-nowrap" onClick={() => openNewBatch(p)}><Plus className="h-3.5 w-3.5" />{t("passportBatch.add")}</button>
                       <button className="btn btn-ghost p-1" onClick={() => openEdit(passports.find((item) => item.id === p.id) || p)}>
                         <Pencil className="h-3.5 w-3.5" />

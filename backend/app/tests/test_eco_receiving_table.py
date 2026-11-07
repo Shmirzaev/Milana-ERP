@@ -7,7 +7,7 @@ from pydantic import ValidationError
 
 from app.libs.dto.inventory.eco_inventory_input import EcoMaterialBulkReceiveIn
 from app.models.inventory import eco_inventory_service as eco
-from app.schemas import Item, StockBatch
+from app.schemas import StockBatch
 from app.schemas.inventory.eco_inventory import EcoMaterialBatch, EcoMaterialMovement
 from app.tests.test_eco_inventory_transfers import setup_materials, actor  # noqa: F401
 

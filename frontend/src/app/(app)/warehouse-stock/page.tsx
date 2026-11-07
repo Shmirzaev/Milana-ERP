@@ -13,6 +13,9 @@ import ReleasePackageCustomer from "@/components/ReleasePackageCustomer";
 import PageHeader from "@/components/PageHeader";
 import StocktakeLink from "@/components/StocktakeLink";
 import WarehouseReportDownload from "@/components/WarehouseReportDownload";
+import WarehouseStockMap from "@/components/WarehouseStockMap";
+import type { StorageMapCell } from "@/components/WarehouseMap";
+import SearchableSelect from "@/components/SearchableSelect";
 import { statusLabel } from "@/components/StagePipeline";
 import { fetcher } from "@/lib/api";
 import { can, useMe } from "@/lib/auth";
@@ -20,7 +23,7 @@ import { useT } from "@/lib/i18n";
 import { useSearchParams } from "next/navigation";
 import { firstGradeText } from "@/lib/firstGradeText";
 import { storageThumbnailUrl } from "@/lib/modelImages";
-import { modelSearchIncludes } from "@/lib/modelCode";
+import { warehouseMatches, warehouseVariantKey, warehouseWorkspaceText } from "@/lib/warehouseWorkspace";
 import { formatOrderReference, rawOrderReference } from "@/lib/orderRef";
 
 type StoragePlacement = SewingOrigin & {
@@ -48,6 +51,7 @@ type StoragePlacement = SewingOrigin & {
 };
 
 type StorageMapResponse = {
+  cells?: StorageMapCell[];
   summary?: {
     cells_occupied?: number;
     packages_on_map?: number;
@@ -72,10 +76,6 @@ type DetailRow = {
   package_count: number;
   packages: Array<{ id: number; package_no: string }>;
 };
-
-function clean(value?: string | number | null) {
-  return String(value ?? "").trim().toLowerCase();
-}
 
 function sectionFromCell(cell?: string | null) {
   const code = String(cell || "").trim();
@@ -113,6 +113,7 @@ function packageListText(packages: DetailRow["packages"], packageCount: number) 
 export default function WarehouseStockPage() {
   const { t, lang } = useT();
   const identityText = packageIdentityText[lang];
+  const workspaceText = warehouseWorkspaceText[lang];
   const [sewingFactory, setSewingFactory] = useState("");
   const copy = firstGradeText[lang];
   const search = useSearchParams();
@@ -120,8 +121,11 @@ export default function WarehouseStockPage() {
   const { me } = useMe();
   const canTraceability = can(me, "traceability.view");
   const [query, setQuery] = useState("");
+  const [selectedVariant, setSelectedVariant] = useState("");
+  const [selectedCell, setSelectedCell] = useState("");
+  const [groupLimit, setGroupLimit] = useState(12);
   const [visibleCount, setVisibleCount] = useState(50);
-  useEffect(() => { setVisibleCount(50); }, [query, stockKind, sewingFactory]);
+  useEffect(() => { setVisibleCount(50); setGroupLimit(12); }, [query, stockKind, sewingFactory, selectedVariant, selectedCell]);
   const [createdFrom, setCreatedFrom] = useState("");
   const [createdTo, setCreatedTo] = useState("");
   const stockUrl = useMemo(() => {
@@ -137,28 +141,18 @@ export default function WarehouseStockPage() {
   const { data, isLoading, error } = useSWR<StorageMapResponse>(stockUrl, fetcher);
 
   const placements = useMemo(() => data?.placements || [], [data?.placements]);
-  const filtered = useMemo(() => {
-    const q = clean(query);
-    if (!q) return placements;
-    // Model/variant searches must not include unrelated package or barcode matches.
-    const modelMatches = placements.filter((row) => modelSearchIncludes(row.model_code, q));
-    if (modelMatches.length) return modelMatches;
-    return placements.filter((row) => {
-      const fields = [
-        row.order_no,
-        row.sales_order_no,
-        row.production_no,
-        row.model_name,
-        row.package_no,
-        row.barcode,
-        row.color,
-        row.storage_cell,
-        row.storage_shelf,
-        row.status,
-      ];
-      return modelSearchIncludes(row.model_code, q) || fields.some((field) => clean(field).includes(q));
-    });
-  }, [placements, query]);
+  const searchMatches = useMemo(() => warehouseMatches(placements, query, selectedVariant), [placements, query, selectedVariant]);
+  const filtered = useMemo(() => selectedCell ? searchMatches.filter(row => row.storage_cell === selectedCell) : searchMatches, [searchMatches, selectedCell]);
+  const variantOptions = useMemo(() => Array.from(new Map(placements.map(row => [warehouseVariantKey(row), {
+    value: warehouseVariantKey(row), label: `${formatModelVariantCode(row.model_code) || row.model_name || row.package_no}${row.model_name ? ` · ${row.model_name}` : ""}`,
+  }])).values()), [placements]);
+  const mapActionParams = new URLSearchParams({ stock_kind: stockKind });
+  if (selectedCell) mapActionParams.set("cell", selectedCell);
+  if (query) mapActionParams.set("model_query", query);
+  if (selectedVariant) mapActionParams.set("model_id", selectedVariant);
+  if (sewingFactory) mapActionParams.set("sewing_factory_code", sewingFactory);
+  if (createdFrom) mapActionParams.set("created_from", createdFrom);
+  if (createdTo) mapActionParams.set("created_to", createdTo);
 
   const totals = useMemo(() => {
     const modelKeys = new Set<string>();
@@ -281,7 +275,7 @@ export default function WarehouseStockPage() {
 
   return (
     <div>
-      <PageHeader title={t("page.warehouseStock.title")} subtitle={t("page.warehouseStock.subtitle")} actions={<><Link className="btn" href="/dashboards/warehouse">{t("departmentDashboard.warehouse")}</Link><WarehouseReportDownload /><StocktakeLink /></>} />
+      <PageHeader title={t("page.warehouseStock.title")} subtitle={t("page.warehouseStock.subtitle")} actions={<><Link className="btn" href="/dashboards/warehouse">{t("departmentDashboard.warehouse")}</Link><Link className="btn" href="/warehouse-stock/shipments">{workspaceText.report}</Link><WarehouseReportDownload /><StocktakeLink /></>} />
 
       <div className="mb-4 flex flex-wrap gap-2">
         <button className={`btn ${stockKind === "standard" ? "btn-primary" : ""}`} onClick={() => setStockKind("standard")}>{copy.standard}</button>
@@ -330,7 +324,7 @@ export default function WarehouseStockPage() {
       </div>
 
       <div className="card mb-5 p-4">
-        <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(280px,1fr)_12rem_12rem]">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-[minmax(220px,2fr)_minmax(180px,1.5fr)_minmax(150px,1fr)_minmax(145px,1fr)_minmax(145px,1fr)]">
           <div>
             <label className="label">{t("common.search")}</label>
             <div className="relative">
@@ -343,6 +337,7 @@ export default function WarehouseStockPage() {
               />
             </div>
           </div>
+          <div><label className="label" htmlFor="warehouse-variant">{workspaceText.variant}</label><SearchableSelect inputId="warehouse-variant" value={selectedVariant} onChange={value => setSelectedVariant(String(value))} options={variantOptions} placeholder={workspaceText.all} noResultsText={t("page.search.noMatches")} /></div>
           <SewingFactoryFilter value={sewingFactory} onChange={setSewingFactory} />
           <label className="block">
             <span className="label">{t("common.createdFrom")}</span>
@@ -353,15 +348,19 @@ export default function WarehouseStockPage() {
             <input className="input" type="date" value={createdTo} onChange={(e) => setCreatedTo(e.target.value)} />
           </label>
         </div>
+        {(selectedVariant || selectedCell) && <button type="button" className="mt-3 text-sm underline" onClick={() => { setSelectedVariant(""); setSelectedCell(""); }}>{workspaceText.clear}</button>}
       </div>
 
-      <div className="mb-5">
+      <div className="mb-5 grid items-start gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
+      <WarehouseStockMap cells={data?.cells || []} matches={searchMatches} selectedCell={selectedCell} onSelectCell={setSelectedCell} filtered={Boolean(query || selectedVariant)} manageUrl={`/warehouse-map?${mapActionParams}`} />
+      <section className="card min-w-0 p-4">
         <div className="mb-3 flex items-baseline justify-between gap-3">
           <h2 className="app-card-title">{t("page.warehouseStock.stockByModel")}</h2>
           <span className="text-xs text-[#8a8472]">{t("common.matches", { count: detailRows.length })}</span>
         </div>
-        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2 2xl:grid-cols-4">
-          {modelGroups.slice(0, 8).map((group) => (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:max-h-[820px] xl:grid-cols-1 xl:overflow-y-auto">
+          {isLoading && <p className="text-sm">{t("common.loading")}</p>}
+          {modelGroups.slice(0, groupLimit).map((group) => (
             <article key={group.key} className="overflow-hidden rounded-lg border border-[#e3dfd3] bg-[#fdfcf8] shadow-sm">
               <div className="grid min-h-[132px] grid-cols-[104px_minmax(0,1fr)]">
                 <div className="bg-[#f1efe8]">
@@ -376,7 +375,7 @@ export default function WarehouseStockPage() {
                   )}
                 </div>
                 <div className="flex min-w-0 flex-col p-3">
-                  <div className="mono text-xs font-semibold uppercase text-[#8a8472]"><a className="underline" target="_blank" rel="noreferrer" href={`/warehouse-stock/models/${group.model_id}?stock_kind=${stockKind}`}>{formatModelVariantCode(group.model_code) || group.model_id || "-"}</a></div>
+                  <div className="mono text-xs font-semibold text-[#56503f]"><button type="button" className="text-left underline" onClick={() => setSelectedVariant(group.key)}>{formatModelVariantCode(group.model_code) || group.model_name || "—"}</button></div>
                   <div className="mt-1 line-clamp-2 text-sm font-semibold leading-snug text-[#14110b]">{group.model_name || t("page.models.noPreview")}</div>
                   <div className="mt-auto grid grid-cols-2 gap-2 pt-3 text-xs text-[#56503f]">
                     <div>
@@ -401,6 +400,8 @@ export default function WarehouseStockPage() {
             </div>
           )}
         </div>
+        {groupLimit < modelGroups.length && <button type="button" className="btn mt-3" onClick={() => setGroupLimit(value => value + 12)}>{t("common.loadMore")}</button>}
+      </section>
       </div>
 
       <div className="card overflow-hidden">

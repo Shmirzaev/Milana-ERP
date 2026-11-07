@@ -306,6 +306,7 @@ export default {
     "nav.scanPackage": "Paketni skanerlash",
     "nav.finishedGoods": "Tayyor mahsulot",
     "nav.warehouseStock": "Ombor qoldigʻi",
+    "warehouseShipmentReport.title": "Jo‘natmalar hisoboti",
     "nav.stocktake": "Inventarizatsiya",
     "nav.warehouseMap": "Ombor xaritasi",
     "nav.shipments": "Yetkazib berish",

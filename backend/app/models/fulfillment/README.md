@@ -80,6 +80,12 @@ three DTOs for every table or expose privileged fields through generic updates.
 
 ## Boundaries and verification
 
+`shipment_report_service.py` is a read-only warehouse projection of terminal
+dispatches. Prefer frozen dispatch quantities; reconstruct older shipment lines
+from ShipmentPackage quantities without changing current stock or finance data.
+Tashkent date filters, pagination/search totals and Excel use the same projection.
+Keep exported text literal and preserve partial-package quantities and provenance.
+
 `package_customer_service.py` owns source-customer compatibility and explicit
 admin release for selected remaining pieces. It resolves retained production,
 package and finished-goods source orders, preserves those links, and refuses

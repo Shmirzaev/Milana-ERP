@@ -6,6 +6,8 @@ Existing Pydantic definitions in this group:
 
 - [package_workflows.py](package_workflows.py)
 - [shipment_review.py](shipment_review.py)
+- [shipment_report.py](shipment_report.py): bounded warehouse report query and
+  read-only dispatch rows, with canonical shipment status and historical provenance.
 
 These describe accepted inputs and returned data. They do not execute database
 writes, implement permissions or manage transactions. Existing filenames/class

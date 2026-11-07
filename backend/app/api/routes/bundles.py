@@ -1,11 +1,10 @@
 from app.models.variant_display_service import format_model_variant_code
 from app.core.order_reference import order_reference_contains
-from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
-from sqlalchemy import and_, func, or_
+from sqlalchemy import func, or_
 from sqlalchemy.orm import selectinload, noload
 from sqlalchemy.orm.attributes import set_committed_value
 import base64
@@ -19,7 +18,6 @@ from app.core.model_search import normalized_model_code_column, normalized_model
 from app.schemas import (
     Bundle,
     CuttingRecord,
-    Department,
     Model,
     ModelBOM,
     ModelImage,
@@ -58,7 +56,6 @@ from app.models.production.sewing_receipt_service import (
     accept_sewing_batch as accept_sewing_batch_receipt,
     receive_manual_sewing,
     _sewing_work_order_for_batch,
-    _sewing_receive_department_ids,
     _sewing_receive_eligible_filter,
 )
 
