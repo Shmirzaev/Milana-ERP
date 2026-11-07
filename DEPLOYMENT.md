@@ -267,8 +267,10 @@ Prefer forward-compatible migrations. Application rollback does not downgrade th
 
 If the new migration head prevents the current application image from restarting,
 prepare and independently verify a compatibility release before upgrading. Preserve
-the current application's runtime/dependency bytes; add the exact reviewed migration
-history and narrowly tested compatibility metadata. Prove strict default-command
+the current application's business-code bytes; add the exact reviewed migration
+history and narrowly tested compatibility metadata. Scan the recovery images too:
+any necessary dependency or base-image security updates need their own narrow diff,
+compatibility tests and exact-image scan before promotion. Prove strict default-command
 cold start, two workers, worker replacement and restart at the target head with
 startup seeding disabled. Existing business facts must remain readable and valid;
 keep hardware/provisioning features disabled when their facts are unsupported.

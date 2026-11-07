@@ -92,6 +92,26 @@ initial baseline remains November 6; the phase journal must pin and verify the
 intermediate recovery release before final activation. No unexpected drift is
 accepted, and neither phase has run in production yet.
 
+The initial recovery source's dependency scan found 41 unaccepted fixable
+HIGH/CRITICAL findings in Pillow12.2.0 and Next16.3.8. That source is not eligible
+for promotion under the combined candidate's security policy. Prepare a narrow
+recovery update to Pillow13.0.0, Next/eslint-config-next16.4.3 and the already
+reviewed hardened backend/frontend Dockerfiles. Preserve business/authentication
+code and other dependency choices, verify React18 peer compatibility, and require
+fresh build, compatibility and exact published-image security evidence. Preserve
+the initial failed reports; do not change policy acceptances to turn them green.
+
+Combined candidate7d17ece passed its frontend build/contracts/security scan and
+the separate PostgreSQL gate:639 required,17 purchasing/fabric and84 shared
+contracts, all without skips or failures. Independent source/persisted review
+passed; connected Edge exercised the named synthetic workflows. Draft passport
+saves also create two Nastil batches and one newly selected200kg material row and
+reservation (consumed0); physical stock, payroll2500 and shipment8 stayed unchanged.
+The20-request/concurrency2 read smoke passed with unchanged selected facts; it is
+not capacity or fault-abort proof. Full backend CI and recovery hardening remain
+pending. Browser extension-injected hydration warnings and the unexercised blank
+quantity entry remain explicit limitations; human pre-deployment review is pending.
+
 Integration and validation are in progress. No merge, production migration,
 cutover, observation or human acceptance is claimed by this planning record.
 Update this section with actual commit/run/evidence identities as gates finish.
