@@ -32,7 +32,7 @@ class RequiredPGGateTests(unittest.TestCase):
 
     def test_complete_evidence_passes(self):
         counts = gate.check_report(self.write_report(self.report()))
-        self.assertEqual(sum(counts.values()), 638)
+        self.assertEqual(sum(counts.values()), 639)
 
     def test_stocktake_undo_cases_are_required_and_passing(self):
         module = "test_stocktake_undo_postgres"
@@ -496,8 +496,8 @@ class RequiredPGGateTests(unittest.TestCase):
 
     def test_item_delete_cases_cannot_be_skipped_or_replaced(self):
         module = "test_item_delete_postgres"
-        self.assertEqual(len(gate.REQUIRED_CASES[module]), 11)
-        self.assertEqual(gate.GROUPS[module][0], 11)
+        self.assertEqual(len(gate.REQUIRED_CASES[module]), 12)
+        self.assertEqual(gate.GROUPS[module][0], 12)
         for name in gate.REQUIRED_CASES[module]:
             for mutation in ("skipped", "replacement"):
                 with self.subTest(name=name, mutation=mutation):

@@ -1,9 +1,11 @@
 """Item deletion against the approved, migrated PostgreSQL test target."""
 from concurrent.futures import ThreadPoolExecutor
 from threading import Event
+from time import monotonic
 from uuid import uuid4
 
 import pytest
+from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import object_session
 
@@ -147,43 +149,81 @@ def test_pg_unchecked_direct_reference_rejects_delete_atomically(customer_pg_ses
         assert audit_rows(db, item_id) == []
 
 
-def test_pg_reference_insert_after_link_check_rolls_back_delete(customer_pg_sessions, monkeypatch):
+@pytest.mark.parametrize('audit_failure', [False, True], ids=['commit', 'audit_rollback'])
+def test_pg_item_lock_serializes_reference_insert_and_audit(customer_pg_sessions, monkeypatch, audit_failure):
     sessions = customer_pg_sessions
     actor_id, item_id, _ = make_case(sessions)
-    checked, resume = Event(), Event()
+    checked, resume, inserting, inserted = Event(), Event(), Event(), Event()
+    pids = {}
     log_action = stock_service.log_action
 
     def pause_after_link_check(db, *args, **kwargs):
+        pids['delete'] = db.execute(text('SELECT pg_backend_pid()')).scalar_one()
         checked.set()
         if not resume.wait(10):
-            raise TimeoutError('reference insertion did not finish')
-        return log_action(db, *args, **kwargs)
+            raise TimeoutError('item-lock observation did not finish')
+        result = log_action(db, *args, **kwargs)
+        if audit_failure:
+            raise RuntimeError('injected concurrent delete audit failure')
+        return result
 
     def delete():
         with sessions() as db:
             try:
                 stock_service.delete_item(db, item_id, db.get(User, actor_id))
-            except IntegrityError as failure:
-                assert failure.orig.pgcode == "23503"
-                assert failure.orig.diag.table_name == WasteRecord.__tablename__
+            except RuntimeError as failure:
+                assert audit_failure and str(failure) == 'injected concurrent delete audit failure'
                 db.rollback()
-                return 'fk_rejected'
+                return 'audit_rolled_back'
             return 'deleted'
 
-    monkeypatch.setattr(stock_service, 'log_action', pause_after_link_check)
-    with ThreadPoolExecutor(max_workers=1) as pool:
-        future = pool.submit(delete)
+    def insert_reference():
         try:
-            assert checked.wait(10), 'delete did not reach post-check point'
             with sessions.begin() as db:
+                pids['insert'] = db.execute(text('SELECT pg_backend_pid()')).scalar_one()
+                inserting.set()
                 waste = WasteRecord(item_id=item_id, waste_type='race', quantity=1, unit='kg')
                 db.add(waste)
                 db.flush()
-                waste_id = waste.id
+                return waste.id
+        except IntegrityError as failure:
+            assert failure.orig.pgcode == '23503'
+            assert failure.orig.diag.table_name == WasteRecord.__tablename__
+            return 'fk_rejected'
+        finally:
+            inserted.set()
+
+    monkeypatch.setattr(stock_service, 'log_action', pause_after_link_check)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        future = pool.submit(delete)
+        try:
+            assert checked.wait(10), 'delete did not reach post-check point'
+            reference = pool.submit(insert_reference)
+            assert inserting.wait(5), 'reference insert did not start'
+            blocked = False
+            deadline = monotonic() + 5
+            with sessions() as observer:
+                while monotonic() < deadline:
+                    blocked = observer.execute(text(
+                        'SELECT :delete_pid = ANY(pg_blocking_pids(:insert_pid))'
+                    ), {'delete_pid': pids['delete'], 'insert_pid': pids['insert']}).scalar_one()
+                    if blocked or inserted.wait(0.02):
+                        break
+            assert blocked, 'reference insert did not wait for the Item deletion lock'
+            assert not reference.done(), 'reference insert escaped the held Item lock'
         finally:
             resume.set()
-        assert future.result(timeout=15) == 'fk_rejected'
+        assert future.result(timeout=15) == ('audit_rolled_back' if audit_failure else 'deleted')
+        reference_result = reference.result(timeout=15)
     with sessions() as db:
-        assert db.get(Item, item_id).is_active is True
-        assert db.get(WasteRecord, waste_id).item_id == item_id
-        assert audit_rows(db, item_id) == []
+        if audit_failure:
+            assert db.get(Item, item_id).is_active is True
+            assert db.get(WasteRecord, reference_result).item_id == item_id
+            assert audit_rows(db, item_id) == []
+        else:
+            assert reference_result == 'fk_rejected'
+            assert db.get(Item, item_id) is None
+            assert db.query(WasteRecord).filter_by(item_id=item_id).count() == 0
+            audits = audit_rows(db, item_id)
+            assert len(audits) == 1 and audits[0].action == 'delete'
+            assert audits[0].user_id == actor_id and audits[0].entry_hash

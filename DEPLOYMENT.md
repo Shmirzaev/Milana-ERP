@@ -263,6 +263,39 @@ docker run --rm \
 
 Prefer forward-compatible migrations. Application rollback does not downgrade the database.
 
+### Schema-compatible recovery before a combined release
+
+If the new migration head prevents the current application image from restarting,
+prepare and independently verify a compatibility release before upgrading. Preserve
+the current application's runtime/dependency bytes; add the exact reviewed migration
+history and narrowly tested compatibility metadata. Prove strict default-command
+cold start, two workers, worker replacement and restart at the target head with
+startup seeding disabled. Existing business facts must remain readable and valid;
+keep hardware/provisioning features disabled when their facts are unsupported.
+
+Include the compatibility commit in the final candidate's reviewed ancestry.
+Before activation, freeze a two-phase release plan containing the initial production
+release/manifest, both exact source commits, source manifests, image digests, slots
+and ordered gates. Build and validate both candidates outside production. Missing
+artifacts or an unexpected source/schema/slot identity stops the operation.
+
+After a fresh verified backup and explicit candidate migration, stage, warm, test
+and activate the compatibility release on the inactive slot, backend first then
+frontend, and update both source symlinks. It now provides a running recovery slot
+at the new head. Stage the complete combined release on the newly inactive slot,
+repeat its required QA/performance/health gates, then activate it in the same order.
+Never replace an active container in place or depend on the old strict-head image
+restarting successfully after migration.
+
+Treat these as two explicitly reviewed phases of one deployment. The immutable
+artifact's production-base metadata records the verified **initial** baseline;
+the phase journal separately pins the expected compatibility release and must
+compare it with both live hosts before the final activation. This named intermediate
+transition is not an exception for unexplained drift. Record its actual manifest,
+image and slot readbacks; do not silently substitute another base or rebuild an
+already-scanned image. After final postflight and observation, update the Git
+production baseline to the final active release and retain the compatibility slot.
+
 ## Stage inactive slots
 
 On the backend VM, install the reviewed slot manager from the extracted release

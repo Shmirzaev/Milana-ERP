@@ -65,6 +65,33 @@ is 30 minutes unless the owner grants a new explicit deployment waiver.
 
 ## State
 
+The initial candidate `43aef8ca7` passed hosted frontend/security validation and
+all early migration/ECO/Planning/Cutting PostgreSQL gates. Its separate operation
+gate recorded 637 passes and one stale item-deletion race test failure. Production's
+Item parent lock intentionally blocks a competing FK insert; the old test waited
+for that insert before releasing the deletion transaction. Isolated PG reproduction
+observed the lock and proved both commit/refusal and audit-rollback/insert outcomes.
+The replacement pins both cases (group minimum 12, overall 639), and a removed-lock
+negative control fails both. Existing linked-record and audit rollback controls
+remain. The original failed CI evidence is retained, not relabeled as a pass.
+
+Compatible recovery source `9ef1a476202464befe759634c0b33c53ec015aef`
+preserves exact current-live application/dependency bytes and adds only four
+migration files, refreshed initial baseline metadata and a test-only exact gate
+storage contract. Independent PG verified fresh installation and five rejected
+storage mutations, including timezone loss. Its local default-command probe
+verified strict 0155 startup, two workers, replacement/restart and shared counters;
+published-image verification remains required. Recovery artifact workflow:
+42337397950, release `20261107_041208`.
+
+The final candidate merges that recovery ancestry, retaining its own complete
+gate ORM mappings and original schema-drift test instead of the recovery-only
+unmapped-gate allowance. The four added migration files are already identical.
+DEPLOYMENT.md records an explicit two-phase compatibility/combined deployment:
+initial baseline remains November 6; the phase journal must pin and verify the
+intermediate recovery release before final activation. No unexpected drift is
+accepted, and neither phase has run in production yet.
+
 Integration and validation are in progress. No merge, production migration,
 cutover, observation or human acceptance is claimed by this planning record.
 Update this section with actual commit/run/evidence identities as gates finish.
