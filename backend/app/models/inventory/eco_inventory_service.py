@@ -156,14 +156,14 @@ def receive_stock_bulk(db: Session, payload: EcoMaterialBulkReceiveIn, current: 
     for line in payload.lines:
         scoped_kind(current, line.kind)
     body = payload.model_dump(mode="json")
-    replay = replay_idempotent_response(db, scope="eco_inventory.receive_bulk", key=payload.request_key, payload=body)
+    replay = replay_idempotent_response(db, scope="eco_inventory:receive-bulk", key=payload.request_key, payload=body)
     if replay is not None:
         return [EcoMaterialMutationOut.model_validate(row) for row in replay["lines"]]
     # Stable catalog lock order also covers repeated material rows with different lots.
     db.execute(select(Item).where(Item.id.in_(sorted({line.item_id for line in payload.lines})))
                .order_by(Item.id).with_for_update().execution_options(populate_existing=True)).scalars().all()
     results = [_receive_stock_line(db, line, current) for line in payload.lines]
-    store_idempotent_response(db, scope="eco_inventory.receive_bulk", key=payload.request_key,
+    store_idempotent_response(db, scope="eco_inventory:receive-bulk", key=payload.request_key,
                               payload=body, response={"lines": [row.model_dump(mode="json") for row in results]}, user=current)
     db.commit()
     return results
