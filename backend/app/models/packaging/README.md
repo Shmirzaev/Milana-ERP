@@ -24,6 +24,10 @@ Packaging outputs; it never includes an unselected Nastil. Shared
 `packaging_scope_service.require_package_source_access` authorizes each source
 batch before all three creation APIs, including a merged package whose parent
 `production_batch_id` is null. One package retains one receiving department.
+`package_sources_service.py` owns GET `/packages/sources/{work_order_id}`: authorize
+the anchor Packaging WO and read same-department sibling Nastils using the saved
+output-minus-package-allocation ledger. This projection supports dedicated sibling
+WOs without widening record-entry/progress scope. It performs no writes.
 See [the 7 November operation packet](../../../../docs/PACK_TWO_NASTILS_20261107.md)
 for quantities, source/field coverage, automated evidence and pending browser gates.
 

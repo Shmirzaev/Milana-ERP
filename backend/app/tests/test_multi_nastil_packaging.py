@@ -70,9 +70,25 @@ def assert_no_packages(order_id):
         assert db.query(PackagePrintRun).count() == 0
 
 
+def unbatched_work_order(order_id):
+    with SessionLocal() as db:
+        return db.query(WorkOrder.id).filter_by(production_order_id=order_id, operation="packaging", production_batch_id=None).scalar()
+
+
 @pytest.mark.parametrize("factory", ["MIL", "BST", "ECO"])
 def test_two_nastils_full_partial_retry_and_warehouse_provenance(client, factory):
     order_id, model_id, (first, second, unselected) = seed_nastils(factory)
+    work_order_id = unbatched_work_order(order_id)
+    source_path = f"/api/packages/sources/{work_order_id}"
+    # Record entry/progress deliberately excludes Nastils owned by dedicated WOs.
+    progress = client.get(f"/api/work-orders/{work_order_id}/packaging-batch-progress", headers=headers(factory))
+    assert progress.status_code == 200, progress.text
+    assert progress.json()["items"] == []
+    # Package creation has a separate same-factory source read spanning siblings.
+    source = client.get(source_path, headers=headers(factory))
+    assert source.status_code == 200, source.text
+    assert [(row["id"], row["available_to_package"]) for row in source.json()["items"]] == [(first, 35), (second, 40), (unselected, 90)]
+    assert [row["name"] for row in source.json()["items"]] == ["Nastil 1", "Nastil 2", "Nastil 3"]
     body = {"request_key": str(uuid4()), "packages": [
         package(order_id, model_id, [(first, 35), (second, 25)]),
         package(order_id, model_id, [(second, 15)]),
@@ -81,6 +97,8 @@ def test_two_nastils_full_partial_retry_and_warehouse_provenance(client, factory
     assert response.status_code == 201, response.text
     saved = response.json()
     assert client.post(RUN_PATH, headers=headers(factory), json=body).json() == saved
+    remaining = client.get(source_path, headers=headers(factory))
+    assert [(row["id"], row["available_to_package"]) for row in remaining.json()["items"]] == [(first, 0), (second, 0), (unselected, 90)]
     with SessionLocal() as db:
         allocations = db.query(PackageBatchAllocation).join(Package).filter(Package.production_order_id == order_id).all()
         assert sum(row.quantity for row in allocations if row.production_batch_id == first) == 35
@@ -126,3 +144,58 @@ def test_later_source_overrun_rolls_back_entire_print_run(client):
     body["packages"][1] = package(order_id, model_id, [(second, 15)])
     response = client.post(RUN_PATH, headers=headers("MIL"), json=body)
     assert response.status_code == 201, response.text
+
+
+def test_package_sources_filters_sibling_factory_and_enforces_anchor_access(client):
+    order_id, _, (first, other_factory, third) = seed_nastils(split_factory=True)
+    work_order_id = unbatched_work_order(order_id)
+    path = f"/api/packages/sources/{work_order_id}"
+    assert client.get(path).status_code == 401
+    response = client.get(path, headers=headers("MIL"))
+    assert response.status_code == 200, response.text
+    assert {row["id"] for row in response.json()["items"]} == {first, third}
+    assert other_factory not in {row["id"] for row in response.json()["items"]}
+    assert client.get(path, headers=headers("ECO")).status_code == 403
+    with SessionLocal() as db:
+        foreign_work = db.query(WorkOrder.id).filter_by(production_order_id=order_id, operation="packaging", production_batch_id=other_factory).scalar()
+    assert client.get(f"/api/packages/sources/{foreign_work}", headers=headers("MIL")).status_code == 403
+    matching = client.get(f"/api/packages/sources/{foreign_work}", headers=headers("ECO"))
+    assert matching.status_code == 200, matching.text
+    assert [(row["id"], row["available_to_package"]) for row in matching.json()["items"]] == [(other_factory, 40)]
+
+
+def test_package_sources_is_read_only_and_rejects_unsupported_anchor(client, auth_headers):
+    from app.models.packaging.package_sources_service import package_sources
+    from app.schemas import User
+    order_id, _, batch_ids = seed_nastils()
+    with SessionLocal() as db:
+        current = db.get(User, 1)
+        result = package_sources(db, current, unbatched_work_order(order_id))
+        assert {row.id for row in result.items} == set(batch_ids)
+        assert not db.new and not db.dirty and not db.deleted
+        sew_id = db.query(WorkOrder.id).filter_by(production_order_id=order_id, operation="sewing").first()[0]
+    assert client.get(f"/api/packages/sources/{sew_id}", headers=auth_headers).status_code == 400
+    assert client.get("/api/packages/sources/2147483647", headers=auth_headers).status_code == 404
+    with SessionLocal.begin() as db:
+        db.get(ProductionOrder, order_id).source_type = "usluga"
+    assert client.get(f"/api/packages/sources/{unbatched_work_order(order_id)}", headers=auth_headers).status_code == 409
+
+
+def test_package_sources_requires_package_permission(client):
+    from app.core.deps import get_current_user
+    from app.main import app
+    from app.schemas import Role, User
+    order_id, _, _ = seed_nastils()
+    with SessionLocal.begin() as db:
+        role = Role(name="Sources denied", permissions=["modeling.models"])
+        db.add(role)
+        db.flush()
+        actor = User(name="Sources denied", email="sources-denied@example.com", password_hash="unused", role_id=role.id, is_active=True)
+        db.add(actor)
+        db.flush()
+        actor.role
+        app.dependency_overrides[get_current_user] = lambda: actor
+        try:
+            assert client.get(f"/api/packages/sources/{unbatched_work_order(order_id)}").status_code == 403
+        finally:
+            app.dependency_overrides.pop(get_current_user, None)

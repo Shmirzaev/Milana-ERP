@@ -27,7 +27,8 @@ function render(sewn, remaining, batched = true, events = {}) {
     "next/navigation": { useParams: () => ({ id: "3" }) },
     swr: { useSWRConfig: () => ({ mutate: async predicate => { events.sizePredicate = predicate; } }),
       default: key => ({ mutate: async () => { (events.refreshed ??= []).push(key); }, data:
-      key?.includes("packaging-batch-progress") ? { ...batch, items: batched ? (events.batches || [batch]) : [] }
+      key?.startsWith("/api/packages/sources/") ? { items: events.sources || events.batches || [batch] }
+      : key?.includes("packaging-batch-progress") ? { ...batch, items: batched ? (events.batches || [batch]) : [] }
       : key?.includes("production-orders") ? { id: 1, model_id: 1, planned_quantity: 684,
         batches: batched ? [batch] : [], items: [{ size: "M", color: "white", planned_quantity: 684 }] }
       : key?.includes("work-orders") ? { id: 3, production_order_id: 1, planned_output_qty: 684, passed_qty: 0 }
@@ -68,7 +69,7 @@ assert.match(render(585, 285, false), /min="0" max="285" value=""/);
 
 // Exercise the actual page submit closure, not just the planner: source selection
 // must reach the atomic endpoint and must not create packs from the third Nastil.
-const merged = { states: { 9: true, 10: [1, 2] }, batches: [
+const merged = { states: { 9: true, 10: [1, 2] }, batches: [], sources: [
   { id: 1, name: "Nastil A", available_to_package: 35 },
   { id: 2, name: "Nastil B", available_to_package: 40 },
   { id: 3, name: "Unselected", available_to_package: 90 },
@@ -92,7 +93,7 @@ const events = {};
 render(120, 60, true, events);
 await events.packageChanged();
 assert.deepEqual(events.refreshed.sort(), [
-  "/api/production-orders/1", "/api/work-orders/3", "/api/work-orders/3/packaging-batch-progress",
+  "/api/production-orders/1", "/api/work-orders/3", "/api/work-orders/3/packaging-batch-progress", "/api/packages/sources/3",
 ].sort());
 for (const key of ["/api/packages/first-grade/size-entry/1", "/api/packages/first-grade/size-entry/1?production_batch_id=2"]) {
   assert.equal(events.sizePredicate(key), true);

@@ -5,6 +5,9 @@
 Existing Pydantic definitions in this group:
 
 - [tracking.py](tracking.py)
+- [package_source_output.py](package_source_output.py): read-only same-department
+  sibling-Nastil balances for package creation; canonical PackagingDepartment
+  output, existing batch labels and saved/consumed quantities.
 
 These describe accepted inputs and returned data. They do not execute database
 writes, implement permissions or manage transactions. Existing filenames/class

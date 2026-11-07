@@ -16,7 +16,7 @@ import { can, useMe } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
 import { numberOrFallback, numberOrZero, parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
 import { orderReference } from "@/lib/orderRef";
-import { multiNastilText, planSelectedNastils, type PackagePlan, type PackagePlanItem } from "@/lib/multiNastilPackaging";
+import { multiNastilText, planSelectedNastils, type PackagePlan, type PackagePlanItem, type PackageSourceBalances } from "@/lib/multiNastilPackaging";
 
 type PackagingRecordForm = {
   production_batch_id: number;
@@ -88,6 +88,10 @@ export default function PackagingPage() {
   const { data: po, mutate: mutatePo } = useSWR<any>(wo ? `/api/production-orders/${wo.production_order_id}` : null, fetcher);
   const { data: batchProgress, mutate: mutateBatchProgress } = useSWR<any>(
     wo ? `/api/work-orders/${id}/packaging-batch-progress` : null,
+    fetcher,
+  );
+  const { data: packageSources, error: packageSourcesError, isLoading: packageSourcesLoading, mutate: mutatePackageSources } = useSWR<PackageSourceBalances>(
+    wo && po?.source_type !== "usluga" && can(me, "packaging.packages") ? `/api/packages/sources/${id}` : null,
     fetcher,
   );
   const { data: so } = useSWR<any>(po?.sales_order_id ? `/api/sales-orders/${po.sales_order_id}` : null, fetcher);
@@ -337,8 +341,8 @@ export default function PackagingPage() {
   }, [basePackageItems, color, packOnlyFullPackages, packingPreview.fullCount, packingPreview.partialPackages, po?.model_id]);
 
   const batchPackageAvailability = useMemo(() => (
-    batchItems
-      .map((row: any) => {
+    (Array.isArray(packageSources?.items) ? packageSources.items : [])
+      .map((row) => {
         const available = Math.max(0, Number(row?.available_to_package || 0));
         return {
           id: Number(row?.id || 0),
@@ -346,8 +350,8 @@ export default function PackagingPage() {
           available,
         };
       })
-      .filter((row: any) => row.id > 0)
-  ), [batchItems, po?.id]);
+      .filter((row) => row.id > 0)
+  ), [packageSources?.items, po?.id]);
 
   const selectedMergeBatchCount = batchPackageAvailability.filter((source) => source.available > 0 && selectedMergeBatchIds.includes(source.id)).length;
   const mergedPackingPlan = useMemo(() => planSelectedNastils(
@@ -405,7 +409,7 @@ export default function PackagingPage() {
   }, [isAlreadyBatched, batchItems]);
 
   async function refreshPackagingOutputs() {
-    await Promise.all([mutateBatchProgress(), mutateWo(), mutatePo()]);
+    await Promise.all([mutateBatchProgress(), mutatePackageSources(), mutateWo(), mutatePo()]);
     setPackageQrRefreshKey((prev) => prev + 1);
   }
 
@@ -657,7 +661,7 @@ export default function PackagingPage() {
       </div>
 
       <div className="mb-4">
-        {po && !po.sales_order_id && po.source_type !== "usluga" && <FirstGradePackaging key={`${po.id}:${rec.production_batch_id}:${color}`} productionOrderId={po.id} batchId={rec.production_batch_id || undefined} modelId={po.model_id} color={color} onChanged={async () => { setPackageQrRefreshKey(k => k + 1); await Promise.all([mutatePo(), mutateWo(), mutateBatchProgress()]); }} />}
+        {po && !po.sales_order_id && po.source_type !== "usluga" && <FirstGradePackaging key={`${po.id}:${rec.production_batch_id}:${color}`} productionOrderId={po.id} batchId={rec.production_batch_id || undefined} modelId={po.model_id} color={color} onChanged={async () => { setPackageQrRefreshKey(k => k + 1); await Promise.all([mutatePo(), mutateWo(), mutateBatchProgress(), mutatePackageSources()]); }} />}
       </div>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
@@ -759,7 +763,9 @@ export default function PackagingPage() {
               </table></div>
               <p className="mt-2 text-xs">{multiCopy.selected}: {selectedMergeBatchCount} · {multiCopy.available}: {mergedPackingPlan.totalAvailable}</p>
               {selectedMergeBatchCount < 2 && <p className="mt-1 text-xs" role="status">{multiCopy.chooseTwo}</p>}
-              {!batchPackageAvailability.some(source => source.available > 0) && <p className="mt-1 text-xs">{multiCopy.noOutput}</p>}
+              {packageSourcesLoading && <p className="mt-1 text-xs">{t("common.loading")}</p>}
+              {packageSourcesError && <p role="alert" className="mt-1 text-xs text-red-700">{packageSourcesError.message}</p>}
+              {!packageSourcesLoading && !packageSourcesError && !batchPackageAvailability.some(source => source.available > 0) && <p className="mt-1 text-xs">{multiCopy.noOutput}</p>}
               <div className="mt-2 text-xs text-slate-600">
                 {mergedPackingPlan.plans.length > 0
                   ? `${t("page.packaging.mergeFullPackages", { count: mergedPackingPlan.plans.length })} · ${t("page.packaging.mergePending", { count: mergedPackingPlan.pendingQty })}`
@@ -922,7 +928,7 @@ export default function PackagingPage() {
         onChanged={async () => {
           const sizePath = `/api/packages/first-grade/size-entry/${po?.id}`;
           await Promise.all([
-            mutateBatchProgress(), mutateWo(), mutatePo(),
+            mutateBatchProgress(), mutatePackageSources(), mutateWo(), mutatePo(),
             mutateCache((key) => typeof key === "string" && (key === sizePath || key.startsWith(`${sizePath}?`))),
           ]);
           setRec((previous) => ({ ...previous, input_qty: "", packed_qty: "", damaged_qty: "" }));

@@ -97,9 +97,19 @@ from app.models.packaging_scope_service import (
     require_package_access,
 )
 from app.libs.dto.fulfillment.package_customer_release import PackageCustomerAccessOut, PackageCustomerReleaseIn, PackageCustomerReleaseOut
+from app.libs.dto.packaging.package_source_output import PackageSourcesOut
 from app.models.fulfillment.package_customer_service import package_customer_access, release_packages_for_any_customer
 
 router = APIRouter(prefix="/packages", tags=["packages"])
+
+
+@router.get("/sources/{work_order_id}", response_model=PackageSourcesOut)
+def read_package_sources(
+    work_order_id: int, db: DbSession,
+    current: User = Depends(require_permissions("packaging.packages", "*")),
+):
+    from app.models.packaging.package_sources_service import package_sources
+    return package_sources(db, current, work_order_id)
 
 
 @router.post("/customer-release", response_model=PackageCustomerReleaseOut)

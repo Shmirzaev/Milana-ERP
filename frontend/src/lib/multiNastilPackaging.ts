@@ -2,6 +2,8 @@ export type PackagePlanItem = { model_id: number; color: string; size: string; q
 export type BatchAllocationPlan = { production_batch_id: number; quantity: number; label: string };
 export type PackagePlan = { items: PackagePlanItem[]; batch_allocations?: BatchAllocationPlan[] };
 export type NastilPackageSource = { id: number; label: string; available: number };
+export type PackageSourceBalances = { items: Array<{ id: number; batch_no: string; batch_index: number; name: string | null;
+  packed_qty: number; packaged_qty: number; available_to_package: number }> };
 
 export const multiNastilText = {
   en: { title: "Pack selected Nastils together", hint: "Choose at least two Nastils with saved Packaging output. All available output from your selection is included; each pack keeps its source quantities.", select: "Select", nastil: "Nastil", available: "Available to pack", selected: "Selected Nastils", chooseTwo: "Choose at least two available Nastils.", noOutput: "Save Packaging output for each Nastil after Sewing before combining packs." },

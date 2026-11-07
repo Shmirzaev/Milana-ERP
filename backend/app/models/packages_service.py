@@ -397,6 +397,16 @@ def _existing_package_totals_by_batch(
     return totals
 
 
+def packaged_quantity_balances_by_batch(
+    db: Session, production_order_id: int,
+) -> tuple[dict[int | None, int], dict[int | None, int]]:
+    """Read the same source-output and consumption ledgers package creation uses."""
+    return (
+        _packaging_record_totals_by_batch(db, production_order_id),
+        _existing_package_totals_by_batch(db, production_order_id),
+    )
+
+
 def prime_package_batch_memberships(
     db: Session,
     context: PackageWriteContext,
