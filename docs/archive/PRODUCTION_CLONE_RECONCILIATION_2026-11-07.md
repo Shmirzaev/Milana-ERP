@@ -120,6 +120,23 @@ completed it**. Record the reviewer as the authenticated user/owner in this chat
 no separate personal name was supplied. This is the human application review,
 not a technical/security/backup/observation waiver or earlier acceptance backfill.
 
+Hardened recovery is committed at `493fd5906809f23bd571949d63b192629e901b84`,
+planned release `20261107_043753` / workflow42339292169. The final application is
+`3c6ccc82a8521d74ce274151024ccd5bc1942fde`, planned release
+`20261107_043754` / workflow42339294521 and operation gate42339297228. Its complete
+backend and frontend Git trees equal reviewed7d17ece, independently verified.
+The later procedure/record commits do not change those application/image inputs.
+
+Installed controller13a9e19d does not inject RELEASE_ID; the newer repository
+controller also changes HAProxy routing/error responses. Keep production routing
+unchanged through a narrowly reviewed staging adapter: invoke the exact installed
+stage operation, match its complete backend Docker argv and add only the explicit
+release environment. The named493 recovery predates HTTP release fields, so bind
+its legacy health checks to immutable image/container/source/slot/environment and
+strict workers. Final3c still requires exact HTTP release identity. The adapter
+needs actual installed-version command and negative controls, independent hash
+review and a recorded phase plan before any production use.
+
 Integration and validation are in progress. No merge, production migration,
-cutover, observation or human acceptance is claimed by this planning record.
+cutover, observation or production acceptance is claimed by this planning record.
 Update this section with actual commit/run/evidence identities as gates finish.

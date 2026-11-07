@@ -308,6 +308,24 @@ sudo install -m 0644 /opt/milana-erp/releases/<release_id>/deploy/slotctl.py /op
 cmp /opt/milana-erp/releases/<release_id>/deploy/slotctl.py /opt/milana-erp/shared/deploy/slotctl.py
 ```
 
+If that manager upgrade also changes routing outside the reviewed release scope,
+keep the installed manager and use a separately reviewed backend staging adapter.
+Pin its exact controller/helper hashes and the entire expected `docker run` argument
+list. Invoke the installed manager's real `stage()` operation and add only
+`-e RELEASE_ID=<reviewed-release>` immediately before the exact immutable image.
+Refuse preexisting release overrides or any unexpected argument; preserve default
+CMD, ports, mounts, labels, resource limits and every other environment argument.
+Do not edit the installed manager, shared environment or active proxy. Frontend
+staging uses the original manager. Record this named adapter in the phase journal
+and independently test the actual installed-version command before use.
+
+Check the created container's release environment as well as image/source identity.
+The final application must report that exact release from both health endpoints.
+A named current-live compatibility image that predates those response fields needs
+an explicit legacy check bound to its immutable digest, OCI revision, container,
+slot, release environment, unchanged default CMD and two strict-schema workers;
+do not turn this into a general missing-release allowance.
+
 Read slot state:
 
 ```sh
