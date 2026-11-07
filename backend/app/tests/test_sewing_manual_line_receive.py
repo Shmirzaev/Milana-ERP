@@ -146,3 +146,60 @@ def test_browser_fixture_builds_waiting_batch_and_saved_parts(client, auth_heade
     rows = client.get("/api/sewing-daily-reports?report_date=2099-11-07").json()["rows"]
     saved = [row for row in rows if row["id"] in fixture["report_ids"]]
     assert sorted((row["top_qty"], row["bottom_qty"]) for row in saved) == [(0, 16), (24, 0)]
+
+
+@pytest.mark.parametrize("receipt", ["manual", "batch_qr"])
+@pytest.mark.parametrize(("loss", "scope"), [(28, "same"), (128, "same"), (28, "sibling"), (28, "cancelled"), (28, "legacy")])
+def test_line_receipt_uses_exact_nastil_printing_losses(client, auth_headers, waiting, receipt, loss, scope):
+    from app.schemas import Department, PrintingRecord, ProductionBatch
+
+    order, work, batch_id, flow_id, ids = waiting
+    with TestSessionLocal() as db:
+        print_batch = batch_id
+        if scope == "sibling":
+            sibling = ProductionBatch(production_order_id=order["id"], batch_no="SIBLING-" + uuid4().hex[:8], batch_index=2, planned_quantity=128)
+            db.add(sibling)
+            db.flush()
+            print_batch = sibling.id
+        printing = WorkOrder(production_order_id=order["id"], operation="printing",
+            production_batch_id=print_batch if scope == "legacy" else None,
+            department_id=db.query(Department.id).filter_by(code="PRT").scalar(),
+            status="cancelled" if scope == "cancelled" else "completed",
+            passed_qty=128-loss, failed_qty=loss)
+        db.add(printing)
+        db.flush()
+        db.add(PrintingRecord(work_order_id=printing.id, production_batch_id=None if scope == "legacy" else print_batch,
+            input_qty=128, printed_qty=128, passed_qty=128-loss, rejected_qty=loss))
+        db.commit()
+    if receipt == "manual":
+        result = receive(client, auth_headers, waiting)
+    else:
+        result = client.post(f"/api/bundles/sewing-batches/{batch_id}/accept", headers=auth_headers, json={"sewing_flow_id": flow_id})
+    usable = 128-loss if scope in ("same", "legacy") else 128
+    with TestSessionLocal() as db:
+        if usable == 0:
+            assert result.status_code == 409, result.text
+            assert "no usable Sewing input" in result.json()["detail"]
+            assert db.query(SewingAssignment).filter_by(work_order_id=work["sewing"]).count() == 0
+            assert all(db.get(Bundle, bid).status == "created" for bid in ids)
+            return
+        assert result.status_code == 200, result.text
+        aid = result.json()["sewing_assignment_id"]
+        assert db.get(SewingAssignment, aid).quantity == usable
+        assert [db.get(Bundle, bid).quantity for bid in ids] == [32] * 4
+        assert all(db.get(Bundle, bid).status == "received_sewing" for bid in ids)
+    output = client.post("/api/sewing/records", headers=auth_headers, json={
+        "work_order_id": work["sewing"], "production_batch_id": batch_id,
+        "sewing_assignment_id": aid, "input_qty": usable, "sewn_qty": usable, "passed_qty": usable,
+    })
+    if scope == "cancelled":
+        # Existing post_sewing still reads cancelled Printing as its cap, while
+        # completion/receipt ignore it. Characterize, do not silently fix that
+        # separate route operation in this receipt-only change.
+        assert output.status_code == 400, output.text
+        assert "exceeds upstream passed 100" in output.json()["detail"]
+        return
+    assert output.status_code == 201, output.text
+    with TestSessionLocal() as db:
+        assignment = db.get(SewingAssignment, aid)
+        assert (assignment.quantity, assignment.completed_qty, assignment.status) == (usable, usable, "completed")

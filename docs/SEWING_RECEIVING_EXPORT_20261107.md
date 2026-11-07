@@ -127,3 +127,51 @@ example. All synthetic writes are isolated local fixtures; no production QA rows
 4. QA master and named human owners record acceptance before any separately
    authorized deployment. Until parent visual/independent gates pass, do not mark
    AI_VERIFIED_AWAITING_HUMAN. No deployment happened in this worker.
+
+## Independent-review P2 followup: Printing loss at line acceptance
+
+Independent reviewer `/root/ect_receiving` reproduced an inherited batch-QR defect
+in the newly reused selected-manual path. On base `92ede3b44`, 128 original Cutting
+bundle pieces with 28 Printing rejects receive correctly, but assigning the raw
+128 leaves a line at `(quantity, completed_qty, status) = (128, 100, in_progress)`
+after the valid 100-piece Sewing and Packaging workflow completes. Initial green
+cases omitted the combination of selected-line receipt and Printing loss; that
+coverage gap is corrected. The new real-PostgreSQL regression proved RED exactly
+at this persisted tuple before changing the service.
+
+The shared receipt operation now uses the existing completion-target arithmetic,
+factored without behavior change from `unfinished_sewing_batches` into
+`sewing_input_service.usable_sewing_input_quantity`. The receipt helper reads
+exact-Nastil Printing passed/rejected evidence, including legacy records scoped
+through their dedicated Printing work order, and excludes cancelled/rejected/
+skipped work orders just as completion already does. Assignment quantity is capped
+by the exact physical bundle receipt. New manual and QR assignments owe 100, not
+128, in the reviewed case; actual saved bundle identities/quantities and receipt
+counts remain unchanged. Existing assignment-conflict/resize restrictions remain;
+this is not a historical assignment/data repair. All-rejected input refuses line
+acceptance with 409 before creating an empty assignment. Existing no-line receipt
+and its preserved plan behavior remain unchanged. Acceptance audit JSON retains
+raw `quantity` and adds integer `assignment_quantity` to distinguish the evidence.
+No migration, permission, DTO enum, payroll or packaging stock rule changes.
+
+The expanded PostgreSQL matrix covers MIL/BST/ECO, no-loss/loss, no-line/selected
+line, simultaneous requests, 12 pre-output replays and a post-completion replay,
+sibling history, WO lock refusal/recovery and Sewing -> Packaging. **12 cases PASS**
+(12.55 seconds), including persisted `(100, 100, completed)` and both WOs complete.
+SQLite manual/QR cases cover active same-Nastil loss, all-rejected refusal, sibling
+and cancelled Printing exclusion and legacy dedicated-Nastil attribution. Final
+SQLite suites (`test_sewing_manual_line_receive.py`, later-Nastil workflow and
+Nastil completion) pass **47 cases** (38.68 seconds). Ruff and `git diff --check`
+pass for the changed source.
+
+A separate pre-existing adjacent inconsistency remains: `production.py:post_sewing`
+uses `_context_work_order(..., "printing")` and sums that row's passed output without
+excluding a cancelled Printing work order. Thus a cancelled row with passed100/
+rejects28 still caps Sewing input at100 despite its existing completion target
+ignoring the cancelled row and requiring128. The exact `92ede3b44` service baseline
+is exercised by the two cancelled manual/QR characterizations, asserting the
+128-piece assignment and the existing output refusal at100. The followup retains
+this characterization and changes no `production.py` source. This is an unresolved
+adjacent workflow risk, not a claimed passing cancelled-Printing completion.
+Parent owns its separate prioritization and the actual browser/independent review
+of the combined active-Printing-loss fix. No production rows are changed.

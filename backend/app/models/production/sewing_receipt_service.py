@@ -17,6 +17,7 @@ from app.schemas.production.sewing_receipt import create_receipt_assignment, res
 from app.models.audit_service import log_action
 from app.models.bundles_service import receive_many_at_sewing, resolve_sewing_factory_code, verify_sewing_accessory_gate
 from app.models.sewing_scope_service import require_sewing_flow_access, sewing_line_factory_scope
+from app.models.sewing_input_service import usable_sewing_receipt_quantity
 
 SEWING_RECEIVE_DEPARTMENT_CODES = ("SEW", "MIL", "BST", "ECO")
 
@@ -233,27 +234,30 @@ def accept_sewing_batch(
         else None
     )
     total_quantity = sum(int(bundle.quantity or 0) for bundle in bundles)
+    assignment_quantity = usable_sewing_receipt_quantity(db, wo, batch.id, total_quantity)
+    if assignment_quantity <= 0:
+        raise HTTPException(409, "This Nastil has no usable Sewing input after Printing rejects")
     assignment: SewingAssignment
     if batch_assignments:
         assigned_quantity = sum(int(row.quantity or 0) for row in batch_assignments)
-        if assigned_quantity != total_quantity:
+        if assigned_quantity != assignment_quantity:
             can_resize = (
                 len(batch_assignments) == 1
                 and int(batch_assignments[0].completed_qty or 0) == 0
-                and assigned_quantity <= total_quantity
+                and assigned_quantity <= assignment_quantity
             )
             if not can_resize:
                 raise HTTPException(
                     409,
-                    f"Existing batch assignment quantity ({assigned_quantity}) does not match bundle quantity ({total_quantity})",
+                    f"Existing batch assignment quantity ({assigned_quantity}) does not match usable Sewing quantity ({assignment_quantity})",
                 )
-            resize_receipt_assignment(batch_assignments[0], total_quantity)
+            resize_receipt_assignment(batch_assignments[0], assignment_quantity)
         assignment = batch_assignments[0]
     else:
         now = datetime.now(timezone.utc)
         assignment = create_receipt_assignment(
             db, work_order=wo, production_batch_id=batch.id, sewing_flow_id=flow.id,
-            quantity=total_quantity, now=now, planned_end=batch.deadline, actor_id=current.id,
+            quantity=assignment_quantity, now=now, planned_end=batch.deadline, actor_id=current.id,
             notes="Accepted from manual sewing receipt" if manual_scope else "Accepted from cutting-sheet batch QR",
         )
 
@@ -287,6 +291,7 @@ def accept_sewing_batch(
             "bundle_ids": [int(bundle.id) for bundle in bundles],
             "received_bundle_ids": received_ids,
             "quantity": total_quantity,
+            "assignment_quantity": assignment_quantity,
         },
     )
     db.commit()

@@ -14,7 +14,7 @@ from app.tests.test_password_change_races import password_change_postgres_sessio
 
 
 @pytest.mark.parametrize('factory', ['MIL', 'BST', 'ECO'])
-@pytest.mark.parametrize(('printing_loss', 'receipt_line'), [(0, False), (28, False), (0, True)])
+@pytest.mark.parametrize(('printing_loss', 'receipt_line'), [(0, False), (28, False), (0, True), (28, True)])
 def test_postgres_later_receipt_reopens_and_preserves_history(password_change_postgres_sessions, factory, printing_loss, receipt_line):
     from app.schemas import PrintingRecord, SewingAssignment, SewingFlow
     sessions, _ = password_change_postgres_sessions
@@ -151,6 +151,15 @@ def test_postgres_later_receipt_reopens_and_preserves_history(password_change_po
         assert db.get(WorkOrder, sewing_id).status == 'completed'
         assert db.get(WorkOrder, packing_id).passed_qty == 128-printing_loss
         assert db.get(SewingRecord, first_id).passed_qty == 128
+        assert (assignment.quantity, assignment.completed_qty, assignment.status) == (
+            128-printing_loss, 128-printing_loss, 'completed')
+        if receipt_line:
+            completed_retry = manual_receive_sewing(SewingManualReceiveIn(production_order_id=order_id,
+                production_batch_id=batch_id, model_id=model.id, factory_code=factory, sewing_flow_id=flow_id), db, actor)
+            assert completed_retry['received_count'] == 0
+            assert completed_retry['sewing_assignment_id'] == assignment.id
+            assert assignment.status == 'completed'
+            assert db.get(WorkOrder, sewing_id).status == 'completed'
         sewing.status = 'cancelled'
         db.commit()
         reconcile_sewing_order(db, order_id)

@@ -9,6 +9,7 @@ from fastapi import HTTPException
 
 from app.schemas import Bundle, CuttingRecord, PrintingRecord, ProductionBatch, SewingRecord, WorkOrder
 from app.models.audit_service import log_action
+from app.models.sewing_input_service import usable_sewing_input_quantity
 
 
 def unfinished_sewing_batches(db, wo):
@@ -55,8 +56,10 @@ def unfinished_sewing_batches(db, wo):
         # Printing rejects are real losses in this exact Nastil. Bundle labels
         # may retain their original Cutting count; do not demand those rejects
         # again at Sewing or subtract them from another Nastil's allowance.
-        target = max(0, int(cut.get(bid) or 0) - printed_loss,
-                     int(receipts.get(bid) or 0) - printed_loss, printed_passed)
+        target = usable_sewing_input_quantity(
+            cutting_qty=int(cut.get(bid) or 0), received_qty=int(receipts.get(bid) or 0),
+            printing_passed_qty=printed_passed, printing_rejected_qty=printed_loss,
+        )
         # Historical unbatched entries have only aggregate counters. Preserve
         # that supported path; normal aggregate completion validates it.
         actual = int(output.get(bid) or 0)

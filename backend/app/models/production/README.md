@@ -6,6 +6,9 @@
 operation. Manual input may include `sewing_flow_id` for a real Nastil; the canonical
 batch acceptance validates the complete locked batch, line/factory, accessory gate,
 existing assignment and quantities, then receives and assigns in one transaction.
+Assignment quantity uses the shared usable Sewing-input target, capped by physical
+bundle receipt and excluding this exact Nastil's Printing rejects; original bundle
+labels/counts stay unchanged. All-rejected input cannot create a zero assignment.
 Omitting/null line retains the receipt-only behavior and preserves existing plans.
 Explicit-null legacy Nastils remain receipt-only. Model-filtered manual requests
 cannot silently accept another model in a mixed historical batch. Assignment writes
