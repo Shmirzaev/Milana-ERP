@@ -21,10 +21,11 @@ def usable_sewing_input_quantity(
 
 
 def sewing_receipt_printing_totals(production_order_id: int, production_batch_id: int) -> Subquery:
-    """One aggregate row joined to the existing locked bundle read.
+    """One bounded aggregate, executed after the caller's bundle-lock waits.
 
-    Constructing this statement performs no query. It scans Printing evidence
-    once for the selected Nastil, independently of how many bundles are received.
+    Constructing this statement performs no query. A fresh statement snapshot
+    sees Printing evidence committed while a legacy receipt waited for bundles.
+    The scan is independent of how many bundles are received.
     """
     print_batch = func.coalesce(PrintingRecord.production_batch_id, WorkOrder.production_batch_id)
     return select(

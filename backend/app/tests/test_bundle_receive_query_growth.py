@@ -64,7 +64,8 @@ def test_bulk_sewing_receipt_has_bounded_shared_context_queries(monkeypatch, mod
     printing_reads = [statement for statement in normalized if "sum(printing_records.rejected_qty)" in statement]
     assert len(printing_reads) == (0 if mode == "manual" else 1)
     if printing_reads:
-        assert "from bundles join (select" in printing_reads[0]
+        assert "from (select" in printing_reads[0]
+        assert "for update" not in printing_reads[0]
     assert len(department_reads) <= 2
     assert len(received_sum_reads) <= 1
     # Receipt status synchronization stays live per bundle, but its already
@@ -77,7 +78,7 @@ def test_bulk_sewing_receipt_has_bounded_shared_context_queries(monkeypatch, mod
     assert "production_orders.service_handover_notes" not in receipt_order_reads[0]
     assert len(work_order_reads) <= 4
     print(f"{mode} {bundle_count}: {len(statements)} SELECTs")
-    assert len(statements) == {"manual": 20, "accept": 29, "manual_line": 24}[mode]
+    assert len(statements) == {"manual": 20, "accept": 30, "manual_line": 25}[mode]
     with TestSessionLocal() as db:
         bundles = db.query(Bundle).filter(Bundle.id.in_(case["bundle_ids"])).all()
         assert {bundle.status for bundle in bundles} == {"received_sewing"}

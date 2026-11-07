@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from typing import NotRequired, TypedDict
 
 from fastapi import HTTPException
-from sqlalchemy import and_, or_, text, true
+from sqlalchemy import and_, or_, text
 from sqlalchemy.orm import Session
 
 from app.libs.dto.production.sewing_manual_receive import SewingManualReceiveIn
@@ -145,10 +145,8 @@ def accept_sewing_batch(
     if not flow.is_active:
         raise HTTPException(400, "Sewing line is inactive")
 
-    printing = sewing_receipt_printing_totals(batch.production_order_id, batch.id)
-    bundle_rows = (
-        db.query(Bundle, printing.c.printing_passed_qty, printing.c.printing_rejected_qty)
-        .join(printing, true())
+    bundles = (
+        db.query(Bundle)
         .filter(
             Bundle.production_batch_id == batch.id,
             Bundle.production_order_id == batch.production_order_id,
@@ -158,7 +156,6 @@ def accept_sewing_batch(
         .with_for_update(of=Bundle)
         .all()
     )
-    bundles = [row[0] for row in bundle_rows]
     if not bundles:
         raise HTTPException(404, "No bundles found for this production batch")
 
@@ -237,9 +234,16 @@ def accept_sewing_batch(
         else None
     )
     total_quantity = sum(int(bundle.quantity or 0) for bundle in bundles)
+    # Use a new READ COMMITTED statement snapshot after all bundle-lock waits.
+    # A legacy coalesced Printing source has no batch FK to serialize its
+    # publication against the upfront Nastil lock.
+    printing = sewing_receipt_printing_totals(batch.production_order_id, batch.id)
+    printing_passed, printing_rejected = db.query(
+        printing.c.printing_passed_qty, printing.c.printing_rejected_qty,
+    ).one()
     assignment_quantity = usable_sewing_receipt_quantity(
-        received_qty=total_quantity, printing_passed_qty=int(bundle_rows[0][1]),
-        printing_rejected_qty=int(bundle_rows[0][2]),
+        received_qty=total_quantity, printing_passed_qty=int(printing_passed),
+        printing_rejected_qty=int(printing_rejected),
     )
     if assignment_quantity <= 0:
         raise HTTPException(409, "This Nastil has no usable Sewing input after Printing rejects")

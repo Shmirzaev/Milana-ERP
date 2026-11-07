@@ -207,3 +207,41 @@ including the 12 active-loss/concurrency/completion regressions. The scoped SQLi
 query-growth, shared accessory gate, manual line, later-Nastil and completion suites
 pass 76 cases in 42.72 seconds. Ruff and diff checks pass. Parent
 independent review and frozen combined-suite verification remain required.
+
+## Concurrency review: fresh Printing snapshot after bundle-lock waits
+
+This section supersedes the joined-aggregate optimization and its 29/24-query
+acceptance budgets above. Parent independent SQL review challenged its READ
+COMMITTED statement snapshot while waiting for bundle locks.
+
+Read-only tracing confirms current `POST /printing/records` resolves a real Nastil
+ID for both a dedicated Printing WO and a shared WO with selected batch. A new
+`PrintingRecord` persists that non-null FK. A real PostgreSQL test observes its
+KEY SHARE blocking receipt at the upfront ProductionBatch FOR UPDATE, before the
+later Printing snapshot, and the assignment correctly gets 100. The route does
+not itself publish a null-batch record in that case.
+
+The supported legacy coalesced source is different: a null-batch PrintingRecord
+scoped through its dedicated WO has no such batch FK lock. A bounded disposable-PG
+storage publication test holds the bundle lock, inserts that legacy-shaped source,
+starts receipt, observes the actual wait on the Bundle SELECT through
+`pg_stat_activity`, and commits the publisher. The joined statement captures the
+old aggregate and produces assignment128 instead of100: meaningful RED on
+`1c7b1895a`. This is a compatibility storage challenge, not a claim that the current
+HTTP writer emits null. The receipt service must not assume every accepted source
+is protected by the current writer's FK.
+
+The final operation therefore locks the same batch and bundle rows first, then
+executes one fresh bounded Printing aggregate statement. Both modern and legacy
+publication/wait tests now assign100 and retain the raw128-piece bundle identity.
+The parent explicitly approved this correctness cost: exact shared-context budgets
+are20 for receipt without line,30 for QR acceptance and25 for selected-manual
+receipt, constant at1/50/401 bundles. That is one justified fixed query for the
+Printing-loss feature, not a per-bundle allowance or removal of audits. Real PG
+with all audits enabled remains constant:23/23/23 manual,32/32/32 QR and27/27/27
+selected manual. The full PostgreSQL receipt suite passes17 cases in14.42seconds,
+including loss, scope, concurrency, completion, hash-chain verification and both
+publication lock boundaries. The final scoped SQLite query-growth, accessory gate,
+manual line, later-Nastil and completion suites pass 76 cases in 26.34 seconds.
+The owned loopback PG is left running for the parent's final combined PG checks;
+container/data retention and final stop are delegated to that parent cleanup.
