@@ -7,7 +7,7 @@ from alembic import op
 from sqlalchemy import Column, Table, MetaData
 from sqlalchemy.orm import DeclarativeBase
 revision = "0151_gate_enrollment"
-down_revision = "0150_package_customer_release"
+down_revision = "0154_eco_receipt_details"
 branch_labels = None
 depends_on = None
 from enum import Enum

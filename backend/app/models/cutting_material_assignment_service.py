@@ -23,6 +23,8 @@ def replace_cutting_material_batch(db, current, work_order_id, old_batch_id, new
     # Serialize with Cutting submission and passport material additions.
     order = db.query(ProductionOrder).filter_by(id=wo.production_order_id).with_for_update(of=ProductionOrder).one()
     db.refresh(wo, with_for_update=True)
+    # A Planning correction may have changed the factory while locks were awaited.
+    require_work_order_factory_access(current, db, wo)
     if order.source_type == "usluga":
         raise HTTPException(400, "Customer-supplied fabrics cannot use warehouse batches")
     if order.status in {"completed", "cancelled", "rejected"} or wo.status in {"completed", "cancelled", "rejected"}:

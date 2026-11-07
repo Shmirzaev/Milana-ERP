@@ -47,6 +47,9 @@ jobs:
             > "$RUNNER_TEMP/refactor-pg-identity.json"
           python scripts/run_refactor_pg_gate.py \
             --ci-identity "$RUNNER_TEMP/refactor-pg-identity.json" --github-env "$GITHUB_ENV"
+      - name: Preserve shipped FG numbering on the candidate schema
+        working-directory: backend
+        run: python -m pytest -q app/tests/test_fg_model_numbering_postgres.py
       - name: Run every required operation case; fail skipped or missing evidence
         run: python scripts/run_refactor_pg_gate.py --report "$RUNNER_TEMP/refactor-pg-gate.xml"
       - name: Run isolated Purchasing and Fabric PG cases; fail skipped or missing evidence

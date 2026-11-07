@@ -789,7 +789,7 @@ def manual_receive_sewing(
     if not bundles:
         raise HTTPException(404, "No bundles are waiting for sewing receive")
 
-    accessory_gate = verify_sewing_accessory_gate(db, payload.production_order_id)
+    accessory_gate = verify_sewing_accessory_gate(db, payload.production_order_id, sewing_factory_code=factory)
     received_ids = receive_many_at_sewing(
         db,
         bundles,
@@ -1007,7 +1007,7 @@ def accept_sewing_batch(
         )
 
     accessory_gate = (
-        verify_sewing_accessory_gate(db, int(batch.production_order_id))
+        verify_sewing_accessory_gate(db, int(batch.production_order_id), sewing_factory_code=flow.factory_code)
         if has_unreceived_bundles
         else None
     )
@@ -1097,7 +1097,12 @@ def accept_sewing_batch(
 
 @router.post("", response_model=BundleOut, status_code=201)
 def create_bundle_api(payload: BundleIn, db: DbSession, current: User = Depends(require_permissions("cutting.bundles", "*"))):
-    cutting = db.query(WorkOrder).filter_by(production_order_id=payload.production_order_id, operation="cutting").first()
+    # Match Planning's routing correction: order, then refreshed Cutting row.
+    # Authorization must run after waiting for a competing routing transaction.
+    db.query(ProductionOrder.id).filter_by(id=payload.production_order_id).with_for_update().first()
+    cutting = db.query(WorkOrder).filter_by(
+        production_order_id=payload.production_order_id, operation="cutting",
+    ).with_for_update(of=WorkOrder).populate_existing().first()
     if cutting:
         from app.models.factory_scope_service import require_work_order_factory_access
         from app.models.cutting_batch_guard_service import require_cutting_batch_mutable

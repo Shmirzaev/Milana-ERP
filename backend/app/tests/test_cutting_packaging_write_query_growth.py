@@ -360,8 +360,8 @@ def test_cutting_record_complete_bundle_query_growth(
     number_suffixes = [int(row["bundle_no"].rsplit("-", 1)[-1]) for row in bundles]
     assert number_suffixes == list(range(number_suffixes[0], number_suffixes[0] + bundle_count))
     counts = _table_select_counts(statements)
-    assert len(statements) == 41  # Fixed-cost Sewing lock and output evidence.
-    assert counts["departments"] == 6
+    assert len(statements) == 42  # Fixed-cost Sewing lock, factory scope and output evidence.
+    assert counts["departments"] == 7
     assert counts["business_order_aliases"] == 1
     print(
         f"PERF20 cutting bundles={bundle_count}: total={len(statements)} "
