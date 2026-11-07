@@ -83,17 +83,25 @@ schema-boundary completion. New assignment writes are schema-owned.
   `sewing_assignment_id` or assignment. Candidate proves persisted assignment and
   retry/readback. Original five-column Excel fails all four Top/Bottom/both/legacy
   regression shapes; fixed candidate reads saved fields, preserving totals.
-- Focused suites include daily reports, later Nastil MIL/BST/ECO handoff, band
-  authorization, sewing workspace permissions and Production flow. Exact final
-  counts are recorded in the worker handoff after the last run.
+- Candidate `5df36ac8e` passes **155** SQLite cases across
+  `test_sewing_manual_line_receive.py`, `test_sewing_daily_reports.py`,
+  `test_sewing_later_nastil_workflow.py`, `test_sewing_band_access.py`,
+  `test_sewing_workspace_permissions.py` and `test_production_flow.py`
+  (108.95 seconds). The first extra accessory-gate assertion incorrectly expected
+  400; source proves the established refusal is 409. The corrected full suite passes.
+- A narrow followup preserves the old str DTO's refusal of malformed falsey
+  factory values (`0`, `False`, `[]`): only actual strings are normalized. Its
+  targeted canonical-factory regression passes all malformed inputs, normalized
+  `" bst "`, absent factory and forbidden `ECT`. Legal receipt behavior is unchanged.
 - Isolated PostgreSQL uses owned container `milana-sewing-receipt-pg-20261107`,
   loopback port 15568 and randomly isolated fixture schemas. The owned container was
   stopped after the passing PostgreSQL run; no other local service was touched. It covers no-line
   receipt plus printing loss, selected-line receipt for all three factories,
   work-order lock refusal/recovery, sibling evidence, Sewing -> Packaging,
-  two concurrent selected receipts, and 12 replay requests per selected case.
+  two concurrent selected receipts, and 12 replay requests per selected case;
+  **9 PostgreSQL cases PASS** (14.07 seconds).
 - Frontend strict TypeScript, scoped ESLint, actual scanner-handler execution,
-  factory access (54 cases) and factory daily report contracts are required.
+  factory access (54 cases) and factory daily report contracts all PASS.
   Handler regression checks selected batch IDs `[89,95,null]` and line values
   `[7,null,null]`, exercising the actual source function.
 - Existing test-only short JWT and deprecated TestClient/Pydantic namespace warnings

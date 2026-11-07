@@ -16,4 +16,6 @@ class SewingManualReceiveIn(BaseModel):
     @field_validator("factory_code", mode="before")
     @classmethod
     def normalize_factory(cls, value):
-        return str(value or "").strip().upper() or None
+        if isinstance(value, str):
+            return value.strip().upper() or None
+        return value

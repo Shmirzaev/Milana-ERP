@@ -117,8 +117,9 @@ def test_manual_receipt_dto_uses_canonical_factory_enum():
     payload = SewingManualReceiveIn(production_order_id=1, production_batch_id=None, factory_code=" bst ")
     assert payload.factory_code is SewingFactoryCode.BESTTEX
     assert SewingManualReceiveIn(production_order_id=1, production_batch_id=None).factory_code is None
-    with pytest.raises(ValidationError):
-        SewingManualReceiveIn(production_order_id=1, production_batch_id=None, factory_code="ECT")
+    for invalid in ("ECT", 0, False, []):
+        with pytest.raises(ValidationError):
+            SewingManualReceiveIn(production_order_id=1, production_batch_id=None, factory_code=invalid)
 
 
 def test_manual_line_receipt_does_not_bypass_accessory_gate(client, auth_headers):
