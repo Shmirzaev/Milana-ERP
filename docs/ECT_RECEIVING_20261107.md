@@ -1,7 +1,7 @@
 # ECT receiving and same-fabric batch lookup — 7 November 2026
 
 Status: IMPLEMENTED_AUTOMATED_CHECKS_PASSED; actual-browser/persisted UI readback,
-PostgreSQL concurrency and independent review remain pending combined verification.
+independent review remain pending combined verification. PostgreSQL receipt gates pass.
 
 ## Direct scope and ownership
 
@@ -71,7 +71,13 @@ Shared supplier/date/warehouse/document/order/source are entered once.
 - PASS: new UI behavior script renders EN/RU/UZ fabric/accessory tables, fills two
   rows, Enter adds without receipt submission, removes a row, checks one shared
   header and distinct lots/quantities, exact0.1+0.2 roll total and optional lengths.
-- PENDING: real PostgreSQL replay/race, bounded100-row receipt, actual connected
+- PASS: real PostgreSQL5 cases on disposable loopback15567 / ect_receiving_qa,
+  each in its own auto-dropped UUID schema: concurrent exact replay and changed
+  payload refusal; reversed row/item lock order; invalid-tail rollback then same-key
+  recovery;100-row receipt under20 seconds and new-session lost-response replay.
+  Exact batch/movement counts and decimal totals agree; central stock stays100.
+  Total25.81 seconds, no skips; closing SQL confirms0 leftover test schemas.
+- PENDING: actual connected
   browser desktop/tablet, save/reopen/database effects, target old-lot selection,
   independent review and human checklist. No unrun gate claimed PASS.
 
