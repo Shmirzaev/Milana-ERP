@@ -16,10 +16,8 @@ import { can, useMe } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
 import { numberOrFallback, numberOrZero, parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
 import { orderReference } from "@/lib/orderRef";
+import { multiNastilText, planSelectedNastils, type PackagePlan, type PackagePlanItem } from "@/lib/multiNastilPackaging";
 
-type PackagePlanItem = { model_id: number; color: string; size: string; quantity: number };
-type BatchAllocationPlan = { production_batch_id: number; quantity: number; label: string };
-type PackagePlan = { items: PackagePlanItem[]; batch_allocations?: BatchAllocationPlan[] };
 type PackagingRecordForm = {
   production_batch_id: number;
   input_qty: NumberInputValue;
@@ -80,7 +78,8 @@ function allocateDemandBySize(items: Array<{ size: string; planned_quantity: num
 }
 
 export default function PackagingPage() {
-  const { t } = useT();
+  const { t, lang } = useT();
+  const multiCopy = multiNastilText[lang];
   const { me } = useMe();
   const params = useParams<{ id: string }>();
   const id = Number(params.id);
@@ -113,6 +112,7 @@ export default function PackagingPage() {
   const [copies, setCopies] = useState<NumberInputValue>(1);
   const [copiesTouched, setCopiesTouched] = useState(false);
   const [mergeAcrossBatches, setMergeAcrossBatches] = useState(false);
+  const [selectedMergeBatchIds, setSelectedMergeBatchIds] = useState<number[]>([]);
   const [packOnlyFullPackages, setPackOnlyFullPackages] = useState(false);
   const [recMsg, setRecMsg] = useState("");
   const [pkgNotice, setPkgNotice] = useState<{ type: "success" | "error"; text: string } | null>(null);
@@ -339,69 +339,20 @@ export default function PackagingPage() {
   const batchPackageAvailability = useMemo(() => (
     batchItems
       .map((row: any) => {
-        const hasPackageAccounting = row?.available_to_package !== undefined || Number(row?.packaged_qty || 0) > 0;
-        const available = hasPackageAccounting
-          ? Math.max(0, Number(row?.available_to_package || 0))
-          : Math.max(0, Number(row?.packed_qty || 0));
+        const available = Math.max(0, Number(row?.available_to_package || 0));
         return {
           id: Number(row?.id || 0),
           label: formatBatchLabel(row, po?.id),
           available,
         };
       })
-      .filter((row: any) => row.id > 0 && row.available > 0)
+      .filter((row: any) => row.id > 0)
   ), [batchItems, po?.id]);
 
-  const mergedPackingPlan = useMemo(() => {
-    const packageTotal = basePackageItems.reduce((s, i) => s + Math.max(0, Number(i.quantity || 0)), 0);
-    const totalAvailable = batchPackageAvailability.reduce((s, b) => s + b.available, 0);
-    if (!isAlreadyBatched || packageTotal <= 0 || basePackageItems.length === 0) {
-      return {
-        plans: [] as PackagePlan[],
-        totalAvailable,
-        pendingQty: totalAvailable,
-        pendingAllocations: [] as BatchAllocationPlan[],
-        crossBatchCount: 0,
-        previewLines: [] as string[],
-      };
-    }
-
-    const sources = batchPackageAvailability.map((b) => ({ ...b }));
-    const fullCount = Math.floor(totalAvailable / packageTotal);
-    const plans: PackagePlan[] = [];
-    let sourceIndex = 0;
-
-    for (let i = 0; i < fullCount; i += 1) {
-      let left = packageTotal;
-      const allocations: BatchAllocationPlan[] = [];
-      while (left > 0 && sourceIndex < sources.length) {
-        const source = sources[sourceIndex];
-        const take = Math.min(left, source.available);
-        if (take > 0) {
-          allocations.push({ production_batch_id: source.id, quantity: take, label: source.label });
-          source.available -= take;
-          left -= take;
-        }
-        if (source.available <= 0) sourceIndex += 1;
-      }
-      if (left === 0) {
-        plans.push({ items: basePackageItems, batch_allocations: allocations });
-      }
-    }
-
-    const pendingSources = sources.slice(sourceIndex).filter((b) => Math.max(0, b.available) > 0);
-    const pendingQty = pendingSources.reduce((s, b) => s + Math.max(0, b.available), 0);
-    const pendingAllocations = pendingSources.map((source) => ({
-      production_batch_id: source.id,
-      quantity: Math.max(0, source.available),
-      label: source.label,
-    }));
-    const crossBatchPlans = plans.filter((p) => (p.batch_allocations || []).length > 1);
-    const previewLines = crossBatchPlans.slice(0, 3).map((p) => (
-      (p.batch_allocations || []).map((a) => `${a.label}: ${a.quantity}`).join(" + ")
-    ));
-    return { plans, totalAvailable, pendingQty, pendingAllocations, crossBatchCount: crossBatchPlans.length, previewLines };
-  }, [basePackageItems, batchPackageAvailability, isAlreadyBatched]);
+  const selectedMergeBatchCount = batchPackageAvailability.filter((source) => source.available > 0 && selectedMergeBatchIds.includes(source.id)).length;
+  const mergedPackingPlan = useMemo(() => planSelectedNastils(
+    basePackageItems, batchPackageAvailability, isAlreadyBatched ? selectedMergeBatchIds : [],
+  ), [basePackageItems, batchPackageAvailability, isAlreadyBatched, selectedMergeBatchIds]);
 
   const mergedPartialItems = useMemo(
     () => trimPackageItemsToQuantity(basePackageItems, mergedPackingPlan.pendingQty),
@@ -490,9 +441,11 @@ export default function PackagingPage() {
 
   async function createPkg(e: React.FormEvent) {
     e.preventDefault();
+    if (isCreating) return;
     setPkgNotice(null);
     setIsCreating(true);
     try {
+      if (mergeAcrossBatches && selectedMergeBatchCount < 2) throw new Error(multiCopy.chooseTwo);
       const weightValues = packagePlans.map((_, index) => {
         return parseOptionalDecimalInput(packageWeights[index]);
       });
@@ -740,6 +693,7 @@ export default function PackagingPage() {
                 className="input"
                 min={1}
                 type="number"
+                disabled={mergeAcrossBatches || isCreating}
                 value={copies}
                 onChange={(e) => {
                   setCopiesTouched(true);
@@ -784,13 +738,28 @@ export default function PackagingPage() {
                   className="mt-1"
                   type="checkbox"
                   checked={mergeAcrossBatches}
+                  disabled={isCreating}
                   onChange={(e) => setMergeAcrossBatches(e.target.checked)}
                 />
                 <span>
-                  <span className="font-medium">{t("page.packaging.mergeAcrossBatches")}</span>
-                  <span className="mt-1 block text-xs text-slate-500">{t("page.packaging.mergeHint")}</span>
+                  <span className="font-medium">{multiCopy.title}</span>
+                  <span className="mt-1 block text-xs text-slate-500">{multiCopy.hint}</span>
                 </span>
               </label>
+              {mergeAcrossBatches && <>
+              <div className="mt-3 overflow-x-auto"><table className="table text-sm">
+                <thead><tr><th>{multiCopy.select}</th><th>{multiCopy.nastil}</th><th>{multiCopy.available}</th></tr></thead>
+                <tbody>{batchPackageAvailability.map(source => <tr key={source.id}>
+                  <td><input type="checkbox" aria-label={`${multiCopy.select} ${source.label}`}
+                    disabled={isCreating || source.available <= 0} checked={selectedMergeBatchIds.includes(source.id)}
+                    onChange={event => setSelectedMergeBatchIds(previous => event.target.checked
+                      ? [...new Set([...previous, source.id])] : previous.filter(batchId => batchId !== source.id))} /></td>
+                  <td>{source.label}</td><td>{source.available}</td>
+                </tr>)}</tbody>
+              </table></div>
+              <p className="mt-2 text-xs">{multiCopy.selected}: {selectedMergeBatchCount} · {multiCopy.available}: {mergedPackingPlan.totalAvailable}</p>
+              {selectedMergeBatchCount < 2 && <p className="mt-1 text-xs" role="status">{multiCopy.chooseTwo}</p>}
+              {!batchPackageAvailability.some(source => source.available > 0) && <p className="mt-1 text-xs">{multiCopy.noOutput}</p>}
               <div className="mt-2 text-xs text-slate-600">
                 {mergedPackingPlan.plans.length > 0
                   ? `${t("page.packaging.mergeFullPackages", { count: mergedPackingPlan.plans.length })} · ${t("page.packaging.mergePending", { count: mergedPackingPlan.pendingQty })}`
@@ -801,6 +770,7 @@ export default function PackagingPage() {
                   {t("page.packaging.mergeSources")}: {mergedPackingPlan.previewLines.join(" | ")}
                 </div>
               )}
+              </>}
             </div>
           )}
 

@@ -5,6 +5,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 import ts from "typescript";
 
 const source = fs.readFileSync(new URL("../src/app/(app)/work-orders/[id]/packaging/page.tsx", import.meta.url), "utf8");
+const multiNastil = {};
+new Function("exports", ts.transpileModule(fs.readFileSync(new URL("../src/lib/multiNastilPackaging.ts", import.meta.url), "utf8"), {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
+}).outputText)(multiNastil);
 const compiled = ts.transpileModule(source, { compilerOptions: {
   module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.React,
 } }).outputText;
@@ -15,29 +19,37 @@ function render(sewn, remaining, batched = true, events = {}) {
     sewing_output_qty: sewn, available_input_qty: remaining, packed_qty: 0, available_to_package: 0 };
   const noop = () => null;
   const deps = {
-    react: { ...React, useState: initial => React.useState(stateIndex++ === 0
-      ? { ...initial, production_batch_id: batched ? 1 : 0 } : initial) },
+    react: { ...React, useState: initial => {
+      const index = stateIndex++;
+      return React.useState(events.states?.[index] ?? (index === 0
+        ? { ...initial, production_batch_id: batched ? 1 : 0 } : initial));
+    } },
     "next/navigation": { useParams: () => ({ id: "3" }) },
     swr: { useSWRConfig: () => ({ mutate: async predicate => { events.sizePredicate = predicate; } }),
       default: key => ({ mutate: async () => { (events.refreshed ??= []).push(key); }, data:
-      key?.includes("packaging-batch-progress") ? { ...batch, items: batched ? [batch] : [] }
-      : key?.includes("production-orders") ? { id: 1, planned_quantity: 684,
+      key?.includes("packaging-batch-progress") ? { ...batch, items: batched ? (events.batches || [batch]) : [] }
+      : key?.includes("production-orders") ? { id: 1, model_id: 1, planned_quantity: 684,
         batches: batched ? [batch] : [], items: [{ size: "M", color: "white", planned_quantity: 684 }] }
       : key?.includes("work-orders") ? { id: 3, production_order_id: 1, planned_output_qty: 684, passed_qty: 0 }
       : key === "/api/customers" ? [] : undefined }) },
-    "@/lib/api": { api: {}, fetcher: noop },
+    "@/lib/api": { api: { openLabel: async () => {} }, fetcher: noop },
     "@/lib/auth": { can: () => true, useMe: () => ({ me: {} }) },
-    "@/lib/i18n": { useT: () => ({ t: key => key }) },
+    "@/lib/i18n": { useT: () => ({ t: key => key, lang: "en" }) },
+    "@/lib/multiNastilPackaging": multiNastil,
     "@/lib/errorMessages": { localizeError: value => value },
     "@/lib/batchSerial": { formatBatchLabel: row => row.name, formatBatchSerial: row => row.batch_no },
-    "@/lib/packageWorkflow": { postPackageWorkflow: noop },
+    "@/lib/packageWorkflow": { postPackageWorkflow: async (_path, body) => { events.created = body; return { id: 1, count: body.packages.length, package_ids: [1], run_no: "PRN-1" }; } },
     "@/lib/orderRef": { orderReference: () => "PO-0306" },
     "@/lib/numberInput": { numberOrZero: value => Number(value || 0), numberOrFallback: (v, f) => Number(v || f), parseNumberInput: Number },
     "@/components/StagePipeline": { operationLabel: value => value, statusLabel: value => value },
     "@/components/PackageQrSection": { default: props => { events.packageChanged = props.onChanged; return null; } },
   };
   const exports = {};
-  new Function("exports", "React", "require", compiled)(exports, React, name => {
+  const react = { ...React, createElement: (type, props, ...children) => {
+    if (type === "form" && props.onSubmit) events.submitPackage = props.onSubmit;
+    return React.createElement(type, props, ...children);
+  } };
+  new Function("exports", "React", "require", compiled)(exports, react, name => {
     if (name in deps) return deps[name];
     assert.ok(name.startsWith("@/components/"), `Unexpected dependency ${name}`);
     return { default: noop };
@@ -53,6 +65,26 @@ for (const [sewn, remaining] of [[590, 590], [585, 285], [0, 0]]) {
   assert.ok(html.includes(`field.available: ${remaining}`));
 }
 assert.match(render(585, 285, false), /min="0" max="285" value=""/);
+
+// Exercise the actual page submit closure, not just the planner: source selection
+// must reach the atomic endpoint and must not create packs from the third Nastil.
+const merged = { states: { 9: true, 10: [1, 2] }, batches: [
+  { id: 1, name: "Nastil A", available_to_package: 35 },
+  { id: 2, name: "Nastil B", available_to_package: 40 },
+  { id: 3, name: "Unselected", available_to_package: 90 },
+  { id: 4, name: "Still sewing", available_to_package: 0 },
+] };
+const mergedHtml = render(75, 0, true, merged);
+assert.match(mergedHtml, /Selected Nastils: 2/);
+assert.match(mergedHtml, /aria-label="Select Still sewing" disabled=""/);
+await merged.submitPackage({ preventDefault() {} });
+assert.equal(merged.created.packages.length, 2);
+assert.deepEqual(merged.created.packages.map(pack => pack.items.reduce((sum, item) => sum + item.quantity, 0)), [60, 15]);
+assert.deepEqual(merged.created.packages.flatMap(pack => pack.batch_allocations.map(row => [row.production_batch_id, row.quantity])), [[1, 35], [2, 25], [2, 15]]);
+const incomplete = { ...merged, states: { 9: true, 10: [1] }, created: undefined };
+render(75, 0, true, incomplete);
+await incomplete.submitPackage({ preventDefault() {} });
+assert.equal(incomplete.created, undefined);
 
 // A successful QR change must refresh both entry counters and size balances,
 // including other cached batches of this order, without invalidating other orders.

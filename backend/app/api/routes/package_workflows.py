@@ -20,7 +20,7 @@ from app.models.idempotency_service import replay_idempotent_response, store_ide
 from app.models.packaging_scope_service import packaging_department_for_order, packaging_department_scope, require_package_access
 from app.models.packages_service import (create_package, _packaging_record_totals_by_batch,
     PackageWriteContext, prime_package_batch_memberships, prime_packaged_quantity_availability)
-from app.models.packaging_scope_service import packaging_departments_for_order
+from app.models.packaging_scope_service import require_package_source_access
 from app.models.numbering_service import next_package_nos
 from app.models.workflow_service import sync_production_order_status
 from app.libs.enums.packaging import PrintRunReceiptStatus
@@ -439,11 +439,7 @@ def create_packages_and_run(payload: PrintRunCreatePackagesIn, db: DbSession,
                 [row.production_batch_id] if row.production_batch_id is not None else []
             ) + [allocation.production_batch_id for allocation in row.batch_allocations]
         }
-        owners = packaging_departments_for_order(
-            db,
-            int(order.id),
-            {row.production_batch_id for row in payload.packages},
-        )
+        owners = require_package_source_access(current, db, int(order.id), payload.packages)
         write_context = PackageWriteContext.empty()
         write_context.locked_orders[int(order.id)] = order
         prime_package_batch_memberships(
@@ -463,10 +459,8 @@ def create_packages_and_run(payload: PrintRunCreatePackagesIn, db: DbSession,
         for index, row in enumerate(payload.packages):
             if row.model_id != order.model_id or any(item.model_id != order.model_id for item in row.items):
                 raise HTTPException(400, "Package model must match the production order")
-            owner = owners[row.production_batch_id]
-            packaging_department_scope(current, owner)
             data = row.model_dump()
-            data["packaging_department_code"] = owner
+            data["packaging_department_code"] = owners[index].value
             data["user_id"] = current.id
             data["is_admin"] = False
             data["override_capacity"] = False

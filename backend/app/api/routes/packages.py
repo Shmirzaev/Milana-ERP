@@ -93,7 +93,6 @@ from app.models.model_family_images_service import model_family_image
 from app.models.audit_service import log_action
 from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response
 from app.models.packaging_scope_service import (
-    packaging_department_for_order,
     packaging_department_scope,
     require_package_access,
 )
@@ -1029,10 +1028,8 @@ def create_pkg(
     current: User = Depends(require_permissions("packaging.packages", "*")),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
-    department_code = packaging_department_for_order(
-        db, payload.production_order_id, payload.production_batch_id
-    )
-    packaging_department_scope(current, department_code)
+    from app.models.packaging_scope_service import require_package_source_access
+    department_code = require_package_source_access(current, db, payload.production_order_id, [payload])[0].value
     fingerprint_payload = payload.model_dump(mode="json")
     replay = replay_idempotent_response(db, scope="packages.create", key=idempotency_key, payload=fingerprint_payload)
     if replay:
@@ -1081,10 +1078,8 @@ def create_pkg_bulk(
     current: User = Depends(require_permissions("packaging.packages", "*")),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
-    department_code = packaging_department_for_order(
-        db, payload.production_order_id, payload.production_batch_id
-    )
-    packaging_department_scope(current, department_code)
+    from app.models.packaging_scope_service import require_package_source_access
+    department_code = require_package_source_access(current, db, payload.production_order_id, [payload])[0].value
     fingerprint_payload = payload.model_dump(mode="json")
     replay = replay_idempotent_response(db, scope="packages.bulk-create", key=idempotency_key, payload=fingerprint_payload)
     if replay:

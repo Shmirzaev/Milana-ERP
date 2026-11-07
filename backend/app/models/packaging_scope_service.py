@@ -1,6 +1,14 @@
-from fastapi import HTTPException
+from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
-from app.schemas import Department, WorkOrder
+from fastapi import HTTPException
+from sqlalchemy.orm import Session
+
+from app.schemas import Department, User, WorkOrder
+from app.libs.enums.packaging import PackagingDepartment
+
+if TYPE_CHECKING:
+    from app.libs.dto.packaging.tracking import PackageIn
 
 
 PACKAGING_DEPARTMENT_CODES = {"PKG", "BPK", "ECP"}
@@ -115,3 +123,32 @@ def packaging_departments_for_order(
         batch_id: unbatched if batch_id is None else exact.get(int(batch_id), unbatched)
         for batch_id in production_batch_ids
     }
+
+
+def require_package_source_access(
+    current: User,
+    db: Session,
+    production_order_id: int,
+    packages: Sequence["PackageIn"],
+) -> list[PackagingDepartment]:
+    """Authorize every source Nastil, including packages without one parent batch.
+
+    A package has one receiving factory. Allocations must not combine factories or
+    use the order-level fallback to hide another Nastil's packaging department.
+    Batch membership and quantity validation remain in package creation.
+    """
+    source_ids = {package.production_batch_id for package in packages}
+    source_ids.update(allocation.production_batch_id for package in packages for allocation in package.batch_allocations)
+    owners = packaging_departments_for_order(db, production_order_id, source_ids)
+    result: list[PackagingDepartment] = []
+    for package in packages:
+        batch_ids = {allocation.production_batch_id for allocation in package.batch_allocations}
+        if package.production_batch_id is not None or not batch_ids:
+            batch_ids.add(package.production_batch_id)
+        source_owners = {PackagingDepartment(owners[batch_id]) for batch_id in batch_ids}
+        for owner in sorted(source_owners, key=lambda item: item.value):
+            packaging_department_scope(current, owner.value)
+        if len(source_owners) != 1:
+            raise HTTPException(400, "A package must use Nastils from one packaging department")
+        result.append(next(iter(source_owners)))
+    return result

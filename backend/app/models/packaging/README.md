@@ -18,6 +18,15 @@ Mixed batch origins remain a list; missing evidence remains unknown. Factory fil
 runs before list counts/paging, and response projection loads origins in 400-row chunks.
 No inventory or production data is changed by this projection.
 
+Selected-Nastil packaging uses the existing atomic create-packages print run and
+`PackageBatchAllocation` evidence. The UI explicitly selects two or more saved
+Packaging outputs; it never includes an unselected Nastil. Shared
+`packaging_scope_service.require_package_source_access` authorizes each source
+batch before all three creation APIs, including a merged package whose parent
+`production_batch_id` is null. One package retains one receiving department.
+See [the 7 November operation packet](../../../../docs/PACK_TWO_NASTILS_20261107.md)
+for quantities, source/field coverage, automated evidence and pending browser gates.
+
 **Purpose:** Own package creation, contents/allocation, identity, change approval and production of valid labels.
 
 **Engineering owner:** Mirshoir. **Reviewer:** Ismail.
