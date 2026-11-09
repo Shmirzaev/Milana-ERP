@@ -6,12 +6,14 @@ must never replace the quantities frozen at dispatch (partial/shared packs).
 from collections import defaultdict
 from datetime import date, datetime, time, timedelta, timezone
 from io import BytesIO
+from math import ceil
 import re
 from types import SimpleNamespace
 
 from fastapi import HTTPException
 from openpyxl import Workbook
-from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.worksheet.page import PageMargins
 from openpyxl.utils import get_column_letter
 from sqlalchemy.orm import Session, selectinload
 
@@ -30,6 +32,21 @@ HEADERS = {
     "en": ["Model", "Variant", "Quantity", "Packages", "Package quantities", "Sizes", "Color", "Order", "Customer", "Shipped at (Tashkent)", "Shipment", "Description", "Historical reconstruction"],
     "ru": ["Модель", "Вариант", "Количество", "Упаковки", "Количество по упаковкам", "Размеры", "Цвет", "Заказ", "Клиент", "Дата отгрузки (Ташкент)", "Отгрузка", "Наименование", "Историческая реконструкция"],
     "uz": ["Model", "Variant", "Miqdor", "Paketlar", "Paketlar bo‘yicha miqdor", "O‘lchamlar", "Rang", "Buyurtma", "Mijoz", "Jo‘natilgan vaqt (Toshkent)", "Jo‘natma", "Nomi", "Tarixiy tiklash"],
+}
+
+REPORT_TEXT = {
+    "en": {"title": "Warehouse shipment report", "period": "Period", "search": "Search",
+           "all_dates": "All dates", "all_shipments": "All shipments", "quantity": "Total quantity",
+           "packages": "Packages", "shipments": "Shipments", "empty": "No shipments match these filters.",
+           "yes": "Yes", "page": "Page &P of &N"},
+    "ru": {"title": "Отчёт об отгрузках со склада", "period": "Период", "search": "Поиск",
+           "all_dates": "Все даты", "all_shipments": "Все отгрузки", "quantity": "Общее количество",
+           "packages": "Упаковки", "shipments": "Отгрузки", "empty": "Нет отгрузок по выбранным фильтрам.",
+           "yes": "Да", "page": "Страница &P из &N"},
+    "uz": {"title": "Ombordan jo‘natmalar hisoboti", "period": "Davr", "search": "Qidiruv",
+           "all_dates": "Barcha sanalar", "all_shipments": "Barcha jo‘natmalar", "quantity": "Jami miqdor",
+           "packages": "Paketlar", "shipments": "Jo‘natmalar", "empty": "Bu filtrlarga mos jo‘natmalar yo‘q.",
+           "yes": "Ha", "page": "Sahifa &P / &N"},
 }
 
 
@@ -140,11 +157,77 @@ def shipment_report(db: Session, filters: ShipmentReportQuery) -> ShipmentReport
 
 def shipment_report_workbook(db: Session, filters: ShipmentReportQuery, lang: str) -> bytes:
     rows = report_rows(db, filters)
+    locale = lang if lang in HEADERS else "en"
+    text = REPORT_TEXT[locale]
     workbook = Workbook()
+    workbook.properties.title = text["title"]
+    workbook.properties.creator = "Milana ERP"
     sheet = workbook.active
     sheet.title = "Shipments"
-    sheet.append(HEADERS.get(lang, HEADERS["en"]))
-    for row in rows:
+    sheet.sheet_view.showGridLines = False
+    sheet.sheet_view.zoomScale = 85
+    header_row = 8
+    first_data_row = header_row + 1
+    widths = [18, 16, 12, 11, 28, 20, 17, 23, 28, 24, 23, 32, 24]
+    body_font = Font(name="Arial", size=10, color="25231F")
+    muted_font = Font(name="Arial", size=10, color="625E56")
+    row_rule = Side(style="hair", color="E6E3DD")
+    shipment_rule = Side(style="thin", color="CFCAC0")
+
+    def literal(cell, value):
+        cell.value = value
+        # This includes filter text and every user-supplied identifier/description.
+        if isinstance(value, str):
+            cell.data_type = "s"
+
+    for index, width in enumerate(widths, 1):
+        sheet.column_dimensions[get_column_letter(index)].width = width
+    sheet.row_dimensions[1].height = 8
+    literal(sheet["A2"], text["title"])
+    sheet["A2"].font = Font(name="Arial", size=16, bold=True, color="25231F")
+    sheet.row_dimensions[2].height = 30
+    for column in range(1, len(widths) + 1):
+        sheet.cell(2, column).border = Border(bottom=shipment_rule)
+    if filters.date_from is None and filters.date_to is None:
+        period = text["all_dates"]
+    elif filters.date_from == filters.date_to:
+        period = filters.date_from.isoformat()
+    else:
+        period = f"{filters.date_from.isoformat() if filters.date_from else '…'} – {filters.date_to.isoformat() if filters.date_to else '…'}"
+    for row_no, label, value in ((3, text["period"], period),
+                                 (4, text["search"], filters.q.strip() or text["all_shipments"])):
+        literal(sheet.cell(row_no, 1), label)
+        literal(sheet.cell(row_no, 2), value)
+        sheet.cell(row_no, 1).font = Font(name="Arial", size=10, bold=True, color="625E56")
+        sheet.cell(row_no, 2).font = body_font
+        sheet.cell(row_no, 2).alignment = Alignment(vertical="center")
+        sheet.row_dimensions[row_no].height = 21
+    # Match the existing report's totals, including shared packs counted once per
+    # shipment rather than summing the per-variant package counts below.
+    totals = ((1, text["quantity"], sum(row.quantity for row in rows)),
+              (4, text["packages"], len({(row.shipment_id, package.package_no) for row in rows for package in row.packages})),
+              (7, text["shipments"], len({row.shipment_id for row in rows})))
+    for column, label, value in totals:
+        literal(sheet.cell(5, column), label)
+        sheet.cell(5, column).font = muted_font
+        cell = sheet.cell(6, column, value)
+        cell.font = Font(name="Arial", size=14, bold=True, color="25231F")
+        cell.number_format = "#,##0"
+        cell.alignment = Alignment(horizontal="left", vertical="center")
+    sheet.row_dimensions[5].height = 19
+    sheet.row_dimensions[6].height = 25
+    sheet.row_dimensions[7].height = 10
+    for column, heading in enumerate(HEADERS[locale], 1):
+        cell = sheet.cell(header_row, column)
+        literal(cell, heading)
+        cell.font = Font(name="Arial", size=10, bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="353127")
+        cell.border = Border(right=Side(style="thin", color="FFFFFF"))
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    sheet.row_dimensions[header_row].height = 42
+    previous_shipment = None
+    shaded = True
+    for row_index, row in enumerate(rows, first_data_row):
         timestamp = row.shipped_at
         if timestamp.tzinfo is None:
             timestamp = timestamp.replace(tzinfo=timezone.utc)
@@ -153,30 +236,50 @@ def shipment_report_workbook(db: Session, filters: ShipmentReportQuery, lang: st
                   "\n".join(f"{size}: {qty}" for size, qty in row.sizes.items()),
                   row.color, row.order_no, row.customer,
                   timestamp.astimezone(TASHKENT).replace(tzinfo=None), row.shipment_no,
-                  row.description, ("Yes" if row.historical_reconstruction else "") if lang == "en" else
-                  ("Да" if row.historical_reconstruction else "") if lang == "ru" else
-                  ("Ha" if row.historical_reconstruction else "")]
-        sheet.append(values)
-        for cell in sheet[sheet.max_row]:
-            # User data is always literal, including strings starting with '='.
-            if isinstance(cell.value, str):
-                cell.data_type = "s"
-            cell.alignment = Alignment(vertical="top", wrap_text=True)
-        sheet.cell(sheet.max_row, 10).number_format = "yyyy-mm-dd hh:mm"
-    sheet.freeze_panes = "A2"
-    sheet.auto_filter.ref = f"A1:M{sheet.max_row}"
-    for cell in sheet[1]:
-        cell.font = Font(bold=True, color="FFFFFF")
-        cell.fill = PatternFill("solid", fgColor="353127")
-        cell.alignment = Alignment(wrap_text=True)
-    for index, width in enumerate([20, 18, 14, 12, 34, 24, 20, 23, 30, 25, 25, 35, 24], 1):
-        sheet.column_dimensions[get_column_letter(index)].width = width
-    sheet.print_title_rows = "1:1"
+                  row.description, text["yes"] if row.historical_reconstruction else ""]
+        new_shipment = row.shipment_id != previous_shipment
+        if new_shipment:
+            shaded = not shaded
+        for column, value in enumerate(values, 1):
+            cell = sheet.cell(row_index, column)
+            literal(cell, value)
+            cell.font = body_font
+            cell.alignment = Alignment(horizontal="right" if column in (3, 4) else "left",
+                                       vertical="top", wrap_text=True)
+            cell.border = Border(top=shipment_rule if new_shipment and row_index > first_data_row else Side(), bottom=row_rule)
+            if shaded:
+                cell.fill = PatternFill("solid", fgColor="F7F6F2")
+            if column in (3, 4):
+                cell.number_format = "#,##0"
+        sheet.cell(row_index, 10).number_format = "yyyy-mm-dd hh:mm"
+        lines = max(sum(max(1, ceil(len(part) / (widths[column] - 2))) for part in str(value or "").split("\n"))
+                    for column, value in enumerate(values))
+        sheet.row_dimensions[row_index].height = min(409, max(24, lines * 14 + 8))
+        previous_shipment = row.shipment_id
+    last_data_row = header_row + len(rows)
+    if not rows:
+        literal(sheet.cell(first_data_row, 1), text["empty"])
+        sheet.cell(first_data_row, 1).font = Font(name="Arial", size=10, italic=True, color="625E56")
+        sheet.row_dimensions[first_data_row].height = 28
+    sheet.freeze_panes = "C9"
+    sheet.auto_filter.ref = f"A{header_row}:M{last_data_row}"
+    sheet.print_title_rows = f"{header_row}:{header_row}"
+    sheet.print_title_cols = "A:B"
+    sheet.print_area = f"A1:M{max(first_data_row, last_data_row)}"
     sheet.sheet_properties.pageSetUpPr.fitToPage = True
     sheet.page_setup.orientation = "landscape"
     sheet.page_setup.paperSize = sheet.PAPERSIZE_A4
     sheet.page_setup.fitToWidth = 1
     sheet.page_setup.fitToHeight = 0
+    sheet.print_options.horizontalCentered = True
+    sheet.page_margins = PageMargins(left=0.25, right=0.25, top=0.4, bottom=0.4, header=0.15, footer=0.2)
+    sheet.oddFooter.left.text = "Milana ERP"
+    sheet.oddFooter.center.text = text["title"]
+    sheet.oddFooter.right.text = text["page"]
+    for footer in (sheet.oddFooter.left, sheet.oddFooter.center, sheet.oddFooter.right):
+        footer.size = 8
+        footer.font = "Arial"
+        footer.color = "625E56"
     output = BytesIO()
     workbook.save(output)
     return output.getvalue()

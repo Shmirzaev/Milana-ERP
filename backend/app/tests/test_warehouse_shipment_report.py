@@ -2,6 +2,7 @@ from datetime import date, datetime, timezone
 from io import BytesIO
 
 from openpyxl import load_workbook
+import pytest
 
 from app.db.session import SessionLocal
 from app.libs.dto.fulfillment.shipment_report import ShipmentReportQuery
@@ -53,12 +54,12 @@ def test_search_paging_and_export_share_the_same_frozen_quantities_and_literal_t
         assert shipment_report(db, ShipmentReportQuery(q="Exact client", page=2, page_size=1)).rows[0].variant == "3373"
         for lang, header in (("en", "Model"), ("ru", "Модель"), ("uz", "Model")):
             sheet = load_workbook(BytesIO(shipment_report_workbook(db, ShipmentReportQuery(q="3372"), lang))).active
-            assert sheet["A1"].value == header
-            assert sheet.max_row == 2 and sheet["C2"].value == 20
-            assert sheet["D2"].value == 1 and sheet["E2"].value == "PK-A: 20"
-            assert sheet["I2"].value == "=Exact client" and sheet["I2"].data_type == "s"
-            assert sheet["J2"].value == datetime(2026, 11, 7, 13)
-            assert sheet.freeze_panes == "A2" and sheet.auto_filter.ref == "A1:M2"
+            assert sheet["A8"].value == header
+            assert sheet.max_row == 9 and sheet["C9"].value == 20
+            assert sheet["D9"].value == 1 and sheet["E9"].value == "PK-A: 20"
+            assert sheet["I9"].value == "=Exact client" and sheet["I9"].data_type == "s"
+            assert sheet["J9"].value == datetime(2026, 11, 7, 13)
+            assert sheet.freeze_panes == "C9" and sheet.auto_filter.ref == "A8:M9"
 
 
 def test_report_api_permissions_queries_and_export(client, auth_headers):
@@ -73,7 +74,7 @@ def test_report_api_permissions_queries_and_export(client, auth_headers):
     assert client.get("/api/warehouse-reports/shipments?page_size=201", headers=auth_headers).status_code == 422
     export = client.get("/api/warehouse-reports/shipments.xlsx?q=3372&lang=ru", headers=auth_headers)
     assert export.status_code == 200, export.text[:100]
-    assert load_workbook(BytesIO(export.content)).active["A1"].value == "Модель"
+    assert load_workbook(BytesIO(export.content)).active["A8"].value == "Модель"
 
 
 def test_report_refuses_nonwarehouse_actor(client):
@@ -114,3 +115,75 @@ def test_old_consumed_package_keeps_shipment_link_quantity_and_unknown_size():
         assert report.rows[0].historical_reconstruction
         assert report.rows[0].sizes == {"—": 20}
         assert report.rows[0].packages[0].quantity == 20
+
+
+@pytest.mark.parametrize(("lang", "title", "quantity_label", "page_label"), [
+    ("en", "Warehouse shipment report", "Total quantity", "Page"),
+    ("ru", "Отчёт об отгрузках со склада", "Общее количество", "Страница"),
+    ("uz", "Ombordan jo‘natmalar hisoboti", "Jami miqdor", "Sahifa"),
+])
+def test_workbook_presentation_keeps_all_rows_and_distinct_numeric_totals(lang, title, quantity_label, page_label):
+    with SessionLocal() as db:
+        add_shipment(db, "WR-PRESENT-1", datetime(2026, 11, 9, 6, tzinfo=timezone.utc), lines=[
+            {"model_no": "M1", "variant_no": "0010", "quantity": 1200, "size": "M", "package_no": "PK-SHARED"},
+            {"model_no": "M1", "variant_no": "0011", "quantity": 300, "size": "L", "package_no": "PK-SHARED"},
+            {"model_no": "M2", "variant_no": "0020", "quantity": 40, "size": "S", "package_no": "PK-C"},
+        ])
+        add_shipment(db, "WR-PRESENT-2", datetime(2026, 11, 9, 8, tzinfo=timezone.utc), lines=[
+            {"model_no": "M1", "variant_no": "0010", "quantity": 20, "size": "M", "package_no": "PK-SHARED"},
+        ])
+        filters = ShipmentReportQuery(date_from=date(2026, 11, 1), date_to=date(2026, 11, 9), q="=Exact client", page_size=1)
+        workbook = load_workbook(BytesIO(shipment_report_workbook(db, filters, lang)), data_only=False)
+        assert workbook.sheetnames == ["Shipments"]
+        sheet = workbook.active
+        assert sheet["A2"].value == title and sheet["A5"].value == quantity_label
+        assert sheet["B3"].value == "2026-11-01 – 2026-11-09"
+        assert sheet["B4"].value == "=Exact client" and sheet["B4"].data_type == "s"
+        assert [sheet[cell].value for cell in ("A6", "D6", "G6")] == [1560, 3, 2]
+        assert all(sheet[cell].data_type == "n" and sheet[cell].number_format == "#,##0" for cell in ("A6", "D6", "G6"))
+        assert sheet.max_column == 13 and sheet.max_row == 12
+        assert sum(sheet.cell(row, 3).value for row in range(9, 13)) == 1560
+        assert sum(sheet.cell(row, 4).value for row in range(9, 13)) == 4  # Shared pack counts only once in D6.
+        assert sheet["B9"].value == "0010" and sheet["B9"].data_type == "s"
+        assert sheet["J9"].value == datetime(2026, 11, 9, 13)
+        assert sheet["C9"].number_format == sheet["D9"].number_format == "#,##0"
+        assert sheet["J9"].number_format == "yyyy-mm-dd hh:mm"
+        assert sheet.auto_filter.ref == "A8:M12" and sheet.freeze_panes == "C9"
+        assert sheet.print_title_rows == "$8:$8" and sheet.print_title_cols == "$A:$B"
+        assert str(sheet.print_area).endswith("$A$1:$M$12")
+        assert sheet.page_setup.orientation == "landscape" and sheet.page_setup.fitToWidth == 1
+        assert sheet.page_setup.fitToHeight == 0 and sheet.sheet_view.showGridLines is False
+        assert page_label in sheet.oddFooter.right.text and "&P" in sheet.oddFooter.right.text and "&N" in sheet.oddFooter.right.text
+        assert sheet["A8"].fill.fgColor.rgb[-6:] == "353127" and sheet["A8"].font.bold
+        assert sheet.row_dimensions[8].height >= 36 and sheet.row_dimensions[9].height >= 24
+        assert not any(cell.data_type == "f" for row in sheet for cell in row)
+        assert not db.dirty and not db.new and not db.deleted
+
+
+@pytest.mark.parametrize(("lang", "empty_message"), [
+    ("en", "No shipments match these filters."),
+    ("ru", "Нет отгрузок по выбранным фильтрам."),
+    ("uz", "Bu filtrlarga mos jo‘natmalar yo‘q."),
+])
+def test_empty_workbook_is_presentable_and_filter_text_remains_literal(lang, empty_message):
+    with SessionLocal() as db:
+        filters = ShipmentReportQuery(q='=HYPERLINK("https://invalid.example","test")')
+        sheet = load_workbook(BytesIO(shipment_report_workbook(db, filters, lang)), data_only=True).active
+        assert sheet["B4"].value == filters.q and sheet["B4"].data_type == "s"
+        assert [sheet[cell].value for cell in ("A6", "D6", "G6")] == [0, 0, 0]
+        assert sheet["A9"].value == empty_message and sheet["C9"].value is None
+        assert sheet.auto_filter.ref == "A8:M8" and sheet.max_column == 13 and sheet.max_row == 9
+        assert str(sheet.print_area).endswith("$A$1:$M$9")
+        assert not db.dirty and not db.new and not db.deleted
+
+
+@pytest.mark.parametrize(("date_from", "date_to", "period"), [
+    (None, None, "All dates"),
+    (date(2026, 11, 1), None, "2026-11-01 – …"),
+    (None, date(2026, 11, 9), "… – 2026-11-09"),
+    (date(2026, 11, 9), date(2026, 11, 9), "2026-11-09"),
+])
+def test_workbook_applied_period_labels(date_from, date_to, period):
+    with SessionLocal() as db:
+        sheet = load_workbook(BytesIO(shipment_report_workbook(db, ShipmentReportQuery(date_from=date_from, date_to=date_to), "en"))).active
+        assert sheet["B3"].value == period
