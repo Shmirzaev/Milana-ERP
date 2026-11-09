@@ -6,6 +6,14 @@ the device side: only HTTP GET and Hikvision search POST endpoints are allowed.
 It contains no person/card/face update, door-control, PUT, PATCH, or DELETE
 operation.
 
+Both device transports enforce the configured HTTPS origin (host and port), the
+GET prefixes and three search POST paths before opening a request. Credentials in
+URLs and URL fragments are refused. Neither transport follows redirects, including
+same-origin redirects; Digest authentication challenges remain supported. The
+reader cannot issue provisioning, door-control or deployment/disconnect commands.
+The previous ERP remains connected and remains the current writer until a separately
+agreed handover. Preparing or testing this reader does not authorize that handover.
+
 The ERP backend cannot route to the device's `10.100.50.0/24` network, so run
 this connector on an always-on Windows computer at the factory that can reach
 both the turnstile and `https://erp.milanapremium.uz`.

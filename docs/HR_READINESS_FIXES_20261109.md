@@ -95,9 +95,9 @@ itself passed. The first private API launch also rejected a truthy
 `PUBLIC_DEPLOYMENT=0` marker; the isolated private environment was corrected
 before testing, without changing production security code.
 
-The four-file read-only update was staged at
+The initial four-file read-only update was staged at
 `outputs/hr-readiness/attendance-candidate/` with SHA-256 `UPDATE_MANIFEST.json`.
-Current connector source is `71ec1656631f2e55667dafc2de949d69a9fba893de92316bda0a8abe3154992a`.
+That initial connector source is `71ec1656631f2e55667dafc2de949d69a9fba893de92316bda0a8abe3154992a`.
 The installed scheduled reader was not modified, stopped or upgraded. Activation
 must preserve its six device keys, certificate pins, DPAPI files and cursors,
 especially existing `main-turnstile` / `state.json` identity.
@@ -203,3 +203,17 @@ Before the handover, protect/export the existing device profiles and credentials
 verify recovery, and coordinate stopping the old writer in an agreed window.
 The owner's own-profile pilot remains the final supervised test, not an approved
 source of guessed rights or permission to delete an existing terminal profile.
+
+## Later active-ERP preservation continuation
+
+The owner subsequently reaffirmed that the previous active ERP must remain
+connected during every test and supplied its `10.100.50.199:8443` address. The
+bounded local reader transport hardening now has 136 passing connector cases,
+including 87 new safety cases; a fresh 505-case backend run and frontend build
+also pass. All six terminals were reachable at the later read-only rechecks and
+the current installed reader/task remained byte-for-byte/configuration unchanged.
+The owner manually signed into the old ERP in Edge. Its dashboard was inspected,
+and the final browser observation returned to login. Current scan arrival there
+still needs the actual attendance report or
+operator confirmation. No handover or activation occurred. See the exact
+[continuation evidence and remaining gates](archive/HR_ACTIVE_ERP_PRESERVATION_2026-11-09.md).

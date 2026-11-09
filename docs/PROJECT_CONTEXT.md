@@ -189,17 +189,25 @@ hashes, exceptions and limits are in the
 The organization selector now submits canonical types independently of EN/RU/UZ
 labels; the stale payroll-options verifier is repaired. A source-only attendance
 reader update package preserves private configuration, device identities and
-cursors; it is staged, not activated. Local checks passed: 505 backend, 49 connector,
+cursors; it is staged, not activated. Initial local checks passed: 505 backend, 49 connector,
 three PostgreSQL simulator stress scripts, full frontend build and actual Edge
 15-save/reload/database/audit readback. Independent AI review passed; human
 acceptance and later integration remain pending. No production changes.
 Real Hikvision write support and occupied-profile adoption are still unimplemented;
 access policy, existing-writer coordination and reviewed employee/staffing setup
 remain open. The owner chose Milana as sole writer after an agreed handover and
-will add himself for the final supervised physical pilot. A fresh read-only check
-passed on five lanes; lane 4 (`10.100.50.41`) timed out before certificate validation
-after three attempts. Restore its connectivity before six-lane acceptance. No
-certificate pins, task, profiles or access rights were changed.
+will add himself for the final supervised physical pilot. The earlier lane-4
+timeout recovered on later rechecks; all six lanes then passed pinned reads.
+The latest preservation slice blocks foreign-origin and write commands plus
+redirects in both device transports: 136 connector cases (87 new), fresh 505
+backend tests and full frontend build passed. Installed reader/configuration/task
+hashes stayed unchanged; ingestion checkpoints reached 12:20 Tashkent. The owner
+requires the old ERP (`10.100.50.199:8443`) to stay connected and manually signed
+in for read-only Edge inspection. Authenticated pages were observed; the final
+browser observation returned to login. Recent scans there remain unconfirmed
+until its attendance report is identified; empty device deployment lists are not
+proof of disconnection. No profiles, rights, pins, task or live writer were changed.
+See [preservation evidence](archive/HR_ACTIVE_ERP_PRESERVATION_2026-11-09.md).
 See the [fix/remaining-work record](HR_READINESS_FIXES_20261109.md).
 
 ## Dilmurod source classification (7 November)
