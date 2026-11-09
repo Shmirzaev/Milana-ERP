@@ -1,10 +1,14 @@
 # Hikvision attendance connector
 
-This LAN-side connector mirrors Hikvision people, face pictures, and access
+The `read_only_connector.py` LAN reader mirrors Hikvision people, face pictures, and access
 events from one or more turnstiles into the isolated ERP attendance area. It is deliberately read-only on
 the device side: only HTTP GET and Hikvision search POST endpoints are allowed.
 It contains no person/card/face update, door-control, PUT, PATCH, or DELETE
 operation.
+
+Separate, explicitly activated device management is described in
+[README_LIVE.md](README_LIVE.md). It is excluded from this reader's update
+package and does not change its scheduled task or connection.
 
 Both device transports enforce the configured HTTPS origin (host and port), the
 GET prefixes and three search POST paths before opening a request. Credentials in

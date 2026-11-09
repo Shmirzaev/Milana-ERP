@@ -22,6 +22,10 @@ on:
         description: "Source ref for security-only evidence (ignored for releases)"
         type: string
         default: clone_main
+      turnstile_live_ui:
+        description: "Compile real turnstile management UI (default off; backend/device write gates remain separate)"
+        type: boolean
+        default: false
       release_id:
         description: "UTC release ID (YYYYMMDD_HHMMSS)"
         required: true
@@ -72,6 +76,7 @@ jobs:
     with:
       source_ref: ${{ github.event_name == 'schedule' && 'clone_main' || github.event_name == 'workflow_dispatch' && inputs.security_scan_only && inputs.security_scan_ref || github.sha }}
       release_images: ${{ github.event_name == 'workflow_dispatch' && !inputs.security_scan_only }}
+      turnstile_live_ui: ${{ github.event_name == 'workflow_dispatch' && inputs.turnstile_live_ui || false }}
   backend:
     if: github.event_name != 'schedule' && !(github.event_name == 'workflow_dispatch' && inputs.security_scan_only)
     runs-on: ubuntu-latest
@@ -306,6 +311,7 @@ jobs:
         env:
           NEXT_PUBLIC_API_URL: https://erp.milanapremium.uz
           API_URL: http://172.16.10.4:8000
+          NEXT_PUBLIC_TURNSTILE_LIVE: ${{ github.event_name == 'workflow_dispatch' && inputs.turnstile_live_ui && '1' || '0' }}
         run: npm run build
       - name: Clear generated production build for isolated QA build
         if: github.event_name == 'push' && (github.ref == 'refs/heads/codex/ismail-finance-pilot-20261025' || github.ref == 'refs/heads/codex/ismail-brand-feedback-20261028' || github.ref == 'refs/heads/codex/ismail-combined-review-20261028')

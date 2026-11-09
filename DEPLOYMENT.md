@@ -2,6 +2,16 @@
 
 This is the only supported production deployment process. Production changes are promoted from a clean Git commit as immutable source plus backend/frontend images. Production VMs do not install dependencies or build the application.
 
+Real turnstile management remains default-off. Its UI is compiled into the
+immutable frontend only when the manual validation/release workflow input
+`turnstile_live_ui` is explicitly enabled; the Docker build argument is
+`NEXT_PUBLIC_TURNSTILE_LIVE=1` (default `0`). A runtime environment edit cannot
+change that Next.js build flag. UI visibility does not enable device writes:
+backend live mode, per-device approvals, local writer approval and the agreed
+old-ERP handover remain separate gates. Follow
+`docs/TURNSTILE_LIVE_INTEGRATION_20261109.md` before activation; this paragraph
+does not authorize deployment or a handover.
+
 ## Production topology
 
 - Public domain: `https://erp.milanapremium.uz`

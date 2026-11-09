@@ -79,3 +79,5 @@ from app.api.routes import turnstile_access, turnstile_photos, turnstile_simulat
 api_router.include_router(turnstile_access.router)
 api_router.include_router(turnstile_photos.router)
 api_router.include_router(turnstile_simulator.router)
+from app.api.routes import turnstile_live
+api_router.include_router(turnstile_live.router)

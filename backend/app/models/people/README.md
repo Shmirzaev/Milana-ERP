@@ -110,4 +110,13 @@ Prior ENROLL, EDIT and PHOTO evidence remains historical; their human gates are 
 
 Payroll adjustments and reversals use `payroll_adjustments_service.py`; period totals and audit semantics are preserved.
 
+`turnstile_live_service.py` owns the separate, default-off physical-device intent,
+observation/adoption, single-use dispatch, result and recovery operations. Its
+same-session mutations are in `schemas/people/turnstile_live_persistence.py`;
+only the separate LAN worker performs device I/O. Revoke keeps credentials;
+Delete requires completed native deletion and independent credential absence.
+Simulator evidence cannot authorize live ownership. The local implementation
+has code checks; new visual testing is owner-deferred and firmware/pilot gates
+remain open. See [the packet](../../../../docs/TURNSTILE_LIVE_INTEGRATION_20261109.md).
+
 `payroll_qr_service.py` also owns unscanned edit/split/batch deletion, preserving identity and history guards.

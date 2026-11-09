@@ -193,9 +193,18 @@ cursors; it is staged, not activated. Initial local checks passed: 505 backend, 
 three PostgreSQL simulator stress scripts, full frontend build and actual Edge
 15-save/reload/database/audit readback. Independent AI review passed; human
 acceptance and later integration remain pending. No production changes.
-Real Hikvision write support and occupied-profile adoption are still unimplemented;
-access policy, existing-writer coordination and reviewed employee/staffing setup
-remain open. The owner chose Milana as sole writer after an agreed handover and
+Real Hikvision management now has a local, default-off backend/LAN-worker candidate
+with reviewed adoption, enrollment, name/photo changes, separate revoke/restore/delete,
+single-use permits and protected recovery journals. It has not changed live profiles.
+All six devices passed pinned face-capacity and exact existing credential reads;
+root-level face-search JSON corrected the earlier wrapped-request HTTP 400.
+All six omit `doubleLockRight` and return HTTP 404 for deletion-progress reads;
+these remain physical enrollment/deletion verification blockers. Browser testing
+for this new integration was explicitly deferred by the owner after automatic
+policy blocked the local preview launch. Approved access policy and the supervised
+firmware/passage/dual-report pilot remain open. See the
+[live integration packet](TURNSTILE_LIVE_INTEGRATION_20261109.md).
+The owner chose Milana as sole writer after an agreed handover and
 will add himself for the final supervised physical pilot. The earlier lane-4
 timeout recovered on later rechecks; all six lanes then passed pinned reads.
 The latest preservation slice blocks foreign-origin and write commands plus

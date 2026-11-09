@@ -1,0 +1,14 @@
+{
+  "erp_base_url": "https://erp.milanapremium.uz",
+  "writer_journal_dir": "C:/MilanaTurnstileWriter/private-journal",
+  "devices": [
+    {
+      "device_key": "REPLACE_WITH_VERIFIED_DEVICE_KEY",
+      "hikvision_base_url": "https://REPLACE_WITH_PRIVATE_DEVICE_IP",
+      "hikvision_cert_sha256": "REPLACE_WITH_VERIFIED_CERTIFICATE_SHA256",
+      "worker_token_env": "MILANA_LIVE_DEVICE_WORKER_TOKEN",
+      "writes_enabled": false,
+      "allowed_employee_numbers": []
+    }
+  ]
+}

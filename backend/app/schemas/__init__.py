@@ -89,6 +89,10 @@ __all__ = [
     "GateTarget",
     "GateSimulatorDevice",
     "GateSimulatorPerson",
+    "GateLiveDevice",
+    "GateLiveJob",
+    "GateLiveProfile",
 ]
 
 from app.schemas.people.turnstile import GatePhotoAsset, GateEmployeeDevice, GateOperation, GateTarget, GateSimulatorDevice, GateSimulatorPerson
+from app.schemas.people.turnstile_live import GateLiveDevice, GateLiveJob, GateLiveProfile
