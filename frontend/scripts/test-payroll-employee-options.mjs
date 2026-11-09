@@ -3,7 +3,8 @@ import fs from "node:fs";
 
 const page = fs.readFileSync(new URL("../src/app/(app)/payroll/page.tsx", import.meta.url), "utf8");
 const route = fs.readFileSync(new URL("../../backend/app/api/routes/payroll.py", import.meta.url), "utf8");
-const schema = fs.readFileSync(new URL("../../backend/app/schemas/payroll.py", import.meta.url), "utf8");
+const schema = fs.readFileSync(new URL("../../backend/app/libs/dto/people/payroll.py", import.meta.url), "utf8");
+const service = fs.readFileSync(new URL("../../backend/app/models/people/payroll_service.py", import.meta.url), "utf8");
 
 assert.doesNotMatch(page, /useSWR<Employee\[]>\("\/api\/employees"/, "payroll must not load the legacy capped directory");
 assert.equal((page.match(/\/api\/payroll\/employees\/options/g) || []).length, 2, "filter and adjustment selectors use bounded employee options");
@@ -19,8 +20,8 @@ assert.match(page, /record\.department_name \|\|[\s\S]*record\.department_id/, "
 assert.doesNotMatch(page, /employees\.find\(/, "payroll records must not resolve labels from an unbounded client directory");
 
 assert.match(route, /@router\.get\("\/employees\/options"\)[\s\S]*Query\(ge=1, le=50\)[\s\S]*selected_id/, "employee options are capped at 50 and can retain a selected ID");
-assert.match(route, /Employee\.factory_code == factory_code[\s\S]*Employee\.id == selected_id/, "selected employee lookup remains factory-scoped");
-assert.match(route, /@router\.get\("\/adjustments"[\s\S]*employee_labels[\s\S]*"employee_name": row\.full_name/, "paged adjustments project employee names on returned rows");
+assert.match(service, /def list_payroll_employee_options[\s\S]*Employee\.factory_code == factory_code[\s\S]*Employee\.id == selected_id/, "selected employee lookup remains factory-scoped");
+assert.match(service, /def list_adjustments[\s\S]*employee_labels[\s\S]*"employee_name": row\.full_name/, "paged adjustments project employee names on returned rows");
 assert.match(schema, /class PayrollAdjustmentPageOut[\s\S]*rows: list\[PayrollAdjustmentRowOut\]/, "only the paged adjustment schema adds row labels");
 assert.match(schema, /class PayrollAdjustmentOut[\s\S]*?created_at: datetime[\s\S]*?class PayrollAdjustmentRowOut/, "legacy adjustment schema remains unchanged");
 

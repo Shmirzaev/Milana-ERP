@@ -184,6 +184,20 @@ adoption and security audit are not complete. Exact identities, backup/evidence
 hashes, exceptions and limits are in the
 [release record](archive/ECT_WAREHOUSE_RELEASE_2026-11-09.md).
 
+## HR readiness fixes (9 November; local candidate)
+
+The organization selector now submits canonical types independently of EN/RU/UZ
+labels; the stale payroll-options verifier is repaired. A source-only attendance
+reader update package preserves private configuration, device identities and
+cursors; it is staged, not activated. Local checks passed: 505 backend, 49 connector,
+three PostgreSQL simulator stress scripts, full frontend build and actual Edge
+15-save/reload/database/audit readback. Independent AI review passed; human
+acceptance and later integration remain pending. No production changes.
+Real Hikvision write support and occupied-profile adoption are still unimplemented;
+access policy, existing-writer coordination and reviewed employee/staffing setup
+remain open. The owner will add himself for the final supervised physical pilot.
+See the [fix/remaining-work record](HR_READINESS_FIXES_20261109.md).
+
 ## Dilmurod source classification (7 November)
 
 Behavior-preserving Identity #546, People #545, Support #547 and Work #544 code
