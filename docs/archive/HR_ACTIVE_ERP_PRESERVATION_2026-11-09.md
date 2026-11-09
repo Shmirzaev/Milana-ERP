@@ -1,8 +1,9 @@
 # Preserve the active previous ERP during HR readiness testing
 
 Date: 9 November 2026. Status: AI_VERIFIED_AWAITING_HUMAN for the local transport
-hardening. Old-ERP recent scan receipt remains unconfirmed; full physical
-turnstile management is not ready. Local work only, no activation.
+hardening. Later HR-session inspection confirmed recent old-ERP scan receipt
+for door 3 at 13:04:25 and 13:06:34 Tashkent; full physical turnstile management
+is not ready. Local work only, no activation.
 
 The owner explicitly requires the previous active ERP and its terminal connections
 to remain operating throughout Milana testing. His supplied address is
@@ -62,9 +63,11 @@ the agent inspected the real `dashboard.htm` and `users.htm` pages read-only.
 The initial certificate problem is not relabeled as fixed, but does not block
 reading that owner-opened session. Its visible menus did not expose a turnstile
 attendance report; the agent asked the owner to open that report or identify its
-menu. The final browser observation showed the login page again; no logout was
+menu. That earlier closing browser observation showed the login page again;
+no logout was
 submitted and the cause is unknown. This does not establish a terminal connection
-failure. Current scan receipt in the old ERP is still unconfirmed. Evidence: ignored
+failure. Scan receipt was unconfirmed at that earlier checkpoint; the later
+HR-account follow-up below supplies bounded evidence. Evidence: ignored
 `outputs/hr-readiness/previous-erp-availability.json`. No Connect/Connect UHF,
 save/import, user editing or device/settings action was submitted.
 
@@ -121,7 +124,8 @@ remains worth observing. Do not report the earlier timeout as a current outage.
 All six `/ISAPI/AccessControl/DeployInfo` responses had empty deployment-session
 lists before and after. These lists neither prove disconnection nor establish
 the old ERP's polling/delivery status. A signed-in dashboard only proves UI
-availability; recent attendance rows or operator confirmation are still required.
+availability. The later HR report below supplies recent rows for door 3,
+without establishing fresh events from every configured lane.
 
 `installed-reader-preservation-before.json` and `...-after.json` verify exact
 unchanged hashes for installed configuration, DPAPI ciphertext file, reader
@@ -152,11 +156,34 @@ SHA-256 manifest. The earlier staged candidate is retained. Neither package was
 installed, activated or submitted to the old ERP. No deploy/disconnect command,
 terminal write, remote-door action or production business-data write occurred.
 
+## HR-account follow-up: recent scan receipt confirmed
+
+At 13:11 Tashkent on 9 November, after the owner signed into the HR account,
+visible dashboard navigation exposed `entryExitByDoors.htm` and `hrEvents.htm`.
+The agent opened the actual reports and changed only read-only report filters
+and date sorting. An initially loaded full-day report showed 694 rows and event
+times through 10:49:52; it was not treated as proof of current delivery.
+
+A new attendance query from `09/11/2026 12:00:00` to `09/11/2026 23:59:59`, with
+the default registered-user filter enabled and no person/door/department selected,
+returned exactly two exit events: **13:04:25 and 13:06:34**, both labeled door **3**.
+The actual rendered report and screenshot were inspected. These event times are
+after the earlier 12:20 closing reader/production checks and establish recent
+receipt in the previous ERP for that door. They do not prove continuous delivery,
+unknown-person handling or fresh events from all six devices. No door-label-to-IP
+mapping is inferred. No personal identifiers, event IDs, images or names are
+exported to this record; ignored evidence retains only filter/time/door metadata.
+
+No live configuration, reader task, profile, right, credential or device connection
+was changed. The verified report remains open in Edge. The prior login/settings
+observations remain historical, not current blockers. Remaining deployment and
+sole-writer handover conditions are unchanged.
+
 ## Remaining readiness gates
 
-1. Open/identify the previous ERP's attendance report and verify recent arrivals
-   while its current connection remains in service. Do not guess success from
-   an empty deployment list or a working dashboard.
+1. Recent old-ERP receipt is confirmed for door 3 in the HR report above. Extend
+   the later supervised pilot to each relevant lane; this sample does not prove
+   fresh arrivals from all six lanes or uninterrupted delivery.
 2. Implement and verify the real scoped Hikvision LAN write worker and reviewed
    occupied-profile adoption; simulator completion is not hardware support.
 3. Approve access lanes/plans, validity and privacy/retention rules. Keep HR Save

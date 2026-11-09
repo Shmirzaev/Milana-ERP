@@ -203,10 +203,11 @@ redirects in both device transports: 136 connector cases (87 new), fresh 505
 backend tests and full frontend build passed. Installed reader/configuration/task
 hashes stayed unchanged; ingestion checkpoints reached 12:20 Tashkent. The owner
 requires the old ERP (`10.100.50.199:8443`) to stay connected and manually signed
-in for read-only Edge inspection. Authenticated pages were observed; the final
-browser observation returned to login. Recent scans there remain unconfirmed
-until its attendance report is identified; empty device deployment lists are not
-proof of disconnection. No profiles, rights, pins, task or live writer were changed.
+in for read-only Edge inspection. After the owner opened the HR account, its
+attendance report showed exit events at 13:04:25 and 13:06:34 Tashkent for door 3,
+after the 12:20 reader checks. This confirms recent receipt for that door, not
+fresh scans from every lane; empty deployment lists do not prove disconnection.
+No profiles, rights, pins, task or live writer were changed.
 See [preservation evidence](archive/HR_ACTIVE_ERP_PRESERVATION_2026-11-09.md).
 See the [fix/remaining-work record](HR_READINESS_FIXES_20261109.md).
 

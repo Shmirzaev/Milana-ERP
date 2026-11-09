@@ -213,7 +213,9 @@ including 87 new safety cases; a fresh 505-case backend run and frontend build
 also pass. All six terminals were reachable at the later read-only rechecks and
 the current installed reader/task remained byte-for-byte/configuration unchanged.
 The owner manually signed into the old ERP in Edge. Its dashboard was inspected,
-and the final browser observation returned to login. Current scan arrival there
-still needs the actual attendance report or
-operator confirmation. No handover or activation occurred. See the exact
+and an earlier closing browser observation returned to login. After the owner
+opened the HR account, the attendance report confirmed exit events at 13:04:25
+and 13:06:34 Tashkent for door 3, after the 12:20 reader checks. This confirms
+recent receipt for that door, not fresh events from all six lanes. No handover
+or activation occurred. See the exact
 [continuation evidence and remaining gates](archive/HR_ACTIVE_ERP_PRESERVATION_2026-11-09.md).
