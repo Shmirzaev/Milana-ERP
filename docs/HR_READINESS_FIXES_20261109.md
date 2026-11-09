@@ -111,8 +111,11 @@ These are unresolved, not passed or removed from the user's full-readiness scope
    physical-device readback/baselines and explicit adoption of already occupied
    identities. Current `disabled`/`simulator` modes do not provide this. Never
    enable the simulator in production or remove the occupied-identity guard.
-2. **Business decisions:** approved door/access-plan and validity rules, existing
-   ERP writer ownership/coexistence, and photo/biometric retention/access policy.
+2. **Business decisions:** approved door/access-plan and validity rules, an agreed
+   handover from the existing ERP writer, and photo/biometric retention/access policy.
+   The owner chose **Milana as the only writer after an agreed handover** on
+   9 November. This settles ownership; it does not authorize stopping the old
+   writer or performing live writes now.
    An employee name or an attendance roster is not proof of approved access.
    These decisions must precede a live implementation's final acceptance.
 3. **Reviewed HR setup:** missing employee numbers, exact employee/device identity
@@ -150,5 +153,53 @@ were found. The dedicated API/PostgreSQL containers are stopped, both loopback
 listeners are closed and only the agent-created Edge tab was closed. The HR
 candidate summary was mirrored to the existing Obsidian context note without
 replacing its other contents. Independent AI evidence review confirmed the
-results and this limited status. The live-writer ownership decision was requested
-separately; no answer or approval is inferred from the deferred physical pilot.
+results and this limited status. The explicit sole-writer answer is recorded
+above; no handover time or live-write approval is inferred from the deferred pilot.
+
+## Read-only hardware follow-up after the ownership decision
+
+At approximately 11:12–11:13 Asia/Tashkent on 9 November, a bounded read-only
+probe used the installed configuration and DPAPI-owned Hikvision credential,
+without decrypting/using the ERP integration token. It validated configured
+certificate pins and requested only device information, access-control capabilities
+and face-library capabilities. There were no person searches, photo reads, device
+writes, ERP uploads or state/cursor writes. Evidence:
+`outputs/hr-readiness/hardware-capabilities.json` and `reader-task-status.json`.
+The two retry log lines and final timeout are retained as tool-output excerpts in
+`hardware-probe-attempts.txt`; the reviewed certificate-check loop raises on the
+third failure. This records one probe with three attempts, not three separate runs.
+
+| Lane / key | Current result |
+| --- | --- |
+| 1 / turnstile-73 | Pin, Digest authentication and all three GETs passed; V3.16.1 |
+| 2 / turnstile-31 | Pin, Digest authentication and all three GETs passed; V3.14.0 |
+| 3 / turnstile-91 | Pin, Digest authentication and all three GETs passed; V3.16.1 |
+| 4 / main-turnstile, 10.100.50.41 | Timeout before certificate validation, after three bounded connection attempts; not a verified certificate mismatch or authentication failure |
+| 5 / turnstile-115 | Pin, Digest authentication and all three GETs passed; V3.16.1 |
+| 6 / turnstile-104 | Pin, Digest authentication and all three GETs passed; V3.16.1 |
+
+All five reachable devices advertise UserInfo, card, face-library and user-detail
+deletion support. This is capability evidence, not acceptance of a write action.
+All advertise face-library `FDRecordDataMaxNum=1500` and `customInfoMaxLen=0`.
+Current face occupancy/headroom must be checked before enrollment; the older
+audit's 1,500 **people** is not automatically a current face count or proof of
+full face capacity. Lane 2 advertises `isSuportFDSearch=false`, whereas the four
+reachable newer-firmware lanes advertise true. The adapter must verify a supported
+readback route per firmware and cannot assume a device-stored custom revision
+marker or pass simulator evidence off as real terminal evidence.
+
+The installed scheduled reader was Running at the observation (task result
+267009 / 0x41301 means running, not successful completion). Lane 4's local state
+file timestamp was 10:45:16; other state timestamps are in the evidence. File
+timestamps alone do not prove ERP ingestion or diagnose the network fault.
+Restore/check lane 4's power, LAN/IP and HTTPS reachability before a six-lane
+physical acceptance test; do not repin its certificate or reset its state as a
+workaround. The existing reader/task was left running and unchanged.
+
+Next live-integration operation: confirm firmware-specific person/face readback,
+freeze an explicitly approved access/validity policy and the sole-writer handover
+contract, then implement the scoped LAN worker and occupied-identity adoption.
+Before the handover, protect/export the existing device profiles and credentials,
+verify recovery, and coordinate stopping the old writer in an agreed window.
+The owner's own-profile pilot remains the final supervised test, not an approved
+source of guessed rights or permission to delete an existing terminal profile.

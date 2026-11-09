@@ -195,7 +195,11 @@ three PostgreSQL simulator stress scripts, full frontend build and actual Edge
 acceptance and later integration remain pending. No production changes.
 Real Hikvision write support and occupied-profile adoption are still unimplemented;
 access policy, existing-writer coordination and reviewed employee/staffing setup
-remain open. The owner will add himself for the final supervised physical pilot.
+remain open. The owner chose Milana as sole writer after an agreed handover and
+will add himself for the final supervised physical pilot. A fresh read-only check
+passed on five lanes; lane 4 (`10.100.50.41`) timed out before certificate validation
+after three attempts. Restore its connectivity before six-lane acceptance. No
+certificate pins, task, profiles or access rights were changed.
 See the [fix/remaining-work record](HR_READINESS_FIXES_20261109.md).
 
 ## Dilmurod source classification (7 November)
