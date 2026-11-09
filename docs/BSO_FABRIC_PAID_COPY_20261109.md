@@ -26,6 +26,24 @@ Both production manifests verified as release `20261109_035740`, SHA-256
 `e5d56b822d8a48d327429a5e6a59cd87111b81bb193a2fd8cf120d007a7fafb1`.
 Slot-state access was refused to the SSH actor; no production writes occurred.
 
+## Current candidate status — 9 November, 17:32 UTC
+
+Corrected app `271c5005e12d1efc65d6358756862d8c243685a5`, PR553 merged, is staged
+as green `20261109_163130`. Production remains blue `20261109_035740`. Actual
+signed Edge now passes canonical Milana/Eco Cotton BSO/Excel, desktop/mobile
+received quantity and copy-to-draft checks, with four clean consoles; the initial
+mobile/console limitations below are historical and resolved on this staged build.
+Exact CI: 6,651 backend passes / 1,568 skips / 36 subtests and all five jobs green.
+
+Cutover is blocked on a new, specifically disclosed performance exception:
+fabric-batch median +17.248% / +14.496% (about 5–6 ms), above +10%. Original failed
+report/exit1 retained; untouched endpoint checks and all selected data/Excel facts
+pass. Owner answer is pending; no exception or full performance pass is invented.
+The named-human override and monitoring waiver remain separate. Both owned leases
+are released, temporary preview services stopped and active/staged health verified.
+No production business rows or schema changed. Detailed immutable evidence and
+resumption requirements are in the [candidate record](archive/BSO_FABRIC_PAID_COPY_CANDIDATE_2026-11-09.md).
+
 ## Operations and acceptance
 
 - BSO read/export: planning routes -> branded_orders_service / existing workbook
@@ -54,8 +72,9 @@ Unrelated table/type adoption remains outside this feature.
 
 ## Evidence
 
-Status: implemented and technically checked; human acceptance and the remaining
-visual/console limitations below are open. No merge or deployment is authorized.
+Historical initial-check status: implementation was technically checked while
+visual/console limitations and human acceptance remained open. The current staged
+status and owner deployment authorization are recorded above; timing acceptance is pending.
 
 - Backend focused run: 31 passed (receipt projection, BSO cutting progress/export,
   employee exports, automatic printing, paid-operation family and factory scope).
@@ -119,9 +138,9 @@ review with the generic reason `blocked by policy`; the safer loopback developme
 server launch succeeded. Chrome control failed, and the first in-app browser
 session disappeared. Edge was then used as explicitly requested.
 
-The remaining mobile screenshot and console gates prevent an unqualified
-AI_VERIFIED_AWAITING_HUMAN or release-ready claim. Production is still the verified
-release recorded above; no production schema, permissions or business data changed.
+At that initial local check, missing mobile screenshot and console gates prevented
+a release-ready claim. Those gates later passed on the staged immutable candidate;
+its separate performance-exception decision remains pending. Production is unchanged.
 
 Human checklist: compare BSO factory names and downloaded Excel; compare fabric
 receipt quantity with remaining stock on desktop/mobile; copy a model's complete
