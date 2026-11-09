@@ -38,7 +38,7 @@ def test_branded_history_uses_cutting_progress_across_all_productions(client, au
         assert str(sheet.merged_cells) == "A1:T1"
         return [sheet.cell(row, 20).value for row in (3, 4)]
 
-    assert exported_factories() == [row["cutting_departments"][0]["name"] for row in history()["productions"]]
+    assert exported_factories() == ["Milana", "Eco Cotton"]
 
     def set_cutting(index, status, quantity):
         with TestSessionLocal() as db:

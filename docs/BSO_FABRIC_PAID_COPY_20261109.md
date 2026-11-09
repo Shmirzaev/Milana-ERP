@@ -5,6 +5,15 @@ Requested 9 November 2026:
 2. Add received amount to fabric inventory.
 3. Offer copying all paid operations from one model to another.
 
+Owner correction: "It shouldn’t stay cutting it should say Milana or Eco Cotton fix and deploy fast".
+The BSO table and appended Excel factory column now use the existing CUT→Milana,
+ECT→Eco Cotton mapping. Department API names, routing and business data remain unchanged;
+unknown destinations retain their stored name. This follow-up authorizes deploying
+the corrected candidate after technical gates and overrides the separately disclosed
+pending human QA-master record. No human QA approval is claimed. The owner's earlier
+30-minute monitoring waiver remains in force. Old staged build `20261109_111519`
+was not activated; its label-dependent acceptance does not establish this candidate's gates.
+
 The user explicitly approved verified `clone_main` as the worktree base after
 the supplied origin/main rule conflicted with the live production baseline.
 Base: `14f6670de874f66eba3112281ab5a8dd4f388280`.

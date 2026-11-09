@@ -8,6 +8,7 @@ import { fetchResponse } from "@/lib/api";
 import ImageThumbnail from "@/components/ImageThumbnail";
 import { statusLabel } from "@/components/StagePipeline";
 import { useT } from "@/lib/i18n";
+import { CuttingDepartmentCode, cuttingFactoryNames } from "@/lib/cuttingFactory";
 import { modelSearchIncludes, normalizeModelSearch } from "@/lib/modelCode";
 import {
   BrandedCuttingProgress,
@@ -227,7 +228,10 @@ export default function BrandedOrderHistory({
                                   <span>{fabricLabel}</span>
                                 </div>
                               </td>
-                              <td>{production.cutting_departments?.map((department) => department.name).join(", ") || "-"}</td>
+                              <td>{production.cutting_departments?.map((department) =>
+                                department.code === CuttingDepartmentCode.Milana || department.code === CuttingDepartmentCode.EcoCotton
+                                  ? cuttingFactoryNames[department.code] : department.name
+                              ).join(", ") || "-"}</td>
                               <td>{Number(production.planned_quantity || 0).toLocaleString()}</td>
                               <td>
                                 <div>{t(`page.planning.cutting.${production.cutting_status || BrandedCuttingProgress.NOT_STARTED}`)}</div>

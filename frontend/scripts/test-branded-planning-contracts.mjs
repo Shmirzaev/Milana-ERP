@@ -12,6 +12,7 @@ function load(path, dependencies = {}) {
 }
 
 const enums = load("src/lib/brandedPlanning.ts");
+const cuttingFactory = load("src/lib/cuttingFactory.ts");
 const backend = fs.readFileSync("../backend/app/libs/enums/planning.py", "utf8");
 const expected = {
   BrandedPlanningOrderType: ["customer", "milana", "eco_cotton", "besttex"],
@@ -33,6 +34,7 @@ const History = load("src/components/BrandedOrderHistory.tsx", {
   "react/jsx-runtime": { jsx, jsxs: jsx },
   react: { useMemo: (fn) => fn(), useState: (value) => [value, () => {}] },
   "@/lib/brandedPlanning": enums,
+  "@/lib/cuttingFactory": cuttingFactory,
   "@/lib/i18n": { useT: () => ({ t: (key) => key }) },
   "@/lib/orderRef": { formatOrderReference: (value) => value },
   "@/lib/modelCode": { normalizeModelSearch: (value) => value || "" },
@@ -44,17 +46,26 @@ function descendants(node) {
   return [node, ...descendants(node.props?.children)];
 }
 for (const [progress, color] of [[undefined, "white"], ["not_started", "white"], ["partial", "yellow-100"], ["completed", "green-100"]]) {
+ for (const [departments, factoryLabel] of [
+  [undefined, "-"],
+  [[], "-"],
+  [[{ code: "CUT", name: "Cutting" }, { code: "ECT", name: "Eco cutting department" }], "Milana, Eco Cotton"],
+  [[{ code: "OTHER", name: "Custom factory" }], "Custom factory"],
+ ]) {
   const nodes = descendants(History({
     orders: [{ id: 7, order_no: "BR-7", ordered_for_type: "milana", ordered_for_name: "Milana",
       status: "open", created_at: "2026-10-26", production_count: 1, total_quantity: 12,
       cutting_status: progress,
       productions: [{ id: 9, order_no: "PO-9", production_no: "PO-9", model_id: 1,
-        planned_quantity: 12, status: "in_progress", cutting_status: progress }],
+        planned_quantity: 12, status: "in_progress", cutting_status: progress,
+        cutting_departments: departments }],
     }], models: [], activeOrderId: 7, creating: false, error: "", onNewOrder() {}, onAddProduction() {},
   }));
   assert(nodes.find((node) => node.type === "summary").props.className.includes(`bg-${color}`));
   assert(nodes.find((node) => node.type === "tr" && node.props.className).props.className.includes(`bg-${color}`));
   assert(nodes.some((node) => node.props.children === `page.planning.cutting.${progress || "not_started"}`));
   assert(nodes.some((node) => node.props.children === "production:in_progress"));
+  assert(nodes.some((node) => node.type === "td" && node.props.children === factoryLabel));
+ }
 }
-console.log("Planning enum parity and history rendering passed (4 progress/fallback cases).");
+console.log("Planning enum parity and history rendering passed (16 progress/factory cases).");
