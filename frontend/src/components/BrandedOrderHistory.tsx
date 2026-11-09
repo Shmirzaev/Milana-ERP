@@ -188,6 +188,7 @@ export default function BrandedOrderHistory({
                           <th>{t("page.planning.productionOrder")}</th>
                           <th>{t("field.model")}</th>
                           <th>{t("page.planning.fabric")}</th>
+                          <th>{t("field.cuttingFactory")}</th>
                           <th>{t("field.qty")}</th>
                           <th>{t("field.status")}</th>
                         </tr>
@@ -226,17 +227,13 @@ export default function BrandedOrderHistory({
                                   <span>{fabricLabel}</span>
                                 </div>
                               </td>
+                              <td>{production.cutting_departments?.map((department) => department.name).join(", ") || "-"}</td>
                               <td>{Number(production.planned_quantity || 0).toLocaleString()}</td>
                               <td>
                                 <div>{t(`page.planning.cutting.${production.cutting_status || BrandedCuttingProgress.NOT_STARTED}`)}</div>
                                 <div className="text-xs text-[#56503f]">
                                   {t("cuttingInbox.cutProgress")}: {Number(production.cutting_quantity || 0).toLocaleString()} / {Number(production.planned_quantity || 0).toLocaleString()}
                                 </div>
-                                {production.cutting_departments?.map((department) => (
-                                  <div key={department.code} className="text-xs text-[#56503f]">
-                                    {department.code === "CUT" ? t("nav.cuttingFloor") : department.code === "ECT" ? t("nav.ecoCottonCutting") : department.name}
-                                  </div>
-                                ))}
                                 <div className="text-xs text-[#56503f]">{statusLabel(production.status, t)}</div>
                               </td>
                             </tr>

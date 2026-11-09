@@ -31,6 +31,7 @@ import {
 import VerticalModelPhoto from "@/components/VerticalModelPhoto";
 import VariantColorSelect from "@/components/VariantColorSelect";
 import PaidOperationsEditor from "@/components/PaidOperationsEditor";
+import ModelPaidOperationsCopy from "@/components/ModelPaidOperationsCopy";
 import { useMe } from "@/lib/auth";
 import {
   createPaidOperation,
@@ -1859,6 +1860,10 @@ export default function ModelDetail() {
         )}
 
         {tab === 10 && (
+          <div className="space-y-4">
+          {isEditable && <ModelPaidOperationsCopy key={id} targetId={Number(id) || 0} isUsluga={isUsluga}
+            factories={visiblePaidOperationFactories}
+            onCopy={(rows) => { setMsg(""); setDetails((current) => withPaidOperations(current, rows)); }} />}
           <PaidOperationsEditor
             catalogScope={isUsluga ? "usluga" : "standard"}
             key={id}
@@ -1868,6 +1873,7 @@ export default function ModelDetail() {
             onUpdate={updatePaidOperation}
             onRemove={removePaidOperation}
           />
+          </div>
         )}
 
         {tab === 11 && (

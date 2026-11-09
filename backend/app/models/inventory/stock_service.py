@@ -1503,6 +1503,15 @@ def list_batches(
         total = 0
         rows = raw_rows
     batch_ids = [int(batch.id) for batch, _, _, _ in rows]
+    # Receipt evidence is separate from remaining stock, returns and corrections.
+    # A changed unit without a matching receipt has no comparable received amount.
+    received_by_batch = dict(db.query(
+        StockMovement.batch_id, func.sum(StockMovement.quantity),
+    ).join(StockBatch, StockBatch.id == StockMovement.batch_id).filter(
+        StockMovement.batch_id.in_(batch_ids),
+        StockMovement.movement_type == StockMovementType.RECEIVE.value,
+        StockMovement.unit == StockBatch.unit,
+    ).group_by(StockMovement.batch_id).all()) if batch_ids and not archived else {}
     offsite_rolls: dict[int, list[int]] = {}
     if batch_ids:
         for bid, roll in db.query(EcoFabricRoll.batch_id, EcoFabricRoll.roll_number).filter(
@@ -1593,6 +1602,9 @@ def list_batches(
             "available_quantity": float(batch.quantity or 0) - reserved_qty,
             "active_reservations": active_reservations.get(int(batch.id), []),
         }
+        if not archived:
+            received = received_by_batch.get(int(batch.id))
+            row["received_quantity"] = float(received) if received is not None else None
         if archived:
             row.update({
                 "item_image_url": item.image_url if item else None,

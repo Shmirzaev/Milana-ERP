@@ -1,4 +1,4 @@
-"""Read-only branded-order workbook matching the owner's 19-column production form."""
+"""Read-only branded-order workbook with cutting destinations per production."""
 from io import BytesIO
 import base64
 from decimal import Decimal
@@ -14,7 +14,7 @@ from app.schemas import BrandedPlanningOrder, Department, Model, ProductionOrder
 from app.models.model_identity_service import model_number_fields
 from app.models.label_images_service import model_label_image_src, material_label_image_src, print_label_image_src
 
-HEADERS = ['No', 'Model №', 'Rasm', 'Model qolip №', 'Variant №', 'Material', 'Material eni', 'Rangi', 'Partiya №', 'Pechat', 'Vishevka', 'Model razmeri', 'Gramaj material', 'Umumiy ish soni', 'Potok', 'Mini postal', 'Aksesuar', 'Izoh', 'Foto izoh']
+HEADERS = ['No', 'Model №', 'Rasm', 'Model qolip №', 'Variant №', 'Material', 'Material eni', 'Rangi', 'Partiya №', 'Pechat', 'Vishevka', 'Model razmeri', 'Gramaj material', 'Umumiy ish soni', 'Potok', 'Mini postal', 'Aksesuar', 'Izoh', 'Foto izoh', 'Bichish fabrikasi']
 
 
 def append(sheet, values):
@@ -69,7 +69,7 @@ def build_branded_order_workbook(db, order: BrandedPlanningOrder):
     book = Workbook()
     form = book.active
     form.title = 'Buyurtma'
-    form.merge_cells('A1:S1')
+    form.merge_cells(f'A1:{get_column_letter(len(HEADERS))}1')
     append(form, HEADERS)
     form['A1'] = f'Milana Textile — {order.order_no} — {order.ordered_for_name} — {order.created_at:%d.%m.%Y}'
     form['A1'].data_type = 's'
@@ -100,6 +100,9 @@ def build_branded_order_workbook(db, order: BrandedPlanningOrder):
         accessories = '\n'.join(f'{b.material_name or (b.item.name if b.item else "")} — {b.quantity_per_piece} {b.unit}'
                                 for b in model.bom if b.item and b.item.category in {'accessory', 'packaging'}) if model else ''
         sewing = [departments[w.department_id] for w in p.work_orders if w.operation == 'sewing' and w.department_id in departments]
+        cutting = sorted({departments[w.department_id] for w in p.work_orders
+                          if w.operation == 'cutting' and w.status not in {'cancelled', 'rejected'}
+                          and w.department_id in departments})
         notes = '\n'.join(str(v) for v in [p.order_no, p.printing_instructions, order.notes] if v)
         append(form, [index, identity['model_no'], None,
                       first(general, 'qolip_no', 'qolipNo', 'mold_no', 'moldNo', 'pattern_no', 'patternNo'),
@@ -109,7 +112,8 @@ def build_branded_order_workbook(db, order: BrandedPlanningOrder):
                        'Yo‘q' if first(general, 'embroidery', 'legacy_master_embroidery') is False else
                        first(general, 'embroidery', 'legacy_master_embroidery')),
                       ', '.join(dict.fromkeys(i.size for i in p.items if i.size)), joined('gsm'), p.planned_quantity,
-                      ', '.join(dict.fromkeys(sewing)), first(general, 'mini_postal'), accessories, notes, None])
+                      ', '.join(dict.fromkeys(sewing)), first(general, 'mini_postal'), accessories, notes, None,
+                      ', '.join(cutting)])
         row = form.max_row
         form.row_dimensions[row].height = 120
         picture(form, f'C{row}', model_label_image_src(model))

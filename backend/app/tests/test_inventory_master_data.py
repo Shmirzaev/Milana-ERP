@@ -435,9 +435,9 @@ def test_material_inventory_batch_details_include_receive_fields_and_search(clie
         "archived_by",
         "archived_at",
         "archive_reason",
-        "received_quantity",
         "used_quantity",
     }.isdisjoint(batch)
+    assert batch["received_quantity"] == 123.45
     assert round(float(batch["quantity"]), 2) == 123.45
     assert batch["length_m"] == 234.567
     assert round(float(batch["gsm"]), 6) == 0.145678

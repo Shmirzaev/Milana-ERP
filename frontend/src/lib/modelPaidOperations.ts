@@ -368,6 +368,18 @@ export function serializePaidOperations(rows: PaidOperation[]): PaidOperation[] 
   });
 }
 
+/** Explicit source definitions only: an empty source must never invent defaults. */
+export function paidOperationsForModelCopy(details: unknown, factories: PaidOperationFactory[]): PaidOperation[] {
+  if (!details || typeof details !== "object") return [];
+  const source = details as Record<string, unknown>;
+  const value = Object.prototype.hasOwnProperty.call(source, "paid_operations") ? source.paid_operations : source.paidOperations;
+  if (!Array.isArray(value)) return [];
+  const rows = paidOperationsFromDetails(details, false);
+  return serializePaidOperations(materializeLegacyPaidOperations(rows, factories)
+    .filter((row) => row.sewingFactory && factories.includes(row.sewingFactory))
+    .map((row) => ({ ...row, quantityMode: "batch", customQuantity: 0 })));
+}
+
 export function withPaidOperations<T extends Record<string, any> | undefined | null>(
   details: T,
   rows: PaidOperation[],

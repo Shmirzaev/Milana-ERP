@@ -1,5 +1,7 @@
 from app.schemas import WorkOrder
 from app.tests.conftest import TestSessionLocal
+from io import BytesIO
+from openpyxl import load_workbook
 
 
 def test_branded_history_uses_cutting_progress_across_all_productions(client, auth_headers):
@@ -27,6 +29,16 @@ def test_branded_history_uses_cutting_progress_across_all_productions(client, au
         production_ids.append(response.json()["id"])
     assert history()["cutting_status"] == "not_started"
     assert [row["cutting_departments"][0]["code"] for row in history()["productions"]] == ["CUT", "ECT"]
+
+    def exported_factories():
+        exported = client.get(f"/api/planning/branded-orders/{group_id}/export.xlsx", headers=auth_headers)
+        assert exported.status_code == 200
+        sheet = load_workbook(BytesIO(exported.content))["Buyurtma"]
+        assert sheet["T2"].value == "Bichish fabrikasi"
+        assert str(sheet.merged_cells) == "A1:T1"
+        return [sheet.cell(row, 20).value for row in (3, 4)]
+
+    assert exported_factories() == [row["cutting_departments"][0]["name"] for row in history()["productions"]]
 
     def set_cutting(index, status, quantity):
         with TestSessionLocal() as db:
@@ -56,6 +68,7 @@ def test_branded_history_uses_cutting_progress_across_all_productions(client, au
     assert history()["cutting_status"] == "not_started"
     assert history()["productions"][0]["cutting_quantity"] == 0
     assert history()["productions"][0]["cutting_departments"] == []
+    assert exported_factories()[0] is None
 
 
 def test_branded_history_requires_authentication(client):
