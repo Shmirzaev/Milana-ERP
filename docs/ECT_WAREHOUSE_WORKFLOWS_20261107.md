@@ -230,3 +230,28 @@ owned QA ports. Source, logs, screenshots and local SQLite readback fixtures rem
 retained; private credentials and fixtures remain ignored. No unrelated service or
 legacy checkout change was discarded. Human checklist and cancelled-Printing risk
 above remain open.
+
+
+## Release closure — 9 November 2026
+
+Final application `4f33eba77` includes the requested report presentation polish.
+It was pushed and normally fast-forwarded into `clone_main`, then deployed as
+blue `20261109_035740` on both hosts. Green `20261107_043754` remains compatible
+rollback. Exact-source Linux CI passed 6,649 backend tests / 1,567 skips plus frontend,
+mandatory PostgreSQL, security and immutable publication; feature PG 25/report15
+passed. The earlier Windows failure record above remains historical.
+
+The owner approved the exact paired inventory-stock AB median exception
+(+10.05419% against +10%, about 2.43 ms); the machine result remains failed.
+Public performance passed all original limits, every full ordered projection and
+fixed workflow readback matched, and final four-health/runtime/rollback checks
+passed. No 30-minute observer ran under the separate owner waiver. A separate named
+QA-master approval was not supplied; root disclosed the owner override of that
+gate. Operator acceptance and the live two-eligible-Nastil save remain unclaimed.
+No production business QA rows were created. Owned leases and local preview
+processes are released/stopped. Gmail confirmed SENT with all 16 screenshots,
+including polished report/Excel and actual public screens, message 1a1bed7d865cbaf4.
+See [the final release record](archive/ECT_WAREHOUSE_RELEASE_2026-11-09.md) for
+source/image/backup identities, preserved failed evidence, exact exception scope,
+cleanup and unresolved risks. This closure supersedes earlier candidate-only and
+no-deployment statements for this operation; it does not erase their history.

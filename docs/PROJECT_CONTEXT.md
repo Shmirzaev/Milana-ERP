@@ -11,70 +11,57 @@ this checkout, a new combined candidate or deployed production. Inspect current
 code and the operation ledger before advancing a gate. Schema-owned writers,
 system-wide enum/type adoption and human acceptance remain incomplete.
 
-Last updated 2026-11-07. Keep this file short: current decisions, release pointers and
+Last updated 2026-11-09. Keep this file short: current decisions, release pointers and
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
-## Production and clone_main reconciliation (7 November)
+## Production and ECT/warehouse release (9 November)
 
-Both hosts serve green `20261107_043754`, application
-`3c6ccc82a8521d74ce274151024ccd5bc1942fde`, manifest
-`43b30accbabc4674a395eaa46eecd2c7f554a2513adc33dc859131355526bddd`,
-on schema `0155_eco_gate_merge`. Backend activated at 07:04:59 UTC and frontend
-at 07:05:35 UTC. Running compatible recovery is blue `20261107_043753` /
-`493fd5906809f23bd571949d63b192629e901b84`; older a857 is superseded.
+Both hosts serve blue `20261109_035740`, application
+`4f33eba776284b2e950e201a29c9da06cf7bd237`, manifest
+`e5d56b822d8a48d327429a5e6a59cd87111b81bb193a2fd8cf120d007a7fafb1`,
+on schema `0155_eco_gate_merge`. Backend activated at 05:36:04 UTC and frontend
+at 05:36:23 UTC. Compatible running rollback is green `20261107_043754` /
+`3c6ccc82a8521d74ce274151024ccd5bc1942fde`. Reviewed application 4f33 was pushed
+and normally fast-forwarded to owner-approved `clone_main`; later metadata commits
+do not change the deployed application. No migration or permission was added.
 
-Reviewed source was normally fast-forwarded into `clone_main` at `d157b652e`;
-its complete backend/frontend trees equal immutable application 3c. Final backend
-CI passed 6,578 tests; required PostgreSQL, frontend, published-image provenance,
-security policy, strict two-worker startup/recovery, owner application review,
-staged performance, public functional parity and signed Edge checks passed.
-Fresh validated backups preceded migration/staging. No production business QA
-rows or business backfill were created. Fresh final read-only closing passed all
-four supported health checks, internal readiness, source/image/worker/router,
-database/index and disabled/empty gate recovery checks. Owned deployment leases
-were released; owned local QA services stopped with their data retained.
+The release includes table ECT accessory/fabric receipts, older fabric-batch lookup,
+passport Open order, optional manual Sewing line choice, Top/Bottom Excel,
+selected multi-Nastil packaging, polished shipment reporting/Excel and merged
+warehouse stock/map. Actual staged signed UI/Excel and isolated write/handoff/
+concurrency checks passed. Public signed report/map checks and all affected fixed-ID
+read contracts passed after cutover. No production business QA rows or backfill
+were created; a live two-eligible-Nastil save was not exercised.
 
-Public model-picker p95 **failed** twice (+25.99%, +27.21%, limit +15%). The owner
-explicitly selected **Keep merged release; approve this performance exception**.
-All other original metrics and ordered facts passed; failed reports and budgets
-remain unchanged. A separate current diagnostic measured an extra DNS/TCP
-connection delay while the application took 36.5 ms; DNS versus TCP and the earlier
-samples' cause remain unproved. No latency fix or general performance waiver is
-claimed. The owner separately said **do not monitor it for 30 minutes**: no timed
-observer or start anchor ran, and observation is not recorded as completed.
+Exact-source CI passed **6,649 backend tests / 1,567 skips**, mandatory PostgreSQL,
+frontend, security policy and immutable-image publication. Feature PG 25 and report
+polish 15 passed. Earlier Windows-suite failures remain historical evidence in the
+[task packet](ECT_WAREHOUSE_WORKFLOWS_20261107.md); they are not the final Linux CI.
 
-The closing checker initially expected unsupported public `/ready` (actual 404);
-public `/health` reported 200 with the correct release. Its narrow correction
-kept internal `/ready` on both backend slots/stable port and all four required
-postflight endpoints, without changing application or routing configuration.
-Unfixed image findings remain: active backend: 53 HIGH / 0 CRITICAL; retained recovery
-54 HIGH and one CRITICAL python-jose finding with no published fix. Both hosts'
-disk headroom remains a maintenance follow-up. See the
-[release record](archive/PRODUCTION_CLONE_RECONCILIATION_2026-11-07.md) for exact
-images, backups, limitations, exceptions and closing evidence. This deployment
-does not complete system-wide refactoring, enum adoption or factory acceptance.
+Paired inventory-stock AB median **failed** +10.05419% (limit +10%, about 2.43 ms).
+The owner explicitly approved that exact exception; the original failed report,
+exit 1 and limits remain intact. Reverse-order median improved 3.2606%. Public
+before/after measurement passed every original median/p95/payload/fact limit.
+The reviewed QA protocol keeps all 27 global snapshots as concurrency evidence and
+requires unchanged ordered API projections, actor/runtime and fixed workflow facts;
+it does not require unrelated factory activity to stop or claim global quiescence.
 
-## ECT and warehouse workflow candidate (7 November)
+The owner separately waived 30-minute monitoring: no observer/start anchor ran.
+The separate named QA-master gate was overridden under the owner's disclosed
+instruction to continue; no human QA-master approval is claimed. Operator
+acceptance remains pending. Fresh final closing passed all four supported health
+checks, readiness, exact sources/images/workers/routers, database/index/headroom
+and rollback guards. Owned leases were released and exact local preview services
+stopped. All 16 screenshots were emailed, including final polish and public screens.
 
-Dedicated candidate `codex/ect-warehouse-workflows-20261107`, runtime source
-`49af995a1`, starts at user-approved verified `origin/clone_main` / `b21b51e6c`.
-It adds table ECT receiving, older compatible-fabric lookup, passport order opening,
-manual Sewing line choice, Top/Bottom Excel, selected multi-Nastil packaging,
-read-only shipment reporting and the shared warehouse stock/map workspace.
-No migration or permission was added. Production remains `20261107_043754`;
-no production writes, merge or deployment occurred for this task.
-
-Feature backend/PostgreSQL, optimized frontend, strict TypeScript, lint, isolated
-browser saves/readbacks and independent AI reviews passed. Broad-suite results and
-publication/email evidence are recorded in the [task packet](ECT_WAREHOUSE_WORKFLOWS_20261107.md).
-The branch is pushed and all 12 screenshots were emailed. Final feature PG: 25 pass;
-frozen broad suite has 6,622 pass, four baseline Windows failures, five readiness
-configuration errors and 1,538 skips. Requested workflows are
-AI_VERIFIED_AWAITING_HUMAN; the broad suite is not fully green.
-Operator acceptance remains pending. Unlinked direct ECO receipts still do not
-become central cutting stock sources. A pre-existing cancelled-Printing usable-input
-cap inconsistency remains separate; no general production audit closure is claimed.
+A validated 114,628,708-byte PostgreSQL backup preceded staging. Active backend has
+51 HIGH / 0 CRITICAL unfixed scan findings; frontend one MEDIUM. Disk maintenance,
+unlinked direct ECO receipts outside central cutting stock and the pre-existing
+cancelled-Printing input cap remain follow-ups. System-wide refactoring, enum
+adoption and security audit are not complete. Exact identities, backup/evidence
+hashes, exceptions and limits are in the
+[release record](archive/ECT_WAREHOUSE_RELEASE_2026-11-09.md).
 
 ## Dilmurod source classification (7 November)
 
