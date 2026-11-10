@@ -1,6 +1,6 @@
 {
-  "release": "20261109_163130",
-  "source_manifest_sha256": "535aa197ba218b0d0e867480d6a6570a25273307dfdea2185ce28d383f4e56d7",
+  "release": "20261110_070607",
+  "source_manifest_sha256": "7bf0a59c139cf8a46fc6af7a3a0c5457795ba7b1de7fe57e70c76b31481fac32",
   "database_revision": "0155_eco_gate_merge",
-  "git_baseline_commit": "271c5005e12d1efc65d6358756862d8c243685a5"
+  "git_baseline_commit": "843adaf3bda1b1f2d234e68b6763bbc649d3b72a"
 }

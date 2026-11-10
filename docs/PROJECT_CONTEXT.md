@@ -15,7 +15,36 @@ Last updated 2026-11-10. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
-## BJ5039 Process QR immediate repair (10 November)
+## Process QR base-model operations (10 November; deployed)
+
+Both hosts serve blue `20261110_070607`, application
+`843adaf3bda1b1f2d234e68b6763bbc649d3b72a`, manifest
+`7bf0a59c139cf8a46fc6af7a3a0c5457795ba7b1de7fe57e70c76b31481fac32`,
+on unchanged schema `0155_eco_gate_merge`. Healthy retained rollback is green
+`20261109_163130` / `271c5005e12d1efc65d6358756862d8c243685a5`.
+Process QR loads paid operations from the same catalog/factory's base model,
+while preserving the selected variant, pictures, sizes and label identity.
+No migration, backfill or deployment business-data writes ran.
+
+Exact-source CI passed 6,666 backend tests / 1,569 skips / 36 subtests, mandatory
+PostgreSQL 207, frontend, security scan and immutable publication. Actual signed
+Edge staging/public checks show all 20 BJ5039 operations. Four selected model rows
+and 240 issued labels stayed unchanged. Formal closing, all four health checks,
+source/images/workers/routers/database/rollback checks and the full 1,800.16-second
+observation passed (61 ticks, 244 HTTP 200 results, no failures or runtime drift).
+
+The owner explicitly accepted only two original public p95 failures: BJ5039
+generic detail 30.77 to 68.34 ms (+122.13%), and the larger model's opt-in base
+operations 42.54 to 49.90 ms (+17.30%), against the original +15% cap. All medians,
+payloads, full facts and four other public paths passed. Failed measurements and
+limits remain intact; no repeated public timing epoch or blanket waiver occurred.
+The staged benchmark's earlier cold failure was preserved, then one reviewed
+symmetric warm-up epoch passed. Human engineering/operator acceptance remains
+separate. Disk remains above the 70% alert (about 79.23% backend / 79.51% frontend);
+only eight reviewed unused images were removed, with protected releases retained.
+See the [release record](PROCESS_QR_BASE_MODEL_20261110.md).
+
+## BJ5039 Process QR immediate repair (10 November; before deployment)
 
 Owner requested an immediate repair before the permanent base-model loading fix
 and accepted verified live `20261109_163130` as the task baseline. The parent
@@ -29,19 +58,20 @@ Fresh PostgreSQL backup was verified before mutation: 117,227,928 bytes, 1,395
 restore objects, SHA-256 `b66142d10a7223810fe21e56f34b574d41062d8e95c2308e246894c08887cfb9`.
 Model response serialization returns all 20 selected Milana rows on every family
 member. Both live source manifests and all four health checks passed. Browser
-automation failed before navigation, so rendered UI verification remains pending.
-Reload Process QR to refresh the selected variant's cached list. No runtime code,
-release, schema, role, order, stock, issued QR, or payroll change was made. Active
-release remains `20261109_163130`, rollback `20261109_035740`. Permanent direct
-base-model loading remains pending; this is a narrow BJ5039 configuration repair.
+automation failed before navigation, so rendered UI verification was pending then;
+signed Edge verification passed during the permanent release above.
+At repair time, reloading Process QR refreshed the selected variant's cached list. No runtime code,
+release, schema, role, order, stock, issued QR, or payroll change was made by that
+repair. Active release then was `20261109_163130`, rollback `20261109_035740`.
+The permanent direct base-model read is now deployed as recorded above.
 See [repair evidence](BJ5039_PROCESS_QR_REPAIR_20261110.md).
 
-## BSO, fabric receipts and model copying (10 November; deployed)
+## BSO, fabric receipts and model copying (10 November; superseded release)
 
-Both hosts now serve green `20261109_163130`, application
+Both hosts previously served green `20261109_163130`, application
 `271c5005e12d1efc65d6358756862d8c243685a5`, manifest
 `535aa197ba218b0d0e867480d6a6570a25273307dfdea2185ce28d383f4e56d7`,
-on unchanged schema `0155_eco_gate_merge`. Compatible running rollback is blue
+on unchanged schema `0155_eco_gate_merge`. Its then-compatible running rollback was blue
 `20261109_035740` / `4f33eba776284b2e950e201a29c9da06cf7bd237`.
 BSO page/Excel show Milana and Eco Cotton; fabric inventory adds received quantity;
 model editing copies all paid operations into an unsaved target draft.
