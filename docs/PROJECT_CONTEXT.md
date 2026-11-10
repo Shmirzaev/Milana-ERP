@@ -15,36 +15,45 @@ Last updated 2026-11-10. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
-## Process QR model operations (10 November; staged, not activated)
+## Process QR model operations (10 November; activated, closing blocked)
 
-Pending staging snapshot at 07:55 UTC on 2026-11-10. Both hosts still serve green `20261109_163130`,
-application `271c5005e12d1efc65d6358756862d8c243685a5`, on unchanged schema
-`0155_eco_gate_merge`. No traffic cutover has occurred.
-
-Healthy blue candidate `20261110_070607` is staged on both hosts from reviewed,
-pushed application `843adaf3bda1b1f2d234e68b6763bbc649d3b72a`, manifest
-`7bf0a59c139cf8a46fc6af7a3a0c5457795ba7b1de7fe57e70c76b31481fac32`.
-It remains unmerged. Owned deployment leases remain held. The owner has reported
-completing normal Edge sign-in; root verification and signed-in Process QR
-browser/console QA are pending.
-The physical blue slot has replaced `20261109_035740`; the controller's old
-rollback metadata is historical until activation. This supersedes the prior
-release entry's description of a running blue rollback.
+Snapshot at 08:07 UTC on 2026-11-10. Both hosts serve blue `20261110_070607`,
+reviewed application `843adaf3bda1b1f2d234e68b6763bbc649d3b72a`, manifest
+`7bf0a59c139cf8a46fc6af7a3a0c5457795ba7b1de7fe57e70c76b31481fac32`,
+on unchanged schema `0155_eco_gate_merge`. Backend activated at 07:59:23 UTC;
+frontend at 07:59:38 UTC. Running green `20261109_163130` / application
+`271c5005e12d1efc65d6358756862d8c243685a5` is now the retained rollback.
+This supersedes the prior release entry's running-blue rollback description.
+Application source is pushed but unmerged; the integration pin remains unchanged.
 
 Official exact-source CI passed 6,666 backend tests / 1,569 skips / 36 subtests,
 the mandatory PostgreSQL locking/query-plan suite passed 207 tests, and frontend,
 security scanning and immutable publication passed. One reviewed warmed paired
 epoch passed all original median, p95, payload and full-fact gates for four generic
 paths and two model-operation lookups, preserving four models and 240 label rows.
-The earlier cold-epoch failure and SSH transport failure remain recorded.
+The earlier cold-epoch failure and SSH transport failure remain recorded. Actual
+staged and public signed Edge QA show the 20 BJ5039 operations with the selected
+variant pictures, six size quantities and existing issued labels preserved;
+console warnings/errors were empty and no business QA writes were performed.
+
+The original public postflight FAILED two p95 limits: generic BJ5039 variant
+lookup 30.77 to 68.34 ms (+122.134%); divergent model opt-in lookup 42.54 to
+49.90 ms (+17.305%). Both exceed the original +15% limit. All six medians and
+payloads, the other four p95 results, full ordered response facts and the four
+model / 240 label row hashes passed. Request-log correlation does not support
+attributing these failures to the deliberate owned public browser check.
+No rerun or exception was approved; the original failure remains a STOP gate.
 
 Preparation removed only eight reviewed unused ERP images, verified a fresh
 PostgreSQL backup and unchanged candidate schema, and performed no migration or
-business-data writes. Browser QA, activation, public postflight checks and the
-required 30-minute observation have not passed; no earlier deployment waiver
-applies. Preview processes remain available for staged Edge QA. Detailed
-evidence is in the ignored, machine-local
-[pending handoff](C:/ERP/.codex-work/process-qr-deploy-20261110/.qa-process-qr-deploy/release-20261110_070607/pending-signin-handoff.json).
+business-data writes. Immediate four health checks passed. Owned deployment
+leases remain held; the bound 30-minute observation is running and closing is
+blocked by the unresolved public p95 gate. No final postflight, observation,
+closing, owner exception or human acceptance pass is claimed. No earlier waiver
+applies. The narrow exception proposal is unapproved and awaits completion of all
+other checks before any owner decision. Detailed evidence is in the ignored,
+machine-local [public failure](C:/ERP/.codex-work/process-qr-deploy-20261110/.qa-process-qr-deploy/release-20261110_070607/public-check-final-843adaf-epoch1.json)
+and [unapproved proposal](C:/ERP/.codex-work/process-qr-deploy-20261110/.qa-process-qr-deploy/release-20261110_070607/public-p95-exception-proposal.json).
 
 ## BSO, fabric receipts and model copying (10 November; deployed)
 
