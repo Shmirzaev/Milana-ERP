@@ -26,23 +26,30 @@ Both production manifests verified as release `20261109_035740`, SHA-256
 `e5d56b822d8a48d327429a5e6a59cd87111b81bb193a2fd8cf120d007a7fafb1`.
 Slot-state access was refused to the SSH actor; no production writes occurred.
 
-## Current candidate status — 9 November, 17:32 UTC
+## Current release status — 10 November 2026
 
-Corrected app `271c5005e12d1efc65d6358756862d8c243685a5`, PR553 merged, is staged
-as green `20261109_163130`. Production remains blue `20261109_035740`. Actual
-signed Edge now passes canonical Milana/Eco Cotton BSO/Excel, desktop/mobile
-received quantity and copy-to-draft checks, with four clean consoles; the initial
-mobile/console limitations below are historical and resolved on this staged build.
-Exact CI: 6,651 backend passes / 1,568 skips / 36 subtests and all five jobs green.
+**Deployed and closing complete.** Both hosts serve green `20261109_163130`, app
+`271c5005e12d1efc65d6358756862d8c243685a5`; compatible blue `20261109_035740` is
+retained for rollback. PR553 is merged on owner-approved `clone_main`.
+Public Edge verified Milana/Eco Cotton in BSO0083 and downloaded Excel, received
+576.80 kg separately from remaining196.80 kg, and source-model copying111 draft
+operations across three factories. Full reload restored original126; no live Save.
 
-Cutover is blocked on a new, specifically disclosed performance exception:
-fabric-batch median +17.248% / +14.496% (about 5–6 ms), above +10%. Original failed
-report/exit1 retained; untouched endpoint checks and all selected data/Excel facts
-pass. Owner answer is pending; no exception or full performance pass is invented.
-The named-human override and monitoring waiver remain separate. Both owned leases
-are released, temporary preview services stopped and active/staged health verified.
-No production business rows or schema changed. Detailed immutable evidence and
-resumption requirements are in the [candidate record](archive/BSO_FABRIC_PAID_COPY_CANDIDATE_2026-11-09.md).
+CI passed 6,651 backend tests / 1,568 skips / 36 subtests and all five jobs. Complete
+protected workflow, full current A/B ordered facts/receipt and actual signed UI
+checks passed. Original failed paired medians and three failed public p95 metrics
+remain false, with both exact exceptions explicitly approved by the owner.
+A settled public check had zero ERP console errors/warnings and two separately
+classified external extension errors retained in raw evidence. Initial failed
+console/cancellation evidence remains preserved; global console cleanliness and
+human acceptance are not claimed.
+
+Fresh final closing passed all four health checks and source/runtime/database/
+rollback guards. No migration or deployment business write occurred. Monitoring
+was waived; owned leases, preview processes and tabs are cleaned up. Full identities,
+backup, evidence hashes and limitations are in the [release record](archive/BSO_FABRIC_PAID_COPY_RELEASE_2026-11-10.md).
+The [9 November candidate record](archive/BSO_FABRIC_PAID_COPY_CANDIDATE_2026-11-09.md)
+remains historical evidence of the earlier stopped attempt.
 
 ## Operations and acceptance
 
@@ -53,9 +60,9 @@ resumption requirements are in the [candidate record](archive/BSO_FABRIC_PAID_CO
   formula-injection protection. Existing permissions remain authoritative.
 - Fabric inventory read: inventory batches -> stock_service.list_batches ->
   StockBatch / StockMovement -> inventory desktop and mobile. Received amount is
-  provisionally original receipt quantity, distinct from remaining quantity;
+  implemented as original receipt quantity, distinct from remaining quantity;
   never manufacture a receipt from the current balance. No stock writes or
-  schema migration. Exact meaning awaits the outstanding user clarification.
+  schema migration. The release displays received quantity rather than monetary value.
 - Paid-operation copy: use the model editor's existing authorized read/save
   operations, retain target details, rates, factories and metadata, and leave the
   source untouched. Copy into a reviewable unsaved draft; saving updates only
@@ -140,7 +147,8 @@ session disappeared. Edge was then used as explicitly requested.
 
 At that initial local check, missing mobile screenshot and console gates prevented
 a release-ready claim. Those gates later passed on the staged immutable candidate;
-its separate performance-exception decision remains pending. Production is unchanged.
+its separate performance exceptions were subsequently explicitly approved. See the
+current release status above for the completed production cutover.
 
 Human checklist: compare BSO factory names and downloaded Excel; compare fabric
 receipt quantity with remaining stock on desktop/mobile; copy a model's complete

@@ -11,45 +11,51 @@ this checkout, a new combined candidate or deployed production. Inspect current
 code and the operation ledger before advancing a gate. Schema-owned writers,
 system-wide enum/type adoption and human acceptance remain incomplete.
 
-Last updated 2026-11-09. Keep this file short: current decisions, release pointers and
+Last updated 2026-11-10. Keep this file short: current decisions, release pointers and
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
-## BSO, fabric receipts and model copying (9 November; cutover pending)
+## BSO, fabric receipts and model copying (10 November; deployed)
 
-Corrected application `271c5005e12d1efc65d6358756862d8c243685a5` is merged through
-PR553 and staged as green `20261109_163130`; **it has not been activated**.
-Both hosts still serve blue `20261109_035740` / `4f33eba776284b2e950e201a29c9da06cf7bd237`.
-BSO page/Excel use Milana and Eco Cotton; active fabric inventory adds received
-quantity; model editing can copy all paid operations into an unsaved target draft.
+Both hosts now serve green `20261109_163130`, application
+`271c5005e12d1efc65d6358756862d8c243685a5`, manifest
+`535aa197ba218b0d0e867480d6a6570a25273307dfdea2185ce28d383f4e56d7`,
+on unchanged schema `0155_eco_gate_merge`. Compatible running rollback is blue
+`20261109_035740` / `4f33eba776284b2e950e201a29c9da06cf7bd237`.
+BSO page/Excel show Milana and Eco Cotton; fabric inventory adds received quantity;
+model editing copies all paid operations into an unsaved target draft.
+
 Exact-source CI passed 6,651 backend tests / 1,568 skips / 36 subtests, mandatory
-PostgreSQL, frontend, security policy and immutable-image publication. Actual
-signed Edge table/Excel, desktop/mobile receipt and copy-draft checks passed with
-clean consoles. Isolated saved-copy/reopen and full selected read contracts passed;
-no production business QA writes or migrations occurred.
+PostgreSQL, frontend, security policy and image publication. Actual signed Edge
+public BSO/Excel, received-versus-remaining and copy/full-reload checks passed;
+isolated saved-copy/reopen and complete protected read contracts also passed.
+No deployment business QA writes, migration, backfill or retention deletion ran.
 
-Original paired timing **failed** fabric-batch medians: 36.716455→43.049344 ms
-(+17.248%) and 37.422517→42.847368 ms (+14.496%), against +10%. The exact original
-failed report and exit1 remain preserved. All other measured budgets, protected
-facts and the separately measured untouched endpoints passed. The owner was asked
-for this specific exception; **no answer or approval has been received**. Nineteen
-technical inputs were independently validated, with aggregate acceptance explicitly
-false. No activation or public-after-cutover checks are claimed.
+Original paired fabric-batch medians (+17.248% / +14.496%, limit +10%) and public
+p95 search/model-groups/stock (+23.475% / +31.173% / +18.649%, limit +15%) failed.
+The owner explicitly approved these two separately disclosed, exact exceptions.
+Original reports, exit1 and thresholds remain intact; no blanket performance pass.
+All other measured limits and full ordered facts/receipts passed. Seven existing
+stock adjustments and six depleted-batch archives explain the overnight dataset
+change; fresh complete current A/B parity passed without dropping any fields.
 
-The owner's earlier 30-minute monitoring waiver and disclosed named-human-review
-override do not approve this timing exception; human/operator acceptance remains
-pending. Both deployment leases were released, owned preview services stopped and
-fresh active/staged identities and health rechecked. A future continuation needs
-fresh owned-lease/runtime guards; never reuse the released journal. Active
-production-base metadata remains unchanged. See the [candidate record](archive/BSO_FABRIC_PAID_COPY_CANDIDATE_2026-11-09.md).
+The initial public UI console attempt failed on rapid-search cancellation messages
+from unchanged code. A separate settled attempt had zero ERP errors/warnings and
+two exact external ad-blocker errors, retained in full raw console with explicit
+provenance; global console cleanliness is not claimed. Operator/human acceptance
+remains pending under the separate disclosed owner override. No observer ran under
+the owner's monitoring waiver. Fresh final closing passed all four health checks,
+readiness, source/images/workers/routers, database/index/headroom and rollback
+checks. Both leases were released; owned preview processes and tabs were closed.
+See the [release record](archive/BSO_FABRIC_PAID_COPY_RELEASE_2026-11-10.md).
 
-## Production and ECT/warehouse release (9 November)
+## Previous ECT/warehouse release (9 November; superseded)
 
-Both hosts serve blue `20261109_035740`, application
+Historical state before the 10 November cutover above. Both hosts then served blue `20261109_035740`, application
 `4f33eba776284b2e950e201a29c9da06cf7bd237`, manifest
 `e5d56b822d8a48d327429a5e6a59cd87111b81bb193a2fd8cf120d007a7fafb1`,
 on schema `0155_eco_gate_merge`. Backend activated at 05:36:04 UTC and frontend
-at 05:36:23 UTC. Compatible running rollback is green `20261107_043754` /
+at 05:36:23 UTC. The then-compatible rollback was green `20261107_043754` /
 `3c6ccc82a8521d74ce274151024ccd5bc1942fde`. Reviewed application 4f33 was pushed
 and normally fast-forwarded to owner-approved `clone_main`; later metadata commits
 do not change the deployed application. No migration or permission was added.

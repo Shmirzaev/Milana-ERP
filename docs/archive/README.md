@@ -4,6 +4,8 @@ These reports preserve what was observed at their recorded date. They are not
 current implementation instructions or proof of today's production state.
 Start with [current context](../PROJECT_CONTEXT.md) for active work.
 
+- [BSO, fabric receipts and operation copying, 10 November 2026](BSO_FABRIC_PAID_COPY_RELEASE_2026-11-10.md): green163130 deployed, retained blue035740, exact owner timing exceptions, signed public verification and completed closing.
+
 - [BSO, fabric receipts and operation-copy candidate, 9 November 2026](BSO_FABRIC_PAID_COPY_CANDIDATE_2026-11-09.md): corrected Milana/Eco Cotton labels, green staged; cutover awaits explicit two-median exception, active blue unchanged.
 
 - [ECT and warehouse workflow release, 9 November 2026](ECT_WAREHOUSE_RELEASE_2026-11-09.md): blue20261109_035740, all eight workflows, polished report, explicit paired-median exception, public pass and waived monitoring.
