@@ -51,3 +51,17 @@ Both test changes were independently reviewed. One local first attempt mounted
 only backend and could not load scripts/schema_audit.py; the complete-worktree
 rerun passed the affected audit test. Exact-source full CI is rerun after these
 fixture corrections; no production schema or prices have changed.
+
+Run42822939324 subsequently passed6678 backend cases/36 subtests, all207 P2
+PostgreSQL cases, Sales/Forecast, frontend and security, then stopped at the fresh
+schema baseline: the deliberately unmapped old pricing ORM produced21 differences
+for migration0156. Preserve this failure and its skipped publication. The shared
+94-entry DB08 baseline remains untouched. A recovery-only supplement pins the
+exact migration, old ORM and pricing503 guard and requires actual head0156; it
+checks all16 columns, timestamp zones/defaults, two FKs, unique constraint,
+indexes, both checks and constraint validation/timing. The full mapped feature
+gets no supplement. Real PostgreSQL mutations challenge added columns, changed
+nullability/types/defaults, missing FK/unique/check/index, NULLS NOT DISTINCT and
+deferred uniqueness. No runtime source or production storage is changed by this
+test correction. Replacement exact-source CI and immutable-image verification
+remain required before promotion.
