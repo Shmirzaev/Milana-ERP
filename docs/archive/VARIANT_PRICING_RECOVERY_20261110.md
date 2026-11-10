@@ -34,3 +34,20 @@ Keep STARTUP_SCHEMA_SYNC and RUN_SEED_ON_STARTUP disabled. Back up PostgreSQL be
 Keep the running compatible recovery slot, source/image identities and previous
 price evidence. Application rollback never reverses imported business prices.
 AI source approval is not human/QA-master acceptance or a production deployment.
+
+CI42817970353 passed the full backend regression suite, frontend and security,
+then failed the warehouse historical downgrade assertion: head0156 correctly
+refused to traverse destructive pricing-history rollback before reaching0139.
+The failure and skipped publication are retained. The final-feature run42819720480
+was explicitly cancelled before this known failure; it is not a passing release.
+
+The warehouse test still runs locking/contention at the actual head, calls the
+actual0139 downgrade guard under Alembic Operations, proves refusal with active
+holds and successful empty drop/recreate after audited release, and proves the
+Alembic head unchanged. Ismail0138 historical rollback rehearsals now run at their
+own0137/0138 boundary, then upgrade to the full head and recheck rows/index/OID and
+audit conservation. No pricing downgrade/stamp/runtime guard bypass is added.
+Both test changes were independently reviewed. One local first attempt mounted
+only backend and could not load scripts/schema_audit.py; the complete-worktree
+rerun passed the affected audit test. Exact-source full CI is rerun after these
+fixture corrections; no production schema or prices have changed.

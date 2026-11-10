@@ -5,13 +5,15 @@ from time import monotonic, sleep
 
 import pytest
 from alembic import command
+from alembic.migration import MigrationContext
+from alembic.operations import Operations
 from fastapi import HTTPException
 from sqlalchemy import inspect, text
 from sqlalchemy.orm import sessionmaker
 
 from app.api.routes.warehouse_reservations import ReservePacks, SelectedPacks, reserve_packs, release_packs
 from app.schemas import Customer, FinishedGoodsStock, Package, Role, User, WarehousePackReservation
-from app.tests.test_fresh_migration_bootstrap import postgres_migrations  # noqa: F401
+from app.tests.test_fresh_migration_bootstrap import load_migration, postgres_migrations  # noqa: F401
 from app.tests.test_warehouse_pack_reservations import fixture_pack
 
 
@@ -68,14 +70,26 @@ def test_concurrent_customer_holds_and_migration_rollback(postgres_migrations):
         assert sum(row.reserved_qty for row in stock) == 12
         assert sum(row.available_qty for row in stock) == 0
 
+    # Exercise this revision's actual guard without traversing unrelated newer
+    # migrations (pricing history deliberately refuses destructive downgrade).
+    migration = load_migration("0139_warehouse_pack_reservations")
+    with engine.connect() as connection:
+        head = MigrationContext.configure(connection).get_current_heads()
     with pytest.raises(RuntimeError, match="Release active warehouse pack reservations"):
-        command.downgrade(config, "0138_ismail_schema_contract")
+        with engine.begin() as connection:
+            with Operations.context(MigrationContext.configure(connection)):
+                migration.downgrade()
     assert "warehouse_pack_reservations" in inspect(engine).get_table_names()
     with sessions() as db:
         release_packs(SelectedPacks(package_ids=[pid]), db, db.get(User, uid))
-    command.downgrade(config, "0138_ismail_schema_contract")
+    with engine.begin() as connection:
+        with Operations.context(MigrationContext.configure(connection)):
+            migration.downgrade()
     assert "warehouse_pack_reservations" not in inspect(engine).get_table_names()
-    command.upgrade(config, "head")
+    with engine.begin() as connection:
+        with Operations.context(MigrationContext.configure(connection)):
+            migration.upgrade()
+        assert MigrationContext.configure(connection).get_current_heads() == head
     with sessions() as db:
         assert db.query(WarehousePackReservation).count() == 0
         assert sum(row.available_qty for row in db.query(FinishedGoodsStock).filter_by(package_id=pid)) == 12
