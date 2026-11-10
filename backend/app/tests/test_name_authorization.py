@@ -14,7 +14,7 @@ PURCHASING_PERMISSION = "price_calculation.purchasing"
 LIST_PATH = "/api/price-calculation/requests"
 
 
-def _account(*, permissions=(), extra=(), policy=None, factory="MIL", email=None):
+def _account(*, permissions=(), extra=(), policy=None, factory="MIL", email=None, request_factory=None):
     marker = uuid4().hex[:10]
     with TestSessionLocal() as db:
         role = Role(name=f"Name authorization {marker}", permissions=list(permissions))
@@ -26,7 +26,12 @@ def _account(*, permissions=(), extra=(), policy=None, factory="MIL", email=None
         model = Model(code=f"IDENTITY-{marker}", name="Confidential price model")
         db.add_all([user, model])
         db.flush()
-        request = PriceCalculationRequest(model_id=model.id, created_by_id=user.id, fabric_price=12.5)
+        # Authorization checks target an editable request in the selected factory.
+        # Historical requests are deliberately read-only in the new workflow.
+        request = PriceCalculationRequest(
+            model_id=model.id, active_model_id=model.id, created_by_id=user.id,
+            fabric_price=12.5, workflow_state="collecting", factory_code=request_factory or factory,
+        )
         db.add(request)
         db.commit()
         return {
@@ -84,6 +89,11 @@ def test_explicit_purchasing_grants_survive_profile_changes(client, grant):
             json={"fabric_price": 14},
         )
         assert updated.status_code == 200, updated.text
+        with TestSessionLocal() as db:
+            saved = db.get(PriceCalculationRequest, account["request_id"])
+            assert float(saved.fabric_price) == 14
+            assert saved.purchasing_updated_by_id == account["id"]
+            assert saved.model.selling_price is None
 
 
 @pytest.mark.parametrize("role_name", [None, "Purchaser", "Admin", "Management", "Super Admin"])
@@ -128,3 +138,26 @@ def test_secondary_factory_uses_only_its_explicit_purchasing_grant(client, secon
         f"{LIST_PATH}/{account['request_id']}/purchasing", headers=account["headers"], json={"fabric_price": 99},
     )
     assert response.status_code == expected
+    with TestSessionLocal() as db:
+        saved = db.get(PriceCalculationRequest, account["request_id"])
+        assert float(saved.fabric_price) == (99 if secondary_granted else 12.5)
+        assert saved.purchasing_updated_by_id == (account["id"] if secondary_granted else None)
+
+
+def test_secondary_factory_purchasing_grant_cannot_edit_another_factory_request(client):
+    account = _account(
+        permissions=[PURCHASING_PERMISSION], factory="ECO", request_factory="MIL",
+        extra=[f"factory:ECO:{PURCHASING_PERMISSION}"],
+    )
+    listed = client.get(LIST_PATH, headers=account["headers"])
+    assert listed.status_code == 200
+    assert account["request_id"] not in {row["id"] for row in listed.json()}
+    response = client.patch(
+        f"{LIST_PATH}/{account['request_id']}/purchasing", headers=account["headers"],
+        json={"fabric_price": 99},
+    )
+    assert response.status_code == 403
+    with TestSessionLocal() as db:
+        saved = db.get(PriceCalculationRequest, account["request_id"])
+        assert float(saved.fabric_price) == 12.5
+        assert saved.purchasing_updated_by_id is None

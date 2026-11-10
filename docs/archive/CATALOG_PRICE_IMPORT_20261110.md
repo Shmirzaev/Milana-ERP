@@ -54,3 +54,16 @@ AI_VERIFIED_AWAITING_HUMAN applies to reviewed local behavior only. Owner/operat
 and QA-master acceptance remain distinct, unrecorded human checks. The explicit
 owner deployment request authorizes release preparation and production actions;
 it does not turn AI evidence into human acceptance.
+
+Release validation follow-up: final candidate afb04c764 passed the mandatory
+PostgreSQL gate (run42823007647:645 required cases,17 Purchasing cases and84 runner
+contracts; no failures/errors/skips), frontend and security scans. Its full CI
+run42823002389 stopped at five authorization-test failures (6704 passed,1575
+skipped,36 subtests passed). The old fixture constructed legacy requests in MIL,
+then expected editable drafts and an ECO-scoped write. Adapt only that fixture to
+the managed collecting state and explicit selected factory; preserve every grant,
+identity and deny assertion, add persisted cost/actor readback and an explicit
+cross-factory denial case. All25 name-authorization cases pass locally. No
+application authorization policy is relaxed. The replacement exact-source full
+CI and publication must pass before production actions; the failed evidence is
+retained. Recovery193de3c2 remains a separate unchanged candidate with its own CI.
