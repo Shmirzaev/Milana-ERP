@@ -31,6 +31,11 @@ release acceptance remains open; full native suite collection has inherited
 blockers. Active blue 20261110_070607 and rollback green 20261109_163130 are
 untouched. Old images are not an approved rollback for new managed approvals.
 
+Pricing schema0156 recovery is prepared, not deployed: exact old application plus
+reviewed migration metadata and production-only pricing503 guard. Ordinary Sales
+and manufacturing routes remain available; metadata-only old images are unsafe
+for managed approvals. See [recovery gates](archive/VARIANT_PRICING_RECOVERY_20261110.md).
+
 ## Process QR base-model operations (10 November; deployed)
 
 Both hosts serve blue `20261110_070607`, application
