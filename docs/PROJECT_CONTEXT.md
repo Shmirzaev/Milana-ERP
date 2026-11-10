@@ -15,6 +15,11 @@ Last updated 2026-11-10. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
+Pricing schema0156 recovery is prepared, not deployed: exact old application plus
+reviewed migration metadata and production-only pricing503 guard. Ordinary Sales
+and manufacturing routes remain available; metadata-only old images are unsafe
+for managed approvals. See [recovery gates](archive/VARIANT_PRICING_RECOVERY_20261110.md).
+
 ## Process QR base-model operations (10 November; deployed)
 
 Both hosts serve blue `20261110_070607`, application

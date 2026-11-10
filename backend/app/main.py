@@ -113,6 +113,11 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title=settings.APP_NAME, version="0.1.0", lifespan=lifespan)
 
+# Recovery at schema0156 must never expose legacy pricing writers.
+if settings.is_production:
+    from app.core.pricing_recovery import PricingRecoveryUnavailable
+    app.add_middleware(PricingRecoveryUnavailable)
+
 _UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 _RATE_LIMIT_EXEMPT_PATHS = {"/health", "/ready"}
 _RATE_LIMIT_IP_ONLY_PATHS = {

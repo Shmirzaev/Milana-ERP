@@ -122,7 +122,7 @@ def test_public_service_rejects_actor_without_create_grant(h):
 
 
 @pytest.mark.parametrize("creation_database", ["postgres"], indirect=True)
-def test_postgres_duplicate_race_keeps_one_complete_creation(h, monkeypatch):
+def test_postgres_duplicate_race_keeps_one_complete_creation(h, monkeypatch, creation_database):
     before = counts(h)
     from app.models.identity import users_service
     original_add = users_service.add_user
