@@ -41,13 +41,17 @@ def require(condition, message):
 
 def check_graph():
     scripts = ScriptDirectory.from_config(Config(str(BACKEND / "alembic.ini")))
-    require(scripts.get_heads() == [MERGE], "Expected exactly the reconciled head")
+    heads = scripts.get_heads()
+    require(len(heads) == 1, "Expected exactly one head descending from the reconciled merge")
+    # Keep rehearsing this historical merge's reversible boundary even after
+    # forward-only descendants are added. Never downgrade those descendants.
+    list(scripts.iterate_revisions(heads[0], MERGE))
     revision = scripts.get_revision(MERGE)
     require(tuple(revision.down_revision) == PREDECESSORS, "Wrong merge parents")
     for predecessor in PREDECESSORS:
         pending = list(scripts.iterate_revisions(MERGE, predecessor))
         require(pending[0].revision == MERGE, "Merge is not the final upgrade")
-    print(f"PASS graph: one head {MERGE}; both histories reachable", flush=True)
+    print(f"PASS graph: one head {heads[0]}; merge {MERGE} and both histories reachable", flush=True)
 
 
 def migrate(url, action, target):
@@ -153,7 +157,7 @@ def rehearse(admin_url, predecessor):
                         == [predecessor], "Predecessor setup did not reach its exact head")
                 seed_disposable_evidence(connection, predecessor)
                 before = snapshot(connection)
-        migrate(url, "upgrade", "head")
+        migrate(url, "upgrade", MERGE)
         with engine.connect() as connection:
             check_final(connection)
             if before is not None:
@@ -166,7 +170,7 @@ def rehearse(admin_url, predecessor):
             require(set(connection.execute(text("SELECT version_num FROM alembic_version")).scalars())
                     == set(PREDECESSORS), "Unmerge did not retain both parent heads")
             require(snapshot(connection) == after, "Unmerge changed business tables/rows")
-        migrate(url, "upgrade", "head")
+        migrate(url, "upgrade", MERGE)
         with engine.connect() as connection:
             check_final(connection)
             require(snapshot(connection) == after, "Re-upgrade changed business tables/rows")
