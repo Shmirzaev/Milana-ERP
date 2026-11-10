@@ -1,7 +1,7 @@
 """Physical worker contracts; device revisions are never simulator revisions."""
 from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field, model_validator, field_validator
-from app.libs.enums.turnstile import GateBindingState, HikvisionUserType, LiveGateAction, LiveGateOutcome, LiveGateState, LiveWriteStep
+from app.libs.enums.turnstile import DoubleLockCapability, GateBindingState, HikvisionUserType, LiveGateAction, LiveGateOutcome, LiveGateState, LiveWriteStep
 
 
 class LiveModel(BaseModel):
@@ -37,6 +37,11 @@ class LiveAccessPolicy(LiveModel):
         return sorted(value, key=lambda p: p.door_no)
 
 
+class LiveSecurityCapabilities(LiveModel):
+    user_info_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    double_lock: DoubleLockCapability
+
+
 class LiveSnapshot(LiveModel):
     external_person_id: str = Field(min_length=1, max_length=64)
     present: bool
@@ -50,6 +55,7 @@ class LiveSnapshot(LiveModel):
     other_fields_hash: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     local_ui_right: bool | None = None
     double_lock_right: bool | None = None
+    security_capabilities: LiveSecurityCapabilities | None = None
 
     @model_validator(mode="after")
     def complete(self):
@@ -62,6 +68,7 @@ class LiveSnapshot(LiveModel):
             "full_name": None, "user_type": None, "policy": None, "photo_sha256": None,
             "face_count": 0, "card_count": 0, "fingerprint_count": 0, "other_fields_hash": None,
             "local_ui_right": None, "double_lock_right": None,
+            "security_capabilities": None,
         }:
             raise ValueError("Absent profiles cannot carry present-profile evidence")
         return self

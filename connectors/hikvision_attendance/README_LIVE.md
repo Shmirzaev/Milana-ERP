@@ -82,17 +82,26 @@ separate Restore; no automatic compensation or identity recycling is allowed.
 Use the owner's reviewed employee number and approved access-plan/validity
 reference. Verify each firmware's exact routes, new security flags, face upload
 and independent byte readback, async deletion progress and credential searches.
-Main device's existing-profile readback omitted `doubleLockRight`; new enrollment
-currently requires explicit false for it and `localUIRight`. An omitted flag
-is refused in the capability preflight before creating a profile. If a terminal
-advertises the flag but omits or elevates it after creation, the profile stays
-blocked and the result unknown. Do not weaken this check
-without reviewed vendor evidence and regression coverage. JPEG recompression can
-also prevent exact verification. FDLib Count and corrected root-level exact FPID
-credential reads work on all six devices. All six return 404 for the native
-deletion-progress endpoint; absent-test-identity credential queries returned 400
-on the main device. Vendor-supported completion and absence verification remain
-deletion compatibility gates; an HTTP error is never treated as credential absence.
+Enrollment records a SHA-256 of a complete ordinary-person capability response.
+`localUIRight` must be explicitly false on readback. When the optional
+`doubleLockRight` is advertised, it too must explicitly be false. When a complete
+response does not advertise it, the worker records `not_advertised`, omits that
+field from creation and accepts only missing/false readback. Unknown evidence,
+elevated rights or capability drift leave the profile blocked. Omission never
+means the right was observed false. JPEG recompression can also prevent exact
+verification.
+
+The 10 November pinned, read-only recheck passed capability, capacity and absent
+person/card/face/fingerprint queries on all six devices. The earlier absent-test
+identifier was rejected by firmware; valid short identifiers work without any
+identifier remapping. Five devices return HTTP 404 with exactly statusCode=4,
+subStatusCode=taskNotExist and errorCode=1073746095. This means deletion is idle,
+never completed. After the single delete request, the worker still requires
+explicit native success and independently verified absence of every credential.
+Other HTTP errors remain refusals. `turnstile-31` returns statusCode=3,
+subStatusCode=deviceError, errorCode=805306369 instead; deletion stays unavailable
+on that device pending diagnosis. Do not reboot, change its settings or disconnect
+the old ERP to investigate. See `docs/TURNSTILE_FIRMWARE_COMPATIBILITY_20261110.md`.
 
 During the supervised pilot verify actual passage, name/photo changes, revoke,
 restore, delete, offline/unknown recovery, unchanged unrelated profiles and scan

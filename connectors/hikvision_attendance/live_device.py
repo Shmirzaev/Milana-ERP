@@ -11,6 +11,7 @@ import json
 import ssl
 import uuid
 from datetime import datetime
+from enum import Enum
 from urllib.error import HTTPError
 from urllib.parse import unquote, urljoin, urlparse
 from urllib.request import HTTPDigestAuthHandler, HTTPPasswordMgrWithDefaultRealm, HTTPRedirectHandler, HTTPSHandler, ProxyHandler, Request, build_opener
@@ -33,6 +34,22 @@ WRITE_PATHS = {
 
 class DeviceRefusal(RuntimeError):
     """Protocol/capability refusal without including a personal device response."""
+
+
+class DeviceHTTPError(DeviceRefusal):
+    def __init__(self, status, *, vendor_status=None, sub_status=None, error_code=None):
+        super().__init__(f"Device HTTP status {status}")
+        self.status = status
+        self.vendor_status = vendor_status
+        self.sub_status = sub_status
+        self.error_code = error_code
+
+
+class DeleteProgress(str, Enum):
+    IDLE = "idle"
+    PROCESSING = "processing"
+    SUCCESS = "success"
+    FAILED = "failed"
 
 
 def digest(value) -> str:
@@ -160,8 +177,19 @@ class LiveDevice:
                     raise DeviceRefusal("Device response exceeds limit")
                 return data
         except HTTPError as exc:
-            exc.close()
-            raise DeviceRefusal(f"Device HTTP status {exc.code}") from None
+            try:
+                # Retain only bounded protocol codes, never a personal body or
+                # vendor message. A generic HTTP 404 cannot prove anything.
+                body = exc.read(8193)
+                value = decode(body) if len(body) <= 8192 else {}
+                value = value.get("ResponseStatus", value)
+                if not isinstance(value, dict): value = {}
+            except Exception:
+                value = {}
+            finally:
+                exc.close()
+            raise DeviceHTTPError(exc.code, vendor_status=value.get("statusCode"),
+                sub_status=value.get("subStatusCode"), error_code=value.get("errorCode")) from None
 
     def search(self, path: str, payload: dict) -> dict:
         return decode(self._request("POST", path, json.dumps(payload).encode()))
@@ -191,12 +219,32 @@ class LiveDevice:
         if type(count) is not int or count < 0 or count >= limit:
             raise DeviceRefusal("Face capacity is full or cannot be verified")
 
-    def enrollment_capabilities(self) -> None:
-        root = decode(self._request("GET", "/ISAPI/AccessControl/UserInfo/capabilities?format=json")).get("UserInfo", {})
-        for field in ("localUIRight", "doubleLockRight"):
-            options = root.get(field)
+    def security_capabilities(self) -> dict:
+        root = decode(self._request("GET", "/ISAPI/AccessControl/UserInfo/capabilities?format=json")).get("UserInfo")
+        if not isinstance(root, dict): raise DeviceRefusal("Complete person capabilities are required")
+        number = root.get("employeeNo", {})
+        kinds = root.get("userType", {})
+        search = root.get("UserInfoSearchCond", {})
+        if (not isinstance(number, dict) or type(number.get("@min")) is not int or number["@min"] < 1
+                or type(number.get("@max")) is not int or not number["@min"] <= number["@max"] <= 64
+                or not isinstance(kinds, dict) or not isinstance(kinds.get("@opt"), str)
+                or not {"normal", "blackList"}.issubset(kinds["@opt"].split(","))
+                or not isinstance(search, dict) or any(search.get(k) is not True for k in (
+                    "isSupportNumOfFace", "isSupportNumOfCard", "isSupportNumOfFP"))
+                or not isinstance(root.get("Valid"), dict) or not root["Valid"]
+                or not isinstance(root.get("RightPlan"), dict) or not root["RightPlan"]
+                or not isinstance(root.get("localUIRight"), str) or "false" not in root["localUIRight"].split(",")):
+            raise DeviceRefusal("Complete ordinary-person security capabilities are unavailable")
+        advertised = "doubleLockRight" in root
+        if advertised:
+            options = root["doubleLockRight"]
+            if isinstance(options, dict): options = options.get("@opt")
             if not isinstance(options, str) or "false" not in options.split(","):
-                raise DeviceRefusal("New-profile privilege verification is unavailable; no profile was created")
+                raise DeviceRefusal("Advertised double-lock permission cannot be disabled")
+        return {"user_info_sha256": digest(root), "double_lock": "advertised" if advertised else "not_advertised"}
+
+    def enrollment_capabilities(self) -> dict:
+        return self.security_capabilities()
 
     def modify_person(self, number: str, fields: dict) -> None:
         if set(fields) not in ({"name"}, {"userType"}):
@@ -205,13 +253,15 @@ class LiveDevice:
             json.dumps({"UserInfo": {"employeeNo": number, **fields}}).encode(), write=True))
         if not success(value): raise DeviceRefusal("Person modification was not accepted")
 
-    def create_blocked_person(self, number: str, name: str, policy: dict) -> None:
+    def create_blocked_person(self, number: str, name: str, policy: dict, *, security: dict) -> None:
         validity = policy["validity"]
         person = {"employeeNo": number, "name": name, "userType": "blackList",
             "Valid": {"enable": True, "beginTime": validity["begin"], "endTime": validity["end"], "timeType": "local"},
             "doorRight": ",".join(str(p["door_no"]) for p in policy["right_plans"]),
             "RightPlan": [{"doorNo": p["door_no"], "planTemplateNo": p["plan_template_no"]} for p in policy["right_plans"]],
-            "localUIRight": False, "doubleLockRight": False}
+            "localUIRight": False}
+        if security.get("double_lock") == "advertised": person["doubleLockRight"] = False
+        elif security.get("double_lock") != "not_advertised": raise DeviceRefusal("Unknown optional permission capability")
         value = decode(self._request("POST", "/ISAPI/AccessControl/UserInfo/Record?format=json", json.dumps({"UserInfo": person}).encode(), write=True))
         if not success(value): raise DeviceRefusal("Blocked person creation was not accepted")
 
@@ -233,12 +283,19 @@ class LiveDevice:
         value = decode(self._request("PUT", "/ISAPI/AccessControl/UserInfoDetail/Delete?format=json", json.dumps(payload).encode(), write=True))
         if not success(value): raise DeviceRefusal("Exact profile deletion was not accepted")
 
-    def deletion_status(self) -> str:
-        value = decode(self._request("GET", "/ISAPI/AccessControl/UserInfoDetail/DeleteProcess?format=json"))
+    def deletion_status(self) -> DeleteProgress:
+        try:
+            value = decode(self._request("GET", "/ISAPI/AccessControl/UserInfoDetail/DeleteProcess?format=json"))
+        except DeviceHTTPError as error:
+            if (error.status == 404 and type(error.vendor_status) is int and error.vendor_status == 4
+                    and error.sub_status == "taskNotExist" and type(error.error_code) is int
+                    and error.error_code == 1073746095):
+                return DeleteProgress.IDLE
+            raise
         status = value.get("UserInfoDetailDeleteProcess", {}).get("status")
         if status not in ("processing", "success", "failed"):
             raise DeviceRefusal("Deletion progress cannot be verified")
-        return status
+        return DeleteProgress(status)
 
     def credential_counts(self, number: str, library_id: str) -> dict:
         """Exact identity queries; return counts only, never credential material."""
@@ -280,12 +337,13 @@ class LiveDevice:
         empty = {"external_person_id": number, "present": False, "full_name": None,
             "user_type": None, "policy": None, "photo_sha256": None, "face_count": 0,
             "card_count": 0, "fingerprint_count": 0, "other_fields_hash": None,
-            "local_ui_right": None, "double_lock_right": None}
+            "local_ui_right": None, "double_lock_right": None, "security_capabilities": None}
         if count == 0 and not persons and str(root.get("responseStatusStrg", "")).upper() in ("NO MATCH", "OK"):
             return empty
         if count != 1 or len(persons) != 1 or persons[0].get("employeeNo") != number:
             raise DeviceRefusal("Person search is incomplete or ambiguous")
         person = persons[0]; valid = person.get("Valid", {})
+        security = self.security_capabilities()
         if any(type(person.get(field)) is not int or person[field] < 0 for field in ("numOfFace", "numOfCard", "numOfFP")):
             raise DeviceRefusal("Explicit typed credential counts are required")
         if any(person.get(flag) is not None and type(person[flag]) is not bool for flag in ("localUIRight", "doubleLockRight")):
@@ -334,4 +392,5 @@ class LiveDevice:
             "policy": {"validity": {"enabled": valid["enable"], "begin": begin.isoformat(), "end": end.isoformat()}, "right_plans": plans},
             "photo_sha256": photo_hash, "face_count": face_count, "card_count": int(person.get("numOfCard", 0)),
             "fingerprint_count": int(person.get("numOfFP", 0)), "other_fields_hash": digest(protected),
-            "local_ui_right": person.get("localUIRight"), "double_lock_right": person.get("doubleLockRight")}
+            "local_ui_right": person.get("localUIRight"), "double_lock_right": person.get("doubleLockRight"),
+            "security_capabilities": security}

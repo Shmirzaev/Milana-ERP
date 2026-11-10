@@ -1,5 +1,11 @@
 # Real Hikvision integration — local implementation
 
+Historical 9 November evidence below is preserved. See the
+[10 November compatibility follow-up](TURNSTILE_FIRMWARE_COMPATIBILITY_20261110.md)
+for the corrected native error interpretation, optional capability contract,
+new-base test results and current deployment gates. The five idle deletion
+responses no longer establish an unsupported endpoint; lane-31 remains refused.
+
 9 November 2026. Local code candidate; browser checks owner-deferred; physical
 enrollment/deletion compatibility BLOCKED. No live device writes, activation,
 push, merge or deployment. Do not label this AI_VERIFIED_AWAITING_HUMAN: the new

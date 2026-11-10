@@ -200,13 +200,15 @@ class Worker:
                 if capabilities.get("isSupportFDLib") is not True: raise DeviceRefusal("Face management is unsupported")
                 photo = self.erp.photo(job)
                 if action == "enroll" or not before["face_count"]: device.face_capacity(library)
-                if action == "enroll": device.enrollment_capabilities()
+                if action == "enroll": security = device.enrollment_capabilities()
             if action == "enroll":
-                self._send(key, record, "create_blocked_person", lambda: device.create_blocked_person(number, job["desired_name"], job["desired_policy"]))
+                self._send(key, record, "create_blocked_person", lambda: device.create_blocked_person(number, job["desired_name"], job["desired_policy"], security=security))
                 blocked = device.snapshot(number, library)
                 if (not blocked["present"] or blocked["user_type"] != "blackList" or blocked["full_name"] != job["desired_name"]
                         or blocked["policy"] != job["desired_policy"] or blocked["face_count"] or blocked["card_count"] or blocked["fingerprint_count"]
-                        or blocked.get("local_ui_right") is not False or blocked.get("double_lock_right") is not False):
+                        or blocked.get("local_ui_right") is not False or blocked.get("security_capabilities") != security
+                        or (security["double_lock"] == "advertised" and blocked.get("double_lock_right") is not False)
+                        or (security["double_lock"] == "not_advertised" and blocked.get("double_lock_right") not in (None, False))):
                     raise DeviceRefusal("New blocked profile readback did not match")
                 self._send(key, record, "upload_face", lambda: device.upload_face(number, library, photo, replace=False))
                 faced = device.snapshot(number, library)

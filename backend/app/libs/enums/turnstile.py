@@ -51,6 +51,13 @@ class HikvisionUserType(str, Enum):
     VISITOR = "visitor"
     BLOCKED = "blackList"
 
+
+class DoubleLockCapability(str, Enum):
+    UNKNOWN = "unknown"
+    ADVERTISED = "advertised"
+    NOT_ADVERTISED = "not_advertised"
+
+
 class GateTargetState(str, Enum):
     QUEUED = "queued"
     PROCESSING = "processing"

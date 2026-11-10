@@ -5,11 +5,13 @@ export const livePrefix = "/api/turnstile-live";
 export enum LiveAction { Observe = "observe", Enroll = "enroll", Edit = "edit", Photo = "photo", Revoke = "revoke", Restore = "restore", Delete = "delete" }
 export enum LiveState { Queued = "queued", Processing = "processing", Dispatching = "dispatching", Succeeded = "succeeded", Conflict = "conflict", Failed = "failed", Uncertain = "uncertain" }
 export enum PhysicalUserType { Normal = "normal", Visitor = "visitor", Blocked = "blackList" }
+export enum DoubleLockCapability { Unknown = "unknown", Advertised = "advertised", NotAdvertised = "not_advertised" }
 export interface PhysicalSnapshot {
   external_person_id: string; present: boolean; full_name: string | null; user_type: PhysicalUserType | null;
   policy: { validity: { enabled: boolean; begin: string; end: string }; right_plans: { door_no: number; plan_template_no: string }[] } | null;
   photo_sha256: string | null; face_count: number; card_count: number; fingerprint_count: number; other_fields_hash: string | null;
   local_ui_right: boolean | null; double_lock_right: boolean | null;
+  security_capabilities?: { user_info_sha256: string; double_lock: DoubleLockCapability } | null;
 }
 export interface LiveJob { id: number; employee_id: number; device_id: number; action: LiveAction; state: LiveState; created_at: string; observation: PhysicalSnapshot | null; profile_hash: string | null }
 export interface LiveContext {

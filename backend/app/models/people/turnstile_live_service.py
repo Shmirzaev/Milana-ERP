@@ -16,7 +16,7 @@ from app.core.config import settings
 from app.core.deps import user_permissions
 from app.libs.dto.people.turnstile_live import (LiveAccessPolicy, LiveAdoptInput, LiveClaimOutput,
     LiveDeviceInput, LiveJobOutput, LiveRequestInput, LiveResolutionInput, LiveResultInput, LiveSnapshot)
-from app.libs.enums.turnstile import (GateBindingState, GateMode, GatePhotoValidation, HikvisionUserType,
+from app.libs.enums.turnstile import (DoubleLockCapability, GateBindingState, GateMode, GatePhotoValidation, HikvisionUserType,
     LiveGateAction as Action, LiveGateOutcome as Outcome, LiveGateState as State, LiveWriteStep as Step)
 from app.models.audit_service import log_action
 from app.models.factory_scope_service import selected_factory_code
@@ -361,10 +361,15 @@ def _matches(job: GateLiveJob, result: LiveResultInput) -> bool:
     if not job.dispatched or job.dispatch_count != len(WRITE_STEPS[job.action]) or not result.vendor_accepted or before is None or before.external_person_id != number:
         return False
     if job.action is Action.ENROLL:
+        security = after.security_capabilities
+        double_lock_acceptable = security is not None and (
+            (security.double_lock is DoubleLockCapability.ADVERTISED and after.double_lock_right is False)
+            or (security.double_lock is DoubleLockCapability.NOT_ADVERTISED and after.double_lock_right is not True)
+        )
         return (not before.present and after.present and after.full_name == job.request["reviewed_name"]
             and after.user_type is HikvisionUserType.NORMAL and after.policy.model_dump(mode="json") == job.desired_policy
             and after.photo_sha256 == job.photo_sha256 and after.face_count == 1 and after.card_count == after.fingerprint_count == 0
-            and after.local_ui_right is False and after.double_lock_right is False)
+            and after.local_ui_right is False and double_lock_acceptable)
     if before.model_dump(mode="json") != job.baseline:
         return False
     expected = dict(job.baseline)

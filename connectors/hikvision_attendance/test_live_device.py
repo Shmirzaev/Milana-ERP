@@ -32,7 +32,12 @@ def tls_device(tmp_path):
         "reject": None, "drop_after": None, "capacity": 1500, "recompress": False, "digest_challenges": 0,
         "count_response": None, "record_flags": {}, "delete_status": "success", "residual_credentials": False,
         "card_residual": 0, "fp_residual": 0,
-        "privilege_capabilities": {"localUIRight": "true,false", "doubleLockRight": "true,false"}, "http_error": None}
+        "privilege_capabilities": {"employeeNo": {"@min": 1, "@max": 32},
+            "userType": {"@opt": "normal,visitor,blackList"},
+            "UserInfoSearchCond": {"isSupportNumOfFace": True, "isSupportNumOfCard": True, "isSupportNumOfFP": True},
+            "Valid": {"enable": "true,false"}, "RightPlan": {"maxSize": 4},
+            "localUIRight": "true,false", "doubleLockRight": "true,false"},
+        "http_error": None, "delete_error": None, "invalid_identity": False}
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args): pass
@@ -67,6 +72,9 @@ def tls_device(tmp_path):
             if path.startswith("/LOCALS/pic/enrlFace/"):
                 return self.respond(state["photos"][path.rsplit("/", 1)[-1]], content_type="image/jpeg")
             if path.endswith("/UserInfo/Search"):
+                if state["invalid_identity"]:
+                    return self.respond({"statusCode": 6, "subStatusCode": "badJsonContent",
+                        "errorCode": 1610612759, "errorMsg": "employeeNo"}, 400)
                 number = json.loads(body)["UserInfoSearchCond"]["EmployeeNoList"][0]["employeeNo"]
                 person = state["persons"].get(number)
                 return self.respond({"UserInfoSearch": {"totalMatches": int(person is not None), "numOfMatches": int(person is not None),
@@ -88,9 +96,14 @@ def tls_device(tmp_path):
                 count = state["fp_residual"] if number not in state["persons"] else state["persons"][number]["numOfFP"]
                 return self.respond({"FingerPrintInfo": {"status": "OK" if count else "NoFP", "FingerPrintList": [{}]*count}})
             if path.endswith("/DeleteProcess"):
+                if state["delete_error"] is not None:
+                    return self.respond(state["delete_error"], 404)
                 status = state["delete_status"]
                 if isinstance(status, list):
                     status = status.pop(0) if len(status) > 1 else status[0]
+                if status == "idle":
+                    return self.respond({"statusCode": 4, "subStatusCode": "taskNotExist",
+                        "errorCode": 1073746095, "errorMsg": "taskNotExist"}, 404)
                 return self.respond({"UserInfoDetailDeleteProcess": {"status": status}})
             if path.endswith("/FDLib/Count"):
                 return self.respond(state["count_response"] if state["count_response"] is not None else {
@@ -240,6 +253,58 @@ def test_new_enrollment_activates_only_after_exact_blocked_photo_readback(tls_de
     assert len(tls_device["writes"]) == 3
 
 
+def test_complete_capabilities_allow_omission_of_unadvertised_optional_permission(tls_device):
+    tls_device["privilege_capabilities"].pop("doubleLockRight")
+    item, erp, _ = worker(tls_device, "enroll"); item.once()
+    after = erp.results[0]["after"]
+    assert erp.results[0]["outcome"] == "readback"
+    assert after["local_ui_right"] is False and after["double_lock_right"] is None
+    assert after["security_capabilities"]["double_lock"] == "not_advertised"
+    assert len(after["security_capabilities"]["user_info_sha256"]) == 64
+    assert "doubleLockRight" not in tls_device["persons"]["TEST-1"]
+    assert erp.permits == ["create_blocked_person", "upload_face", "activate_access"]
+
+
+def test_unadvertised_permission_returning_true_never_activates(tls_device):
+    tls_device["privilege_capabilities"].pop("doubleLockRight")
+    tls_device["record_flags"] = {"doubleLockRight": True}
+    item, erp, _ = worker(tls_device, "enroll"); item.once()
+    assert erp.results[0]["outcome"] == "unknown"
+    assert erp.permits == ["create_blocked_person"]
+    assert tls_device["persons"]["TEST-1"]["userType"] == "blackList"
+
+
+@pytest.mark.parametrize("field", ["employeeNo", "userType", "Valid", "RightPlan", "UserInfoSearchCond", "localUIRight"])
+def test_incomplete_capability_never_means_optional_permission_is_safe(tls_device, field):
+    tls_device["privilege_capabilities"].pop("doubleLockRight")
+    tls_device["privilege_capabilities"].pop(field)
+    item, erp, _ = worker(tls_device, "enroll"); item.once()
+    assert erp.results[0]["outcome"] == "refused"
+    assert not erp.permits and not tls_device["writes"]
+
+
+@pytest.mark.parametrize("field", ["Valid", "RightPlan"])
+@pytest.mark.parametrize("value", [{}, [], "true", True])
+def test_malformed_policy_capability_is_not_complete_evidence(tls_device, field, value):
+    tls_device["privilege_capabilities"].pop("doubleLockRight")
+    tls_device["privilege_capabilities"][field] = value
+    item, erp, _ = worker(tls_device, "enroll"); item.once()
+    assert erp.results[0]["outcome"] == "refused"
+    assert not erp.permits and not tls_device["writes"]
+
+
+def test_capability_change_after_creation_leaves_profile_blocked(tls_device, monkeypatch):
+    item, erp, _ = worker(tls_device, "enroll")
+    original = LiveDevice.create_blocked_person
+    def create_then_drift(self, *args, **kwargs):
+        original(self, *args, **kwargs)
+        tls_device["privilege_capabilities"]["doubleLockRight"] = {"@opt": "true,false"}
+    monkeypatch.setattr(LiveDevice, "create_blocked_person", create_then_drift)
+    item.once()
+    assert erp.results[0]["outcome"] == "unknown" and erp.permits == ["create_blocked_person"]
+    assert tls_device["persons"]["TEST-1"]["userType"] == "blackList"
+
+
 def test_photo_mismatch_leaves_new_profile_blocked(tls_device):
     tls_device["recompress"] = True
     item, erp, _ = worker(tls_device, "enroll")
@@ -329,7 +394,7 @@ def test_delete_profile_absence_does_not_hide_residual_credentials(tls_device, r
     assert erp.permits == ["delete_profile"]
 
 
-@pytest.mark.parametrize("status", ["failed", "processing", "invalid"])
+@pytest.mark.parametrize("status", ["failed", "processing", "invalid", "idle"])
 def test_delete_never_repeats_when_progress_cannot_complete(tls_device, status, monkeypatch):
     monkeypatch.setattr("live_worker.time.sleep", lambda _: None)
     add_person(tls_device); tls_device["persons"]["TEST-1"]["userType"] = "blackList"
@@ -338,6 +403,44 @@ def test_delete_never_repeats_when_progress_cannot_complete(tls_device, status, 
     item.once()
     assert erp.results[0]["outcome"] == "unknown" and erp.permits == ["delete_profile"]
     assert len(tls_device["writes"]) == 1
+
+
+def test_idle_native_error_allows_one_delete_then_requires_explicit_success(tls_device, monkeypatch):
+    monkeypatch.setattr("live_worker.time.sleep", lambda _: None)
+    add_person(tls_device); tls_device["persons"]["TEST-1"]["userType"] = "blackList"
+    tls_device["delete_status"] = ["idle", "idle", "processing", "success"]
+    item, erp, _ = worker(tls_device, "delete", baseline=device(tls_device).snapshot("TEST-1", "1"))
+    item.once()
+    assert erp.results[0]["outcome"] == "readback" and not erp.results[0]["after"]["present"]
+    assert erp.permits == ["delete_profile"] and len(tls_device["writes"]) == 1
+
+
+@pytest.mark.parametrize("body", [{}, {"statusCode": 4},
+    {"statusCode": 4, "subStatusCode": "notSupported", "errorCode": 1073746095},
+    {"statusCode": 4, "subStatusCode": "taskNotExist", "errorCode": 0},
+    {"statusCode": "4", "subStatusCode": "taskNotExist", "errorCode": 1073746095},
+    {"statusCode": 4, "subStatusCode": "taskNotExist", "errorCode": "1073746095"},
+    {"statusCode": 3, "subStatusCode": "deviceError", "errorCode": 805306369},
+    b"not JSON", {"ResponseStatus": []}])
+def test_other_404_responses_never_become_idle_or_success(tls_device, body):
+    tls_device["delete_error"] = body
+    with pytest.raises(DeviceRefusal, match="HTTP status 404"):
+        device(tls_device).deletion_status()
+    assert not tls_device["writes"]
+
+
+def test_idle_progress_is_distinct_from_completed_deletion(tls_device):
+    from live_device import DeleteProgress
+    tls_device["delete_status"] = "idle"
+    assert device(tls_device).deletion_status() is DeleteProgress.IDLE
+    assert not tls_device["writes"]
+
+
+def test_invalid_employee_number_is_never_absence_evidence(tls_device):
+    tls_device["invalid_identity"] = True
+    with pytest.raises(DeviceRefusal, match="HTTP status 400"):
+        device(tls_device).snapshot("INVALID-LONG-TEST-ID", "1")
+    assert not tls_device["writes"]
 
 
 def test_busy_delete_process_is_refused_before_dispatch(tls_device):

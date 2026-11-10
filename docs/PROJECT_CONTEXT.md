@@ -184,7 +184,7 @@ adoption and security audit are not complete. Exact identities, backup/evidence
 hashes, exceptions and limits are in the
 [release record](archive/ECT_WAREHOUSE_RELEASE_2026-11-09.md).
 
-## HR readiness fixes (9 November; local candidate)
+## HR readiness fixes (9–10 November; local candidate)
 
 The organization selector now submits canonical types independently of EN/RU/UZ
 labels; the stale payroll-options verifier is repaired. A source-only attendance
@@ -198,8 +198,20 @@ with reviewed adoption, enrollment, name/photo changes, separate revoke/restore/
 single-use permits and protected recovery journals. It has not changed live profiles.
 All six devices passed pinned face-capacity and exact existing credential reads;
 root-level face-search JSON corrected the earlier wrapped-request HTTP 400.
-All six omit `doubleLockRight` and return HTTP 404 for deletion-progress reads;
-these remain physical enrollment/deletion verification blockers. Browser testing
+The 10 November read-only follow-up distinguishes optional `doubleLockRight`
+capability omission from a false observed permission and records capability hashes.
+All six pass complete capability/capacity and absent credential reads. Five devices'
+HTTP 404 means exactly `taskNotExist` (idle, never deletion success); `turnstile-31`
+instead returns `deviceError` and deletion remains refused there. Conditional
+enrollment and bounded delete verification are locally implemented: 224 connector
+and 96 focused backend tests plus frontend build/types/lint pass. New full Linux/PG
+verification is blocked by Docker availability; a broad Windows fallback had 24
+failures/135 skips and is not a release pass. Nothing was activated or deployed.
+The new candidate is based on `2bb66fc444` (current green release metadata), in
+`C:/ERP/.codex-work/hr-hikvision-compat-20261110` on
+`codex/hr-hikvision-compat-20261110`. See the
+[compatibility evidence and remaining gates](TURNSTILE_FIRMWARE_COMPATIBILITY_20261110.md).
+Browser testing
 for this new integration was explicitly deferred by the owner after automatic
 policy blocked the local preview launch. Approved access policy and the supervised
 firmware/passage/dual-report pilot remain open. See the

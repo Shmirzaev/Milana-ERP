@@ -7,6 +7,7 @@ from io import BytesIO
 import os
 from pathlib import Path
 import sys
+import pytest
 from uuid import uuid4
 from PIL import Image
 sys.path.insert(0, os.environ.get("HIKVISION_CONNECTOR_TEST_DIR", str(Path(__file__).resolve().parents[3]/"connectors/hikvision_attendance")))
@@ -72,15 +73,23 @@ def profile(client,person,auth):
     return r.json()["profiles"][0]
 
 
-def test_complete_physical_protocol_lifecycle_preserves_hr_and_other_profile(live,tls_device,tmp_path,monkeypatch):
+@pytest.mark.parametrize("double_lock_advertised", [True, False])
+def test_complete_physical_protocol_lifecycle_preserves_hr_and_other_profile(live,tls_device,tmp_path,monkeypatch,double_lock_advertised):
     from app.core.config import settings
     monkeypatch.setattr(settings,"TURNSTILE_PHOTOS_DIR",str(tmp_path/"photos"))
+    monkeypatch.setattr("live_worker.time.sleep", lambda _: None)
+    if not double_lock_advertised:
+        tls_device["privilege_capabilities"].pop("doubleLockRight")
+    tls_device["delete_status"] = ["idle", "idle", "processing", "success"]
     client,person,device_id,auth,headers,worker=configured(live,tls_device)
     add_person(tls_device,"OTHER","Synthetic unrelated")
     photo=upload(client,person,auth,(130,30,90))
     submit(client,person,device_id,auth,"enroll",reviewed_name="Device Name",photo_asset_id=photo,manual_face_reviewed=True)
     result=worker.once();assert result["state"]=="succeeded",result
     p=profile(client,person,auth);assert p["snapshot"]["full_name"]=="Device Name"
+    assert p["snapshot"]["security_capabilities"]["double_lock"] == ("advertised" if double_lock_advertised else "not_advertised")
+    assert p["snapshot"]["local_ui_right"] is False
+    assert p["snapshot"]["double_lock_right"] is (False if double_lock_advertised else None)
     submit(client,person,device_id,auth,"edit",reviewed_name="Device Edited",expected_profile_hash=p["profile_hash"])
     assert worker.once()["state"]=="succeeded"
     p=profile(client,person,auth)
