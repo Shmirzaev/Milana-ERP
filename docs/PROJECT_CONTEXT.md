@@ -15,6 +15,37 @@ Last updated 2026-11-10. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
+## Process QR model operations (10 November; staged, not activated)
+
+Pending staging snapshot at 07:55 UTC on 2026-11-10. Both hosts still serve green `20261109_163130`,
+application `271c5005e12d1efc65d6358756862d8c243685a5`, on unchanged schema
+`0155_eco_gate_merge`. No traffic cutover has occurred.
+
+Healthy blue candidate `20261110_070607` is staged on both hosts from reviewed,
+pushed application `843adaf3bda1b1f2d234e68b6763bbc649d3b72a`, manifest
+`7bf0a59c139cf8a46fc6af7a3a0c5457795ba7b1de7fe57e70c76b31481fac32`.
+It remains unmerged. Owned deployment leases remain held. The owner has reported
+completing normal Edge sign-in; root verification and signed-in Process QR
+browser/console QA are pending.
+The physical blue slot has replaced `20261109_035740`; the controller's old
+rollback metadata is historical until activation. This supersedes the prior
+release entry's description of a running blue rollback.
+
+Official exact-source CI passed 6,666 backend tests / 1,569 skips / 36 subtests,
+the mandatory PostgreSQL locking/query-plan suite passed 207 tests, and frontend,
+security scanning and immutable publication passed. One reviewed warmed paired
+epoch passed all original median, p95, payload and full-fact gates for four generic
+paths and two model-operation lookups, preserving four models and 240 label rows.
+The earlier cold-epoch failure and SSH transport failure remain recorded.
+
+Preparation removed only eight reviewed unused ERP images, verified a fresh
+PostgreSQL backup and unchanged candidate schema, and performed no migration or
+business-data writes. Browser QA, activation, public postflight checks and the
+required 30-minute observation have not passed; no earlier deployment waiver
+applies. Preview processes remain available for staged Edge QA. Detailed
+evidence is in the ignored, machine-local
+[pending handoff](C:/ERP/.codex-work/process-qr-deploy-20261110/.qa-process-qr-deploy/release-20261110_070607/pending-signin-handoff.json).
+
 ## BSO, fabric receipts and model copying (10 November; deployed)
 
 Both hosts now serve green `20261109_163130`, application
