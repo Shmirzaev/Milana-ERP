@@ -790,6 +790,7 @@ export default function ProcessQrPage() {
   const [exportingOperations, setExportingOperations] = useState(false);
   const [operations, setOperations] = useState<PaidOperation[]>([]);
   const [loadedOperationsModelId, setLoadedOperationsModelId] = useState<number | null>(null);
+  const [loadedOperationsApiBase, setLoadedOperationsApiBase] = useState("");
   const [loadedOperationsSignature, setLoadedOperationsSignature] = useState("");
   const [operationModelDirty, setOperationModelDirty] = useState(false);
   const [savingModelOperations, setSavingModelOperations] = useState(false);
@@ -859,12 +860,16 @@ export default function ProcessQrPage() {
     : me?.factory_code === "ECO" && selectedTrackedProcess?.source_type === "usluga" ? "/api/usluga" : "/api";
   const isUslugaModel = modelApiBase === "/api/usluga";
   const { data: selectedModel, mutate: mutateSelectedModel } = useSWR<ManualModel>(
-    selectedModelId ? `${modelApiBase}/models/${selectedModelId}` : null,
+    selectedModelId ? `${modelApiBase}/models/${selectedModelId}?paid_operations_from_model=true` : null,
     fetcher,
   );
   const { mutate: mutateModelCache } = useSWRConfig();
   const selectedModelIdRef = useRef(selectedModelId);
-  useEffect(() => { selectedModelIdRef.current = selectedModelId; }, [selectedModelId]);
+  const modelApiBaseRef = useRef(modelApiBase);
+  useEffect(() => {
+    selectedModelIdRef.current = selectedModelId;
+    modelApiBaseRef.current = modelApiBase;
+  }, [selectedModelId, modelApiBase]);
   const needsFamilySizes = selectedModel?.id === selectedModelId
     && !(selectedModel.sizes || []).some(row => String(row.size || "").trim());
   const { data: familySizes, error: familySizesError, mutate: mutateFamilySizes } = useSWR<{
@@ -1094,23 +1099,26 @@ export default function ProcessQrPage() {
       }
       return;
     }
-    if (!selectedModel) return;
+    if (!selectedModel || selectedModel.id !== selectedModelId) return;
 
     const nextOperations = materializeLegacyPaidOperations(paidOperationsFromDetails(selectedModel.details_json, !isUslugaModel), [accountPaidOperationFactory]);
     const nextSignature = JSON.stringify(serializePaidOperations(nextOperations));
-    const sameModel = loadedOperationsModelId === selectedModelId;
+    const sameModel = loadedOperationsModelId === selectedModelId && loadedOperationsApiBase === modelApiBase;
     if (sameModel && operationModelDirty) return;
     if (sameModel && loadedOperationsSignature === nextSignature) return;
 
     setOperations(nextOperations);
     setLoadedOperationsModelId(selectedModelId);
+    setLoadedOperationsApiBase(modelApiBase);
     setLoadedOperationsSignature(nextSignature);
     setOperationModelDirty(false);
-    setModelSaveMsg(t("page.processQr.loadedModel", { model: selectedModel.code || selectedProcess?.model_code || t("common.model") }));
+    setModelSaveMsg(t("page.processQr.loadedModel", { model: modelVariantOption(selectedModel).modelNo || selectedModel.code || t("common.model") }));
   }, [
     accountPaidOperationFactory,
     isUslugaModel,
     loadedOperationsModelId,
+    loadedOperationsApiBase,
+    modelApiBase,
     loadedOperationsSignature,
     operationModelDirty,
     selectedModel,
@@ -1145,8 +1153,9 @@ export default function ProcessQrPage() {
 
 
   const factoryOperations = useMemo(
-    () => operations.filter((operation) => paidOperationMatchesFactory(operation, printPaidOperationFactory)),
-    [operations, printPaidOperationFactory],
+    () => selectedModel?.id === selectedModelId && loadedOperationsModelId === selectedModelId && loadedOperationsApiBase === modelApiBase
+      ? operations.filter((operation) => paidOperationMatchesFactory(operation, printPaidOperationFactory)) : [],
+    [operations, printPaidOperationFactory, selectedModel, selectedModelId, loadedOperationsModelId, loadedOperationsApiBase, modelApiBase],
   );
 
   const operationLabelTokens = useMemo(
@@ -1391,18 +1400,19 @@ export default function ProcessQrPage() {
   }
 
   function loadOperationsFromSelectedModel() {
-    if (!selectedModel || !selectedModelId) return;
+    if (!selectedModel || selectedModel.id !== selectedModelId || !selectedModelId) return;
     const nextOperations = materializeLegacyPaidOperations(paidOperationsFromDetails(selectedModel.details_json, !isUslugaModel), [accountPaidOperationFactory]);
     const nextSignature = JSON.stringify(serializePaidOperations(nextOperations));
     setOperations(nextOperations);
     setLoadedOperationsModelId(selectedModelId);
+    setLoadedOperationsApiBase(modelApiBase);
     setLoadedOperationsSignature(nextSignature);
     setOperationModelDirty(false);
-    setModelSaveMsg(t("page.processQr.loadedModel", { model: selectedModel.code || selectedProcess?.model_code || t("common.model") }));
+    setModelSaveMsg(t("page.processQr.loadedModel", { model: modelVariantOption(selectedModel).modelNo || selectedModel.code || t("common.model") }));
   }
 
   async function saveOperationsToModel() {
-    if (!selectedModel || selectedModel.id !== selectedModelId || !selectedModelId || loadedOperationsModelId !== selectedModelId) return;
+    if (!selectedModel || selectedModel.id !== selectedModelId || !selectedModelId || loadedOperationsModelId !== selectedModelId || loadedOperationsApiBase !== modelApiBase) return;
     setSavingModelOperations(true);
     setModelSaveMsg("");
     try {
@@ -1413,8 +1423,8 @@ export default function ProcessQrPage() {
       });
       // Sibling variants already visited in this session must not reload an
       // old template from SWR after a successful family save.
-      await mutateModelCache(key => typeof key === "string" && key.startsWith(`${modelApiBase}/models/`) && /\/models\/\d+$/.test(key), undefined, { revalidate: true });
-      if (selectedModelIdRef.current !== selectedModelId) return;
+      await mutateModelCache(key => typeof key === "string" && key.startsWith(`${modelApiBase}/models/`) && /\/models\/\d+(?:\?paid_operations_from_model=true)?$/.test(key), undefined, { revalidate: true });
+      if (selectedModelIdRef.current !== selectedModelId || modelApiBaseRef.current !== modelApiBase) return;
       const allOperations = serializePaidOperations(operations);
       setOperations(allOperations);
       setLoadedOperationsModelId(selectedModelId);
@@ -1422,7 +1432,7 @@ export default function ProcessQrPage() {
       setOperationModelDirty(false);
       setModelSaveMsg(t("page.processQr.savedModel", { model: modelVariantOption(selectedModel).modelNo || selectedModel.code || "" }));
     } catch (err: any) {
-      if (selectedModelIdRef.current !== selectedModelId) return;
+      if (selectedModelIdRef.current !== selectedModelId || modelApiBaseRef.current !== modelApiBase) return;
       setModelSaveMsg(err?.message ? t("page.processQr.saveModelErrorDetail", { error: err.message }) : t("page.processQr.saveModelError"));
     } finally {
       setSavingModelOperations(false);

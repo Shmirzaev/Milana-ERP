@@ -410,10 +410,11 @@ def create_usluga_model(
 def get_usluga_model(
     mid: int,
     db: DbSession,
+    paid_operations_from_model: bool = False,
     current: User = Depends(require_permissions("usluga.view", "usluga.manage", "payroll.scan", "payroll.manage", "*")),
 ):
     _usluga_viewer(current)
-    return models_service.get_model(current, db, mid, "usluga")
+    return models_service.get_model(current, db, mid, "usluga", paid_operations_from_model)
 
 
 @router.get("/models/{mid}/process-qr-sizes")

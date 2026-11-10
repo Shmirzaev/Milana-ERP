@@ -170,6 +170,7 @@ jobs:
         run: >-
           python -m pytest -q
           backend/app/tests/test_admin_membership_delete_race.py
+          backend/app/tests/test_process_qr_model_operations.py
           backend/app/tests/test_numbering_postgres_concurrency.py
           backend/app/tests/test_material_reservation_concurrency.py
           backend/app/tests/test_package_write_postgres.py

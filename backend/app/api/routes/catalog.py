@@ -233,9 +233,10 @@ def get_model(
     mid: int,
     db: DbSession,
     current: CurrentUser,
+    paid_operations_from_model: bool = False,
     catalog_scope: str = Depends(_standard_catalog_scope),
 ):
-    return models_service.get_model(current, db, mid, catalog_scope)
+    return models_service.get_model(current, db, mid, catalog_scope, paid_operations_from_model)
 
 
 @router.post("/models/{mid}/clone", response_model=ModelOut, status_code=201)

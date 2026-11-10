@@ -1763,11 +1763,41 @@ def get_process_qr_model_sizes(
     return result(next(iter(populated_sets)), "inherited")
 
 
+def _process_qr_paid_operation_details(db: Session, model: Model) -> dict:
+    """Project the base template without changing the selected variant or storage."""
+    source = model
+    if _model_code_parts(model)[1] and (model.details_json or {}).get("legacy_import") is not True:
+        family_query = db.query(Model).filter(
+            Model.catalog_scope == model.catalog_scope,
+            Model.factory_code == model.factory_code,
+        )
+        group_key = _model_group_key(model)
+        if db.get_bind().dialect.name == "postgresql":
+            family = family_query.filter(
+                literal_column("models.is_legacy_import").is_(False),
+                literal_column("models.model_group_key") == group_key,
+            ).all()
+        else:
+            family = [row for row in family_query.all()
+                      if (row.details_json or {}).get("legacy_import") is not True
+                      and _model_group_key(row) == group_key]
+        bases = [row for row in family if not _model_code_parts(row)[1]]
+        if bases:
+            source = max(bases, key=lambda row: row.id)
+    details = deepcopy(model.details_json or {})
+    details.pop("paidOperations", None)
+    # An absent/empty base template is authoritative: never revive variant or
+    # frontend default operations. Families without a base keep their own list.
+    details["paid_operations"] = deepcopy(paid_operations_from_details(source.details_json))
+    return details
+
+
 def get_model(
     current: User,
     db: Session,
     mid: int,
     catalog_scope: str = "standard",
+    paid_operations_from_model: bool = False,
 ):
     m = _models_query(db, catalog_scope).filter(Model.id == mid).first()
     if not m: raise HTTPException(404, "Model not found")
@@ -1777,7 +1807,7 @@ def get_model(
     payload["primary_image_url"] = photo.file_url if photo else None
     payload["variant_picture_url"] = model_variant_picture_url(m)
     payload["details_json"] = filter_paid_operations_for_factory(
-        payload.get("details_json"),
+        _process_qr_paid_operation_details(db, m) if paid_operations_from_model else payload.get("details_json"),
         _catalog_paid_operation_factory_scope(current, catalog_scope),
     )
     return payload
