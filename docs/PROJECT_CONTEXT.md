@@ -15,6 +15,27 @@ Last updated 2026-11-10. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
+## BJ5039 Process QR immediate repair (10 November)
+
+Owner requested an immediate repair before the permanent base-model loading fix
+and accepted verified live `20261109_163130` as the task baseline. The parent
+BJ5039 had 20 Milana operations; its four variants had none. The deployed audited
+family-save service copied the unchanged parent list to BJ5039-V-6793, V-6794,
+V-6795 (PO-0720), and V-6850. Five family-save audits identify System Admin as
+actor. Parent details and other variant details were verified unchanged; no
+issued QR or payroll rows existed for this family before/after the operation.
+
+Fresh PostgreSQL backup was verified before mutation: 117,227,928 bytes, 1,395
+restore objects, SHA-256 `b66142d10a7223810fe21e56f34b574d41062d8e95c2308e246894c08887cfb9`.
+Model response serialization returns all 20 selected Milana rows on every family
+member. Both live source manifests and all four health checks passed. Browser
+automation failed before navigation, so rendered UI verification remains pending.
+Reload Process QR to refresh the selected variant's cached list. No runtime code,
+release, schema, role, order, stock, issued QR, or payroll change was made. Active
+release remains `20261109_163130`, rollback `20261109_035740`. Permanent direct
+base-model loading remains pending; this is a narrow BJ5039 configuration repair.
+See [repair evidence](BJ5039_PROCESS_QR_REPAIR_20261110.md).
+
 ## BSO, fabric receipts and model copying (10 November; deployed)
 
 Both hosts now serve green `20261109_163130`, application
