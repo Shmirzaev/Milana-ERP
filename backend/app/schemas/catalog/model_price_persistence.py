@@ -18,3 +18,13 @@ def apply_request_selling_price(
     model.selling_price_request_id = request_id
     model.selling_price_updated_at = updated_at
     db.flush()
+
+
+def apply_catalog_selling_price(db: Session, model: Model, *, price: Decimal, updated_at: datetime) -> None:
+    """Apply an authorized imported price, preserving all other model fields."""
+    model.selling_price = price
+    model.selling_price_currency = "USD"
+    model.selling_price_source = "catalog"
+    model.selling_price_request_id = None
+    model.selling_price_updated_at = updated_at
+    db.flush()

@@ -32,13 +32,14 @@ class RequiredPGGateTests(unittest.TestCase):
 
     def test_complete_evidence_passes(self):
         counts = gate.check_report(self.write_report(self.report()))
-        self.assertEqual(sum(counts.values()), 643)
+        self.assertEqual(sum(counts.values()), 645)
 
     def test_variant_price_workflow_cases_cannot_be_missing_or_skipped(self):
-        module = "test_variant_price_workflow_postgres"
-        self.assertEqual(gate.GROUPS[module][0], 4)
-        self.assertEqual(len(gate.REQUIRED_CASES[module]), 4)
-        for name in gate.REQUIRED_CASES[module]:
+        modules = {"test_variant_price_workflow_postgres": 4, "test_catalog_price_import_postgres": 2}
+        for module, expected_count in modules.items():
+            self.assertEqual(gate.GROUPS[module][0], expected_count)
+            self.assertEqual(len(gate.REQUIRED_CASES[module]), expected_count)
+        for module, name in ((module, name) for module in modules for name in gate.REQUIRED_CASES[module]):
             for mutation in ("missing", "replacement", "duplicate", "skipped", "failure", "error"):
                 with self.subTest(name=name, mutation=mutation):
                     tree = self.report()

@@ -36,6 +36,13 @@ reviewed migration metadata and production-only pricing503 guard. Ordinary Sales
 and manufacturing routes remain available; metadata-only old images are unsafe
 for managed approvals. See [recovery gates](archive/VARIANT_PRICING_RECOVERY_20261110.md).
 
+Owner authorized deployment and10-11.xlsx import: target is source F+USD0.30 once,
+including unique variant-number matches and exact model/variant conflict priority.
+Reviewed private manifest has6416 targets:519 missing-price updates,5897 unchanged,
+zero existing priced-value changes. Hash-pinned CLI and global-admin boundary,
+atomic cancellation/audit, rollback/idempotence and PG approval races are prepared.
+No production import has run. See [import/release record](archive/CATALOG_PRICE_IMPORT_20261110.md).
+
 ## Process QR base-model operations (10 November; deployed)
 
 Both hosts serve blue `20261110_070607`, application
