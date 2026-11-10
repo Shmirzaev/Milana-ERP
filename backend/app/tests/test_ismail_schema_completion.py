@@ -24,7 +24,9 @@ def test_forward_catalog_alignment_preserves_rows_and_unique_constraint(postgres
         before = {table: connection.scalar(sa.text(f'SELECT count(*) FROM "{table}"'))
                   for table in sa.inspect(connection).get_table_names() if table != "alembic_version"}
         assert migration.reservation_index_plan(connection) == "drop_redundant"
-    command.upgrade(config, "head")
+    # Rehearse the historical rollback at its own boundary, before newer
+    # forward-only pricing history exists. Final upgrade still exercises head.
+    command.upgrade(config, "0138_ismail_schema_contract")
     path = Path(__file__).resolve().parents[3] / "scripts/schema_audit.py"
     spec = importlib.util.spec_from_file_location("schema_audit", path)
     audit = importlib.util.module_from_spec(spec)
@@ -59,6 +61,14 @@ def test_forward_catalog_alignment_preserves_rows_and_unique_constraint(postgres
         assert not any(index["name"] == "ix_hr_calendar_events_event_type"
                        for index in sa.inspect(connection).get_indexes("hr_calendar_events"))
     command.upgrade(config, "head")
+    with engine.connect() as connection:
+        assert migration.reservation_index_plan(connection) == "already_absent"
+        assert all(connection.scalar(sa.text(f'SELECT count(*) FROM "{table}"')) == count
+                   for table, count in before.items())
+        final_evidence = audit.audit(engine, schema)
+        assert final_evidence["candidate_duplicates"] == []
+        assert all(index["action"] == "keep" for index in final_evidence["hr_indexes"])
+    (output / "schema-audit.json").write_text(json.dumps(final_evidence, indent=2), encoding="utf8")
 
 
 def test_duplicate_cleanup_refuses_an_index_with_different_meaning(postgres_migrations):
@@ -96,7 +106,7 @@ def test_live_single_reservation_index_is_attached_without_rebuild(postgres_migr
         before = {table: connection.scalar(sa.text(f'SELECT count(*) FROM "{table}"'))
                   for table in sa.inspect(connection).get_table_names() if table != "alembic_version"}
         assert migration.reservation_index_plan(connection) == "attach_existing_unique_index"
-    command.upgrade(config, "head")
+    command.upgrade(config, "0138_ismail_schema_contract")
     with engine.begin() as connection:
         assert connection.scalar(sa.text("SELECT to_regclass(:name)::oid"), {"name": migration.COVERING}) == oid
         assert any(key["name"] == migration.COVERING for key in sa.inspect(connection).get_unique_constraints("material_reservations"))
@@ -109,6 +119,11 @@ def test_live_single_reservation_index_is_attached_without_rebuild(postgres_migr
         assert migration.reservation_index_plan(connection) == "drop_redundant"
         assert connection.scalar(sa.text("SELECT to_regclass(:name)::oid"), {"name": migration.COVERING}) == oid
     command.upgrade(config, "head")
+    with engine.connect() as connection:
+        assert migration.reservation_index_plan(connection) == "already_absent"
+        assert connection.scalar(sa.text("SELECT to_regclass(:name)::oid"), {"name": migration.COVERING}) == oid
+        assert all(connection.scalar(sa.text(f'SELECT count(*) FROM "{table}"')) == count
+                   for table, count in before.items())
 
 
 @pytest.mark.parametrize("definition", [
