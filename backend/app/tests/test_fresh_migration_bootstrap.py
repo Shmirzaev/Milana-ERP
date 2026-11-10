@@ -265,6 +265,103 @@ def _compatibility_release_drift(connection):
     return [["remove_table", table]]
 
 
+PRICING_RECOVERY_COLUMNS = [
+    ("active_model_id", "INTEGER", True, None),
+    ("workflow_state", "VARCHAR(32)", False, "'legacy'::character varying"),
+    ("factory_code", "VARCHAR(3)", True, None),
+    ("revision", "INTEGER", False, "1"),
+    ("materials_json", "JSON", False, "'[]'::json"),
+    ("passport_snapshot_json", "JSON", True, None),
+    ("purchasing_submitted_at", "TIMESTAMP", True, None),
+    ("accessories_submitted_at", "TIMESTAMP", True, None),
+    ("no_accessories_reason", "TEXT", True, None),
+    ("printing_cost", "NUMERIC(14, 4)", True, None),
+    ("correction_team", "VARCHAR(16)", True, None),
+    ("correction_reason", "TEXT", True, None),
+    ("approved_at", "TIMESTAMP", True, None),
+    ("approved_by_id", "INTEGER", True, None),
+    ("approval_snapshot_json", "JSON", True, None),
+    ("price_baseline_json", "JSON", True, None),
+]
+
+
+def _pricing_recovery_drift(connection):
+    """Exact migration0156 storage contract on the deliberately unmapped old ORM.
+
+    Never regenerate or loosen the shared 94-entry DB08 baseline. The full
+    application maps these fields and gets no supplement. Recovery keeps its old
+    business code, guards all pricing routes and separately proves actual image
+    startup; this check verifies every additional storage object, including checks
+    and timestamp zones that Alembic's normalized diff would otherwise omit.
+    """
+    from app.schemas import PriceCalculationRequest
+
+    table = "price_calculation_requests"
+    mapped = set(PriceCalculationRequest.__table__.columns.keys())
+    names = {row[0] for row in PRICING_RECOVERY_COLUMNS}
+    if names.intersection(mapped):
+        return []
+    root = VERSIONS.parents[2]
+    for relative, digest in {
+        "backend/alembic/versions/0156_variant_price_workflow.py": "b44bcabad65c8b8d844f9bbaeafda421b23d74e864abae9956a324641652e242",
+        "backend/app/core/pricing_recovery.py": "2db579b873c32de3534349654bbb3050d5e38db55b777a2dc856e838e2d38e7e",
+        "backend/app/schemas/planning/price_calculation.py": "96f5f88110eb1a8021c7da97ca7835b9908dda044717d32e1e0a055680ed765f",
+    }.items():
+        assert hashlib.sha256((root / relative).read_bytes().replace(b"\r\n", b"\n")).hexdigest() == digest
+    assert MigrationContext.configure(connection).get_current_heads() == ("0156_variant_price_workflow",)
+    inspector = sa.inspect(connection)
+    extra = {column["name"]: column for column in inspector.get_columns(table) if column["name"] not in mapped}
+    assert set(extra) == names, "Pricing recovery storage columns changed"
+    for name, kind, nullable, default in PRICING_RECOVERY_COLUMNS:
+        column = extra[name]
+        assert (str(column["type"]), column["nullable"], column["default"]) == (kind, nullable, default), "Pricing recovery column contract changed"
+        assert not column.get("computed") and not column.get("identity")
+        if kind == "TIMESTAMP":
+            assert column["type"].timezone is True
+    foreign = [key for key in inspector.get_foreign_keys(table) if names.intersection(key["constrained_columns"])]
+    assert {(key["name"], tuple(key["constrained_columns"]), key["referred_schema"], key["referred_table"], tuple(key["referred_columns"]), tuple(sorted(key["options"].items()))) for key in foreign} == {
+        ("fk_price_active_model", ("active_model_id",), None, "models", ("id",), ()),
+        ("fk_price_approved_by", ("approved_by_id",), None, "users", ("id",), ()),
+    }, "Pricing recovery foreign keys changed"
+    unique = [key for key in inspector.get_unique_constraints(table) if names.intersection(key["column_names"])]
+    assert [(key["name"], key["column_names"]) for key in unique] == [("uq_price_active_model", ["active_model_id"])], "Pricing recovery unique constraint changed"
+    unique_options = dict(unique[0].get("dialect_options", {}))
+    for key, implicit in [("postgresql_include", []), ("postgresql_nulls_not_distinct", False)]:
+        if unique_options.get(key) == implicit:
+            unique_options.pop(key)
+    assert not unique_options, "Pricing recovery uniqueness semantics changed"
+    constraints = connection.execute(sa.text("""
+        SELECT conname, condeferrable, condeferred, convalidated
+        FROM pg_constraint WHERE conrelid='price_calculation_requests'::regclass
+        AND conname IN ('fk_price_active_model','fk_price_approved_by','uq_price_active_model',
+                        'ck_price_active_variant','ck_price_workflow_state')
+    """)).all()
+    assert len(constraints) == 5 and all(not row.condeferrable and not row.condeferred and row.convalidated for row in constraints), "Pricing recovery constraint timing/validation changed"
+    indexes = [index for index in inspector.get_indexes(table) if names.intersection(index["column_names"]) and not index.get("duplicates_constraint")]
+    def index_options(index):
+        options = dict(index.get("dialect_options", {}))
+        # Newer SQLAlchemy reflects the implicit empty INCLUDE explicitly.
+        if options.get("postgresql_include") == []:
+            options.pop("postgresql_include")
+        return json.dumps(options, sort_keys=True)
+    assert {(index["name"], tuple(index["column_names"]), index["unique"], index_options(index)) for index in indexes} == {
+        ("ix_price_calculation_requests_factory_code", ("factory_code",), False, "{}"),
+        ("ix_price_calculation_requests_workflow_state", ("workflow_state",), False, "{}"),
+    }, "Pricing recovery indexes changed"
+    checks = {key["name"]: key["sqltext"] for key in inspector.get_check_constraints(table)}
+    assert checks == {
+        "ck_price_active_variant": "active_model_id IS NULL OR active_model_id = model_id",
+        "ck_price_workflow_state": "workflow_state::text = ANY (ARRAY['legacy'::character varying, 'collecting'::character varying, 'awaiting_finance'::character varying, 'approved'::character varying, 'cancelled'::character varying]::text[])",
+    }, "Pricing recovery checks changed"
+    differences = [["remove_column", None, table, {"column": name, "type": kind, "nullable": nullable, "default": default}] for name, kind, nullable, default in PRICING_RECOVERY_COLUMNS]
+    for name, column, target in [("fk_price_active_model", "active_model_id", "models.id"), ("fk_price_approved_by", "approved_by_id", "users.id")]:
+        differences.append(["remove_fk", {"constraint": "ForeignKeyConstraint", "name": name, "table": table, "columns": [column], "targets": [target], "ondelete": None, "onupdate": None}])
+    differences.append(["remove_constraint", {"constraint": "UniqueConstraint", "name": "uq_price_active_model", "table": table, "columns": ["active_model_id"]}])
+    for column in ["factory_code", "workflow_state"]:
+        differences.append(["remove_index", {"index": "ix_price_calculation_requests_" + column, "table": table, "unique": False, "expressions": [table + "." + column], "options": {}}])
+    return differences
+
+
 def test_known_drift_baseline_ignores_only_order():
     expected = _known_drift_baseline()
     assert len(expected) == 94
@@ -328,7 +425,34 @@ def _assert_schema_contract_with_known_drift(engine):
         assert generated_keys_seen == {"model_group_key", "is_legacy_import"}, "0084 must preserve its generated lookup columns"
         normalized = _describe_difference(known_drift)
         print("KNOWN_SCHEMA_DRIFT=" + json.dumps(normalized, sort_keys=True))
-        _assert_known_drift_baseline(normalized, _known_drift_baseline() + _compatibility_release_drift(connection))
+        _assert_known_drift_baseline(normalized, _known_drift_baseline() + _compatibility_release_drift(connection) + _pricing_recovery_drift(connection))
+
+
+@pytest.mark.parametrize("change", ["extra_column", "nullable", "type", "default", "foreign_key", "unique", "unique_nulls", "deferred_unique", "check", "index"])
+def test_postgres_pricing_recovery_contract_rejects_storage_drift(postgres_migrations, change):
+    from app.schemas import PriceCalculationRequest
+
+    if {row[0] for row in PRICING_RECOVERY_COLUMNS}.intersection(PriceCalculationRequest.__table__.columns.keys()):
+        pytest.skip("Exact old-runtime pricing recovery candidate only")
+    engine, config = postgres_migrations.engine, postgres_migrations.config
+    command.upgrade(config, "head")
+    statements = {
+        "extra_column": "ALTER TABLE price_calculation_requests ADD COLUMN unreviewed TEXT",
+        "nullable": "ALTER TABLE price_calculation_requests ALTER COLUMN revision DROP NOT NULL",
+        "type": "ALTER TABLE price_calculation_requests ALTER COLUMN correction_reason TYPE varchar(900)",
+        "default": "ALTER TABLE price_calculation_requests ALTER COLUMN revision SET DEFAULT 2",
+        "foreign_key": "ALTER TABLE price_calculation_requests DROP CONSTRAINT fk_price_approved_by",
+        "unique": "ALTER TABLE price_calculation_requests DROP CONSTRAINT uq_price_active_model",
+        "unique_nulls": "ALTER TABLE price_calculation_requests DROP CONSTRAINT uq_price_active_model; ALTER TABLE price_calculation_requests ADD CONSTRAINT uq_price_active_model UNIQUE NULLS NOT DISTINCT (active_model_id)",
+        "deferred_unique": "ALTER TABLE price_calculation_requests DROP CONSTRAINT uq_price_active_model; ALTER TABLE price_calculation_requests ADD CONSTRAINT uq_price_active_model UNIQUE (active_model_id) DEFERRABLE INITIALLY DEFERRED",
+        "check": "ALTER TABLE price_calculation_requests DROP CONSTRAINT ck_price_active_variant",
+        "index": "DROP INDEX ix_price_calculation_requests_workflow_state",
+    }
+    with engine.begin() as connection:
+        assert len(_pricing_recovery_drift(connection)) == 21
+        connection.exec_driver_sql(statements[change])
+        with pytest.raises(AssertionError, match="Pricing recovery"):
+            _pricing_recovery_drift(connection)
 
 
 @pytest.mark.parametrize("change", ["added", "missing", "changed", "duplicated"])
