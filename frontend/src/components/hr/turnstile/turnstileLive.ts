@@ -20,6 +20,12 @@ export interface LiveContext {
   profiles: { device_id: number; state: GateBindingState; profile_hash: string | null; snapshot: PhysicalSnapshot | null; observed_at: string | null }[];
   jobs: LiveJob[];
 }
+export function withAcceptedLiveJob(current: LiveContext | undefined, job: LiveJob): LiveContext | undefined {
+  if (!current) return current;
+  return { ...current, jobs: current.jobs.some(item => item.id === job.id)
+    ? current.jobs.map(item => item.id === job.id && item.state !== LiveState.Succeeded ? job : item)
+    : [job, ...current.jobs] };
+}
 export interface LivePayload {
   expected_employee_no: string; action: LiveAction; device_id: number; expected_profile_hash?: string;
   reviewed_name?: string; photo_asset_id?: number; manual_face_reviewed?: boolean; delete_credentials_confirmed?: boolean;

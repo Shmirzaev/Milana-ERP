@@ -204,16 +204,22 @@ All six pass complete capability/capacity and absent credential reads. Five devi
 HTTP 404 means exactly `taskNotExist` (idle, never deletion success); `turnstile-31`
 instead returns `deviceError` and deletion remains refused there. Conditional
 enrollment and bounded delete verification are locally implemented: 224 connector
-and 96 focused backend tests plus frontend build/types/lint pass. New full Linux/PG
-verification is blocked by Docker availability; a broad Windows fallback had 24
-failures/135 skips and is not a release pass. Nothing was activated or deployed.
-The new candidate is based on `2bb66fc444` (current green release metadata), in
+tests and the final 609 scoped backend tests pass, including eight live PostgreSQL
+cases with zero skips; Linux release policies pass (19 tests/six subtests). The
+earlier Windows fallback's 24 failures/135 skips remain historical failed evidence.
+Owner-authorized Edge testing against a disposable database/synthetic HTTPS terminal
+completed ten verified requests plus HR save/edit/archive/restore/reload, EN/RU/UZ,
+unapproved-identity and frontend/API permission checks. A stale waiting-status bug
+was fixed with receipt/cache ordering and seven regressions; rebuilt Edge showed
+Verified. Both employees and 25 valid audit records were verified before exact
+target cleanup. Reader files/task stayed unchanged; no live device write or deployment.
+The candidate is based on `2bb66fc444` (verified starting release metadata), in
 `C:/ERP/.codex-work/hr-hikvision-compat-20261110` on
 `codex/hr-hikvision-compat-20261110`. See the
 [compatibility evidence and remaining gates](TURNSTILE_FIRMWARE_COMPATIBILITY_20261110.md).
-Browser testing
-for this new integration was explicitly deferred by the owner after automatic
-policy blocked the local preview launch. Approved access policy and the supervised
+The owner manually started/restarted the loopback preview after automatic review
+blocked agent launch. Real-person testing remains owner-deferred. Approved access
+policy, latest-source integration, human/QA review and the supervised
 firmware/passage/dual-report pilot remain open. See the
 [live integration packet](TURNSTILE_LIVE_INTEGRATION_20261109.md).
 The owner chose Milana as sole writer after an agreed handover and

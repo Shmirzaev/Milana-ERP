@@ -7,7 +7,7 @@ import { ApiError } from "@/lib/errorMessages";
 import { useT } from "@/lib/i18n";
 import { uploadPhoto } from "./turnstileBackend";
 import { type GateEmployee } from "./turnstilePreview";
-import { LiveAction, LiveState, PhysicalUserType, livePrefix, lookupLive, submitLive, validLiveRequest, type LiveContext, type LivePayload, type PendingLiveRequest } from "./turnstileLive";
+import { LiveAction, LiveState, PhysicalUserType, livePrefix, lookupLive, submitLive, validLiveRequest, withAcceptedLiveJob, type LiveContext, type LiveJob, type LivePayload, type PendingLiveRequest } from "./turnstileLive";
 import { liveCopy } from "./turnstileLiveCopy";
 
 export default function LiveTurnstileAccess({ employee, actorId, onClose }: { employee: GateEmployee; actorId: number; onClose: () => void }) {
@@ -17,13 +17,16 @@ export default function LiveTurnstileAccess({ employee, actorId, onClose }: { em
   const [name, setName] = useState(employee.full_name), [photoId, setPhotoId] = useState<number | null>(null);
   const [preview, setPreview] = useState(""), [confirmation, setConfirmation] = useState(""), [adoptConfirmation, setAdoptConfirmation] = useState("");
   const [busy, setBusy] = useState(false), [message, setMessage] = useState(""), [pending, setPending] = useState<PendingLiveRequest | null>(null);
+  const [statusJobId, setStatusJobId] = useState<number | null>(null);
   const [recoveryBlocked, setRecoveryBlocked] = useState(false); const uploadGeneration = useRef(0);
   const inFlight = useRef(false);
-  function beginOperation() { if (inFlight.current) return false; inFlight.current = true; setBusy(true); return true; }
+  function beginOperation() { if (inFlight.current) return false; inFlight.current = true; setBusy(true); setStatusJobId(null); setMessage(""); return true; }
   function endOperation() { inFlight.current = false; setBusy(false); }
   const journalKey = `turnstile-live:v1:${actorId}:${employee.factory_code}:${employee.id}`;
   const device = data?.devices.find(d => d.id === deviceId), profile = data?.profiles.find(p => p.device_id === deviceId);
   const observation = data?.jobs.find(j => j.device_id === deviceId && j.action === LiveAction.Observe && j.state === LiveState.Succeeded);
+  const statusJob = data?.jobs.find(j => j.id === statusJobId);
+  const statusMessage = statusJob ? c.states[statusJob.state] : message;
   const number = data?.employee_no || "";
   const reviewKey = JSON.stringify([deviceId, action, number, profile?.profile_hash, name.trim(), photoId]);
   const adoptKey = JSON.stringify([observation?.id, observation?.profile_hash, number]);
@@ -47,18 +50,27 @@ export default function LiveTurnstileAccess({ employee, actorId, onClose }: { em
     const stored: unknown = JSON.parse(sessionStorage.getItem(journalKey) || "null");
     if (validLiveRequest(stored) && stored.key === key) sessionStorage.removeItem(journalKey);
   }
+  async function trackAcceptedJob(job: LiveJob) {
+    // A retry reuses its ID. Seed its accepted receipt before polling so a
+    // failed refresh cannot display the previous cached Failed state.
+    await mutate(current => withAcceptedLiveJob(current, job), { revalidate: false });
+    setStatusJobId(job.id); setMessage(c.waiting);
+    try { await mutate(); } catch { /* The existing context error banner reports this read failure. */ }
+  }
   async function send(request: PendingLiveRequest, acquired = false) {
     if (!acquired && !beginOperation()) return;
     try {
-      await submitLive(employee.id, request);
-      clearOwnRequest(request.key); setPending(null); setMessage(c.waiting); await mutate();
+      const job = await submitLive(employee.id, request);
+      clearOwnRequest(request.key); setPending(null); await trackAcceptedJob(job);
     } catch (e) {
       if (e instanceof ApiError && [400, 401, 403, 404, 409, 413, 415, 422].includes(e.status)) {
         // A refusal to replay does not prove an earlier timed-out submission
         // was never accepted. Reconcile its scoped receipt before discarding.
         try {
           const accepted = await lookupLive(employee.id, request.key);
-          clearOwnRequest(request.key); setPending(null); setMessage(accepted ? c.waiting : c.refused); await mutate();
+          clearOwnRequest(request.key); setPending(null);
+          if (accepted) await trackAcceptedJob(accepted);
+          else { setMessage(c.refused); await mutate(); }
         } catch { setPending(request); setMessage(c.unknown); }
       } else { setPending(request); setMessage(c.unknown); }
     } finally { endOperation(); }
@@ -79,7 +91,7 @@ export default function LiveTurnstileAccess({ employee, actorId, onClose }: { em
     if (!pending || !beginOperation()) return;
     try {
       const job = await lookupLive(employee.id, pending.key);
-      if (job) { clearOwnRequest(pending.key); setPending(null); setMessage(c.waiting); await mutate(); }
+      if (job) { clearOwnRequest(pending.key); setPending(null); await trackAcceptedJob(job); }
       else setMessage(c.unknown);
     } catch { setMessage(c.unknown); } finally { endOperation(); }
   }
@@ -93,7 +105,10 @@ export default function LiveTurnstileAccess({ employee, actorId, onClose }: { em
   }
   async function retryUnsent(jobId: number) {
     if (pending || recoveryBlocked || !beginOperation()) return;
-    try { await api.post(`${livePrefix}/jobs/${jobId}/retry-unsent`, {}); setMessage(c.waiting); await mutate(); }
+    try {
+      const job = await api.post<LiveJob>(`${livePrefix}/jobs/${jobId}/retry-unsent`, {});
+      try { await trackAcceptedJob(job); } catch { setMessage(c.unknown); }
+    }
     catch { setMessage(c.refused); } finally { endOperation(); }
   }
   async function upload(file: File | undefined) {
@@ -148,7 +163,7 @@ export default function LiveTurnstileAccess({ employee, actorId, onClose }: { em
         {action !== LiveAction.Observe && <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={confirmation === reviewKey} disabled={busy || !!pending} onChange={e => setConfirmation(e.target.checked ? reviewKey : "")} />{c.review}</label>}
         <button type="button" className="btn btn-primary" disabled={!canSubmit} onClick={() => void submit()}>{c.apply}</button>
       </>}
-      {(message || pending || recoveryBlocked) && <p role="status" className="text-sm">{pending || recoveryBlocked ? c.unknown : message}</p>}
+      {(statusMessage || pending || recoveryBlocked) && <p role="status" className="text-sm">{pending || recoveryBlocked ? c.unknown : statusMessage}</p>}
       {pending && <div className="flex flex-wrap gap-2"><button type="button" className="btn btn-secondary" disabled={busy} onClick={() => void checkReceipt()}>{c.receipt}</button>
         <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => void send(pending)}>{c.retrySaved}</button></div>}
       <div className="flex items-center justify-between gap-3 border-t pt-3"><h3 className="font-semibold">{c.history}</h3><button type="button" className="btn btn-secondary" disabled={busy} onClick={() => void mutate()}>{c.refresh}</button></div>
