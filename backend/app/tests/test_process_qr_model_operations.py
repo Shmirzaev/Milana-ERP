@@ -1,11 +1,13 @@
 from copy import deepcopy
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import event, text
 from sqlalchemy.orm import sessionmaker
 
-from app.schemas import Model, ModelSize
+from app.schemas import Model, ModelImage, ModelSize
 from app.models.catalog import models_service
+from app.models.model_family_images_service import model_family_image
 from app.tests.conftest import TestSessionLocal
 from app.tests.test_catalog_family_operations_query_growth import catalog_postgres as catalog_postgres
 from app.tests.test_paid_operation_factory_scope import _create_payroll_manager, _operation
@@ -106,7 +108,63 @@ def test_duplicate_base_uses_catalog_latest_representative(client, auth_headers)
     assert _read(client, auth_headers, mid)["details_json"]["paid_operations"] == last
 
 
+def test_catalog_base_classifier_is_preserved_for_old_identity_metadata(client, auth_headers):
+    operations = [_operation("old-base", "milana")]
+    base_id = _model("QRBASE", operations=operations)
+    with TestSessionLocal() as db:
+        row = db.get(Model, base_id)
+        row.details_json = {**row.details_json, "general": {"variant_no": "orphaned-old-field"}}
+        db.commit()
+    mid = _model("QRBASE-V-1", variant="1", operations=[])
+    assert _read(client, auth_headers, mid)["details_json"]["paid_operations"] == operations
+
+
+def test_metadata_cache_without_images_invalidates_on_flush_and_transaction(client, auth_headers):
+    old = [_operation("old", "milana")]
+    _model("QRBASE", operations=old)
+    mid = _model("QRBASE-V-1", variant="1", operations=[])
+    with TestSessionLocal() as db:
+        variant = db.get(Model, mid)
+        assert models_service._process_qr_paid_operation_details(db, variant)["paid_operations"] == old
+        newest = Model(code="LATEST-QRBASE", name="Newest base", details_json={
+            "general": {"model_no": "QRBASE"}, "paid_operations": [_operation("new", "milana")]})
+        db.add(newest)
+        db.flush()
+        assert models_service._process_qr_paid_operation_details(db, variant)["paid_operations"] == [_operation("new", "milana")]
+        newest.details_json = {**newest.details_json, "general": {"model_no": "QRBASE", "variant_no": "9"}}
+        db.flush()
+        assert models_service._process_qr_paid_operation_details(db, variant)["paid_operations"] == old
+        db.commit()
+        assert models_service._process_qr_paid_operation_details(db, variant)["paid_operations"] == old
+
+
+@pytest.mark.parametrize("change", ["family", "variant", "legacy", "factory"])
+def test_cached_donor_is_rechecked_before_operations_are_borrowed(client, auth_headers, monkeypatch, change):
+    base_id = _model("QRBASE", operations=[_operation("base", "milana")])
+    mid = _model("QRBASE-V-1", variant="1", operations=[])
+    with TestSessionLocal() as db:
+        variant = db.get(Model, mid)
+        members = models_service.model_family_identity_members(variant)
+        base = db.get(Model, base_id)
+        details = deepcopy(base.details_json)
+        if change == "family":
+            details["general"] = {"model_no": "DIFFERENT"}
+        elif change == "variant":
+            details["general"]["variant_no"] = "9"
+        elif change == "legacy":
+            details["legacy_import"] = True
+        else:
+            base.factory_code = "BST"
+        base.details_json = details
+        db.flush()
+        monkeypatch.setattr(models_service, "model_family_identity_members", lambda model: members)
+        with pytest.raises(HTTPException) as error:
+            models_service._process_qr_paid_operation_details(db, variant)
+        assert error.value.status_code == 409
+
+
 def test_postgres_projection_is_indexed_bounded_read_only(catalog_postgres):  # noqa: F811
+    ModelImage.__table__.create(catalog_postgres, checkfirst=True)
     sessions = sessionmaker(bind=catalog_postgres, expire_on_commit=False)
     operations = [_operation("base", "milana")]
     with sessions.begin() as db:
@@ -131,12 +189,15 @@ def test_postgres_projection_is_indexed_bounded_read_only(catalog_postgres):  # 
         before = db.execute(text("SELECT md5(string_agg(t::text, '' ORDER BY id)) FROM models t")).scalar_one()
         event.listen(catalog_postgres, "before_cursor_execute", capture)
         try:
+            model_family_image(original)
+            warm_count = len(statements)
             for _ in range(25):
                 details = models_service._process_qr_paid_operation_details(db, original)
                 assert details["paid_operations"] == operations
                 assert details["general"]["variant_no"] == "1" and details["note"] == "keep"
         finally:
             event.remove(catalog_postgres, "before_cursor_execute", capture)
-        assert len(statements) == 25
-        assert all("models.model_group_key =" in sql and "models.factory_code =" in sql for sql in statements)
+        assert len(statements) == warm_count + 25
+        assert any("models.model_group_key IN" in sql and "models.factory_code =" in sql for sql in statements[:warm_count])
+        assert all("models.details_json" in sql and "models.id =" in sql and "models.factory_code =" in sql for sql in statements[warm_count:])
         assert db.execute(text("SELECT md5(string_agg(t::text, '' ORDER BY id)) FROM models t")).scalar_one() == before

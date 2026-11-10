@@ -74,6 +74,7 @@ from app.models.model_family_images_service import (
     family_image_from_members,
     family_images_for_models,
     model_family_image,
+    model_family_identity_members,
     own_model_image,
 )
 from app.models.model_images_service import model_print_image_url, model_preview_image_url, model_variant_picture_url
@@ -1765,30 +1766,31 @@ def get_process_qr_model_sizes(
 
 def _process_qr_paid_operation_details(db: Session, model: Model) -> dict:
     """Project the base template without changing the selected variant or storage."""
-    source = model
+    source_details = model.details_json
     if _model_code_parts(model)[1] and (model.details_json or {}).get("legacy_import") is not True:
-        family_query = db.query(Model).filter(
-            Model.catalog_scope == model.catalog_scope,
-            Model.factory_code == model.factory_code,
-        )
-        group_key = _model_group_key(model)
-        if db.get_bind().dialect.name == "postgresql":
-            family = family_query.filter(
-                literal_column("models.is_legacy_import").is_(False),
-                literal_column("models.model_group_key") == group_key,
-            ).all()
-        else:
-            family = [row for row in family_query.all()
-                      if (row.details_json or {}).get("legacy_import") is not True
-                      and _model_group_key(row) == group_key]
+        # Model detail has already resolved this exact scoped family for its
+        # garment picture. Reuse that metadata; never hydrate every sibling's
+        # technical document/operations just to find the base identity.
+        family = model_family_identity_members(model)
         bases = [row for row in family if not _model_code_parts(row)[1]]
         if bases:
-            source = max(bases, key=lambda row: row.id)
-    details = deepcopy(model.details_json or {})
+            source_id = max(bases, key=lambda row: row.id).id
+            row = db.query(Model.id, Model.code, Model.name, Model.details_json).filter(
+                Model.id == source_id,
+                Model.catalog_scope == model.catalog_scope,
+                Model.factory_code == model.factory_code,
+            ).first()
+            source = SimpleNamespace(**row._mapping) if row is not None else None
+            if (source is None or (source.details_json or {}).get("legacy_import") is True
+                    or _model_group_key(source) != _model_group_key(model)
+                    or _model_code_parts(source)[1]):
+                raise HTTPException(409, "Model family changed; reload the model")
+            source_details = source.details_json
+    details = dict(model.details_json or {})
     details.pop("paidOperations", None)
     # An absent/empty base template is authoritative: never revive variant or
     # frontend default operations. Families without a base keep their own list.
-    details["paid_operations"] = deepcopy(paid_operations_from_details(source.details_json))
+    details["paid_operations"] = paid_operations_from_details(source_details)
     return details
 
 
@@ -1801,7 +1803,7 @@ def get_model(
 ):
     m = _models_query(db, catalog_scope).filter(Model.id == mid).first()
     if not m: raise HTTPException(404, "Model not found")
-    payload = ModelDetail.model_validate(m).model_dump()
+    payload = ModelDetail.model_validate(m).model_dump(exclude={"details_json"} if paid_operations_from_model else set())
     photo = model_family_image(m)
     payload["primary_image"] = _image_payload(photo) if photo else None
     payload["primary_image_url"] = photo.file_url if photo else None

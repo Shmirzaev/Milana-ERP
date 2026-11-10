@@ -24,6 +24,17 @@ indexed PostgreSQL family path avoids approval/write locks. Existing family-save
 writes remain unchanged, including their historical catalog-wide family semantics;
 this narrow read fix does not claim to resolve broader write-scope risks.
 
+The final implementation reuses the transaction-scoped family identity metadata
+already resolved for the garment picture, then reads only the selected base's
+details. It retains Catalog's own base classifier, including older orphaned
+variant fields; photo selection itself is unchanged. Both metadata caches clear
+on flush and transaction change. Opt-in serialization skips the discarded variant
+details and copies the final projection once. Earlier full-family JSON hydration
+was rejected after read-only diagnostics showed avoidable latency. Diagnostics
+of the optimized path found approximately 0.7 ms/2.0 ms direct-service median
+overhead on the reported/larger selected families; formal staged HTTP budgets
+remain the release gate. No serving source was edited for those diagnostics.
+
 Frontend family cache invalidation covers the opt-in URL. Model/catalog context
 guards hide old operations during loading and reject stale/late saves. The loaded
 message names the business model; the selected variant remains label/order identity.
@@ -46,7 +57,11 @@ Source branch codex/process-qr-base-model-20261110 is isolated in
 C:/ERP/.codex-work/process-qr-base-model-20261110. Original BJ5039 configuration
 repair is recorded separately; this application change performs no backfill.
 
-Release target reserved: 20261110_064423. Exact reviewed commit, immutable images,
+Release target reserved: 20261110_070607. Earlier candidate 88d15d053 and its CI
+42770915197 were superseded before deployment by the bounded metadata optimization;
+its completed frontend/security results are historical, not the final candidate's
+checks. The earlier release identifier 20261110_064423 will not be reused.
+Exact reviewed commit, immutable images,
 backup, inactive-slot signed QA, full response/performance contracts, health and
 rollback checks remain required before cutover. User chose Edge after browser
 reconnection. Historical performance exceptions/observation waivers do not apply.

@@ -12,6 +12,7 @@ from app.models.model_identity_service import model_number_fields
 
 
 _CACHE = "model_family_photos"
+_IDENTITY_CACHE = "model_family_identity_members"
 _IDENTITY_FIELDS = {"id", "code", "name", "details_json", "catalog_scope", "factory_code"}
 
 
@@ -58,6 +59,18 @@ def family_image_from_members(model, members) -> ModelImage | None:
 def _invalidate_family_photos(session, _context):
     if any(isinstance(row, (Model, ModelImage)) for row in (*session.new, *session.dirty, *session.deleted)):
         session.info.pop(_CACHE, None)
+        session.info.pop(_IDENTITY_CACHE, None)
+
+
+def model_family_identity_members(model: Model) -> list[SimpleNamespace]:
+    """Reuse the scoped metadata already resolved for the model's garment photo."""
+    state = inspect(model, raiseerr=False)
+    db = object_session(model) if state is not None else None
+    if db is None or not state.persistent or _legacy(model):
+        return []
+    model_family_image(model)
+    transaction, members = db.info.get(_IDENTITY_CACHE, (None, {}))
+    return members.get(_family_key(model), []) if transaction is db.get_transaction() else []
 
 
 def model_family_image(model: Model | None) -> ModelImage | None:
@@ -89,6 +102,9 @@ def family_images_for_models(db: Session, models) -> dict:
     transaction, cache = db.info.get(_CACHE, (None, {}))
     if transaction is not db.get_transaction():
         cache = {}
+    identity_transaction, identity_members = db.info.get(_IDENTITY_CACHE, (None, {}))
+    if identity_transaction is not db.get_transaction():
+        identity_members = {}
     keys = {_family_key(row) for row in models if not _legacy(row)} - cache.keys()
     if keys:
         grouped_keys = defaultdict(list)
@@ -142,6 +158,7 @@ def family_images_for_models(db: Session, models) -> dict:
         selected = {}
         for family_key in keys:
             family = members[family_key]
+            identity_members[family_key] = family
             selected[family_key] = family_image_from_members(family[0], family) if family else None
         images = {}
         missing = []
@@ -158,4 +175,5 @@ def family_images_for_models(db: Session, models) -> dict:
         for family_key, image in selected.items():
             cache[family_key] = images[image.id] if image is not None else None
         db.info[_CACHE] = (db.get_transaction(), cache)
+        db.info[_IDENTITY_CACHE] = (db.get_transaction(), identity_members)
     return cache
