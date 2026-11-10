@@ -1,0 +1,58 @@
+import type { Lang } from "@/lib/i18n";
+
+const en = {
+  reprice: "Request repricing", cancelRequest: "Cancel pricing request",
+  title: "Variant pricing", pending: "Pending pricing", approval: "Awaiting approval", report: "All prices & history",
+  completed: "Completed", search: "Search model, variant or Kroy", apply: "Search", standard: "Standard", usluga: "Usluga",
+  draft: "Save draft", submit: "Submit costs", confirm: "Confirm price", return: "Return for correction", reason: "Reason",
+  purchasing: "Purchasing", accessories: "Accessories", cutting: "Cutting", collecting: "Waiting for costs", awaiting_finance: "Awaiting Finance",
+  approved: "Approved", legacy: "Historical request", cancelled: "Cancelled", material: "Material", consumption: "Consumption / piece",
+  rate: "Rate USD", total: "Cost USD", sewing: "Sewing USD / piece", printing: "Printing USD / piece", packaging: "Packaging USD / piece", noAccessories: "No accessories required",
+  noAccessoriesReason: "Reason no accessories are required", accessoryName: "Accessory", accessoryPrice: "USD / piece", add: "Add accessory", remove: "Remove",
+  selling: "Selling price USD", exchange: "UZS per USD", netCost: "Net cost USD", netCostUzs: "Net cost UZS", profit: "Profit USD", margin: "Margin %",
+  export: "Download Excel", all: "All", priced: "Priced", source: "Price source", updated: "Updated", history: "History", close: "Close",
+  waiting: "Waiting for submission", submitted: "Submitted", empty: "No matching variants", missing: "Passport consumption needs completion",
+  sourcePassport: "Cutting passport", saved: "Saved", error: "Could not save pricing", correction: "Correction requested", owner: "Pricing factory",
+  existing: "Existing price", currency: "Currency", saving: "Saving…", loading: "Loading…", model: "Model", variant: "Variant", name: "Name",
+  financeNote: "Confirm a selling price after both teams submit. Prices are net, per piece.",
+  teamNote: "Save your draft, then submit costs to remove the task from Pending.",
+  noRequest: "No pricing request", quantityMissing: "Missing consumption", viewPassport: "Open passports", approvedBy: "Approved by", approvedAt: "Approved at",
+};
+type Messages = typeof en;
+const ru: Messages = {
+  reprice: "Запросить новую цену", cancelRequest: "Отменить запрос цены",
+  title: "Цены вариантов", pending: "Ожидают расчёта", approval: "На подтверждении", report: "Все цены и история",
+  completed: "Завершённые", search: "Поиск модели, варианта или кроя", apply: "Поиск", standard: "Основной каталог", usluga: "Услуга",
+  draft: "Сохранить черновик", submit: "Передать затраты", confirm: "Подтвердить цену", return: "Вернуть на исправление", reason: "Причина",
+  purchasing: "Закупки", accessories: "Фурнитура", cutting: "Крой", collecting: "Ожидаются затраты", awaiting_finance: "Ожидает финансовый отдел",
+  approved: "Подтверждено", legacy: "Исторический запрос", cancelled: "Отменено", material: "Материал", consumption: "Расход на изделие",
+  rate: "Цена USD", total: "Стоимость USD", sewing: "Пошив USD / шт.", printing: "Печать USD / шт.", packaging: "Упаковка USD / шт.", noAccessories: "Фурнитура не требуется",
+  noAccessoriesReason: "Почему фурнитура не требуется", accessoryName: "Фурнитура", accessoryPrice: "USD / шт.", add: "Добавить фурнитуру", remove: "Удалить",
+  selling: "Цена продажи USD", exchange: "UZS за USD", netCost: "Себестоимость USD", netCostUzs: "Себестоимость UZS", profit: "Прибыль USD", margin: "Маржа %",
+  export: "Скачать Excel", all: "Все", priced: "С ценой", source: "Источник цены", updated: "Обновлено", history: "История", close: "Закрыть",
+  waiting: "Ожидает передачи", submitted: "Передано", empty: "Нет подходящих вариантов", missing: "Необходимо заполнить расход в паспорте",
+  sourcePassport: "Паспорт кроя", saved: "Сохранено", error: "Не удалось сохранить цену", correction: "Запрошено исправление", owner: "Фабрика расчёта",
+  existing: "Текущая цена", currency: "Валюта", saving: "Сохранение…", loading: "Загрузка…", model: "Модель", variant: "Вариант", name: "Название",
+  financeNote: "Подтвердите цену после передачи затрат обоими отделами. Цены нетто, за изделие.",
+  teamNote: "Сохраните черновик, затем передайте затраты, чтобы убрать задачу из ожидающих.",
+  noRequest: "Нет запроса цены", quantityMissing: "Расход не заполнен", viewPassport: "Открыть паспорта", approvedBy: "Подтвердил", approvedAt: "Дата подтверждения",
+};
+const uz: Messages = {
+  reprice: "Yangi narx so‘rash", cancelRequest: "Narx so‘rovini bekor qilish",
+  title: "Variant narxlari", pending: "Narx kutilmoqda", approval: "Tasdiqlash kutilmoqda", report: "Barcha narxlar va tarix",
+  completed: "Yakunlangan", search: "Model, variant yoki kroy qidirish", apply: "Qidirish", standard: "Asosiy katalog", usluga: "Xizmat",
+  draft: "Qoralamani saqlash", submit: "Xarajatlarni topshirish", confirm: "Narxni tasdiqlash", return: "Tuzatishga qaytarish", reason: "Sabab",
+  purchasing: "Xarid", accessories: "Furnitura", cutting: "Bichish", collecting: "Xarajatlar kutilmoqda", awaiting_finance: "Moliya kutilmoqda",
+  approved: "Tasdiqlangan", legacy: "Tarixiy so‘rov", cancelled: "Bekor qilingan", material: "Material", consumption: "Bir dona sarfi",
+  rate: "Narx USD", total: "Xarajat USD", sewing: "Tikish USD / dona", printing: "Bosma USD / dona", packaging: "Qadoqlash USD / dona", noAccessories: "Furnitura kerak emas",
+  noAccessoriesReason: "Furnitura kerak emasligi sababi", accessoryName: "Furnitura", accessoryPrice: "USD / dona", add: "Furnitura qo‘shish", remove: "O‘chirish",
+  selling: "Sotuv narxi USD", exchange: "Bir USD uchun UZS", netCost: "Tannarx USD", netCostUzs: "Tannarx UZS", profit: "Foyda USD", margin: "Marja %",
+  export: "Excel yuklab olish", all: "Barchasi", priced: "Narxi bor", source: "Narx manbasi", updated: "Yangilangan", history: "Tarix", close: "Yopish",
+  waiting: "Topshirish kutilmoqda", submitted: "Topshirilgan", empty: "Mos variantlar yo‘q", missing: "Pasportdagi sarfni to‘ldirish kerak",
+  sourcePassport: "Bichish pasporti", saved: "Saqlandi", error: "Narxni saqlab bo‘lmadi", correction: "Tuzatish so‘ralgan", owner: "Narxlash fabrikasi",
+  existing: "Amaldagi narx", currency: "Valyuta", saving: "Saqlanmoqda…", loading: "Yuklanmoqda…", model: "Model", variant: "Variant", name: "Nomi",
+  financeNote: "Ikkala bo‘lim xarajatlarni topshirgach sotuv narxini tasdiqlang. Narxlar sof, bir dona uchun.",
+  teamNote: "Qoralamani saqlang, so‘ng xarajatlarni topshirib vazifani kutilayotganlardan olib tashlang.",
+  noRequest: "Narx so‘rovi yo‘q", quantityMissing: "Sarf kiritilmagan", viewPassport: "Pasportlarni ochish", approvedBy: "Tasdiqlagan", approvedAt: "Tasdiqlangan sana",
+};
+export function priceWorkflowMessages(lang: Lang): Messages { return lang === "ru" ? ru : lang === "uz" ? uz : en; }

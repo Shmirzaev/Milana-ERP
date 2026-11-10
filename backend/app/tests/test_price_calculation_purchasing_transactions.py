@@ -4,8 +4,8 @@ import pytest
 
 from app.core.deps import user_permissions
 from app.libs.dto.planning.price_calculation_request_update import PriceCalculationPurchasingIn
+from app.libs.types.planning import PriceCalculationPurchasingCommand
 from app.models import price_calculation_service as pricing
-from app.models.planning import costing_service
 from app.schemas import AuditLog, Model, Notification, User
 from app.schemas.planning.price_calculation import PriceCalculationRequest
 
@@ -87,12 +87,12 @@ def _update(session_factory, case: dict[str, int | str], payload: PriceCalculati
     with session_factory() as db:
         purchaser = db.get(User, case["purchaser_id"])
         assert purchaser is not None
-        return costing_service.update_purchasing_details(
-            db,
-            request_id=case["request_id"],
-            payload=payload,
-            current=purchaser,
-        )
+        # Preserve the historical participant's transaction contract. The active
+        # HTTP draft/submit workflow is covered by test_variant_price_workflow.
+        request = db.get(PriceCalculationRequest, case["request_id"])
+        pricing.update_purchasing_details(db, request, PriceCalculationPurchasingCommand(payload.fabric_price, payload.sewing_cost), purchaser)
+        db.commit()
+        return pricing.serialize_price_request(request)
 
 
 def _finance_completion_notifications(db, case: dict[str, int | str]) -> list[Notification]:
@@ -195,12 +195,8 @@ def test_request_audit_and_finance_notification_roll_back_together_then_retry(mo
             purchaser = db.get(User, case["purchaser_id"])
             assert purchaser is not None
             with pytest.raises(RuntimeError, match="after request, audit and notification flush"):
-                costing_service.update_purchasing_details(
-                    db,
-                    request_id=case["request_id"],
-                    payload=payload,
-                    current=purchaser,
-                )
+                pricing.update_purchasing_details(db, db.get(PriceCalculationRequest, case["request_id"]),
+                    PriceCalculationPurchasingCommand(payload.fabric_price, payload.sewing_cost), purchaser)
             staged = db.get(PriceCalculationRequest, case["request_id"])
             assert staged is not None
             assert float(staged.fabric_price) == pytest.approx(4.5)

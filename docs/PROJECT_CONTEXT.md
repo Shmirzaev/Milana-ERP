@@ -15,6 +15,22 @@ Last updated 2026-11-10. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
+## Variant pricing workflow (10 November; candidate, not deployed)
+
+User-authorized clone_main-based worktree adds missing-price requests after a
+passport, independent Purchasing/Accessories submissions, explicit Finance
+approval, immutable price history and complete filtered Excel reports. Existing
+prices are reused; drafts never publish. Pricing does not rewrite saved Sales
+prices or gate manufacturing/order stages. Additive migration 0156 and optional
+preview-first reconciliation are prepared, neither run in production. Custom
+Finance roles need explicit price_calculation.approve. Local targeted checks,
+approved isolated PostgreSQL races/rollback, actual three-role browser handoff,
+readback and independent source review are recorded in the
+[candidate packet](archive/VARIANT_PRICING_WORKFLOW_20261110.md). Human/QA-master
+release acceptance remains open; full native suite collection has inherited
+blockers. Active blue 20261110_070607 and rollback green 20261109_163130 are
+untouched. Old images are not an approved rollback for new managed approvals.
+
 ## Process QR base-model operations (10 November; deployed)
 
 Both hosts serve blue `20261110_070607`, application

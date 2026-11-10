@@ -212,6 +212,8 @@ def attach_completed_selling_price(
     Incomplete or cleared requests never erase a previously approved variant
     price. A later completed request replaces it and becomes the traceable source.
     """
+    if request.workflow_state != "legacy" and request.workflow_state != "approved":
+        return False
     if overall_status(request) != PriceCalculationStatus.COMPLETE:
         return False
     price = _decimal(request.selling_price)
@@ -339,7 +341,11 @@ def serialize_price_request(request: PriceCalculationRequest) -> dict:
         "created_at": request.created_at,
         "updated_at": request.updated_at,
     }
-    payload.update(_calculation(request))
+    if request.workflow_state == "legacy":
+        payload.update(_calculation(request))
+    else:
+        from app.models.planning.price_workflow_calculation import projection
+        payload.update(projection(request))
     return payload
 
 

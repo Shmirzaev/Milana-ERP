@@ -1,223 +1,62 @@
 "use client";
 
-import { formatVariantNumber } from "@/lib/variantDisplay";
-import { useMemo, useState } from "react";
-import { ChevronDown, ChevronUp } from "lucide-react";
-import ImageThumbnail from "@/components/ImageThumbnail";
+import { useState } from "react";
 import PageHeader from "@/components/PageHeader";
-import { useDialogs } from "@/components/DialogProvider";
-import { usePriceRequests } from "@/hooks/usePriceRequests";
+import PriceRequestCard from "@/components/price-calculation/PriceRequestCard";
 import PriceRequestPagination from "@/components/price-calculation/PriceRequestPagination";
+import PriceCostDetails from "@/components/price-calculation/PriceCostDetails";
+import VariantPriceRegister from "@/components/price-calculation/VariantPriceRegister";
+import { usePriceRequests } from "@/hooks/usePriceRequests";
 import { api } from "@/lib/api";
+import { useMe, can } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
-import { priceRequestSurface, type PriceCalculationRequest, type PriceRequestStatus } from "@/lib/priceCalculationRequests";
-import {
-  PRICE_CALCULATION_DETAIL_GROUPS,
-  PRICE_CALCULATION_SUMMARY_COLUMNS,
-  type CalculatedValues,
-  type EditableField,
-  type PriceCalculationColumn,
-  type PriceCalculationRow,
-} from "./priceCalculation";
+import { numberInputValue, type PriceCalculationRequest } from "@/lib/priceCalculationRequests";
+import { priceWorkflowMessages } from "@/lib/priceWorkflowMessages";
 
-const LANGUAGE_LOCALES = { en: "en-US", ru: "ru-RU", uz: "uz-UZ" } as const;
-const FINANCE_FIELDS = new Set<EditableField>(["costPriceUzs", "sellingPrice", "profitPercentage", "exchangeRate"]);
-
-function text(value: number | string | null | undefined): string {
-  return value === null || value === undefined ? "" : String(value);
-}
-
-function rowFromRequest(request: PriceCalculationRequest): PriceCalculationRow {
-  return {
-    id: `price-request-${request.id}`,
-    kroyNo: request.kroy_no || "",
-    date: request.date?.slice(0, 10) || "",
-    modelNo: request.model_no,
-    variantNo: formatVariantNumber(request.variant_no),
-    modelCategory: request.model_category || "",
-    modelName: request.model_name,
-    modelSize: request.model_sizes.join(", "),
-    fabricWidth: text(request.fabric_width_m),
-    layupMeters: text(request.lay_length_m),
-    sizeCount: text(request.size_count),
-    gsm: text(request.gramage),
-    bindingKgPerPiece: text(request.binding_kg_per_piece),
-    fabricPrice: text(request.fabric_price),
-    sewingCost: text(request.sewing_cost),
-    packagingCost: text(request.packaging_cost),
-    accessory1: text(request.accessories[0]?.price),
-    accessory2: text(request.accessories[1]?.price),
-    accessory3: text(request.accessories[2]?.price),
-    accessory4: text(request.accessories[3]?.price),
-    costPriceUzs: text(request.cost_price_uzs),
-    sellingPrice: text(request.selling_price),
-    profitPercentage: text(request.profit_percentage),
-    exchangeRate: text(request.exchange_rate),
-  };
-}
-
-function calculationsFromRequest(request: PriceCalculationRequest): CalculatedValues {
-  return {
-    fabricConsumption: request.fabric_consumption,
-    consumptionCost: request.consumption_cost,
-    bindingPrice: request.binding_price,
-    costPrice: request.cost_price,
-    difference: request.difference,
-  };
-}
-
-function statusKey(status: PriceRequestStatus): string {
-  if (status === "complete") return "page.priceWorkflow.statusComplete";
-  if (status === "in_progress") return "page.priceWorkflow.statusPartial";
-  return "page.priceWorkflow.statusNew";
-}
-
-function optionalNumber(value: string): number | null {
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  const parsed = Number(trimmed);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-function PriceCalculationField({ column, row, calculated, formatter, label, onChange, readOnly, compact = false }: {
-  column: PriceCalculationColumn;
-  row: PriceCalculationRow;
-  calculated: CalculatedValues;
-  formatter: Intl.NumberFormat;
-  label: string;
-  onChange: (field: EditableField, value: string) => void;
-  readOnly: boolean;
-  compact?: boolean;
-}) {
-  if (column.kind === "calculated") {
-    return (
-      <div className="min-w-0">
-        <span className={`${compact ? "mb-0.5 text-[11px] leading-3.5" : "mb-1.5 text-xs leading-4"} block font-medium text-[var(--erp-text-muted)]`}>{label}</span>
-        <output aria-label={label} className={`${compact ? "h-8 px-2 py-1.5" : "h-9 px-2.5 py-2"} block w-full rounded-md border border-[var(--erp-border)] bg-white/70 text-right text-sm font-medium tabular-nums text-[var(--erp-text)]`}>
-          {calculated[column.field] === null ? "—" : formatter.format(calculated[column.field])}
-        </output>
-      </div>
-    );
-  }
-  const locked = Boolean(column.readOnly || readOnly);
-  return (
-    <label className="min-w-0">
-      <span className={`${compact ? "mb-0.5 text-[11px] leading-3.5" : "mb-1.5 text-xs leading-4"} block font-medium text-[var(--erp-text-muted)]`}>{label}</span>
-      <input type={column.inputType} inputMode={column.inputType === "number" ? "decimal" : undefined} step={column.inputType === "number" ? "any" : undefined} value={row[column.field]} onChange={(event) => onChange(column.field, event.target.value)} readOnly={locked} aria-label={label} className={`${compact ? "h-8 px-2" : "h-9 px-2.5"} w-full min-w-0 rounded-md border border-[var(--erp-border-strong)] text-sm text-[var(--erp-text)] outline-hidden transition ${locked ? "cursor-default bg-white/70 tabular-nums" : "bg-white focus:border-[var(--erp-accent)] focus:ring-2 focus:ring-[color-mix(in_srgb,var(--erp-accent)_20%,transparent)]"}`} />
-    </label>
-  );
-}
-
+type Draft = { revision: number; selling: string; exchange: string };
 export default function PriceCalculationPage() {
-  const { lang, t } = useT();
-  const dialogs = useDialogs();
-  const { data: requests, error, isLoading, mutate, hasMore, isLoadingMore, loadMore } = usePriceRequests();
-  const [expandedRows, setExpandedRows] = useState<Set<string>>(() => new Set());
-  const [editingRequests, setEditingRequests] = useState<Set<number>>(() => new Set());
-  const [financeDrafts, setFinanceDrafts] = useState<Record<number, Partial<PriceCalculationRow>>>({});
-  const [savingId, setSavingId] = useState<number | null>(null);
-  const formatter = useMemo(() => new Intl.NumberFormat(LANGUAGE_LOCALES[lang], { maximumFractionDigits: 4 }), [lang]);
-
-  function toggleDetails(rowId: string) {
-    setExpandedRows((current) => {
-      const next = new Set(current);
-      if (next.has(rowId)) next.delete(rowId); else next.add(rowId);
-      return next;
-    });
-  }
-
-  function beginFinanceEdit(request: PriceCalculationRequest) {
-    setFinanceDrafts((current) => ({ ...current, [request.id]: rowFromRequest(request) }));
-    setEditingRequests((current) => new Set(current).add(request.id));
-  }
-
-  function updateFinanceDraft(requestId: number, field: EditableField, value: string) {
-    if (!FINANCE_FIELDS.has(field)) return;
-    setFinanceDrafts((current) => ({ ...current, [requestId]: { ...(current[requestId] || {}), [field]: value } }));
-  }
-
-  async function saveFinance(request: PriceCalculationRequest, row: PriceCalculationRow) {
-    setSavingId(request.id);
+  const { lang, t } = useT(); const m = priceWorkflowMessages(lang); const { me } = useMe();
+  const [view, setView] = useState<"pending" | "approval" | "report">("pending");
+  const [query, setQuery] = useState(""); const [search, setSearch] = useState("");
+  const [catalog, setCatalog] = useState<"standard" | "usluga">("standard");
+  const { data, error, isLoading, mutate, hasMore, isLoadingMore, loadMore } = usePriceRequests({ queue: view === "approval" ? "approval" : "pending", q: search, catalog_scope: catalog });
+  const [drafts, setDrafts] = useState<Record<number, Draft>>({});
+  const [corrections, setCorrections] = useState<Record<number, { revision: number; team: "purchasing" | "accessories" | "cutting" | "cancel"; reason: string }>>({});
+  const [busy, setBusy] = useState<number | null>(null); const [errors, setErrors] = useState<Record<number, string>>({});
+  async function action(request: PriceCalculationRequest, action: "draft" | "approve" | "return") {
+    setBusy(request.id); setErrors(current => ({ ...current, [request.id]: "" }));
     try {
-      await api.patch(`/api/price-calculation/requests/${request.id}/finance`, {
-        cost_price_uzs: optionalNumber(row.costPriceUzs),
-        selling_price: optionalNumber(row.sellingPrice),
-        profit_percentage: optionalNumber(row.profitPercentage),
-        exchange_rate: optionalNumber(row.exchangeRate),
-      });
-      setEditingRequests((current) => {
-        const next = new Set(current);
-        next.delete(request.id);
-        return next;
-      });
+      const draft = drafts[request.id]; const correction = corrections[request.id];
+      if (action === "draft" && draft) await api.patch(`/api/price-calculation/requests/${request.id}/finance`, { expected_revision: draft.revision, selling_price: draft.selling.trim() ? Number(draft.selling) : null, exchange_rate: draft.exchange.trim() ? Number(draft.exchange) : null });
+      if (action === "approve") await api.post(`/api/price-calculation/requests/${request.id}/approve`, { expected_revision: draft?.revision ?? request.revision, selling_price: Number(draft?.selling ?? request.selling_price) });
+      if (action === "return" && correction) await api.post(`/api/price-calculation/requests/${request.id}/${correction.team === "cancel" ? "cancel" : "return"}`, correction.team === "cancel" ? { expected_revision: correction.revision, reason: correction.reason } : { expected_revision: correction.revision, team: correction.team, reason: correction.reason });
+      setDrafts(current => { const next = { ...current }; delete next[request.id]; return next; });
+      setCorrections(current => { const next = { ...current }; delete next[request.id]; return next; });
       await mutate();
-    } catch (saveError) {
-      await dialogs.notify(saveError instanceof Error ? saveError.message : t("page.priceWorkflow.saveError"));
-    } finally {
-      setSavingId(null);
-    }
+    } catch (err) { setErrors(current => ({ ...current, [request.id]: err instanceof Error ? err.message : m.error })); }
+    finally { setBusy(null); }
   }
-
-  return (
-    <div className="min-w-0">
-      <PageHeader title={t("page.priceCalculation.title")} subtitle={t("page.priceWorkflow.financeReceivedSubtitle")} />
-      {isLoading ? <div className="mb-3 text-sm text-[var(--erp-text-muted)]">{t("common.loading")}</div> : null}
-      {error ? <div className="mb-3 text-sm text-red-700">{t("page.priceWorkflow.loadError")}</div> : null}
-      {!isLoading && !error && requests?.length === 0 ? <div className="text-sm text-[var(--erp-text-muted)]">{t("page.priceWorkflow.empty")}</div> : null}
-      <div className="space-y-4">
-        {(requests || []).map((request) => {
-          const baseRow = rowFromRequest(request);
-          const row = editingRequests.has(request.id) ? { ...baseRow, ...financeDrafts[request.id] } : baseRow;
-          const detailsOpen = expandedRows.has(row.id);
-          const calculated = calculationsFromRequest(request);
-          const isEditing = editingRequests.has(request.id);
-          const accessoryNames = request.accessories.map((accessory) => accessory.name || "");
-          return (
-            <section key={request.id} className={`overflow-hidden rounded-lg border shadow-sm ${priceRequestSurface(request.overall_status)}`}>
-              <div className="flex min-h-9 items-center justify-between gap-2 border-b border-black/10 px-3 py-1.5">
-                <div className="min-w-0 text-sm font-semibold leading-5 text-[var(--erp-text)]">{t("page.priceWorkflow.request")} #{request.id}<span className="ml-2 text-xs font-medium text-[var(--erp-text-soft)]">{t(statusKey(request.overall_status))}</span></div>
-                <div className="flex shrink-0 gap-2">
-                  <button type="button" className="btn h-8 px-2.5 text-xs" disabled={isEditing || savingId === request.id} onClick={() => beginFinanceEdit(request)}>{t("page.priceWorkflow.edit")}</button>
-                  <button type="button" className="btn btn-primary h-8 px-2.5 text-xs" disabled={!isEditing || savingId === request.id} onClick={() => saveFinance(request, row)}>{savingId === request.id ? t("page.priceWorkflow.saving") : t("page.priceWorkflow.save")}</button>
-                </div>
-              </div>
-              <div className="flex gap-2 border-b border-black/10 px-3 py-2">
-                <div>
-                  <div className="mb-0.5 text-[11px] font-medium leading-3.5 text-[var(--erp-text-muted)]">{t("page.priceWorkflow.modelPicture")}</div>
-                  <ImageThumbnail imageUrl={request.model_image_url} label={`${request.model_no} ${t("page.priceWorkflow.modelPicture")}`} title={`${t("page.priceWorkflow.openPicture")}: ${t("page.priceWorkflow.modelPicture")}`} emptyLabel={t("page.priceWorkflow.noPicture")} />
-                </div>
-                <div>
-                  <div className="mb-0.5 text-[11px] font-medium leading-3.5 text-[var(--erp-text-muted)]">{t("page.priceWorkflow.variantPicture")}</div>
-                  <ImageThumbnail imageUrl={request.variant_image_url} label={`${formatVariantNumber(request.variant_no)} ${t("page.priceWorkflow.variantPicture")}`} title={`${t("page.priceWorkflow.openPicture")}: ${t("page.priceWorkflow.variantPicture")}`} emptyLabel={t("page.priceWorkflow.noPicture")} />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-x-2 gap-y-1.5 px-3 py-2 md:grid-cols-4 xl:grid-cols-[repeat(6,minmax(0,1fr))_2rem] xl:items-end">
-                {PRICE_CALCULATION_SUMMARY_COLUMNS.map((column) => {
-                  const canEdit = isEditing && FINANCE_FIELDS.has(column.field as EditableField) && (column.field !== "sellingPrice" || request.cost_price !== null);
-                  return <PriceCalculationField key={column.field} column={column} row={row} calculated={calculated} formatter={formatter} label={t(column.labelKey)} readOnly={!canEdit} onChange={(field, value) => updateFinanceDraft(request.id, field, value)} compact />;
-                })}
-                <button type="button" className="inline-flex h-8 w-8 self-end justify-self-end items-center justify-center rounded-md border border-[var(--erp-border-strong)] bg-white/60 text-[var(--erp-text-soft)] transition hover:bg-white hover:text-[var(--erp-text)] focus:outline-hidden focus-visible:ring-2 focus-visible:ring-[color-mix(in_srgb,var(--erp-accent)_25%,transparent)]" onClick={() => toggleDetails(row.id)} aria-label={detailsOpen ? t("page.priceCalculation.hideDetails") : t("page.priceCalculation.showDetails")} aria-expanded={detailsOpen} aria-controls={`${row.id}-details`}>
-                  {detailsOpen ? <ChevronUp className="h-4 w-4" aria-hidden="true" /> : <ChevronDown className="h-4 w-4" aria-hidden="true" />}
-                </button>
-              </div>
-              {detailsOpen ? <div id={`${row.id}-details`} className="divide-y divide-black/10 border-t border-black/10">
-                {PRICE_CALCULATION_DETAIL_GROUPS.map((group) => <div key={group.labelKey} className="px-4 py-3">
-                  <h2 className="mb-2 text-sm font-semibold text-[var(--erp-text-strong)]">{t(group.labelKey)}</h2>
-                  <div className={`grid gap-x-3 gap-y-3 ${group.gridClass}`}>
-                    {group.columns.map((column) => {
-                      const accessoryIndex = column.kind === "editable" && column.accessoryNumber ? column.accessoryNumber - 1 : -1;
-                      const label = accessoryIndex >= 0 && accessoryNames[accessoryIndex] ? accessoryNames[accessoryIndex] : column.kind === "editable" && column.accessoryNumber ? `${t(column.labelKey)} ${column.accessoryNumber}` : t(column.labelKey);
-                      const canEdit = isEditing && column.kind === "editable" && FINANCE_FIELDS.has(column.field) && (column.field !== "sellingPrice" || request.cost_price !== null);
-                      return <PriceCalculationField key={column.field} column={column} row={row} calculated={calculated} formatter={formatter} label={label} readOnly={!canEdit} onChange={(field, value) => updateFinanceDraft(request.id, field, value)} />;
-                    })}
-                  </div>
-                </div>)}
-              </div> : null}
-            </section>
-          );
-        })}
-      </div>
-      <PriceRequestPagination hasMore={hasMore} isLoadingMore={isLoadingMore} loadMore={loadMore} />
-    </div>
-  );
+  return <div className="min-w-0">
+    <PageHeader title={m.title} subtitle={m.financeNote} />
+    <nav aria-label={m.title} className="mb-4 flex flex-wrap gap-2">{(["pending", "approval", "report"] as const).map(value => <button className={`btn ${view === value ? "btn-primary" : ""}`} key={value} onClick={() => setView(value)}>{m[value]}</button>)}</nav>
+    <form className="mb-4 flex flex-wrap gap-2" onSubmit={event => { event.preventDefault(); setSearch(query); }}><input className="input w-72" aria-label={m.search} placeholder={m.search} value={query} onChange={event => setQuery(event.target.value)} /><button className="btn">{m.apply}</button>{me?.factory_code === "ECO" && can(me, "usluga.view", "usluga.manage") ? <select className="input w-44" aria-label={m.standard} value={catalog} onChange={event => setCatalog(event.target.value as typeof catalog)}><option value="standard">{m.standard}</option><option value="usluga">{m.usluga}</option></select> : null}</form>
+    {view === "report" ? <VariantPriceRegister q={search} catalog={catalog} /> : <>
+      {isLoading ? <p>{m.loading}</p> : null}{error ? <p role="alert" className="text-red-700">{m.error}</p> : null}{!isLoading && !error && !data.length ? <p className="text-sm">{m.empty}</p> : null}
+      <div className="max-w-6xl space-y-4">{data.map(request => {
+        const draft = drafts[request.id]; const correction = corrections[request.id];
+        const row = draft || { revision: request.revision, selling: numberInputValue(request.selling_price), exchange: numberInputValue(request.exchange_rate) };
+        return <PriceRequestCard key={request.id} request={request} status="in_progress" statusLabel={m[request.workflow_state]}
+          labels={{ request: t("page.priceWorkflow.request"), model: m.model, variant: m.variant, size: t("page.priceCalculation.modelSize"), kroy: t("page.priceCalculation.kroyNo"), modelPicture: t("page.priceWorkflow.modelPicture"), variantPicture: t("page.priceWorkflow.variantPicture"), openPicture: t("page.priceWorkflow.openPicture"), noPicture: t("page.priceWorkflow.noPicture") }}>
+          <div className="mb-3 flex flex-wrap gap-4 text-sm"><span>{m.purchasing}: {request.purchasing_submitted_at ? m.submitted : m.waiting}</span><span>{m.accessories}: {request.accessories_submitted_at ? m.submitted : m.waiting}</span><span>{m.owner}: {request.factory_code}</span></div>
+          {request.correction_reason ? <p className="mb-3 text-sm text-amber-900">{m.correction}: {request.correction_reason}</p> : null}
+          {request.calculation_issues.includes("passport_consumption") ? <p className="mb-3 text-sm text-amber-900">{m.missing}</p> : null}
+          <details className="mb-4"><summary className="cursor-pointer text-sm font-medium">{m.netCost}: {request.cost_price === null ? "—" : new Intl.NumberFormat(lang, { maximumFractionDigits: 4 }).format(request.cost_price)}</summary><PriceCostDetails request={request} /></details>
+          <div className="grid gap-3 sm:grid-cols-2"><label className="text-sm">{m.selling}<input className="input mt-1" type="number" min="0.0001" step="0.0001" disabled={!draft} value={row.selling} onChange={event => setDrafts(current => ({ ...current, [request.id]: { ...row, selling: event.target.value } }))} /></label><label className="text-sm">{m.exchange}<input className="input mt-1" type="number" min="0" step="0.0001" disabled={!draft} value={row.exchange} onChange={event => setDrafts(current => ({ ...current, [request.id]: { ...row, exchange: event.target.value } }))} /></label></div>
+          <div className="mt-3 flex flex-wrap justify-end gap-2"><button className="btn" disabled={Boolean(draft) || busy === request.id} onClick={() => setDrafts(current => ({ ...current, [request.id]: row }))}>{t("page.priceWorkflow.edit")}</button><button className="btn" disabled={!draft || busy === request.id} onClick={() => action(request, "draft")}>{m.draft}</button>{request.can_approve ? <><button className="btn" disabled={busy === request.id} onClick={() => setCorrections(current => ({ ...current, [request.id]: { revision: request.revision, team: "purchasing", reason: "" } }))}>{m.return}</button><button className="btn" disabled={busy === request.id} onClick={() => setCorrections(current => ({ ...current, [request.id]: { revision: request.revision, team: "cancel", reason: "" } }))}>{m.cancelRequest}</button><button className="btn btn-primary" disabled={Boolean(draft) || request.workflow_state !== "awaiting_finance" || !request.selling_price || busy === request.id} onClick={() => action(request, "approve")}>{busy === request.id ? m.saving : m.confirm}</button></> : null}</div>
+          {correction ? <div className="mt-3 flex flex-wrap gap-2 border-t border-[var(--erp-border)] pt-3"><select className="input w-44" aria-label={m.return} value={correction.team} onChange={event => setCorrections(current => ({ ...current, [request.id]: { ...correction, team: event.target.value as typeof correction.team } }))}>{(["purchasing", "accessories", "cutting", "cancel"] as const).map(team => <option value={team} key={team}>{team === "cancel" ? m.cancelRequest : m[team]}</option>)}</select><input className="input min-w-48 flex-1" aria-label={m.reason} placeholder={m.reason} value={correction.reason} onChange={event => setCorrections(current => ({ ...current, [request.id]: { ...correction, reason: event.target.value } }))} /><button className="btn" disabled={correction.reason.trim().length < 3 || busy === request.id} onClick={() => action(request, "return")}>{correction.team === "cancel" ? m.cancelRequest : m.return}</button><button className="btn" onClick={() => setCorrections(current => { const next = { ...current }; delete next[request.id]; return next; })}>{m.close}</button></div> : null}
+          {errors[request.id] ? <p role="alert" className="mt-2 text-sm text-red-700">{errors[request.id]}</p> : null}
+        </PriceRequestCard>;
+      })}</div><PriceRequestPagination hasMore={hasMore} isLoadingMore={isLoadingMore} loadMore={loadMore} />
+    </>}
+  </div>;
 }

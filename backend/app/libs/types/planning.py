@@ -3,7 +3,15 @@
 from dataclasses import dataclass
 from typing import Required, TypedDict
 
-from app.libs.enums.planning import ForecastRecommendationType
+from app.libs.enums.planning import ForecastRecommendationType, PriceMaterialUnit
+
+
+class PriceMaterialSnapshot(TypedDict):
+    key: str
+    name: str
+    unit: PriceMaterialUnit
+    consumption: float | None
+    rate: float | None
 
 
 @dataclass(frozen=True)

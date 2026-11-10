@@ -23,6 +23,12 @@ from refactor_pg_evidence import (
 # Minimum collected counts pin the current parameterized business cases. Adding
 # cases is allowed; removing a required case needs an explicit ledger change.
 GROUPS = {
+    'test_variant_price_workflow_postgres': (4, (
+        'test_pg_concurrent_creation_one_slot_audit_and_team_notice',
+        'test_pg_parallel_submissions_retry_once_and_single_finance_notification',
+        'test_pg_approval_race_one_price_and_audit_and_atomic_rollback',
+        'test_pg_source_change_makes_pending_approval_stale',
+    )),
     'test_waste_receive_commit_postgres': (4, ('test_signed_receive_refusals_and_retained_readback', 'test_signed_receipt_finalization_commit_rollback_retry', 'test_signed_receipt_observed_wait_one_transition')),
     'test_price_calculation_finance_postgres': (4, ('test_signed_finance_refusal_omission_null_and_attachment', 'test_signed_finance_rollback_and_retry', 'test_concurrent_finance_updates_wait_and_last_writer_wins')),
     'test_modelsize_delete_postgres': (8, ('test_delete_readback_and_audit', 'test_deferred_commit_failure_rolls_back_and_retry', 'test_signed_scope_permissions_missing_and_retained_state', 'test_signed_audit_finalization_failure_rolls_back_and_retry', 'test_last_size_with_issued_bundle_preserves_bundle', 'test_delete_and_same_label_insert_interleave_without_unique_guard')),

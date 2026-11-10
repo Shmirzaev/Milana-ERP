@@ -1,11 +1,31 @@
 """Schema-owned persistence for Planning price calculation requests."""
 
 from decimal import Decimal
+from typing import Any
 
 from sqlalchemy.orm import Session
 
 from app.libs.types.planning import PriceCalculationPurchasingCommand
 from app.schemas.planning.price_calculation import PriceCalculationRequest
+
+
+def apply_workflow_fields(db: Session, request: PriceCalculationRequest, **changes: Any) -> None:
+    """Persist service-decided workflow fields in the supplied transaction."""
+    for field, value in changes.items():
+        setattr(request, field, value)
+    db.flush()
+    if "approved_by_id" in changes:
+        db.expire(request, ["approved_by"])
+
+
+def insert_workflow_request(db: Session, *, model_id: int, created_by_id: int,
+                            factory_code: str, baseline: dict) -> PriceCalculationRequest:
+    request = PriceCalculationRequest(model_id=model_id, active_model_id=model_id,
+        created_by_id=created_by_id, factory_code=factory_code, workflow_state="collecting",
+        price_baseline_json=baseline, materials_json=[], accessories_json=[])
+    db.add(request)
+    db.flush()
+    return request
 
 
 def apply_purchasing_contribution(

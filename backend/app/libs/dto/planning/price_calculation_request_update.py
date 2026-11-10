@@ -1,7 +1,10 @@
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+from app.libs.dto.planning.price_workflow_input import PriceMaterialRateIn
 
 
 class PriceCalculationFinanceIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_revision: int | None = Field(default=None, gt=0)
     cost_price_uzs: float | None = Field(default=None, ge=0)
     selling_price: float | None = Field(
         default=None, ge=0, le=9_999_999_999.9999, allow_inf_nan=False,
@@ -16,6 +19,9 @@ class PriceCalculationFinanceIn(BaseModel):
 
 class PriceCalculationPurchasingIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    expected_revision: int | None = Field(default=None, gt=0)
+    materials: list[PriceMaterialRateIn] | None = Field(default=None, max_length=100)
+    printing_cost: float | None = Field(default=None, ge=0, le=9_999_999_999.9999, allow_inf_nan=False)
     fabric_price: float | None = Field(
         default=None, ge=0, le=9_999_999_999.9999, allow_inf_nan=False,
     )
@@ -26,6 +32,7 @@ class PriceCalculationPurchasingIn(BaseModel):
 
 class PriceCalculationCuttingIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    expected_revision: int | None = Field(default=None, gt=0)
     kroy_no: str = Field(min_length=1, max_length=32)
     fabric_width_m: float | None = Field(
         default=None, gt=0, le=9_999_999_999.9999, allow_inf_nan=False,
@@ -52,7 +59,7 @@ class PriceCalculationCuttingIn(BaseModel):
 
 class PriceCalculationAccessoryIn(BaseModel):
     name: str | None = Field(default=None, max_length=128)
-    price: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    price: float | None = Field(default=None, ge=0, le=9_999_999_999.9999, allow_inf_nan=False)
 
     @field_validator("name")
     @classmethod
@@ -62,4 +69,7 @@ class PriceCalculationAccessoryIn(BaseModel):
 
 
 class PriceCalculationAccessoriesIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_revision: int | None = Field(default=None, gt=0)
+    no_accessories_reason: str | None = Field(default=None, min_length=3, max_length=1000)
     accessories: list[PriceCalculationAccessoryIn] = Field(default_factory=list, max_length=4)

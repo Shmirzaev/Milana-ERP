@@ -828,6 +828,8 @@ def create_passport(
     db.add(p)
     db.flush()
     sync_passport_nastil(db, p, current, is_new=True)
+    from app.models.planning.variant_pricing_service import sync_passport_pricing
+    sync_passport_pricing(db, p, current)
     log_action(db, current, "create", "CuttingPassport", p.id, new_value={"passport_no": p.passport_no, "tepa_pass": p.tepa_pass})
     db.commit()
     db.refresh(p)
@@ -869,6 +871,8 @@ def update_passport(
     for k, v in values.items():
         setattr(p, k, v)
     sync_passport_nastil(db, p, current)
+    from app.models.planning.variant_pricing_service import sync_passport_pricing
+    sync_passport_pricing(db, p, current)
     log_action(db, current, "update", "CuttingPassport", p.id, new_value={"passport_no": p.passport_no, "tepa_pass": p.tepa_pass})
     db.commit()
     db.refresh(p)
@@ -898,5 +902,7 @@ def delete_passport(
         batch.passport_actual_quantity = None
         db.flush()
     log_action(db, current, "delete", "CuttingPassport", p.id, new_value={"passport_no": p.passport_no})
+    from app.models.planning.variant_pricing_service import unlink_passport_pricing
+    unlink_passport_pricing(db, p, current)
     db.delete(p)
     db.commit()

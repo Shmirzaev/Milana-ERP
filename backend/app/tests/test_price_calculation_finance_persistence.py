@@ -31,39 +31,42 @@ def test_catalog_price_participant_flushes_supplied_values_without_commit():
     db.commit.assert_not_called()
 
 
-def test_finance_service_preserves_audit_flush_attach_commit_order(monkeypatch):
+def test_finance_draft_flushes_audits_commits_without_attaching_price(monkeypatch):
     from app.models.planning import costing_service as service
 
     events = []
-    request = SimpleNamespace(id=2, selling_price=5, exchange_rate=9, finance_updated_by_id=1)
+    request = SimpleNamespace(id=2, revision=1, selling_price=5, exchange_rate=9, finance_updated_by_id=1)
     actor = SimpleNamespace(id=7)
     db = Mock()
     db.flush.side_effect = lambda: events.append('flush')
     db.commit.side_effect = lambda: events.append('commit')
     db.refresh.side_effect = lambda row: events.append('refresh')
     monkeypatch.setattr(service.pricing, 'is_finance_pricing_user', lambda actor: True)
-    monkeypatch.setattr(service, 'load_price_request', lambda db, request_id: request)
+    monkeypatch.setattr(service.workflow, 'locked_request', lambda *args: request)
+    monkeypatch.setattr(service.workflow, 'require_editable', lambda *args: None)
     monkeypatch.setattr(service, 'log_action', lambda db, actor, action, kind, key, **kwargs: events.append(('audit', kwargs)))
     monkeypatch.setattr(service.pricing, 'attach_completed_selling_price', lambda db, request, actor: events.append('attach'))
-    monkeypatch.setattr(service.pricing, 'serialize_price_request', lambda request: {'id': request.id})
+    monkeypatch.setattr(service.workflow, 'serialize', lambda request, actor: {'id': request.id})
     result = service.update_finance_details(db, 2, PriceCalculationFinanceIn(selling_price=None), actor)
     assert result == {'id': 2}
     assert request.selling_price is None and request.exchange_rate == 9
-    assert events == [('audit', {'old_value': {'selling_price': 5}, 'new_value': {'selling_price': None}}), 'flush', 'attach', 'commit', 'refresh']
+    assert request.revision == 2
+    assert events == ['flush', ('audit', {'new_value': {'selling_price': None}}), 'commit']
 
 
-def test_positive_price_rejected_before_any_write_when_costs_incomplete(monkeypatch):
+def test_confirmation_rejected_before_any_write_when_costs_incomplete(monkeypatch):
     import pytest
     from fastapi import HTTPException
-    from app.models.planning import costing_service as service
+    from app.models.planning import variant_pricing_service as service
+    from app.libs.dto.planning.price_workflow_input import PriceApprovalIn
 
     db = Mock()
-    request = SimpleNamespace(selling_price=5, finance_updated_by_id=1)
-    monkeypatch.setattr(service.pricing, 'is_finance_pricing_user', lambda actor: True)
-    monkeypatch.setattr(service, 'load_price_request', lambda db, request_id: request)
-    monkeypatch.setattr(service.pricing, 'cutting_status', lambda request: 'new')
+    request = SimpleNamespace(selling_price=5, finance_updated_by_id=1, workflow_state='collecting')
+    monkeypatch.setattr(service, 'can_approve', lambda actor: True)
+    monkeypatch.setattr(service, 'locked_request', lambda *args: request)
+    monkeypatch.setattr(service, 'require_editable', lambda *args: None)
     with pytest.raises(HTTPException) as error:
-        service.update_finance_details(db, 2, PriceCalculationFinanceIn(selling_price=12), SimpleNamespace(id=7))
+        service.approve(db, 2, PriceApprovalIn(expected_revision=1, selling_price=12), SimpleNamespace(id=7))
     assert error.value.status_code == 409
     assert (request.selling_price, request.finance_updated_by_id) == (5, 1)
     db.flush.assert_not_called()

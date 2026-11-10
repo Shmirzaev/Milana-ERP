@@ -69,6 +69,7 @@ Purchasing|purchasing.receive|Receive purchases|Приёмка закупок|Xa
 Pricing|price_calculation.purchasing|Purchasing price calculation|Расчёт закупочной цены|Xarid narxini hisoblash
 Pricing|price_calculation.cutting|Cutting price calculation|Расчёт стоимости раскроя|Bichish narxini hisoblash
 Pricing|price_calculation.accessories|Accessory price calculation|Расчёт стоимости фурнитуры|Furnitura narxini hisoblash
+Pricing|price_calculation.approve|Confirm variant selling prices|Подтверждать цены вариантов|Variant sotuv narxlarini tasdiqlash
 Finance|finance.view|View finance|Просмотр финансов|Moliyani ko‘rish
 Finance|finance.invoice|Manage invoices|Управление счетами|Hisob-fakturalarni boshqarish
 Finance|finance.payment|Manage payments|Управление платежами|To‘lovlarni boshqarish

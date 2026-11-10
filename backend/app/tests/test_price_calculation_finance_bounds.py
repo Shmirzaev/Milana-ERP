@@ -77,7 +77,7 @@ def test_finance_fields_reject_non_finite_and_storage_overflow(field, value):
 
 
 def test_finance_fields_preserve_none_zero_ordinary_values_and_storage_maxima():
-    assert PriceCalculationFinanceIn().model_dump() == {
+    assert PriceCalculationFinanceIn().model_dump(exclude={'expected_revision'}) == {
         "cost_price_uzs": None,
         "selling_price": None,
         "profit_percentage": None,
@@ -87,7 +87,7 @@ def test_finance_fields_preserve_none_zero_ordinary_values_and_storage_maxima():
         selling_price=0,
         profit_percentage="12.25",
         exchange_rate="12750.5",
-    ).model_dump(exclude={"cost_price_uzs"}) == {
+    ).model_dump(exclude={"cost_price_uzs", "expected_revision"}) == {
         "selling_price": 0.0,
         "profit_percentage": 12.25,
         "exchange_rate": 12750.5,

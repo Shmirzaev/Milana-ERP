@@ -1,155 +1,122 @@
-"""Costing: the price calculation request and its department contributions.
+"""Department draft operations; explicit submission/approval owns publication."""
+from decimal import Decimal
 
-Contract per operation:
-* input: the validated payload, the request id, the acting user and the list
-  bounds
-* output: the serialized price calculation request as a dict
-* refusals: 403 when the acting user may not use that department, 404 when the
-  request does not exist, 409 when a selling price is entered before cutting,
-  purchasing and accessories are complete
-* records: the request row, its audit row and the department notifications; a
-  completed selling price is attached to the model variant
-* transaction owner: every operation that writes
-
-The department calculations stay in `app.models.price_calculation_service`; this
-module owns the request lifecycle around them.
-"""
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 
 from app.libs.dto.planning.price_calculation_request_input import PriceCalculationCreateIn
-from app.libs.dto.planning.price_calculation_request_update import (
-    PriceCalculationAccessoriesIn,
-    PriceCalculationCuttingIn,
-    PriceCalculationFinanceIn,
-    PriceCalculationPurchasingIn,
-)
-from app.libs.enums.planning import PriceCalculationStatus
-from app.libs.types.planning import PriceCalculationPurchasingCommand
+from app.libs.dto.planning.price_calculation_request_update import PriceCalculationAccessoriesIn, PriceCalculationCuttingIn, PriceCalculationFinanceIn, PriceCalculationPurchasingIn
+from app.libs.enums.planning import PriceContributionTeam, PriceRequestQueue
+from app.libs.enums.catalog import CatalogScope
 from app.models import price_calculation_service as pricing
 from app.models.audit_service import log_action
+from app.models.planning import variant_pricing_service as workflow
+from app.models.planning.price_workflow_calculation import amount, number
 from app.schemas import User
-from app.schemas.planning.price_calculation import PriceCalculationRequest
-from app.schemas.planning.price_calculation_persistence import apply_finance_contribution
+from app.schemas.planning.price_calculation_persistence import apply_finance_contribution, apply_workflow_fields
 
 
-def load_price_request(db: Session, request_id: int) -> PriceCalculationRequest:
-    """Return the price calculation request with its model assets loaded."""
-    request = (
-        db.query(PriceCalculationRequest)
-        .options(*pricing.price_request_load_options())
-        .filter(PriceCalculationRequest.id == request_id)
-        .first()
-    )
-    if not request:
+def load_price_request(db, request_id):
+    request = db.query(workflow.PriceCalculationRequest).options(*pricing.price_request_load_options()).filter_by(id=request_id).first()
+    if request is None:
         raise HTTPException(404, "Price calculation request not found")
     return request
 
 
-def list_price_requests(db: Session, current: User, limit: int, before_id: int | None) -> list[dict]:
-    """Return the price calculation requests the acting user may see."""
-    if not pricing.can_view_price_requests(current):
-        raise HTTPException(403, "Price calculation access required")
-    qry = (
-        db.query(PriceCalculationRequest)
-        .options(*pricing.price_request_load_options())
-        .order_by(PriceCalculationRequest.id.desc())
-    )
-    # Seek pagination keeps older rows reachable even when newer requests are
-    # inserted between page reads. All five consumers now expose load-more.
-    if before_id is not None:
-        qry = qry.filter(PriceCalculationRequest.id < before_id)
-    return [pricing.serialize_price_request(request) for request in qry.limit(limit).all()]
+def list_price_requests(db, current, limit, before_id, queue=PriceRequestQueue.ALL, team=None, q="", catalog_scope=CatalogScope.STANDARD):
+    return workflow.list_requests(db, current, limit, before_id, queue, team, q, catalog_scope)
 
 
-def create_price_request(db: Session, payload: PriceCalculationCreateIn, current: User) -> dict:
-    """Open one price calculation request for a model."""
-    if not pricing.is_sales_pricing_user(current):
-        raise HTTPException(403, "Sales access required")
-    request = pricing.create_price_request(db, payload.model_id, current)
-    db.commit()
-    db.refresh(request)
-    return pricing.serialize_price_request(request)
+def create_price_request(db: Session, payload: PriceCalculationCreateIn, current: User):
+    return workflow.create_request(db, payload, current)
 
 
-def update_cutting_details(
-    db: Session,
-    request_id: int,
-    payload: PriceCalculationCuttingIn,
-    current: User,
-) -> dict:
-    """Record the cutting side of a price calculation request."""
+def update_cutting_details(db: Session, request_id: int, payload: PriceCalculationCuttingIn, current: User):
     if not pricing.is_cutting_pricing_user(current):
         raise HTTPException(403, "Cutting price calculation access required")
-    request = load_price_request(db, request_id)
-    pricing.update_cutting_details(db, request, payload.model_dump(), current)
+    request = workflow.locked_request(db, request_id, current, payload.expected_revision)
+    workflow.require_editable(request)
+    # Exact passport identity is authoritative. The old manual fallback remains
+    # for requests that genuinely have no passport, never for a mismatched row.
+    kroy = payload.kroy_no.casefold()
+    passport = workflow.passport_query(db, request.model_id, request.model.code, current).filter(
+        func.lower(workflow.CuttingPassport.passport_no) == kroy).order_by(workflow.CuttingPassport.id.desc()).first()
+    if passport is None and db.query(workflow.CuttingPassport.id).filter(func.lower(workflow.CuttingPassport.passport_no) == kroy).first():
+        raise HTTPException(409, "Select a passport for this exact variant and factory")
+    if passport:
+        workflow.snapshot_passport(db, request, passport)
+    else:
+        apply_workflow_fields(db, request, cutting_passport_id=None,
+            **payload.model_dump(exclude={"expected_revision"}))
+        width, length, gsm = map(amount, (request.fabric_width_m, request.lay_length_m, request.gramage))
+        count = request.size_count
+        quantity = width * length * gsm / count if all(value is not None and value > 0 for value in (width, length, gsm)) and count else None
+        binding = amount(request.binding_kg_per_piece) or Decimal(0)
+        rows = [{"key": "manual", "name": "Fabric", "unit": "kg", "consumption": number(quantity, "0.000001"), "rate": request.fabric_price and float(request.fabric_price)}]
+        if binding > 0:
+            rows.append({"key": "manual:binding", "name": "Binding", "unit": "kg", "consumption": number(binding, "0.000001"), "rate": request.fabric_price and float(request.fabric_price)})
+        corrected = {"correction_team": None, "correction_reason": None} if request.correction_team == PriceContributionTeam.CUTTING and rows != request.materials_json else {}
+        apply_workflow_fields(db, request, **corrected, materials_json=rows, passport_snapshot_json={"has_print": False, "manual": True},
+            purchasing_submitted_at=None, accessories_submitted_at=None, workflow_state="collecting")
+    workflow.finish_draft(db, request)
+    log_action(db, current, "save_cutting_price_draft", "PriceCalculationRequest", request.id, new_value={"kroy_no": payload.kroy_no})
     db.commit()
-    db.refresh(request)
-    return pricing.serialize_price_request(request)
+    return workflow.serialize(request, current)
 
 
-def update_finance_details(
-    db: Session,
-    request_id: int,
-    payload: PriceCalculationFinanceIn,
-    current: User,
-) -> dict:
-    """Record the finance side of a price calculation request.
-
-    A selling price is only accepted once cutting, purchasing and accessories
-    are complete. A completed selling price is attached to the model variant.
-    """
+def update_finance_details(db: Session, request_id: int, payload: PriceCalculationFinanceIn, current: User):
     if not pricing.is_finance_pricing_user(current):
         raise HTTPException(403, "Finance access required")
-    request = load_price_request(db, request_id)
-    changes = payload.model_dump(exclude_unset=True)
-    if (
-        changes.get("selling_price") is not None
-        and changes["selling_price"] > 0
-        and (pricing.cutting_status(request) != PriceCalculationStatus.COMPLETE or pricing.purchasing_status(request) != PriceCalculationStatus.COMPLETE or pricing.accessories_status(request) != PriceCalculationStatus.COMPLETE)
-    ):
-        raise HTTPException(409, "Cost details must be completed before entering the selling price")
-    old_value = {key: getattr(request, key) for key in changes}
+    request = workflow.locked_request(db, request_id, current, payload.expected_revision)
+    workflow.require_editable(request)
+    changes = payload.model_dump(exclude_unset=True, exclude={"expected_revision", "cost_price_uzs"})
     apply_finance_contribution(db, request, changes, updated_by_id=current.id)
-    log_action(db, current, "update_finance_price", "PriceCalculationRequest", request.id, old_value=old_value, new_value=changes)
-    db.flush()
-    pricing.attach_completed_selling_price(db, request, current)
+    workflow.finish_draft(db, request)
+    log_action(db, current, "save_finance_price_draft", "PriceCalculationRequest", request.id, new_value=changes)
     db.commit()
-    db.refresh(request)
-    return pricing.serialize_price_request(request)
+    return workflow.serialize(request, current)
 
 
-def update_purchasing_details(
-    db: Session,
-    request_id: int,
-    payload: PriceCalculationPurchasingIn,
-    current: User,
-) -> dict:
-    """Record the purchasing side of a price calculation request."""
+def update_purchasing_details(db: Session, request_id: int, payload: PriceCalculationPurchasingIn, current: User):
     if not pricing.is_price_purchaser(current):
-        raise HTTPException(403, "Abbosbek purchasing access required")
-    request = load_price_request(db, request_id)
-    command = PriceCalculationPurchasingCommand(
-        fabric_price=payload.fabric_price,
-        sewing_cost=payload.sewing_cost,
-    )
-    pricing.update_purchasing_details(db, request, command, current)
+        raise HTTPException(403, "Purchasing price calculation access required")
+    request = workflow.locked_request(db, request_id, current, payload.expected_revision)
+    workflow.require_editable(request, PriceContributionTeam.PURCHASING)
+    values = payload.model_dump(exclude_unset=True, exclude={"expected_revision", "materials"})
+    rates = {row.key: row.rate for row in payload.materials} if payload.materials is not None else None
+    rows = request.materials_json or []
+    if rates is not None:
+        keys = {row["key"] for row in rows}
+        if len(rates) != len(payload.materials) or set(rates) != keys:
+            raise HTTPException(409, "Fabric rows changed; refresh and price every material")
+        rows = [{**row, "rate": rates[row["key"]]} for row in rows]
+    elif "fabric_price" in payload.model_fields_set:
+        # Compatibility for single-fabric manual callers. Distinct physical
+        # fabrics always require explicit rates rather than a shared guess.
+        if len({row["key"].split(":")[0] for row in rows}) > 1:
+            raise HTTPException(409, "Enter an explicit rate for each fabric")
+        rows = [{**row, "rate": payload.fabric_price} for row in rows]
+    apply_workflow_fields(db, request, **values, materials_json=rows, purchasing_updated_by_id=current.id,
+        revision=request.revision + 1)
+    log_action(db, current, "save_purchasing_price_draft", "PriceCalculationRequest", request.id,
+        new_value={**values, "materials": rows})
     db.commit()
-    db.refresh(request)
-    return pricing.serialize_price_request(request)
+    return workflow.serialize(request, current)
 
 
-def update_accessories(
-    db: Session,
-    request_id: int,
-    payload: PriceCalculationAccessoriesIn,
-    current: User,
-) -> dict:
-    """Record the accessory side of a price calculation request."""
+def update_accessories(db: Session, request_id: int, payload: PriceCalculationAccessoriesIn, current: User):
     if not pricing.is_accessory_pricing_user(current):
         raise HTTPException(403, "Accessory team access required")
-    request = load_price_request(db, request_id)
-    pricing.update_accessories(db, request, [row.model_dump() for row in payload.accessories], current)
+    request = workflow.locked_request(db, request_id, current, payload.expected_revision)
+    workflow.require_editable(request, PriceContributionTeam.ACCESSORIES)
+    rows = [{"name": row.name, "price": row.price} for row in payload.accessories if row.name or row.price is not None]
+    reason = payload.no_accessories_reason.strip() if payload.no_accessories_reason else None
+    if reason and (len(reason) < 3 or rows):
+        raise HTTPException(422, "No-accessories reason requires an empty accessory list")
+    apply_workflow_fields(db, request, accessories_json=rows, no_accessories_reason=reason,
+        accessories_updated_by_id=current.id, revision=request.revision + 1)
+    log_action(db, current, "save_accessory_price_draft", "PriceCalculationRequest", request.id,
+        new_value={"accessories": rows, "no_accessories_reason": reason})
     db.commit()
-    db.refresh(request)
-    return pricing.serialize_price_request(request)
+    return workflow.serialize(request, current)

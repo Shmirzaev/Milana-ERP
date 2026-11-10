@@ -8,16 +8,20 @@ import { useSharedPolling } from "@/hooks/useSharedPolling";
 
 export const PRICE_REQUEST_PAGE_SIZE = 50;
 
-export function usePriceRequests() {
+export type PriceRequestFilters = { queue?: "all" | "pending" | "completed" | "approval"; team?: "purchasing" | "accessories"; q?: string; catalog_scope?: "standard" | "usluga" };
+
+export function usePriceRequests(filters: PriceRequestFilters = {}) {
   const polling = useSharedPolling();
   const { data: pages, size, setSize, error, mutate, ...state } = useSWRInfinite<PriceCalculationRequest[]>(
     (index, previous: PriceCalculationRequest[] | null) => {
       if (previous && previous.length < PRICE_REQUEST_PAGE_SIZE) return null;
       const cursor = index > 0 && previous ? `&before_id=${previous[previous.length - 1].id}` : "";
-      return `/api/price-calculation/requests?limit=${PRICE_REQUEST_PAGE_SIZE}${cursor}`;
+      const query = new URLSearchParams();
+      for (const [key, value] of Object.entries(filters)) if (value) query.set(key, value);
+      return `/api/price-calculation/requests?limit=${PRICE_REQUEST_PAGE_SIZE}${cursor}&${query}`;
     },
     fetcher,
-    { ...polling, revalidateAll: true, persistSize: true },
+    { ...polling, revalidateAll: true, persistSize: false },
   );
   const data = useMemo(() => {
     const seen = new Set<number>();

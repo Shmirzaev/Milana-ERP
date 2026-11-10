@@ -4,6 +4,8 @@ These reports preserve what was observed at their recorded date. They are not
 current implementation instructions or proof of today's production state.
 Start with [current context](../PROJECT_CONTEXT.md) for active work.
 
+- [Variant pricing candidate, 10 November 2026](VARIANT_PRICING_WORKFLOW_20261110.md): explicit team submissions and Finance approval, complete Excel, isolated workflow/lock verification; not deployed.
+
 - [BSO, fabric receipts and operation copying, 10 November 2026](BSO_FABRIC_PAID_COPY_RELEASE_2026-11-10.md): green163130 deployed, retained blue035740, exact owner timing exceptions, signed public verification and completed closing.
 
 - [BSO, fabric receipts and operation-copy candidate, 9 November 2026](BSO_FABRIC_PAID_COPY_CANDIDATE_2026-11-09.md): corrected Milana/Eco Cotton labels, green staged; cutover awaits explicit two-median exception, active blue unchanged.

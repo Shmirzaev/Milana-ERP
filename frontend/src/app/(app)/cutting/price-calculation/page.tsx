@@ -79,7 +79,7 @@ function FormField({ label, value, disabled, text = false, integer = false, onCh
 
 export default function CuttingPriceCalculationPage() {
   const { t } = useT();
-  const { data, error, isLoading, mutate, hasMore, isLoadingMore, loadMore } = usePriceRequests();
+  const { data, error, isLoading, mutate, hasMore, isLoadingMore, loadMore } = usePriceRequests({ queue: "pending" });
   const [drafts, setDrafts] = useState<Record<number, CuttingDraft>>({});
   const [editing, setEditing] = useState<Set<number>>(() => new Set());
   const [savingId, setSavingId] = useState<number | null>(null);
@@ -181,7 +181,7 @@ export default function CuttingPriceCalculationPage() {
         {error ? <div className="text-sm text-red-700">{t("page.priceWorkflow.loadError")}</div> : null}
         {!isLoading && !error && data?.length === 0 ? <div className="rounded-lg border border-dashed border-[var(--erp-border-strong)] p-5 text-sm text-[var(--erp-text-muted)]">{t("page.priceWorkflow.empty")}</div> : null}
         {(data || []).map((request) => {
-          const isEditing = editing.has(request.id);
+          const isEditing = editing.has(request.id) && request.workflow_state === "collecting";
           const draft = drafts[request.id] || requestDraft(request);
           return (
             <PriceRequestCard
@@ -201,6 +201,7 @@ export default function CuttingPriceCalculationPage() {
                 noPicture: t("page.priceWorkflow.noPicture"),
               }}
             >
+              {request.correction_reason ? <p className="mb-3 text-sm text-amber-900">{request.correction_reason}</p> : null}
               <div className="grid grid-cols-2 items-end gap-2 md:grid-cols-3 xl:grid-cols-[1fr_1fr_1fr_0.8fr_1fr_1.2fr_auto]">
                 <FormField label={t("page.priceCalculation.kroyNo")} value={draft.kroy_no} disabled={!isEditing} text onChange={(value) => updateDraft(request, "kroy_no", value)} onBlur={() => autofillPassport(request)} />
                 <FormField label={t("page.priceCalculation.fabricWidth")} value={draft.fabric_width_m} disabled={!isEditing} onChange={(value) => updateDraft(request, "fabric_width_m", value)} />

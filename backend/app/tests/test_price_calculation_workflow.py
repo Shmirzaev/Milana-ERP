@@ -72,7 +72,7 @@ def _setup_workflow_data(suffix: str):
         db.close()
 
 
-def test_price_calculation_department_workflow_and_authorization(client):
+def test_price_calculation_department_workflow_and_authorization(client, auth_headers):
     data = _setup_workflow_data("one")
     finance = _login(client, "finance.price.one@example.com")
     sales = _login(client, "sales.price.one@example.com")
@@ -94,12 +94,12 @@ def test_price_calculation_department_workflow_and_authorization(client):
     assert request["model_no"] == "PC-TEST"
     assert request["variant_no"] == "GRAY"
     assert request["model_sizes"] == ["S", "M"]
-    assert request["kroy_no"] is None
+    assert request["kroy_no"] == data["kroy_no"]
     assert request["model_image_url"] == data["model_image_url"]
     assert request["variant_image_url"] == data["variant_image_url"]
-    assert request["cutting_status"] == "new"
+    assert request["cutting_status"] == "complete"
     assert request["purchasing_status"] == "new"
-    assert request["overall_status"] == "new"
+    assert request["overall_status"] == "in_progress"
     assert request["cost_price"] is None
     assert request["packaging_cost"] == 0.1
     assert request["selling_price_attached"] is False
@@ -113,7 +113,8 @@ def test_price_calculation_department_workflow_and_authorization(client):
         json={"selling_price": 2.0},
         headers=finance,
     )
-    assert early_selling_price.status_code == 409, early_selling_price.text
+    assert early_selling_price.status_code == 200, early_selling_price.text
+    assert early_selling_price.json()["variant_selling_price"] is None
 
     assert client.get("/api/price-calculation/requests", headers=outsider).status_code == 403
     assert client.patch(
@@ -149,7 +150,7 @@ def test_price_calculation_department_workflow_and_authorization(client):
     )
     assert purchasing_update.status_code == 200, purchasing_update.text
     request = purchasing_update.json()
-    assert request["purchasing_status"] == "complete"
+    assert request["purchasing_status"] == "in_progress"
     assert request["fabric_width_m"] == 1.8
     assert request["size_count"] == 2
     assert request["cost_price"] is None
@@ -171,10 +172,15 @@ def test_price_calculation_department_workflow_and_authorization(client):
     )
     assert completed_accessory.status_code == 200, completed_accessory.text
     request = completed_accessory.json()
-    assert request["accessories_status"] == "complete"
+    assert request["accessories_status"] == "in_progress"
     assert request["accessories"] == [{"name": "Label", "price": 0.05}]
-    assert request["cost_price"] is not None
+    assert request["cost_price"] is None
     assert request["overall_status"] == "in_progress"
+
+    for team, headers in (("purchasing", purchaser), ("accessories", accessories)):
+        submitted = client.post(f"/api/price-calculation/requests/{request_id}/submit/{team}", json={"expected_revision": request["revision"]}, headers=headers)
+        assert submitted.status_code == 200, submitted.text
+        request = submitted.json()
 
     finalized = client.patch(
         f"/api/price-calculation/requests/{request_id}/finance",
@@ -182,7 +188,11 @@ def test_price_calculation_department_workflow_and_authorization(client):
         headers=finance,
     )
     assert finalized.status_code == 200, finalized.text
-    request = finalized.json()
+    draft = finalized.json()
+    assert draft["variant_selling_price"] is None
+    confirmed = client.post(f"/api/price-calculation/requests/{request_id}/approve", json={"expected_revision": draft["revision"], "selling_price": 2.0}, headers=auth_headers)
+    assert confirmed.status_code == 200, confirmed.text
+    request = confirmed.json()
     assert request["overall_status"] == "complete"
     assert request["difference"] is not None
     assert request["selling_price_attached"] is True
@@ -230,9 +240,8 @@ def test_price_calculation_department_workflow_and_authorization(client):
         json={"selling_price": 2.25},
         headers=finance,
     )
-    assert revised.status_code == 200, revised.text
-    assert revised.json()["variant_selling_price"] == 2.25
-    assert revised.json()["selling_price_attached"] is True
+    assert revised.status_code == 409, revised.text
+    assert client.get(f"/api/models/{data['model_id']}/selling-price", headers=sales).json()["selling_price"] == 2.0
 
 
 def test_cutting_can_enter_details_manually_when_kroy_is_not_in_passports(client):
@@ -300,7 +309,7 @@ def test_price_request_creation_duplicate_and_validation(client):
     first = client.post(url, json={'model_id': data['model_id']}, headers=sales)
     second = client.post(url, json={'model_id': data['model_id']}, headers=sales)
     assert first.status_code == second.status_code == 201
-    assert first.json()['id'] != second.json()['id']
+    assert first.json()['id'] == second.json()['id']
 
 
 def test_accessory_route_validation_authorization_and_empty_default(client):
@@ -319,7 +328,7 @@ def test_accessory_route_validation_authorization_and_empty_default(client):
     assert partial.json()["accessories_status"] == "in_progress"
     complete = client.patch(url, json={"accessories": [{"name": "Label", "price": 1}]}, headers=accessories)
     assert complete.status_code == 200, complete.text
-    assert complete.json()["accessories_status"] == "complete"
+    assert complete.json()["accessories_status"] == "in_progress"
     result = client.patch(url, json={}, headers=accessories)
     assert result.status_code == 200, result.text
     assert result.json()["accessories"] == []
@@ -334,11 +343,11 @@ def test_accessory_route_validation_authorization_and_empty_default(client):
         actor = db.query(User).filter_by(email="accessory.price.accessory-boundary@example.com").one()
         assert stored.accessories_json == []
         assert stored.accessories_updated_by_id == actor.id
-        audits = (db.query(AuditLog).filter_by(action="update_accessory_costs", entity_type="PriceCalculationRequest", entity_id=request_id).order_by(AuditLog.id).all())
+        audits = (db.query(AuditLog).filter_by(action="save_accessory_price_draft", entity_type="PriceCalculationRequest", entity_id=request_id).order_by(AuditLog.id).all())
         assert [row.new_value_json for row in audits] == [
-            {"accessories": [{"name": "Label", "price": 0}]},
-            {"accessories": [{"name": "Label", "price": 1}]},
-            {"accessories": []},
+            {"accessories": [{"name": "Label", "price": 0}], "no_accessories_reason": None},
+            {"accessories": [{"name": "Label", "price": 1}], "no_accessories_reason": None},
+            {"accessories": [], "no_accessories_reason": None},
         ]
         notifications = db.query(Notification).filter_by(
             title="Accessory costs completed",
@@ -346,6 +355,6 @@ def test_accessory_route_validation_authorization_and_empty_default(client):
             link="/finance/price-calculation",
         ).all()
         finance = db.query(User).filter_by(email="finance.price.accessory-boundary@example.com").one()
-        assert sum(row.user_id == finance.id for row in notifications) == 1
+        assert sum(row.user_id == finance.id for row in notifications) == 0
     finally:
         db.close()

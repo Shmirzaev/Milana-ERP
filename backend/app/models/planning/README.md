@@ -27,7 +27,9 @@ particular operation and every caller/write before choosing what belongs here.
 | --- | --- | --- |
 | [branded_orders_service.py](branded_orders_service.py) | Branded planning orders: list, parties, customer search, creation, workbook export. | `create_branded_order` |
 | [forecasting_recommendations_service.py](forecasting_recommendations_service.py) | Forecast recommendation lifecycle: reference checks, factory scope, payload, review. | `create_recommendation`, `update_recommendation` |
-| [costing_service.py](costing_service.py) | Price calculation request lifecycle and the cutting, finance, purchasing and accessories contributions. | every write operation |
+| [costing_service.py](costing_service.py) | Cutting, Finance, Purchasing and Accessories drafts; saving never submits or publishes. | each draft operation |
+| [variant_pricing_service.py](variant_pricing_service.py) | Exact-variant request lifecycle, scoped submission, explicit approval/correction/repricing, passport evidence. | public actions; passport hooks participate without commit |
+| [price_reports_service.py](price_reports_service.py) | Scoped Finance register/history and complete filtered Excel. | read-only |
 | [production_planning_service.py](production_planning_service.py) | Production orders planning opens for client sales orders and branded stock. | `create_client_order_production`, `create_branded_stock_production` |
 | [cutting_factory_service.py](cutting_factory_service.py) | Read eligible Cutting destinations and correct unrecorded CUT/ECT routing from Planning. | `change_cutting_factory` |
 
@@ -90,13 +92,28 @@ excluded; both creation types require an attributed model.
 - input: the validated department payload, the request id, the acting user and
   the list bounds
 - output: the serialized price calculation request as a dict
-- refusals: 403 when the acting user may not use that department, 404 for a
-  missing request, 409 when a selling price is entered before cutting,
-  purchasing and accessories are complete
-- records: the request row, its audit row, the department notifications, and the
-  completed selling price attached to the model variant
-- transaction owner: every operation that writes; the department calculations in
-  [price_calculation_service.py](../price_calculation_service.py) never commit
+- refusals: 403 for department/factory/catalogue denial, 404 for a missing request,
+  409 for stale revisions or historical/submitted contributions
+- records: request draft and audit only; explicit submit/approve actions own the
+  handoff and publication. Finance drafts may be saved before costs are ready.
+- transaction owner: each draft operation. Managed calculations use
+  [price_workflow_calculation.py](price_workflow_calculation.py); retained legacy
+  helpers in [price_calculation_service.py](../price_calculation_service.py) do not
+  implement managed publication.
+
+### variant_pricing_service.py
+
+`create_request`, `submit_contribution`, `approve`, `return_for_correction`,
+`cancel_request` and `request_reprice` own their public transactions. Passport
+save/delete hooks participate in the existing passport transaction without
+committing or changing orders/stages/stock. Existing prices are reused; only an
+explicit, complete, current-revision Finance approval attaches an exact-variant
+price. `price_calculation.approve` plus Finance access is required; viewing alone
+does not authorize publication. Same-model locks and one nullable unique active
+slot serialize creation/publication. Approved evidence is immutable; source
+changes invalidate open submissions. Factory and catalogue scope is enforced in
+backend and UI. See the [feature packet](../../../../docs/archive/VARIANT_PRICING_WORKFLOW_20261110.md)
+for additive migration, legacy history, reconciliation and rollback limitations.
 
 ### production_planning_service.py
 
@@ -156,10 +173,9 @@ three DTOs for every table or expose privileged fields through generic updates.
   suggestions) still call [forecasting_service.py](../forecasting_service.py)
   from the route. The calculations were already service-owned, so no forwarding
   service was added around them.
-- The costing department calculations stay in
-  [price_calculation_service.py](../price_calculation_service.py);
-  [costing_service.py](costing_service.py) owns the request lifecycle around
-  them, including the finance stage gate and the selling price propagation.
+- Legacy costing helpers remain in [price_calculation_service.py](../price_calculation_service.py)
+  for historical projection/participant tests. Managed publication uses the single
+  explicit approval path in [variant_pricing_service.py](variant_pricing_service.py).
 - `BrandedPlanningOrderIn` and `MaterialRequirement` moved out of
   [dto/production/production.py](../../libs/dto/production/production.py) into
   this group's DTO folder. `ProductionOrderIn` and `ProductionOrderOut` stay

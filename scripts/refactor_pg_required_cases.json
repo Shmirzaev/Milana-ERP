@@ -617,6 +617,12 @@
     }
   },
   "cases": {
+    "test_variant_price_workflow_postgres": [
+      "test_pg_concurrent_creation_one_slot_audit_and_team_notice",
+      "test_pg_parallel_submissions_retry_once_and_single_finance_notification",
+      "test_pg_approval_race_one_price_and_audit_and_atomic_rollback",
+      "test_pg_source_change_makes_pending_approval_stale"
+    ],
     "test_batch_restore_postgres": [
       "test_pg_batch_restore_audit_failure_rolls_back",
       "test_pg_batch_restore_concurrent_duplicate_serializes"
