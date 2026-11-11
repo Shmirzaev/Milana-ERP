@@ -13,6 +13,8 @@ import { PREVIEW_ENABLED, BACKEND_ENABLED } from "@/components/hr/turnstile/turn
 import { backendCopy } from "@/components/hr/turnstile/turnstileBackendCopy";
 import { gateCopy } from "@/components/hr/turnstile/turnstilePreviewCopy";
 const TurnstileAccessPreview = dynamic(() => import("@/components/hr/turnstile/TurnstileAccessPreview"), { ssr: false });
+const LiveTurnstileAccess = dynamic(() => import("@/components/hr/turnstile/LiveTurnstileAccess"), { ssr: false });
+import { LIVE_ENABLED } from "@/components/hr/turnstile/turnstileLive";
 
 type Dept = { id: number; name: string };
 type Position = { id: number; name: string };
@@ -186,7 +188,7 @@ export default function EmployeesPage() {
   return <div>
     <HrHeader title={t("page.hrEmployees.title")} subtitle={t("page.hrEmployees.subtitle")} actions={<><button className="btn" onClick={downloadEmployees} disabled={exporting}>{t(exporting ? "employeeExport.loading" : "employeeExport.download")}</button><button className="btn btn-primary" onClick={() => open()}>{t("page.hrEmployees.add")}</button></>} />
     {saveNotice && <p role="status" className="mb-4 text-sm text-green-700">{t("page.hrEmployees.saved")}</p>}
-    {(PREVIEW_ENABLED || BACKEND_ENABLED) && <div className="card mb-5 flex flex-wrap items-center justify-between gap-4 border-l-4 border-l-[#7c915b] p-5"><div className="min-w-0 flex-1"><p className="text-[10px] font-semibold uppercase tracking-widest text-[#82916d]">{BACKEND_ENABLED ? backendCopy[lang].banner : gateCopy[lang].preview}</p><h2 className="mt-1 text-base font-semibold">{gateCopy[lang].overview}</h2><p className="mt-1 text-xs text-[#787e6b]">{gateCopy[lang].overviewHelp}</p></div><button type="button" className="btn btn-primary" disabled={!employees.length} onClick={() => setGateEmployee(employees[0])}>{BACKEND_ENABLED ? gateCopy[lang].title : gateCopy[lang].open}</button></div>}
+    {!LIVE_ENABLED && (PREVIEW_ENABLED || BACKEND_ENABLED) && <div className="card mb-5 flex flex-wrap items-center justify-between gap-4 border-l-4 border-l-[#7c915b] p-5"><div className="min-w-0 flex-1"><p className="text-[10px] font-semibold uppercase tracking-widest text-[#82916d]">{BACKEND_ENABLED ? backendCopy[lang].banner : gateCopy[lang].preview}</p><h2 className="mt-1 text-base font-semibold">{gateCopy[lang].overview}</h2><p className="mt-1 text-xs text-[#787e6b]">{gateCopy[lang].overviewHelp}</p></div><button type="button" className="btn btn-primary" disabled={!employees.length} onClick={() => setGateEmployee(employees[0])}>{BACKEND_ENABLED ? gateCopy[lang].title : gateCopy[lang].open}</button></div>}
     {exportError && <p role="alert" className="mb-4 text-sm text-red-600">{exportError}</p>}
     <MetricGrid items={[{ label: t("page.hrEmployees.total"), value: activePageData?.total ?? "—" }, { label: t("page.hrEmployees.active"), value: activePageData?.active_total ?? "—" }, { label: t("page.hrEmployees.inactiveTotal"), value: activePageData?.inactive_total ?? "—" }, { label: t("page.hrEmployees.coverage"), value: activePageData?.profile_coverage_percent == null ? "—" : `${activePageData.profile_coverage_percent}%` }]} />
     <div className="card mb-4 flex flex-wrap items-center gap-4 p-4"><input className="input max-w-xl" placeholder={t("page.hrEmployees.search")} value={query} onChange={(event) => changeQuery(event.target.value)} /><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={showArchived} onChange={(event) => { setEmployees([]); setPage(1); setShowArchived(event.target.checked); }} />{t("page.hrEmployees.showArchived")}</label></div>
@@ -200,12 +202,12 @@ export default function EmployeesPage() {
           <td>{employee.manager_name || "—"}</td>
           <td><span className={`badge ${employee.status === "active" ? "badge-green" : "badge-red"}`}>{employeeStatusLabel(employee.status)}</span></td>
           <td>{employee.joined_at ? new Date(employee.joined_at).toLocaleDateString({ en: "en-GB", ru: "ru-RU", uz: "uz-UZ" }[lang]) : "—"}</td>
-          <td><div className="flex flex-wrap gap-3">{(PREVIEW_ENABLED || BACKEND_ENABLED) && <button type="button" className="text-[#637b45] hover:underline" onClick={() => setGateEmployee(employee)}>{gateCopy[lang].title}</button>}<button className="text-brand-600 hover:underline" onClick={() => open(employee)}>{t("page.hrEmployees.openProfile")}</button>{canArchive && employee.status !== "archived" && <button className="text-red-700 hover:underline" onClick={() => { setArchiving(employee); setArchiveError(""); }}>{t("page.hrEmployees.delete")}</button>}</div></td>
+          <td><div className="flex flex-wrap gap-3">{((LIVE_ENABLED && canProvisionGate) || (!LIVE_ENABLED && (PREVIEW_ENABLED || BACKEND_ENABLED))) && <button type="button" className="text-[#637b45] hover:underline" onClick={() => setGateEmployee(employee)}>{gateCopy[lang].title}</button>}<button className="text-brand-600 hover:underline" onClick={() => open(employee)}>{t("page.hrEmployees.openProfile")}</button>{canArchive && employee.status !== "archived" && <button className="text-red-700 hover:underline" onClick={() => { setArchiving(employee); setArchiveError(""); }}>{t("page.hrEmployees.delete")}</button>}</div></td>
         </tr>)}
       </tbody></table></div>
     </LoadState>
 
-    {(PREVIEW_ENABLED || BACKEND_ENABLED) && gateEmployee && me && <TurnstileAccessPreview employee={gateEmployee} actorId={me.id} canManage={BACKEND_ENABLED ? canProvisionGate : canSimulateGate} onClose={() => setGateEmployee(null)} />}
+    {LIVE_ENABLED && canProvisionGate && gateEmployee && me ? <LiveTurnstileAccess key={`${me.id}:${gateEmployee.factory_code}:${gateEmployee.id}`} employee={gateEmployee} actorId={me.id} onClose={() => setGateEmployee(null)} /> : !LIVE_ENABLED && (PREVIEW_ENABLED || BACKEND_ENABLED) && gateEmployee && me && <TurnstileAccessPreview employee={gateEmployee} actorId={me.id} canManage={BACKEND_ENABLED ? canProvisionGate : canSimulateGate} onClose={() => setGateEmployee(null)} />}
     <Modal open={editing !== null} onClose={() => setEditing(null)} title={editing === "new" ? t("page.hrEmployees.newEmployee") : t("page.hrEmployees.profileTitle", { name: form.full_name })} wide>
       <form onSubmit={save} className="space-y-5">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

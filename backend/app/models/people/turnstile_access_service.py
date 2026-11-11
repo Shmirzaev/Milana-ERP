@@ -62,7 +62,7 @@ def get_gate_operation(db: Session, actor: User, operation_id: int) -> GateOpera
 
 
 def _trusted_baseline(db: Session, binding: GateEmployeeDevice, *, lock: bool = False) -> SimulatorEvidence | None:
-    if binding.state != GateBindingState.ACTIVE:
+    if binding.state != GateBindingState.ACTIVE or binding.mode != GateMode.SIMULATOR:
         return None
     targets = (db.query(GateTarget).filter_by(binding_id=binding.id)
                .order_by(GateTarget.revision.desc(), GateTarget.id.desc()).all())
@@ -202,6 +202,8 @@ def _reviewed_bindings(db: Session, employee: Employee, factory: str, expected_e
             .order_by(GateEmployeeDevice.device_id).with_for_update().all())
     if len(bindings) != len(ids):
         raise HTTPException(409, "Every target must have a verified binding")
+    if any(binding.mode != GateMode.SIMULATOR for binding in bindings):
+        raise HTTPException(409, "Physical bindings cannot use simulator operations")
     return number, ids, devices, bindings, refs
 
 def edit_gate_employee(db: Session, actor: User, employee_id: int, payload: GateEditInput, idempotency_key: str | None) -> GateOperationOutput:

@@ -25,7 +25,7 @@ from app.schemas.people.turnstile_persistence import insert_photo_asset
 
 
 def _enabled() -> None:
-    if settings.strict_security_required or settings.TURNSTILE_PROVISIONING_MODE != GateMode.SIMULATOR:
+    if settings.TURNSTILE_PROVISIONING_MODE is GateMode.DISABLED or (settings.strict_security_required and settings.TURNSTILE_PROVISIONING_MODE is GateMode.SIMULATOR):
         raise HTTPException(403, "Turnstile provisioning is disabled")
 
 

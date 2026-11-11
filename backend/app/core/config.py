@@ -76,8 +76,8 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_turnstile_mode(self):
-        if self.strict_security_required and self.TURNSTILE_PROVISIONING_MODE is not GateMode.DISABLED:
-            raise ValueError("Turnstile provisioning must remain disabled in production")
+        if self.strict_security_required and self.TURNSTILE_PROVISIONING_MODE is GateMode.SIMULATOR:
+            raise ValueError("Simulator provisioning is forbidden in production")
         return self
 
 

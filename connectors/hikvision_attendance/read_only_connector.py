@@ -21,11 +21,12 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable
-from urllib.parse import quote, urljoin, urlparse
+from urllib.parse import quote, unquote, urljoin, urlparse
 from urllib.error import HTTPError, URLError
 from urllib.request import (
     HTTPDigestAuthHandler,
     HTTPPasswordMgrWithDefaultRealm,
+    HTTPRedirectHandler,
     HTTPSHandler,
     Request as UrlRequest,
     build_opener,
@@ -220,6 +221,14 @@ def hmac_compare(left: str, right: str) -> bool:
     return hmac.compare_digest(left.encode(), right.encode())
 
 
+class _NoDeviceRedirects(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        # A redirect can escape the pinned origin or turn a search into another
+        # endpoint. Authentication challenges remain handled by DigestAuth.
+        fp.close()
+        raise RuntimeError("Blocked Hikvision redirect")
+
+
 class ReadOnlyHikvision:
     def __init__(self, config: Config):
         self.config = config
@@ -237,7 +246,46 @@ class ReadOnlyHikvision:
     def close(self) -> None:
         self.client.close()
 
+    def _approved_path(self, method: str, path: str) -> str:
+        target = urlparse(urljoin(f"{self.config.hikvision_base_url}/", path))
+        try:
+            same_origin = (
+                target.scheme == self._origin.scheme == "https"
+                and target.hostname == self._origin.hostname
+                and (target.port if target.port is not None else 443)
+                    == (self._origin.port if self._origin.port is not None else 443)
+                and target.username is None and target.password is None
+                and not target.fragment
+            )
+        except ValueError:
+            same_origin = False
+        if not same_origin:
+            raise RuntimeError("Device URL is outside the pinned Hikvision origin")
+        # HTTP stacks/servers normalize dot segments. Check decoded segments
+        # before dispatch so they cannot escape an approved GET prefix.
+        decoded = target.path
+        for _ in range(8):
+            if "\\" in decoded or any(part in {".", ".."} for part in decoded.split("/")):
+                raise RuntimeError("Blocked unapproved device path")
+            expanded = unquote(decoded)
+            if expanded == decoded:
+                break
+            decoded = expanded
+        else:
+            raise RuntimeError("Blocked excessively encoded device path")
+        if method == "GET":
+            if not target.path.startswith(ALLOWED_DEVICE_GET_PREFIXES):
+                raise RuntimeError(f"Blocked unapproved device GET path: {target.path}")
+        elif method == "POST":
+            if target.path not in ALLOWED_SEARCH_PATHS:
+                raise RuntimeError(f"Blocked non-read-only Hikvision POST path: {target.path}")
+        else:
+            raise RuntimeError(f"Blocked Hikvision method: {method}")
+        return target.path + (f"?{target.query}" if target.query else "")
+
     def _request(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
+        path = self._approved_path(method, path)
+        kwargs["follow_redirects"] = False
         for attempt in range(1, 4):
             try:
                 response = self.client.request(method, path, **kwargs)
@@ -252,6 +300,7 @@ class ReadOnlyHikvision:
         raise RuntimeError("Unreachable device retry state")
 
     def _urllib_request(self, method: str, path: str, payload: dict[str, Any] | None = None) -> httpx.Response:
+        path = self._approved_path(method, path)
         target = urljoin(f"{self.config.hikvision_base_url}/", path)
         password_manager = HTTPPasswordMgrWithDefaultRealm()
         password_manager.add_password(
@@ -263,6 +312,7 @@ class ReadOnlyHikvision:
         opener = build_opener(
             HTTPSHandler(context=device_ssl_context()),
             HTTPDigestAuthHandler(password_manager),
+            _NoDeviceRedirects(),
         )
         data = json.dumps(payload).encode() if payload is not None else None
         request = UrlRequest(
@@ -292,12 +342,8 @@ class ReadOnlyHikvision:
         return response
 
     def get(self, path_or_url: str) -> httpx.Response:
-        target = urlparse(urljoin(f"{self.config.hikvision_base_url}/", path_or_url))
-        if target.hostname != self._origin.hostname:
-            raise RuntimeError("Device returned a photo URL outside the pinned Hikvision origin")
-        if not target.path.startswith(ALLOWED_DEVICE_GET_PREFIXES):
-            raise RuntimeError(f"Blocked unapproved device GET path: {target.path}")
-        safe_target = target.path + (f"?{target.query}" if target.query else "")
+        safe_target = self._approved_path("GET", path_or_url)
+        target = urlparse(safe_target)
         if target.path in self._fallback_paths:
             return self._urllib_request("GET", safe_target)
         try:
@@ -308,9 +354,8 @@ class ReadOnlyHikvision:
             return self._urllib_request("GET", safe_target)
 
     def post_search(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
+        path = self._approved_path("POST", path)
         parsed = urlparse(path)
-        if parsed.path not in ALLOWED_SEARCH_PATHS:
-            raise RuntimeError(f"Blocked non-read-only Hikvision POST path: {parsed.path}")
         if parsed.path in self._fallback_paths:
             return response_json(self._urllib_request("POST", path, payload))
         try:

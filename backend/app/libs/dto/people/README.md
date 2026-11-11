@@ -2,6 +2,15 @@
 
 **Engineer:** Dilmurod. **Reviewer:** Mirshoir. **Business acceptance:** Shavkat.
 
+`turnstile_live.py` defines the distinct physical-device contracts: approved device
+policy, immutable intent, reviewed adoption, typed context/snapshot/job results,
+worker claim/step/result and quiescent recovery. Canonical action/state/outcome,
+step, user-type and binding-state enums remain separate from configurable device,
+employee, access-plan and validity references. Missing security flags remain
+unknown; missing native credential counters cannot become zero evidence. These
+contracts do not grant write permission. See
+[physical acceptance limitations](../../../../../docs/TURNSTILE_LIVE_INTEGRATION_20261109.md).
+
 Existing Pydantic definitions in this group:
 
 - [payroll.py](payroll.py)

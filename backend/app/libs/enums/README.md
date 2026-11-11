@@ -29,6 +29,15 @@ or completion of the current enum workers. Use the procedure below and the
 
 ## Purpose
 
+9 November physical turnstile candidate: `turnstile.py` adds `GateMode.HIKVISION`
+and distinct `LiveGateAction`, `LiveGateState`, `LiveGateOutcome`, `LiveWriteStep`
+and `HikvisionUserType`. Migration 0156 retains SQL strings/checks, tags existing
+bindings with default simulator mode, and creates three physical-only tables.
+Its full 42-column and shared-binding inventory, JSON vocabulary, consumers and
+live-data limitations are recorded in
+[the feature packet](../../../../docs/TURNSTILE_LIVE_INTEGRATION_20261109.md#storage-and-vocabulary-inventory).
+This is source/fixture coverage, not a production-data enum audit or handover.
+
 Give repeated, fixed business values one definition, following the enum pattern
 in the mentor's Nestar and Meditech backends. Organize definitions by the feature
 that owns their meaning, for example a future `production.py` for production

@@ -9,6 +9,9 @@ on:
       release_images:
         type: boolean
         default: false
+      turnstile_live_ui:
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -98,6 +101,7 @@ jobs:
           build-args: |
             NEXT_PUBLIC_API_URL=${{ inputs.release_images && 'https://erp.milanapremium.uz' || '' }}
             API_URL=${{ inputs.release_images && 'http://172.16.10.4:8000' || 'http://localhost:20201' }}
+            NEXT_PUBLIC_TURNSTILE_LIVE=${{ inputs.turnstile_live_ui && '1' || '0' }}
           cache-from: type=gha,scope=security-frontend-v1
           cache-to: type=gha,scope=security-frontend-v1,mode=max
       - name: Scan exact backend image

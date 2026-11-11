@@ -307,3 +307,11 @@ Technical and applicable PostgreSQL tests, inspected connected-browser screensho
 real actions, reopen/readback and bounded integrity/recovery checks must all pass
 before independent `AI_VERIFIED_AWAITING_HUMAN`. A changed candidate needs affected
 checks repeated. Named human visual/technical acceptance is a separate recorded gate.
+
+9 November local physical-turnstile candidate: three new mappings / 42 columns
+plus `gate_employee_devices.mode` are inventoried with typed JSON consumers and
+schema-owned writes in [the packet](TURNSTILE_LIVE_INTEGRATION_20261109.md#storage-and-vocabulary-inventory).
+No production rows exist for these new tables in this task. Source, fake HTTPS
+and disposable PostgreSQL evidence do not prove physical firmware behavior.
+The owner explicitly deferred the new visual checks; the full AI/human/release
+gates are not marked passed.

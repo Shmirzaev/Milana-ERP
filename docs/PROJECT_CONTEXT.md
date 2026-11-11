@@ -189,6 +189,96 @@ adoption and security audit are not complete. Exact identities, backup/evidence
 hashes, exceptions and limits are in the
 [release record](archive/ECT_WAREHOUSE_RELEASE_2026-11-09.md).
 
+## HR deployment preparation (11 November; not deployed)
+
+The initial `20c73957d` / `5b2b74d8c` artifact pair was superseded when production
+advanced during CI. Feature and recovery are reconciled normally with latest
+`clone_main` `3053788f2`, preserving deployed pricing behavior. New exact-source
+gates/publication are required; historical successful runs remain historical.
+Required PG inventories are 664 feature / 684 recovery. Initial base is green
+`20261111_052632` / manifest `55d0edc9b7893df95987102cc6d9ccbe5b59a89f3c369eb5ea1f46a9868d4520`.
+Future authorized sequence: compatible recovery BLUE, then HR GREEN. Both disks
+are 78%; no pruning or deployment was performed by this task.
+
+The owner requested deployment preparation while deferring real-person testing.
+A new isolated candidate on `codex/hr-deployment-ready-20261111` starts from
+`c02f83ac0`, preserving the currently deployed pricing runtime. Both host manifests
+and slot states match active `20261110_135430` / `cfe03885e03e4310e9b7c86ec9649ff350565d65`;
+the production baseline file remains unchanged. Frozen HR and pricing migrations
+are joined by metadata-only head `0157_pricing_gate_live_merge`. The combined
+local suite passes 765 cases, real Windows connector 224, and the eight HR PG
+cases are now mandatory CI evidence (664 required cases after latest pricing scope and guard
+coverage). The catalogue import accepts only the two reviewed single heads;
+seven PostgreSQL guards and the repaired HR pagination harness pass. Eight
+synthetic Edge requests, HR archive/restore/reload and 21 audit-chain records
+passed readback and exact target cleanup. Earlier failing integration evidence is
+retained. Exact-source immutable CI, compatible recovery startup/replacement/
+restart evidence and the current Edge session belong to the new preparation
+packet; older results are not relabeled. Production disk is above the 70% alert.
+
+A separate schema-compatible recovery candidate preserves deployed application
+behavior; existing 0156 images cannot restart on 0157. Initial promotion must
+keep backend management disabled, device write approvals false and the LAN
+writer inactive. Installed reader settings/tasks/pins and the previous ERP stay
+unchanged. No production migration, deployment or physical write is authorized
+by preparation. QA-master approval, release authorization and the owner's
+allowlisted physical/dual-report pilot remain separate gates. See
+[the preparation and promotion checklist](HR_DEPLOYMENT_PREPARATION_20261111.md).
+
+## HR readiness fixes (9–10 November; local candidate)
+
+The organization selector now submits canonical types independently of EN/RU/UZ
+labels; the stale payroll-options verifier is repaired. A source-only attendance
+reader update package preserves private configuration, device identities and
+cursors; it is staged, not activated. Initial local checks passed: 505 backend, 49 connector,
+three PostgreSQL simulator stress scripts, full frontend build and actual Edge
+15-save/reload/database/audit readback. Independent AI review passed; human
+acceptance and later integration remain pending. No production changes.
+Real Hikvision management now has a local, default-off backend/LAN-worker candidate
+with reviewed adoption, enrollment, name/photo changes, separate revoke/restore/delete,
+single-use permits and protected recovery journals. It has not changed live profiles.
+All six devices passed pinned face-capacity and exact existing credential reads;
+root-level face-search JSON corrected the earlier wrapped-request HTTP 400.
+The 10 November read-only follow-up distinguishes optional `doubleLockRight`
+capability omission from a false observed permission and records capability hashes.
+All six pass complete capability/capacity and absent credential reads. Five devices'
+HTTP 404 means exactly `taskNotExist` (idle, never deletion success); `turnstile-31`
+instead returns `deviceError` and deletion remains refused there. Conditional
+enrollment and bounded delete verification are locally implemented: 224 connector
+tests and the final 609 scoped backend tests pass, including eight live PostgreSQL
+cases with zero skips; Linux release policies pass (19 tests/six subtests). The
+earlier Windows fallback's 24 failures/135 skips remain historical failed evidence.
+Owner-authorized Edge testing against a disposable database/synthetic HTTPS terminal
+completed ten verified requests plus HR save/edit/archive/restore/reload, EN/RU/UZ,
+unapproved-identity and frontend/API permission checks. A stale waiting-status bug
+was fixed with receipt/cache ordering and seven regressions; rebuilt Edge showed
+Verified. Both employees and 25 valid audit records were verified before exact
+target cleanup. Reader files/task stayed unchanged; no live device write or deployment.
+The candidate is based on `2bb66fc444` (verified starting release metadata), in
+`C:/ERP/.codex-work/hr-hikvision-compat-20261110` on
+`codex/hr-hikvision-compat-20261110`. See the
+[compatibility evidence and remaining gates](TURNSTILE_FIRMWARE_COMPATIBILITY_20261110.md).
+The owner manually started/restarted the loopback preview after automatic review
+blocked agent launch. Real-person testing remains owner-deferred. Approved access
+policy, latest-source integration, human/QA review and the supervised
+firmware/passage/dual-report pilot remain open. See the
+[live integration packet](TURNSTILE_LIVE_INTEGRATION_20261109.md).
+The owner chose Milana as sole writer after an agreed handover and
+will add himself for the final supervised physical pilot. The earlier lane-4
+timeout recovered on later rechecks; all six lanes then passed pinned reads.
+The latest preservation slice blocks foreign-origin and write commands plus
+redirects in both device transports: 136 connector cases (87 new), fresh 505
+backend tests and full frontend build passed. Installed reader/configuration/task
+hashes stayed unchanged; ingestion checkpoints reached 12:20 Tashkent. The owner
+requires the old ERP (`10.100.50.199:8443`) to stay connected and manually signed
+in for read-only Edge inspection. After the owner opened the HR account, its
+attendance report showed exit events at 13:04:25 and 13:06:34 Tashkent for door 3,
+after the 12:20 reader checks. This confirms recent receipt for that door, not
+fresh scans from every lane; empty deployment lists do not prove disconnection.
+No profiles, rights, pins, task or live writer were changed.
+See [preservation evidence](archive/HR_ACTIVE_ERP_PRESERVATION_2026-11-09.md).
+See the [fix/remaining-work record](HR_READINESS_FIXES_20261109.md).
+
 ## Dilmurod source classification (7 November)
 
 Behavior-preserving Identity #546, People #545, Support #547 and Work #544 code

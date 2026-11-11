@@ -1,10 +1,22 @@
 # Hikvision attendance connector
 
-This LAN-side connector mirrors Hikvision people, face pictures, and access
+The `read_only_connector.py` LAN reader mirrors Hikvision people, face pictures, and access
 events from one or more turnstiles into the isolated ERP attendance area. It is deliberately read-only on
 the device side: only HTTP GET and Hikvision search POST endpoints are allowed.
 It contains no person/card/face update, door-control, PUT, PATCH, or DELETE
 operation.
+
+Separate, explicitly activated device management is described in
+[README_LIVE.md](README_LIVE.md). It is excluded from this reader's update
+package and does not change its scheduled task or connection.
+
+Both device transports enforce the configured HTTPS origin (host and port), the
+GET prefixes and three search POST paths before opening a request. Credentials in
+URLs and URL fragments are refused. Neither transport follows redirects, including
+same-origin redirects; Digest authentication challenges remain supported. The
+reader cannot issue provisioning, door-control or deployment/disconnect commands.
+The previous ERP remains connected and remains the current writer until a separately
+agreed handover. Preparing or testing this reader does not authorize that handover.
 
 The ERP backend cannot route to the device's `10.100.50.0/24` network, so run
 this connector on an always-on Windows computer at the factory that can reach
@@ -50,3 +62,42 @@ but ignored so an older legacy payload cannot replace current presence state.
 On Windows, `setup_windows.ps1 -RegisterTask` creates a current-user scheduled
 task and stores both passwords with Windows DPAPI. The plaintext secrets exist
 only in the connector process environment while a sync is running.
+
+## Upgrade an existing Windows reader
+
+Do not rerun initial setup over a working installation: it rebuilds configuration
+and can change the existing `main-turnstile` key and per-device state filenames.
+Those identities must stay unchanged to preserve attendance history and cursors.
+
+Prepare a source-only update in a **new** directory, without accessing devices:
+
+```powershell
+python stage_update.py C:\MilanaUpdates\attendance-candidate
+```
+
+The staged files and their SHA-256 hashes are recorded in `UPDATE_MANIFEST.json`.
+No configuration, credentials, photos, cursors or task wrapper is included. An
+existing destination is refused, including the current installed directory.
+`tzdata` is explicit because Windows needs the IANA database for Asia/Tashkent.
+
+Activation is a separate authorized deployment, not part of preparing/testing the
+package. The operator must first stop the scheduled reader and wait for any
+running instance to finish. Back up the exact installed source and requirements,
+plus its private configuration/state/DPAPI files in protected local storage.
+Verify all package hashes, install its requirements into the existing dedicated
+virtual environment, and replace only `read_only_connector.py`,
+`run_scheduled.ps1`, `requirements.txt` and `README.md`.
+
+Preserve `config.json`, every `state*.json`, `secrets.dpapi.json`, the hidden VBS
+wrapper, the virtual-environment path and the scheduled task's identity/actions.
+Do not reset cursors or perform a fresh 30-day import. From the installed reader
+directory, run `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\run_scheduled.ps1 -Mode events`
+once under the scheduled task's Windows account (which owns the DPAPI secrets).
+Check success and cursor progress for each lane, then
+re-enable the existing task. Run/verify the next roster pass separately and
+confirm versioned checkpoints in ERP. A changed certificate must still stop its
+lane; never repin automatically. Keep the prior source for rollback, but after
+versioned rosters begin ERP deliberately ignores older unversioned snapshots.
+
+This package still reads attendance only. It cannot enroll or modify a person,
+replace a terminal face credential, revoke access or operate a door.

@@ -1,0 +1,5 @@
+-r requirements.txt
+-r requirements-live.txt
+pytest==9.1.1
+Pillow==13.0.0
+cryptography==50.0.2

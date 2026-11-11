@@ -30,6 +30,7 @@ class GateEmployeeDevice(Base, PkMixin):
     factory_code: Mapped[str] = mapped_column(String(3), nullable=False)
     device_id: Mapped[int] = mapped_column(Integer, nullable=False)
     external_person_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    mode: Mapped[GateMode] = mapped_column(enum_type(GateMode), nullable=False, default=GateMode.SIMULATOR, server_default="simulator")
     state: Mapped[GateBindingState] = mapped_column(enum_type(GateBindingState), nullable=False, default=GateBindingState.PENDING)
     desired_revision: Mapped[int] = mapped_column(Integer, nullable=False)
 
