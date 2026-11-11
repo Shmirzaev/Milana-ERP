@@ -68,6 +68,21 @@ The required PostgreSQL inventory adds exactly four case identities (649 total).
 Evidence is private under outputs/pricing-november-scope; no workbook, credentials
 or production dumps are committed.
 
+Additional verification after the two UI corrections: 48 legacy pricing,
+purchasing bounds/transactions/status and PERF23 pagination/query checks pass.
+The exact response contract adds order_no and asserts null for unlinked requests;
+all prior fields and query budgets remain. Independent AI source review approves
+the runtime. An actual connected browser exercised Purchasing save/reopen/submit,
+Accessories save/submit, Finance draft and explicit confirmation on isolated
+SQLite: USD5 shared rate over four consumption rows produces USD6.80 net cost;
+USD8 remains unpublished in the draft and attaches only after confirmation.
+Order QA-ORDER-20261111 is frozen in approval. Actual Excel download has all three
+sheets, USD8 price and USD6.80 component sum. A separate localhost cookie host
+isolates this fixture from the production preview session. Six isolated execution
+helper tests pass 51 refusal/success/failure controls, including uncertain timeout,
+foreign container, stale backup, changed reviewed target and no-replay behavior.
+These are AI technical checks; human production acceptance is still unrecorded.
+
 Remaining release gates: independent final source review, exact-commit official CI
 and required PostgreSQL gate, immutable artifact/source verification, staged real
 browser and complete read-only performance/health checks, fresh backup and exact
