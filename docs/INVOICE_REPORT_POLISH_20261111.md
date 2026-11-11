@@ -65,7 +65,7 @@ test is needed; required existing PostgreSQL CI gates remain.
   Existing dependency and disposable test-key warnings remain.
 - Date boundary tests passed for Tashkent midnight, year rollover, February and
   leap years. Scoped ESLint, strict TypeScript, Ruff and diff checks passed.
-- All frontend build contracts and the optimized 167-route local production
+- All frontend build contracts and the optimized local production
   build passed with webpack. The default local Turbopack build cannot resolve
   this worktree's shared node_modules junction; normal hermetic CI must still
   pass with the default builder. No dependency/config workaround was committed.
