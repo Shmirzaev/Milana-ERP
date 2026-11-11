@@ -1383,6 +1383,11 @@
       "test_signed_receipt_finalization_commit_rollback_retry[audit]",
       "test_signed_receipt_finalization_commit_rollback_retry[commit]",
       "test_signed_receipt_observed_wait_one_transition"
+    ],
+    "test_variant_pricing_scope_postgres": [
+      "test_pg_retirement_deferred_commit_failure_preserves_all_rows",
+      "test_pg_retirement_and_approval_wait_on_same_model_and_refuse_old_price",
+      "test_pg_retirement_and_import_serialize_without_duplicate_cancellation"
     ]
   },
   "isolated_supplemental_cases": [

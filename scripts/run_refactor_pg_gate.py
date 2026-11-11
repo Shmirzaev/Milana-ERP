@@ -23,6 +23,11 @@ from refactor_pg_evidence import (
 # Minimum collected counts pin the current parameterized business cases. Adding
 # cases is allowed; removing a required case needs an explicit ledger change.
 GROUPS = {
+    'test_variant_pricing_scope_postgres': (3, (
+        'test_pg_retirement_deferred_commit_failure_preserves_all_rows',
+        'test_pg_retirement_and_approval_wait_on_same_model_and_refuse_old_price',
+        'test_pg_retirement_and_import_serialize_without_duplicate_cancellation',
+    )),
     'test_catalog_price_import_postgres': (2, (
         'test_pg_import_deferred_commit_failure_preserves_prices_requests_and_history',
         'test_pg_import_and_finance_approval_serialize_to_one_winner',

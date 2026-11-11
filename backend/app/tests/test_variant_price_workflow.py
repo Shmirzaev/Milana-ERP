@@ -282,7 +282,7 @@ def test_cutting_correction_cannot_be_bypassed_by_resubmitting_costs(client, aut
     assert refreshed["purchasing_submitted_at"] is None and refreshed["accessories_submitted_at"] is None
 
 
-def test_external_price_recovers_stale_slot_and_explicit_reprice_preserves_current_price(client, auth_headers):
+def test_external_price_recovers_stale_slot_and_priced_reprice_is_refused(client, auth_headers):
     data = setup(client, "slot-recovery")
     with SessionLocal() as db:
         model = db.get(Model, data["model_id"])
@@ -296,8 +296,9 @@ def test_external_price_recovers_stale_slot_and_explicit_reprice_preserves_curre
         assert db.get(PriceCalculationRequest, data["request_id"]).workflow_state == "cancelled"
         assert db.query(PriceCalculationRequest).filter_by(active_model_id=data["model_id"]).count() == 0
     revision = client.post(f"/api/price-calculation/models/{data['model_id']}/reprice", headers=auth_headers, json={"reason": "New seasonal costs"})
-    assert revision.status_code == 200, revision.text
-    assert revision.json()["id"] != data["request_id"]
+    assert revision.status_code == 409, revision.text
+    with SessionLocal() as db:
+        assert db.query(PriceCalculationRequest).filter_by(model_id=data["model_id"]).count() == 1
     with SessionLocal() as db:
         assert db.get(Model, data["model_id"]).selling_price == 7
 
