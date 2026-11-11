@@ -93,6 +93,14 @@ its existing quarantine matching, runner fixture and Lucide path contract.
 The Linux CI result is required; no unrelated quarantine was widened to hide
 these failures. The repaired HR pagination case passes independently.
 
+The next Linux frontend run passed the Node suite but exposed three browser
+fixtures that did not define the new live-panel compile flag. The combined
+Passport/Employees bundle evaluated an unprovided browser `process` global and
+timed out before rendering. All three existing employee browser fixtures now
+explicitly compile live mode off, like their other turnstile modes. Product UI
+source is unchanged by this fixture correction; a fresh exact-source run remains
+required. The failed CI log is retained.
+
 The recovery's separate mandatory gate contains 680 cases, including all 28
 recovery-contract cases and nine import cases. Its local storage/bootstrap/import
 run passed 66 cases; 17 inherited tests for different historical recovery images
