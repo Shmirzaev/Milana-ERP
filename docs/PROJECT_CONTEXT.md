@@ -15,6 +15,19 @@ Last updated 2026-11-11. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
+## Besttex manual order 8823-01 payroll cancellation (11 November)
+
+At the owner's explicit request, deleted all 138 payroll QR labels for Besttex
+manual order `MAN-8823-01-94WJ3U`, model `BJ5033-V-6741`, and voided its 66 active
+earnings entries: 780,960 UZS across nine employees. Preserved all 93 historical
+payroll rows and wage evidence; released their scan/retry identities for fresh
+printing. Nothing was restored; order 8824-01 / V-6742 was excluded.
+Backup, rollback rehearsal, independent script review, scoped conservation,
+persisted/service readback and all four health checks passed. Audit `242175`
+records the correction. Active green `20261111_052632`, blue rollback
+`20261110_135430` and schema `0156_variant_price_workflow` are unchanged; no deploy.
+See [the correction record](archive/BST_8823_PAYROLL_CANCELLATION_20261111.md).
+
 ## Variant pricing November scope (11 November; deployed)
 
 Both hosts serve green `20261111_052632`, runtime
