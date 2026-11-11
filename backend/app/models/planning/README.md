@@ -29,6 +29,8 @@ particular operation and every caller/write before choosing what belongs here.
 | [forecasting_recommendations_service.py](forecasting_recommendations_service.py) | Forecast recommendation lifecycle: reference checks, factory scope, payload, review. | `create_recommendation`, `update_recommendation` |
 | [costing_service.py](costing_service.py) | Cutting, Finance, Purchasing and Accessories drafts; saving never submits or publishes. | each draft operation |
 | [variant_pricing_service.py](variant_pricing_service.py) | Exact-variant request lifecycle, scoped submission, explicit approval/correction/repricing, passport evidence. | public actions; passport hooks participate without commit |
+| [variant_pricing_policy.py](variant_pricing_policy.py) | Active requests require an unpriced standard variant created from 1 November 2026, midnight Tashkent; Usluga is excluded. History stays readable. | read-only |
+| [variant_pricing_reconciliation_service.py](variant_pricing_reconciliation_service.py) | Global Finance administrator previews and atomically retires an exact reviewed list of excluded active requests, preserving submitted costs/history. | `reconcile` |
 | [price_reports_service.py](price_reports_service.py) | Scoped Finance register/history and complete filtered Excel. | read-only |
 | [production_planning_service.py](production_planning_service.py) | Production orders planning opens for client sales orders and branded stock. | `create_client_order_production`, `create_branded_stock_production` |
 | [cutting_factory_service.py](cutting_factory_service.py) | Read eligible Cutting destinations and correct unrecorded CUT/ECT routing from Planning. | `change_cutting_factory` |

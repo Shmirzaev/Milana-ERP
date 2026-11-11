@@ -26,7 +26,7 @@ HEAD = "0157_pricing_gate_live_merge"
 LIVE_TABLES = ("gate_live_devices", "gate_live_profiles", "gate_live_jobs")
 MODE_TABLES = ("gate_employee_devices", "gate_operations", "gate_simulator_devices")
 MODE_CHECK = "mode IN ('disabled', 'simulator', 'hikvision')"
-APP_SHA256 = "025f68043c47d3f92e69e66392476d45c13c5727afde3b1839b6e3170d8118bb"
+APP_SHA256 = "03f9fc7145eb6ec52a6cbe332d870ed2683edcf678e10e4ba67fdbddb5f0ac13"
 MIGRATION_SHA256 = {
     "0156_gate_live_integration.py": "9d301d6e99972e39cdd40c6d4c51e12fd2d13bde612460e4b87a35e7cdf614bf",
     "0157_pricing_gate_live_merge.py": "9d0c445190305909aca6df9ab04e03f0e54842625f31f96cf61c640e972b46b4",
