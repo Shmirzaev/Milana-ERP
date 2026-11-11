@@ -11,44 +11,52 @@ this checkout, a new combined candidate or deployed production. Inspect current
 code and the operation ledger before advancing a gate. Schema-owned writers,
 system-wide enum/type adoption and human acceptance remain incomplete.
 
-Last updated 2026-11-10. Keep this file short: current decisions, release pointers and
+Last updated 2026-11-11. Keep this file short: current decisions, release pointers and
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
-## Variant pricing workflow (10 November; candidate, not deployed)
+## Variant pricing workflow (11 November; deployed)
 
-User-authorized clone_main-based worktree adds missing-price requests after a
-passport, independent Purchasing/Accessories submissions, explicit Finance
-approval, immutable price history and complete filtered Excel reports. Existing
-prices are reused; drafts never publish. Pricing does not rewrite saved Sales
-prices or gate manufacturing/order stages. Additive migration 0156 and optional
-preview-first reconciliation are prepared, neither run in production. Custom
-Finance roles need explicit price_calculation.approve. Local targeted checks,
-approved isolated PostgreSQL races/rollback, actual three-role browser handoff,
-readback and independent source review are recorded in the
-[candidate packet](archive/VARIANT_PRICING_WORKFLOW_20261110.md). Human/QA-master
-release acceptance remains open; full native suite collection has inherited
-blockers. Active blue 20261110_070607 and rollback green 20261109_163130 are
-untouched. Old images are not an approved rollback for new managed approvals.
+Blue release `20261110_135430` is active on both application hosts at runtime
+commit `cfe03885e03e4310e9b7c86ec9649ff350565d65`, schema
+`0156_variant_price_workflow`. Compatible green recovery `20261110_135420` /
+`6f72351eda41ba47857643d5c046e2a0bd319088` preserves ordinary orders and guards
+pricing with 503; old unguarded images are not approved rollback targets for 0156.
+Runtime source is integrated into `clone_main`. Both full immutable CI runs passed;
+the final required PostgreSQL gate passed 645 required cases, 17 Purchasing cases
+and 84 runner contracts without skips.
 
-Pricing schema0156 recovery is prepared, not deployed: exact old application plus
-reviewed migration metadata and production-only pricing503 guard. Ordinary Sales
-and manufacturing routes remain available; metadata-only old images are unsafe
-for managed approvals. See [recovery gates](archive/VARIANT_PRICING_RECOVERY_20261110.md).
-
-Owner authorized deployment and10-11.xlsx import: target is source F+USD0.30 once,
+Missing-price passports create independent Purchasing/Abbosxon and Accessories
+submissions, followed by explicit Finance selling-price confirmation. Admin has
+both submission screens; Finance has pending, approval, history and full Excel.
+Existing prices are reused. Pricing does not gate manufacturing or rewrite saved
+order prices. The owner authorized source F + USD 0.30 once from `10-11.xlsx`,
 including unique variant-number matches and exact model/variant conflict priority.
-Reviewed private manifest has6416 targets:519 missing-price updates,5897 unchanged,
-zero existing priced-value changes. Hash-pinned CLI and global-admin boundary,
-atomic cancellation/audit, rollback/idempotence and PG approval races are prepared.
-No production import has run. See [import/release record](archive/CATALOG_PRICE_IMPORT_20261110.md).
+The live import filled 519 missing prices with USD/catalog provenance, preserving
+5,897 already-correct prices and their provenance; all 6,416 rows passed readback.
+Authorized historical backfill created 166 requests: 153 MIL and 13 ECO, with no
+costs or approvals entered. All 36 protected business tables, existing requests
+and targeted variants stayed identical during backfill. See the
+[11 November release record](archive/VARIANT_PRICING_RELEASE_20261111.md).
 
-## Process QR base-model operations (10 November; deployed)
+Owner waived only the 30-minute observation; no observer/substitute monitor ran.
+Both staged paired gates passed. The public gate preserved all full facts,
+medians and payload sizes but failed Sales p95 (+74.16%, 140 to 243 ms) and Cutting
+passports p95 (+24.67%, 148 to 185 ms). Owner explicitly accepted those two
+exceptions and authorized completing price/backfill writes. Cause remains
+unproven; failed samples are retained. Fresh backups, actual public Admin forms
+and the 6,587-row Excel, 30-GET full functional parity with compatible recovery,
+and both-host formal closing passed. The post-import benchmark remains incomplete
+after audited staff stock consumption changed inventory quantities; this is not
+an all-performance-gates pass. Staff account-to-team mapping and human/QA-master
+acceptance remain open; AI evidence does not establish human acceptance.
 
-Both hosts serve blue `20261110_070607`, application
+## Process QR base-model operations (10 November; previous release)
+
+The previous release served blue `20261110_070607`, application
 `843adaf3bda1b1f2d234e68b6763bbc649d3b72a`, manifest
 `7bf0a59c139cf8a46fc6af7a3a0c5457795ba7b1de7fe57e70c76b31481fac32`,
-on unchanged schema `0155_eco_gate_merge`. Healthy retained rollback is green
+on unchanged schema `0155_eco_gate_merge`. At that deployment, the healthy retained rollback was green
 `20261109_163130` / `271c5005e12d1efc65d6358756862d8c243685a5`.
 Process QR loads paid operations from the same catalog/factory's base model,
 while preserving the selected variant, pictures, sizes and label identity.
@@ -68,7 +76,7 @@ payloads, full facts and four other public paths passed. Failed measurements and
 limits remain intact; no repeated public timing epoch or blanket waiver occurred.
 The staged benchmark's earlier cold failure was preserved, then one reviewed
 symmetric warm-up epoch passed. Human engineering/operator acceptance remains
-separate. Disk remains above the 70% alert (about 79.23% backend / 79.51% frontend);
+separate. Disk at that deployment was above the 70% alert (about 79.23% backend / 79.51% frontend);
 only eight reviewed unused images were removed, with protected releases retained.
 See the [release record](PROCESS_QR_BASE_MODEL_20261110.md).
 

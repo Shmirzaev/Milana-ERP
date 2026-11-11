@@ -4,7 +4,9 @@ These reports preserve what was observed at their recorded date. They are not
 current implementation instructions or proof of today's production state.
 Start with [current context](../PROJECT_CONTEXT.md) for active work.
 
-- [Variant pricing candidate, 10 November 2026](VARIANT_PRICING_WORKFLOW_20261110.md): explicit team submissions and Finance approval, complete Excel, isolated workflow/lock verification; not deployed.
+- [Variant pricing release, 11 November 2026](VARIANT_PRICING_RELEASE_20261111.md): blue 20261110_135430 / schema 0156 deployed; exact CI and recovery, owner latency exceptions, price/backfill completion record.
+
+- [Variant pricing candidate, 10 November 2026](VARIANT_PRICING_WORKFLOW_20261110.md): explicit team submissions and Finance approval, complete Excel, isolated workflow/lock verification; historical candidate evidence, superseded by the release record.
 
 - [BSO, fabric receipts and operation copying, 10 November 2026](BSO_FABRIC_PAID_COPY_RELEASE_2026-11-10.md): green163130 deployed, retained blue035740, exact owner timing exceptions, signed public verification and completed closing.
 

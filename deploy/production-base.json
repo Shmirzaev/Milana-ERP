@@ -1,6 +1,6 @@
 {
-  "release": "20261110_070607",
-  "source_manifest_sha256": "7bf0a59c139cf8a46fc6af7a3a0c5457795ba7b1de7fe57e70c76b31481fac32",
-  "database_revision": "0155_eco_gate_merge",
-  "git_baseline_commit": "843adaf3bda1b1f2d234e68b6763bbc649d3b72a"
+  "release": "20261110_135430",
+  "source_manifest_sha256": "1abc90b9e4b87f3e16ef0e255fe1829d15e9b510d6f61f1b2c030baf33fa89a3",
+  "database_revision": "0156_variant_price_workflow",
+  "git_baseline_commit": "cfe03885e03e4310e9b7c86ec9649ff350565d65"
 }
