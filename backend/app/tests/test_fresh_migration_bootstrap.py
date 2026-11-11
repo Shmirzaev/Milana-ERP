@@ -398,6 +398,7 @@ def _assert_schema_contract_with_known_drift(engine):
     `resolved_by_db08_beyka` blocks in the baseline for exactly what was removed.
     """
     from app.db.base import Base
+    from app.tests.hr_recovery_schema_contract import hr_recovery_drift
     import app.schemas  # noqa: F401 - register model metadata for comparison
 
     with engine.connect() as connection:
@@ -425,7 +426,7 @@ def _assert_schema_contract_with_known_drift(engine):
         assert generated_keys_seen == {"model_group_key", "is_legacy_import"}, "0084 must preserve its generated lookup columns"
         normalized = _describe_difference(known_drift)
         print("KNOWN_SCHEMA_DRIFT=" + json.dumps(normalized, sort_keys=True))
-        _assert_known_drift_baseline(normalized, _known_drift_baseline() + _compatibility_release_drift(connection) + _pricing_recovery_drift(connection))
+        _assert_known_drift_baseline(normalized, _known_drift_baseline() + _compatibility_release_drift(connection) + _pricing_recovery_drift(connection) + hr_recovery_drift(connection))
 
 
 @pytest.mark.parametrize("change", ["extra_column", "nullable", "type", "default", "foreign_key", "unique", "unique_nulls", "deferred_unique", "check", "index"])

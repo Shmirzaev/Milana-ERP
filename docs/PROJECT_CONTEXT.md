@@ -15,6 +15,26 @@ Last updated 2026-11-11. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
+## HR recovery artifact reconciliation (11 November; not deployed)
+
+A concurrent pricing deployment superseded the first prepared HR/recovery pair.
+Both hosts now serve green `20261111_052632`, runtime `519c9fa36f3d90905f935caf08fe781417cf7e24`,
+manifest `55d0edc9b7893df95987102cc6d9ccbe5b59a89f3c369eb5ea1f46a9868d4520`.
+The recorded production base and `clone_main` `3053788f2` agree. This isolated
+recovery branch preserves that latest pricing application and its November scope,
+with only the reviewed catalogue-import two-single-head guard plus frozen HR/0157
+migration metadata. No live mappings/routes or writer activation are included.
+The frozen runtime pin is refreshed against the exact new deployed application;
+no storage comparison or shared 94-entry drift baseline is relaxed. Its mandatory
+PG gate now includes 684 cases (the four newly deployed pricing cases retained).
+Earlier 5b2/20c artifacts passed on the old baseline but must not be activated
+against this one. Fresh exact-source CI/images and two-phase green-to-compatible-
+blue-to-HR-green identities are required. Disk is 78% on both hosts; read-only
+retention skipped unsafe legacy directories and no cleanup was applied.
+No production/device/old-ERP configuration was changed by this task. QA-master
+approval, deployment authorization and the owner's physical pilot remain separate.
+See [the recovery record](HR_SCHEMA_RECOVERY_20261111.md).
+
 ## Variant pricing November scope (11 November; deployed)
 
 Both hosts serve green `20261111_052632`, runtime

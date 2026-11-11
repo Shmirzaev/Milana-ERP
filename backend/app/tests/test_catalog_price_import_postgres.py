@@ -8,6 +8,7 @@ import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy import text
 
 from app.libs.dto.planning.price_workflow_input import PriceWorkflowActionIn
 from app.models.catalog.price_import_service import import_reviewed_prices
@@ -16,6 +17,45 @@ from app.schemas import AuditLog, Model, PriceCalculationRequest, User
 from app.tests.test_catalog_price_import import manifest_for
 from app.tests.test_price_calculation_status_postgres import app_for, auth, customer_pg_sessions  # noqa: F401
 from app.tests.test_variant_price_workflow_postgres import ready_case
+
+
+@pytest.mark.parametrize("heads,allowed", [
+    (["0156_variant_price_workflow"], True),
+    (["0157_pricing_gate_live_merge"], True),
+    (["0155_eco_gate_merge"], False),
+    (["0156_gate_live_integration"], False),
+    (["unreviewed_future_head"], False),
+    (["0156_variant_price_workflow", "0156_gate_live_integration"], False),
+    ([], False),
+], ids=["pricing", "hr-merge", "pre-pricing", "gate-only", "unknown", "multiple", "empty"])
+def test_pg_import_schema_guard_allows_only_reviewed_single_heads(customer_pg_sessions, heads, allowed):
+    sessions = customer_pg_sessions
+    marker = uuid4().hex
+    with sessions.begin() as db:
+        actor = User(name="Schema guard QA", email=marker+"@example.invalid", password_hash="unused",
+            extra_permissions=["*", "admin.super"])
+        model = Model(code=marker, name="Schema guard QA", status="approved")
+        db.add_all([actor, model]); db.flush()
+        actor_id, model_id = actor.id, model.id
+        manifest = manifest_for([model])
+    with sessions() as db:
+        original = db.execute(text("SELECT version_num FROM alembic_version")).scalars().all()
+        before = db.query(AuditLog).count()
+        db.execute(text("DELETE FROM alembic_version"))
+        for head in heads:
+            db.execute(text("INSERT INTO alembic_version (version_num) VALUES (:head)"), {"head":head})
+        try:
+            if allowed:
+                assert import_reviewed_prices(db, manifest, db.get(User, actor_id))["applied"] is False
+            else:
+                with pytest.raises(HTTPException) as error:
+                    import_reviewed_prices(db, manifest, db.get(User, actor_id))
+                assert error.value.status_code == 409
+        finally:
+            db.rollback()
+        assert db.execute(text("SELECT version_num FROM alembic_version")).scalars().all() == original
+        assert db.query(AuditLog).count() == before
+        assert db.get(Model, model_id).selling_price is None
 
 
 def test_pg_import_deferred_commit_failure_preserves_prices_requests_and_history(customer_pg_sessions):
