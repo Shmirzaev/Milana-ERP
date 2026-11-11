@@ -27,6 +27,7 @@ export type PriceCalculationRequest = {
   gramage: number | null;
   binding_kg_per_piece: number | null;
   fabric_price: number | null;
+  order_no?: string | null;
   sewing_cost: number | null;
   packaging_cost: number;
   accessories: PriceRequestAccessory[];

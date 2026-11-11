@@ -1,6 +1,7 @@
 import type { Lang } from "@/lib/i18n";
 
 const en = {
+  fabricPrice: "Fabric price USD", order: "Order No.",
   reprice: "Request repricing", cancelRequest: "Cancel pricing request",
   title: "Variant pricing", pending: "Pending pricing", approval: "Awaiting approval", report: "All prices & history",
   completed: "Completed", search: "Search model, variant or Kroy", apply: "Search", standard: "Standard", usluga: "Usluga",
@@ -20,6 +21,7 @@ const en = {
 };
 type Messages = typeof en;
 const ru: Messages = {
+  fabricPrice: "Цена ткани USD", order: "№ заказа",
   reprice: "Запросить новую цену", cancelRequest: "Отменить запрос цены",
   title: "Цены вариантов", pending: "Ожидают расчёта", approval: "На подтверждении", report: "Все цены и история",
   completed: "Завершённые", search: "Поиск модели, варианта или кроя", apply: "Поиск", standard: "Основной каталог", usluga: "Услуга",
@@ -38,6 +40,7 @@ const ru: Messages = {
   noRequest: "Нет запроса цены", quantityMissing: "Расход не заполнен", viewPassport: "Открыть паспорта", approvedBy: "Подтвердил", approvedAt: "Дата подтверждения",
 };
 const uz: Messages = {
+  fabricPrice: "Mato narxi USD", order: "Buyurtma raqami",
   reprice: "Yangi narx so‘rash", cancelRequest: "Narx so‘rovini bekor qilish",
   title: "Variant narxlari", pending: "Narx kutilmoqda", approval: "Tasdiqlash kutilmoqda", report: "Barcha narxlar va tarix",
   completed: "Yakunlangan", search: "Model, variant yoki kroy qidirish", apply: "Qidirish", standard: "Asosiy katalog", usluga: "Xizmat",

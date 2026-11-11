@@ -10,6 +10,7 @@ from app.libs.enums.planning import PriceReportFilter, PriceWorkflowState
 from app.models import price_calculation_service as pricing
 from app.models.factory_scope_service import CUTTING_DEPARTMENTS, selected_factory_code
 from app.models.planning import variant_pricing_service as workflow
+from app.models.planning import variant_pricing_policy as policy
 from app.schemas import CuttingPassport, Department, Model, ProductionOrder, WorkOrder
 from app.schemas.planning.price_calculation import PriceCalculationRequest
 
@@ -39,12 +40,13 @@ def _query(db, current, status, q, catalog_scope):
             workflow.request_scope(current), PriceCalculationRequest.kroy_no.ilike(term))).correlate(Model)
         query = query.filter(or_(Model.code.ilike(term), Model.name.ilike(term), matching_kroy))
     if status == PriceReportFilter.PENDING:
-        query = query.filter(or_(Model.selling_price.is_(None), Model.selling_price <= 0))
+        query = query.filter(policy.predicate())
     elif status == PriceReportFilter.PRICED:
         query = query.filter(priced)
     elif status == PriceReportFilter.APPROVAL:
-        query = query.filter(exists(select(PriceCalculationRequest.id).where(
+        query = query.filter(policy.predicate(), exists(select(PriceCalculationRequest.id).where(
             PriceCalculationRequest.model_id == Model.id, workflow.request_scope(current),
+            PriceCalculationRequest.active_model_id.is_not(None),
             PriceCalculationRequest.workflow_state == PriceWorkflowState.AWAITING_FINANCE)))
     return query
 

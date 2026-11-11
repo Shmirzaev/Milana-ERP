@@ -17,7 +17,8 @@ from app.models import price_calculation_service as pricing
 from app.models.audit_service import log_action
 from app.models.factory_scope_service import available_factory_codes, selected_factory_code
 from app.models.passport_sizes_service import passport_order_sizes, size_count_from_range
-from app.models.planning.price_workflow_calculation import amount, has_price, number, ready_for_finance, purchasing_ready, accessories_ready
+from app.models.planning.price_workflow_calculation import amount, number, ready_for_finance, purchasing_ready, accessories_ready
+from app.models.planning import variant_pricing_policy as policy
 from app.models.user_access_service import permission_denied
 from app.schemas import CuttingPassport, Model, ProductionOrder, User, WorkOrder, Department
 from app.schemas.core_persistence import add_notification_row
@@ -70,9 +71,11 @@ def locked_request(db, request_id, user, expected_revision=None):
     return request
 
 
-def require_editable(request, team=None):
+def require_editable(request, team=None, *, allow_ineligible=False):
     if request.workflow_state in {PriceWorkflowState.LEGACY, PriceWorkflowState.APPROVED, PriceWorkflowState.CANCELLED}:
         raise HTTPException(409, "Historical pricing is read-only; open a new pricing request")
+    if not allow_ineligible:
+        policy.require_eligible(request.model)
     if team == PriceContributionTeam.PURCHASING and request.purchasing_submitted_at:
         raise HTTPException(409, "Submitted Purchasing costs require Finance to return them for correction")
     if team == PriceContributionTeam.ACCESSORIES and request.accessories_submitted_at:
@@ -100,9 +103,15 @@ def baseline(model, reason=None):
 
 def serialize(request, user):
     result = pricing.serialize_price_request(request)
+    passport = request.cutting_passport
+    result["order_no"] = (passport.production_order.order_no if passport and passport.production_order
+                          else passport.order_no if passport else None)
+    if request.workflow_state in {PriceWorkflowState.APPROVED, PriceWorkflowState.CANCELLED, PriceWorkflowState.LEGACY}:
+        snapshot = request.approval_snapshot_json or {}
+        result["order_no"] = snapshot.get("order_no", result["order_no"])
     if request.workflow_state == PriceWorkflowState.APPROVED and request.approval_snapshot_json:
         snapshot = request.approval_snapshot_json
-        for field in ("model_no", "variant_no", "model_name", "model_sizes", "date", "materials", "cost_price",
+        for field in ("model_no", "variant_no", "model_name", "model_sizes", "order_no", "date", "materials", "cost_price",
             "cost_price_uzs", "profit_percentage", "exchange_rate", "sewing_cost", "printing_cost", "accessories",
             "printing_required", "fabric_consumption", "consumption_cost", "binding_price", "difference", "margin_percentage", "packaging_cost"):
             if field in snapshot:
@@ -138,19 +147,12 @@ def _notify(db, request, teams):
 
 def _create_or_reuse(db, model, current, reason=None):
     active = db.query(PriceCalculationRequest).options(*pricing.price_request_load_options()).filter_by(active_model_id=model.id).one_or_none()
-    if active:
-        if active.factory_code != selected_factory_code(current):
-            return active, False
-        saved = dict(active.price_baseline_json or {})
-        if has_price(model) and baseline(model, saved.get("reason")) != saved:
-            apply_workflow_fields(db, active, workflow_state=PriceWorkflowState.CANCELLED.value,
-                active_model_id=None, correction_reason="Existing variant price was changed outside this request", revision=active.revision + 1)
-            log_action(db, current, "cancel_stale_price_request", "PriceCalculationRequest", active.id,
-                       new_value={"model_id": model.id, "existing_price_preserved": True})
-        else:
-            return active, False
-    if has_price(model) and not reason:
+    if not policy.eligible(model):
+        if active and active.factory_code == selected_factory_code(current):
+            retire_request(db, active, current, policy.POLICY_REASON)
         return None, False
+    if active:
+        return active, False
     request = insert_workflow_request(db, model_id=model.id, created_by_id=current.id,
         factory_code=selected_factory_code(current), baseline=baseline(model, reason))
     log_action(db, current, "create", "PriceCalculationRequest", request.id,
@@ -164,6 +166,7 @@ def create_request(db, payload, current):
         raise HTTPException(403, "Sales access required")
     model = model_lock(db, payload.model_id)
     require_catalog(current, model.catalog_scope)
+    policy.require_eligible(model)
     # Preserve the manually requested target-margin validation. Automatic
     # passport requests do not depend on this optional PLM setting.
     details = model.details_json if isinstance(model.details_json, dict) else {}
@@ -204,8 +207,7 @@ def _material_rows(passport) -> list[PriceMaterialSnapshot]:
                 consumption = width * length * gsm / count
         result.append({"key": key, "name": str(row.get("fabric_type") or passport.fabric_type or f"Fabric {index + 1}"),
                        "unit": unit, "consumption": number(consumption, "0.000001"), "rate": None})
-        # Binding and ribana remain separate priced material lines. Do not
-        # silently price a distinct fabric using the main fabric's rate.
+        # Keep binding/ribana consumption separate in the costing breakdown.
         for field, name in (("beka_per_piece_kg", "Binding"), ("other_beka_per_piece_kg", "Other binding"), ("ribana_per_piece_kg", "Ribana")):
             quantity = amount(row.get(field))
             if quantity is not None and quantity > 0:
@@ -289,8 +291,11 @@ def unlink_passport_pricing(db, passport, current):
     for request_id, model_id in sorted(ids, key=lambda row: row.model_id):
         model = model_lock(db, model_id)
         request = db.get(PriceCalculationRequest, request_id)
-        if request.workflow_state in {PriceWorkflowState.APPROVED, PriceWorkflowState.LEGACY, PriceWorkflowState.CANCELLED}:
-            snapshot = request.approval_snapshot_json or json.loads(json.dumps(pricing.serialize_price_request(request), default=str))
+        historical = request.workflow_state in {PriceWorkflowState.APPROVED, PriceWorkflowState.LEGACY, PriceWorkflowState.CANCELLED}
+        if historical or not policy.eligible(model):
+            if not historical:
+                retire_request(db, request, current, policy.POLICY_REASON)
+            snapshot = request.approval_snapshot_json or json.loads(json.dumps(serialize(request, current), default=str))
             apply_workflow_fields(db, request, cutting_passport_id=None,
                 passport_snapshot_json=request.passport_snapshot_json or passport_evidence(passport),
                 approval_snapshot_json=snapshot)
@@ -396,14 +401,21 @@ def cancel_request(db, request_id, payload, current):
     if not can_approve(current):
         raise HTTPException(403, "Price confirmation permission required")
     request = locked_request(db, request_id, current, payload.expected_revision)
-    require_editable(request)
+    require_editable(request, allow_ineligible=True)
     if len(payload.reason.strip()) < 3:
         raise HTTPException(422, "A cancellation reason is required")
-    apply_workflow_fields(db, request, active_model_id=None, workflow_state=PriceWorkflowState.CANCELLED.value,
-        correction_reason=payload.reason.strip(), revision=request.revision + 1)
-    log_action(db, current, "cancel_price_request", "PriceCalculationRequest", request.id, new_value={"reason": payload.reason.strip()})
+    retire_request(db, request, current, payload.reason.strip())
     db.commit()
     return serialize(request, current)
+
+
+def retire_request(db, request, current, reason):
+    """Transaction participant; caller owns authorization, model lock and commit."""
+    require_editable(request, allow_ineligible=True)
+    apply_workflow_fields(db, request, active_model_id=None, workflow_state=PriceWorkflowState.CANCELLED.value,
+        correction_reason=reason, revision=request.revision + 1)
+    log_action(db, current, "cancel_price_request", "PriceCalculationRequest", request.id,
+               new_value={"reason": reason})
 
 
 def request_reprice(db, model_id, payload, current):
@@ -411,6 +423,7 @@ def request_reprice(db, model_id, payload, current):
         raise HTTPException(403, "Price confirmation permission required")
     model = model_lock(db, model_id)
     require_catalog(current, model.catalog_scope)
+    policy.require_eligible(model)
     reason = payload.reason.strip()
     if len(reason) < 3:
         raise HTTPException(422, "A repricing reason is required")
@@ -433,7 +446,7 @@ def list_requests(db, current, limit, before_id, queue=PriceRequestQueue.ALL, te
         term = f"%{q.strip()}%"
         query = query.filter(or_(Model.code.ilike(term), Model.name.ilike(term), PriceCalculationRequest.kroy_no.ilike(term)))
     if queue == PriceRequestQueue.PENDING:
-        query = query.filter(PriceCalculationRequest.active_model_id.is_not(None))
+        query = query.filter(PriceCalculationRequest.active_model_id.is_not(None), policy.predicate())
         if team == PriceContributionTeam.PURCHASING:
             query = query.filter(PriceCalculationRequest.purchasing_submitted_at.is_(None))
         elif team == PriceContributionTeam.ACCESSORIES:
@@ -446,7 +459,8 @@ def list_requests(db, current, limit, before_id, queue=PriceRequestQueue.ALL, te
         else:
             query = query.filter(PriceCalculationRequest.workflow_state == PriceWorkflowState.APPROVED)
     elif queue == PriceRequestQueue.APPROVAL:
-        query = query.filter(PriceCalculationRequest.workflow_state == PriceWorkflowState.AWAITING_FINANCE)
+        query = query.filter(PriceCalculationRequest.workflow_state == PriceWorkflowState.AWAITING_FINANCE,
+                             PriceCalculationRequest.active_model_id.is_not(None), policy.predicate())
     if before_id is not None:
         query = query.filter(PriceCalculationRequest.id < before_id)
     return [serialize(request, current) for request in query.order_by(PriceCalculationRequest.id.desc()).limit(limit).all()]

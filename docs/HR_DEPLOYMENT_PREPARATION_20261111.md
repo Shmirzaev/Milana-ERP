@@ -15,13 +15,22 @@ The fresh worktree is `C:/ERP/.codex-work/hr-deployment-ready-20261111`, branch
 It ports only the seven HR commits through `5bf47f388` from the earlier isolated
 candidate. The old worktrees and legacy checkout remain preserved.
 
-Both hosts' active source manifests were verified on 11 November: blue release
-`20261110_135430`, application `cfe03885e03e4310e9b7c86ec9649ff350565d65`, manifest
-`1abc90b9e4b87f3e16ef0e255fe1829d15e9b510d6f61f1b2c030baf33fa89a3`.
-Both slot records agree; recorded recovery is green `20261110_135420`. Public
-health agrees. `deploy/production-base.json` is preserved unchanged. Disk was
-77% backend / 78% frontend, above the 70% alert; recheck and resolve through
-protected retention before any production staging. No pruning is authorized here.
+During the first pair's CI run, another authorized release advanced production.
+The first artifact pair (feature `20c73957d`, recovery `5b2b74d8c`) is superseded
+and must not be activated against the newer baseline. Both candidates now merge
+verified `origin/clone_main` `3053788f2` normally, preserving all deployed pricing
+scope, shared fabric price, public order number and reconciliation behavior.
+
+Both hosts serve green `20261111_052632`, runtime
+`519c9fa36f3d90905f935caf08fe781417cf7e24`, manifest
+`55d0edc9b7893df95987102cc6d9ccbe5b59a89f3c369eb5ea1f46a9868d4520`.
+Both complete 2,485-file manifests and slot records match the refreshed
+`deploy/production-base.json`; schema remains `0156_variant_price_workflow`.
+Recorded recovery is blue `20261110_135430`. Both hosts are at 78% disk, above
+the 70% alert: protected retention/headroom must be resolved before staging.
+No production activation or pruning is authorized by this preparation.
+The two-phase sequence is initial GREEN -> compatible recovery BLUE -> HR GREEN;
+freeze exact new artifact identities and the initial base before activation.
 
 The deployed pricing migration and frozen HR migration both descend from
 `0155_eco_gate_merge`. New metadata-only merge `0157_pricing_gate_live_merge`
@@ -82,7 +91,7 @@ cases and blocks artifact publication. Backend test TLS support now has an
 explicit development dependency rather than an accidental local installation.
 
 All eight PostgreSQL identities are now included in the mandatory no-skip
-refactor gate (660 required cases total, including nine import cases); evidence-policy tests challenge missing,
+refactor gate (664 required cases total, including nine import and four latest pricing-scope cases); evidence-policy tests challenge missing,
 replacement, duplicate, skipped, failed and errored HR cases. Frontend lint and
 strict typing passed (14 inherited lint warnings); production builds with the
 live UI enabled and disabled passed. Exact-source CI/security/image checks must
@@ -101,8 +110,8 @@ explicitly compile live mode off, like their other turnstile modes. Product UI
 source is unchanged by this fixture correction; a fresh exact-source run remains
 required. The failed CI log is retained.
 
-The recovery's separate mandatory gate contains 680 cases, including all 28
-recovery-contract cases and nine import cases. Its local storage/bootstrap/import
+The recovery's separate mandatory gate contains 684 cases, including all 28
+recovery-contract cases, nine import and four latest pricing-scope cases. Its local storage/bootstrap/import
 run passed 66 cases; 17 inherited tests for different historical recovery images
 are explicitly inapplicable/skipped. Every one of the 28 new recovery-contract
 cases ran without a skip. Twenty-two altered-storage faults were refused while

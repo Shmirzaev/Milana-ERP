@@ -92,10 +92,8 @@ def update_purchasing_details(db: Session, request_id: int, payload: PriceCalcul
             raise HTTPException(409, "Fabric rows changed; refresh and price every material")
         rows = [{**row, "rate": rates[row["key"]]} for row in rows]
     elif "fabric_price" in payload.model_fields_set:
-        # Compatibility for single-fabric manual callers. Distinct physical
-        # fabrics always require explicit rates rather than a shared guess.
-        if len({row["key"].split(":")[0] for row in rows}) > 1:
-            raise HTTPException(409, "Enter an explicit rate for each fabric")
+        # The operator supplies one rate for all passport fabric/binding rows.
+        # Keep each recorded consumption and the existing costing formula.
         rows = [{**row, "rate": payload.fabric_price} for row in rows]
     apply_workflow_fields(db, request, **values, materials_json=rows, purchasing_updated_by_id=current.id,
         revision=request.revision + 1)

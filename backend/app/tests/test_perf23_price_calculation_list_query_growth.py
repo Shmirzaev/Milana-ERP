@@ -210,7 +210,7 @@ def test_price_list_preserves_response_fields_and_semantics(client, auth_headers
 
     assert set(row) == {
         "id", "model_id", "model_no", "variant_no", "model_name", "model_category",
-        "model_sizes", "model_image_url", "variant_image_url", "kroy_no",
+        "model_sizes", "model_image_url", "variant_image_url", "kroy_no", "order_no",
         "cutting_passport_id", "date", "fabric_width_m", "lay_length_m", "size_count",
         "gramage", "binding_kg_per_piece", "fabric_price", "sewing_cost", "packaging_cost",
         "accessories", "cost_price_uzs", "selling_price", "variant_selling_price",
@@ -226,6 +226,7 @@ def test_price_list_preserves_response_fields_and_semantics(client, auth_headers
     assert row["model_sizes"] == ["S", "M"]
     assert row["accessories"] == [{"name": "Thread", "price": 0.05}]
     assert row["date"] is None and row["cutting_passport_id"] is None
+    assert row["order_no"] is None
     # Seeded rows carry accessories but no cutting/purchasing/selling values, so
     # the per-stage and overall status semantics must stay as they are today.
     assert row["overall_status"] == "in_progress"
