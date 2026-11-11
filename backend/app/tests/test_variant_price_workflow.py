@@ -444,3 +444,73 @@ def test_cached_passport_relation_uses_new_order_identity_and_printing(client):
         request = db.query(PriceCalculationRequest).filter_by(active_model_id=model.id).one()
         assert request.passport_snapshot_json["production_order_id"] == order.id
         assert request.passport_snapshot_json["has_print"] is True
+
+
+@pytest.mark.parametrize("rate", [0, 5])
+def test_one_fabric_price_covers_all_consumption_and_binding_rows(client, rate):
+    data = setup(client, f"shared-rate-{rate}")
+    with SessionLocal() as db:
+        passport = db.get(CuttingPassport, data["passport"]["id"])
+        passport.order_no = "ORDER-SHARED-PRICE"
+        passport.materials = [
+            {"stock_batch_id": 101, "fabric_type": "Main", "size_range": "S, M", "fabric_width_m": 2, "lay_length_m": 4, "gramage": .2, "beka_per_piece_kg": .01},
+            {"stock_batch_id": 102, "fabric_type": "Contrast", "size_range": "S, M", "fabric_width_m": 2, "lay_length_m": 2, "gramage": .2, "beka_per_piece_kg": .02},
+        ]
+        from app.models.planning.variant_pricing_service import sync_passport_pricing
+        sync_passport_pricing(db, passport, db.query(User).filter_by(email=f"cutting.price.shared-rate-{rate}@example.com").one())
+        db.commit()
+        before = protected_facts(db)
+    request = get_request(client, data)
+    assert request["order_no"] == "ORDER-SHARED-PRICE"
+    assert [row["consumption"] for row in request["materials"]] == [.8, .01, .4, .02]
+    base = f"/api/price-calculation/requests/{request['id']}"
+    saved = client.patch(base + "/purchasing", headers=data["purchasing"], json={
+        "expected_revision": request["revision"], "fabric_price": rate, "sewing_cost": .5})
+    assert saved.status_code == 200, saved.text
+    assert all(row["rate"] == rate for row in saved.json()["materials"])
+    assert saved.json()["cost_price"] is None
+    stale = client.patch(base + "/purchasing", headers=data["purchasing"], json={"expected_revision": request["revision"], "fabric_price": 99})
+    assert stale.status_code == 409
+    saved = client.patch(base + "/accessories", headers=data["accessories"], json={
+        "expected_revision": saved.json()["revision"], "accessories": [], "no_accessories_reason": "No trims needed"})
+    assert saved.status_code == 200
+    request = submit(client, data, "purchasing", saved.json())
+    request = submit(client, data, "accessories", request)
+    assert request["consumption_cost"] == pytest.approx(1.23 * rate)
+    assert request["cost_price"] == pytest.approx(1.23 * rate + .6)
+    with SessionLocal() as db:
+        assert db.get(Model, data["model_id"]).selling_price is None
+        assert protected_facts(db) == before
+
+
+def test_price_card_order_number_uses_linked_order_and_freezes_on_approval(client, auth_headers):
+    from app.schemas import ProductionOrder
+    data = setup(client, "order-label")
+    sales = client.post("/api/sales-orders", headers=auth_headers, json={"items": [
+        {"model_id": data["model_id"], "color": "gray", "size": "S", "quantity": 2, "unit_price": 1.25}]})
+    assert sales.status_code == 201, sales.text
+    with SessionLocal() as db:
+        order = ProductionOrder(production_no="PO-PRICE-LABEL", production_type="client_order", model_id=data["model_id"], sales_order_id=sales.json()["id"], planned_quantity=2)
+        db.add(order); db.flush()
+        passport = db.get(CuttingPassport, data["passport"]["id"])
+        passport.production_order_id = order.id
+        passport.order_no = "STALE-MANUAL-LABEL"
+        db.flush()
+        db.expire(passport, ["production_order"])
+        from app.models.planning.variant_pricing_service import snapshot_passport
+        snapshot_passport(db, db.get(PriceCalculationRequest, data["request_id"]), passport)
+        db.commit()
+    request = get_request(client, data)
+    assert request["order_no"] == sales.json()["order_no"]
+    request = save_costs(client, data)
+    request = submit(client, data, "purchasing", request)
+    request = submit(client, data, "accessories", request)
+    approved = client.post(f"/api/price-calculation/requests/{request['id']}/approve", headers=auth_headers,
+        json={"expected_revision": request["revision"], "selling_price": 6})
+    assert approved.status_code == 200, approved.text
+    with SessionLocal() as db:
+        saved = db.get(PriceCalculationRequest, request["id"])
+        assert saved.approval_snapshot_json["order_no"] == sales.json()["order_no"]
+        db.get(ProductionOrder, order.id).sales_order_id = None
+        db.commit()
+    assert get_request(client, data)["order_no"] == sales.json()["order_no"]

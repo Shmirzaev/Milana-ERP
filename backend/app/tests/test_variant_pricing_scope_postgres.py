@@ -21,6 +21,32 @@ from app.tests.test_catalog_price_import import manifest_for
 from app.tests.test_customer_create_postgres import customer_pg_sessions  # noqa: F401
 
 
+def test_pg_shared_fabric_price_preserves_consumption_and_requires_submission(customer_pg_sessions):
+    from app.libs.dto.planning.price_calculation_request_update import PriceCalculationPurchasingIn
+    from app.libs.dto.planning.price_workflow_input import PriceWorkflowActionIn
+    from app.libs.enums.planning import PriceContributionTeam
+    from app.models.planning.costing_service import update_purchasing_details
+    sessions = customer_pg_sessions
+    actor_id, model_ids, targets = seed(sessions)
+    with sessions.begin() as db:
+        model = db.get(Model, model_ids[0]); model.created_at = datetime.now(timezone.utc)
+        row = db.get(PriceCalculationRequest, targets[0].request_id)
+        row.workflow_state = "collecting"; row.purchasing_submitted_at = None
+        row.materials_json = [{"key": key, "name": key, "unit": "kg", "consumption": consumption, "rate": None}
+                              for key, consumption in [("main", .8), ("main:binding", .01), ("contrast", .4), ("contrast:binding", .02)]]
+    with sessions() as db:
+        actor = db.get(User, actor_id)
+        saved = update_purchasing_details(db, targets[0].request_id,
+            PriceCalculationPurchasingIn(expected_revision=targets[0].expected_revision, fabric_price=5, sewing_cost=.5), actor)
+        assert [row["consumption"] for row in saved["materials"]] == [.8, .01, .4, .02]
+        assert all(row["rate"] == 5 for row in saved["materials"])
+        assert saved["cost_price"] is None and db.get(Model, model_ids[0]).selling_price is None
+        submitted = workflow.submit_contribution(db, saved["id"], PriceContributionTeam.PURCHASING,
+            PriceWorkflowActionIn(expected_revision=saved["revision"]), actor)
+        assert submitted["cost_price"] == pytest.approx(6.85)  # 1.23*5 + .5 + .1 packaging + .1 label
+        assert db.get(Model, model_ids[0]).selling_price is None
+
+
 def seed(sessions, count=1):
     marker = uuid4().hex
     with sessions.begin() as db:

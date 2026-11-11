@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.core.deps import user_permissions
 from app.models.user_access_service import access_configured, permission_denied
-from app.schemas import CuttingPassport, User
+from app.schemas import CuttingPassport, ProductionOrder, User
 from app.schemas.core_persistence import add_notification_row
 from app.schemas.catalog.catalog import Model
 from app.schemas.catalog.model_price_persistence import apply_request_selling_price
@@ -59,7 +59,8 @@ def price_request_load_options() -> tuple:
             joinedload(PriceCalculationRequest.model).selectinload(relation)
             for relation in PRICE_MODEL_ASSET_RELATIONS
         ),
-        joinedload(PriceCalculationRequest.cutting_passport),
+        joinedload(PriceCalculationRequest.cutting_passport).joinedload(
+            CuttingPassport.production_order).joinedload(ProductionOrder.sales_order),
     )
 
 

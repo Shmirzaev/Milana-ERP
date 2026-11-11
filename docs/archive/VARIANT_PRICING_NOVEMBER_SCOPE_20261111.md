@@ -7,6 +7,15 @@ unique variant fallback remain authorized. Deployment is authorized; the owner
 waived 30-minute monitoring. Earlier two measured performance exceptions are not
 blanket exceptions for this release.
 
+Additional owner corrections: “we don't need each fabric price just keep box for
+fabric price and all the formula is there”; “no need for kro no now, you can
+replace it with order no”. Purchasing now supplies one Fabric price USD for all
+recorded fabric/binding consumption rows. Consumption evidence and the existing
+net-cost formula remain unchanged. Explicit per-material API inputs and approved
+historical breakdowns remain compatible. Cards display the linked order's public
+number, falling back to the passport's manual order number or a dash; the Kroy
+identity remains internal evidence for Cutting. Approval freezes the order label.
+
 Base: clone_main c02f83ac03d22d98575ed23887e883925b3c3581. Verified production
 before edits: blue 20261110_135430, application cfe03885e03e4310e9b7c86ec9649ff350565d65,
 manifest 1abc90b9e4b87f3e16ef0e255fe1829d15e9b510d6f61f1b2c030baf33fa89a3,
@@ -51,11 +60,11 @@ Mirshoir; Production Mirshoir, reviewer Ismail; Shavkat supplies operator busine
 acceptance. Implementation /root; independent AI review /root/pricing_review.
 Human QA-master acceptance is not claimed by AI test results.
 
-Local evidence: 53 focused SQLite workflow/import/scope cases; 9 real PostgreSQL
+Local evidence: 56 focused SQLite workflow/import/scope cases; 10 real PostgreSQL
 cases including whole-transaction commit-failure recovery and retirement racing
 with Finance approval/import; 53 offline required-gate validator cases. Ruff,
 compile, frontend ESLint, strict TypeScript and pricing workflow regression pass.
-The required PostgreSQL inventory adds exactly three case identities (648 total).
+The required PostgreSQL inventory adds exactly four case identities (649 total).
 Evidence is private under outputs/pricing-november-scope; no workbook, credentials
 or production dumps are committed.
 

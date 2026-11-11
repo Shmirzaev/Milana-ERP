@@ -1,4 +1,8 @@
+"use client";
+
 import { formatVariantNumber } from "@/lib/variantDisplay";
+import { useT } from "@/lib/i18n";
+import { priceWorkflowMessages } from "@/lib/priceWorkflowMessages";
 import type { ReactNode } from "react";
 import ImageThumbnail from "@/components/ImageThumbnail";
 import { priceRequestSurface, type PriceCalculationRequest, type PriceRequestStatus } from "@/lib/priceCalculationRequests";
@@ -73,6 +77,7 @@ export default function PriceRequestCard({
   labels: PriceRequestProductLabels & { request: string };
   children?: ReactNode;
 }) {
+  const { lang } = useT();
   return (
     <section className={`rounded-lg border p-2.5 shadow-sm ${priceRequestSurface(status)}`}>
       <div className="mb-2 flex items-center justify-between gap-3 border-b border-black/10 pb-1.5">
@@ -85,11 +90,11 @@ export default function PriceRequestCard({
           variantNo: request.variant_no,
           modelName: request.model_name,
           sizes: request.model_sizes.join(", "),
-          kroyNo: request.kroy_no || "",
+          kroyNo: request.order_no || "",
           modelImageUrl: request.model_image_url,
           variantImageUrl: request.variant_image_url,
         }}
-        labels={labels}
+        labels={{ ...labels, kroy: priceWorkflowMessages(lang).order }}
       />
       {children ? <div className="mt-2 border-t border-black/10 pt-2">{children}</div> : null}
     </section>

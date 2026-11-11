@@ -103,9 +103,15 @@ def baseline(model, reason=None):
 
 def serialize(request, user):
     result = pricing.serialize_price_request(request)
+    passport = request.cutting_passport
+    result["order_no"] = (passport.production_order.order_no if passport and passport.production_order
+                          else passport.order_no if passport else None)
+    if request.workflow_state in {PriceWorkflowState.APPROVED, PriceWorkflowState.CANCELLED, PriceWorkflowState.LEGACY}:
+        snapshot = request.approval_snapshot_json or {}
+        result["order_no"] = snapshot.get("order_no", result["order_no"])
     if request.workflow_state == PriceWorkflowState.APPROVED and request.approval_snapshot_json:
         snapshot = request.approval_snapshot_json
-        for field in ("model_no", "variant_no", "model_name", "model_sizes", "date", "materials", "cost_price",
+        for field in ("model_no", "variant_no", "model_name", "model_sizes", "order_no", "date", "materials", "cost_price",
             "cost_price_uzs", "profit_percentage", "exchange_rate", "sewing_cost", "printing_cost", "accessories",
             "printing_required", "fabric_consumption", "consumption_cost", "binding_price", "difference", "margin_percentage", "packaging_cost"):
             if field in snapshot:
@@ -201,8 +207,7 @@ def _material_rows(passport) -> list[PriceMaterialSnapshot]:
                 consumption = width * length * gsm / count
         result.append({"key": key, "name": str(row.get("fabric_type") or passport.fabric_type or f"Fabric {index + 1}"),
                        "unit": unit, "consumption": number(consumption, "0.000001"), "rate": None})
-        # Binding and ribana remain separate priced material lines. Do not
-        # silently price a distinct fabric using the main fabric's rate.
+        # Keep binding/ribana consumption separate in the costing breakdown.
         for field, name in (("beka_per_piece_kg", "Binding"), ("other_beka_per_piece_kg", "Other binding"), ("ribana_per_piece_kg", "Ribana")):
             quantity = amount(row.get(field))
             if quantity is not None and quantity > 0:
@@ -290,7 +295,7 @@ def unlink_passport_pricing(db, passport, current):
         if historical or not policy.eligible(model):
             if not historical:
                 retire_request(db, request, current, policy.POLICY_REASON)
-            snapshot = request.approval_snapshot_json or json.loads(json.dumps(pricing.serialize_price_request(request), default=str))
+            snapshot = request.approval_snapshot_json or json.loads(json.dumps(serialize(request, current), default=str))
             apply_workflow_fields(db, request, cutting_passport_id=None,
                 passport_snapshot_json=request.passport_snapshot_json or passport_evidence(passport),
                 approval_snapshot_json=snapshot)

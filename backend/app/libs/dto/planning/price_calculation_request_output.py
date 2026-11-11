@@ -33,6 +33,7 @@ class PriceCalculationRequestOut(BaseModel):
     model_image_url: str | None = None
     variant_image_url: str | None = None
     kroy_no: str | None = None
+    order_no: str | None = None
     cutting_passport_id: int | None = None
     date: datetime | None = None
     fabric_width_m: float | None = None
