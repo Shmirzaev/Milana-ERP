@@ -6,7 +6,8 @@ Base: `3053788f2e17bd5585bccf8cd4547a62cc297516`. Both production hosts were
 verified at `20261111_052632`, manifest
 `55d0edc9b7893df95987102cc6d9ccbe5b59a89f3c369eb5ea1f46a9868d4520`,
 matching `origin/clone_main:deploy/production-base.json`. Rollback remains
-`20261110_135430`. No merge or deployment is requested.
+`20261110_135430`. At this initial local-only stage no merge or deployment was
+requested; the owner later authorized the combined attempt recorded below.
 
 Accountable production engineer: Mirshoir; human reviewer: Ismail.
 Implementation: root Codex agent; independent AI review recorded below.
@@ -37,7 +38,8 @@ received/foreign-factory batches remain excluded. Loading/error/empty states,
 search reset, scope reset, refresh after receipt and all three existing
 translations must work. Run focused backend pagination and receipt/factory
 regressions, actual React/SWR browser interaction, lint and strict TypeScript.
-Use only disposable fixtures. No production business writes or deployment.
+Initial local verification used only disposable fixtures, without production
+business writes or deployment. The later authorized release attempt is recorded below.
 
 ## Verification evidence
 
@@ -83,14 +85,18 @@ Use only disposable fixtures. No production business writes or deployment.
   at 20 rows without a render loop. Human review remains separate.
 - No schema/locking/constraint behavior changed; PostgreSQL-specific migration
   and concurrency gates are not applicable to this read-only pagination patch.
-  A full production build, CI and release QA have not run; this is local evidence,
-  not deployment readiness. Next-generated incidental files were restored.
+  Full build, exact-source CI and staged release QA subsequently passed in the
+  combined invoice/report candidate below. Next-generated incidental files were restored.
 
-Status: **AI_VERIFIED_AWAITING_HUMAN** for this bounded local operation.
-Code and verification remain on the dedicated task branch; no push, shared-branch
-merge or deployment was performed. `clone_main` was re-fetched and remained at
-the verified base. Next step: human/source integration review and release checks
-when requested. The active production and rollback releases remain unchanged.
+Status: **AI_VERIFIED_AWAITING_HUMAN**; human acceptance remains unrecorded.
+The branch is pushed, not merged into clone_main/main. Combined candidate
+20261111_115200 at46ddd5c78 passed CI, staged UI/API and paired performance.
+Actual production MIL pagination reached20/40/60/80/81 unique batches in staged
+browser QA; connected Edge confirmed20->40 without submitting a receipt.
+After cutover, a separate public Cutting-passport p95 exceeded its15% limit;
+the deployment was rolled back and the owner chose Keep previous release.
+Green052632 and original blue135430 standby are restored. No timed observer ran.
+See the [combined release record](archive/INVOICE_SEWING_RELEASE_20261111.md).
 
 Human checklist: open Sewing receiving, search USL-0026, click Load more until
 the last pending nastil is shown; confirm search resets, a chosen line remains

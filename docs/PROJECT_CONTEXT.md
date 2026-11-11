@@ -15,7 +15,33 @@ Last updated 2026-11-11. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
-## Variant pricing November scope (11 November; deployed)
+## Invoice/report and Sewing candidate (11 November; rolled back)
+
+Owner chose **Keep previous release** after candidate `20261111_115200`
+failed its public Cutting-passport p95 gate: 150.85 to 186.97 ms (+23.94%,
+limit +15%). Do not treat this candidate as deployed or inherit an older
+performance exception. Both hosts remain green `20261111_052632`, runtime
+`519c9fa36f3d90905f935caf08fe781417cf7e24`, manifest
+`55d0edc9b7893df95987102cc6d9ccbe5b59a89f3c369eb5ea1f46a9868d4520`.
+The original blue `20261110_135430` / `cfe03885e03e4310e9b7c86ec9649ff350565d65`
+standby was restored; active green container identities and routing stayed intact.
+Schema remains `0156_variant_price_workflow`; the task performed no business-data
+writes or schema changes.
+
+Tested candidate source `46ddd5c7864f0a68bd9a3c884d835a2a5dbf9bfb` is pushed on
+`codex/sewing-receive-load-more-20261111`, not merged into `clone_main` or `main`.
+It standardizes invoice size text, applies 10px table/signature type while retaining
+23.1pt rows, adds Today/This month report shortcuts, and pages Sewing receipts.
+CI passed 6,756 backend cases / 1,589 reported skips / 36 subtests, 649 required
+PostgreSQL cases plus supplements/contracts, frontend and security. Staged actual
+browser/Excel checks and 550 paired GETs passed. Public 280 GETs preserved all
+frozen facts, medians and payloads but hit the p95 failure above; no timing retry
+or observer ran. Full rollback and restored-standby health/runtime checks passed.
+An old traceability error on shipment SH-2026-000273 at 10:37:16 UTC predates
+candidate startup; its cause remains unresolved. Deployment-window logs were clean.
+See the [candidate and rollback record](archive/INVOICE_SEWING_RELEASE_20261111.md).
+
+## Variant pricing November scope (11 November; active again after rollback)
 
 Both hosts serve green `20261111_052632`, runtime
 `519c9fa36f3d90905f935caf08fe781417cf7e24`, manifest

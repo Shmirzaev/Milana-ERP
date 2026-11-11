@@ -67,19 +67,40 @@ test is needed; required existing PostgreSQL CI gates remain.
   leap years. Scoped ESLint, strict TypeScript, Ruff and diff checks passed.
 - All frontend build contracts and the optimized local production
   build passed with webpack. The default local Turbopack build cannot resolve
-  this worktree's shared node_modules junction; normal hermetic CI must still
-  pass with the default builder. No dependency/config workaround was committed.
+  this worktree's shared node_modules junction; subsequent hermetic exact-source
+  CI passed with the default builder. No dependency/config workaround was committed.
 - Independent review `/root/review_invoice_report` found and verified the fix
   for whitespace-only sizes; follow-up review passed 49 tests and reported no
   remaining actionable finding. Width allocation now accounts for 10px/7.5pt
   instead of the former 9pt; other column widths and row minimum are retained.
-- Browser harnesses use disposable fixtures only. The local preview-start tool
-  was rejected by automatic approval review as "blocked by policy"; browser
-  checks are pending rather than claimed green.
-- Production SSH/source verification passed on both hosts. Root slot-state,
-  retention, backup and deployment operations require sudo authentication that
-  the saved SSH key does not supply. The owner has been asked for approved access;
-  do not treat this as authorization to bypass host security or change sudo rules.
+- The initial indefinite preview command was rejected by automatic approval.
+  A bounded owned preview with guaranteed cleanup subsequently passed both real
+  browser suites, and connected Edge verified invoice/report and Sewing behavior.
+  Credentials from the owner's supplied document enabled normal sudo access;
+  they remained in memory and were never committed or printed.
+- Exact-source CI passed: 6,756 backend cases, 1,589 reported skips and 36 subtests;
+  649 mandatory PostgreSQL cases, 17 supplements and 84 shared contracts;
+  frontend lint/strict types/default production build and scanned image publication.
+- Exact staged production-image browser checks passed for existing shipment 282:
+  10px text, 30.796875px retained row height, no clipping, six EN/RU/UZ price-on/off
+  XLSX files with 7.5pt type and 23.1pt rows, unchanged source document and totals.
+  Today returned 516 PJ1263 pieces; November returned 996. Connected Edge confirmed
+  both shortcuts preserve the search and dates. Listing/export boundaries match.
+- Actual MIL Sewing pagination reached 20/40/60/80/81 rows without duplicates.
+  Connected Edge confirmed 20 -> 40. A MIL session correctly remains forbidden
+  from requesting BST/ECO; disposable full-handoff tests cover all three factories.
+- Staged 550 paired GETs passed complete frozen facts and all latency/payload
+  limits. Public 280 GETs preserved facts, medians and payloads, but Cutting-passport
+  p95 rose 150.85 -> 186.97ms (+23.94%; limit15%). No timing retry was made.
+- Candidate 20261111_115200 was rolled back. The owner explicitly chose to keep
+  green20261111_052632. Original blue20261110_135430 standby was restored and both
+  hosts passed fresh health/runtime checks. No task-initiated business-data writes
+  or schema changes occurred.
+  Timed observation was explicitly waived; no observer or substitute monitor ran.
 
-Status: automated local checks and independent code review passed; visual and
-release gates remain pending. No deployment or human acceptance claimed.
+Status: implementation, automated/visual checks and independent AI review passed;
+**AI_VERIFIED_AWAITING_HUMAN**, with human business acceptance unrecorded.
+Deployment was attempted and rolled back for the performance gate. The owner
+chose the previous release. Changes are pushed on the requested task branch,
+not merged into clone_main/main and not currently live. See the
+[complete release record](archive/INVOICE_SEWING_RELEASE_20261111.md).
