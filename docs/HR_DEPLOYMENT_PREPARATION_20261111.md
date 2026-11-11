@@ -45,6 +45,7 @@ compatible merely because the new DDL is additive.
 
 Separate worktree `C:/ERP/.codex-work/hr-schema-recovery-20261111`, branch
 `codex/hr-schema-recovery-20261111`, preserves the deployed application behavior
+with one reviewed schema-head compatibility guard in catalogue price import,
 and adds the exact same frozen HR migration plus merge metadata. Its test-only
 storage contract must preserve the shared migration-drift baseline. Build this
 as a separately reviewed immutable recovery artifact; do not graft files into a
@@ -62,11 +63,17 @@ after backend publication and before reporting both artifacts ready.
 
 ## Repeatable checks and evidence
 
-The combined local scoped suite passed 765 cases, including the eight real
+The first combined local scoped suite passed 765 cases, including the eight real
 PostgreSQL turnstile cases and pricing/startup regressions, with zero failures
 or skips. The earlier first integration run's 764 passes/one Alembic-plan failure
 is retained as failed evidence; the corrected eight-case rehearsal and final
-765-case run supersede it. The full ERP CI gate remains required for the final
+765-case run supersede it. Exact-source CI then exposed a catalogue-import guard
+still requiring pricing0156 and an HR pagination mock missing the live-panel
+import. Both were corrected: the guard accepts exactly one of the two reviewed
+pricing/HR heads and refuses empty, multiple, gate-only, old or unknown heads;
+seven new PostgreSQL cases pin those outcomes. The affected import/HR migration
+suite passed 28 cases. The repaired pagination test passes. Failed CI reports
+remain preserved. The full ERP CI gate remains required for the final
 commit; the old 609-case/Edge evidence does not certify this new combined source.
 
 Windows connector checks passed all 224 cases including actual current-user
@@ -75,11 +82,37 @@ cases and blocks artifact publication. Backend test TLS support now has an
 explicit development dependency rather than an accidental local installation.
 
 All eight PostgreSQL identities are now included in the mandatory no-skip
-refactor gate (653 required cases total); evidence-policy tests challenge missing,
+refactor gate (660 required cases total, including nine import cases); evidence-policy tests challenge missing,
 replacement, duplicate, skipped, failed and errored HR cases. Frontend lint and
-strict typing passed (14 inherited lint warnings); the live-UI production build
-passed. Both compile-flag variants and exact-source CI/security/image checks must
+strict typing passed (14 inherited lint warnings); production builds with the
+live UI enabled and disabled passed. Exact-source CI/security/image checks must
 be recorded before promotion.
+
+The broad local Node runner is not a pass: Windows path separators also break
+its existing quarantine matching, runner fixture and Lucide path contract.
+The Linux CI result is required; no unrelated quarantine was widened to hide
+these failures. The repaired HR pagination case passes independently.
+
+The recovery's separate mandatory gate contains 680 cases, including all 28
+recovery-contract cases and nine import cases. Its local storage/bootstrap/import
+run passed 66 cases; 17 inherited tests for different historical recovery images
+are explicitly inapplicable/skipped. Every one of the 28 new recovery-contract
+cases ran without a skip. Twenty-two altered-storage faults were refused while
+the original 94-entry drift baseline remained exact. The first expected-schema
+clone renamed its automatic index; that failed evidence is retained. The clone
+now preserves frozen source index names, and actual index comparisons remain exact.
+
+The completed combined Edge session saved eight verified synthetic requests,
+nine synthetic native writes and zero factory writes. Active-profile deletion
+was refused before creating a job. Device enrollment/name/photo/revoke/restore/
+delete and HR save/edit/archive/restore/full reload passed; an unallowlisted
+employee's submit remained disabled. Both employees and 21 valid audit-chain
+records were read back. The synthetic profile/photo were absent after deletion;
+the unrelated synthetic profile remained. One local authentication interruption
+returned 401 before acceptance; reauthentication and the complete six-job history
+confirmed no accepted extra request before the final revoke/delete. Edge transport
+timeouts/root tab replacement are retained as limitations, not application passes.
+The disposable database/API/worker were cleaned up and the owned preview stopped.
 
 Current-session raw logs, reports, source/image identities, final Edge captures,
 persisted readback and cleanup evidence belong in ignored

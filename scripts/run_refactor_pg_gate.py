@@ -30,7 +30,8 @@ GROUPS = {
         'test_pg_audit_failure_rolls_back_intent_and_same_key_retries',
         'test_pg_constraints_reject_cross_factory_and_invalid_vocabulary',
     )),
-    'test_catalog_price_import_postgres': (2, (
+    'test_catalog_price_import_postgres': (9, (
+        'test_pg_import_schema_guard_allows_only_reviewed_single_heads',
         'test_pg_import_deferred_commit_failure_preserves_prices_requests_and_history',
         'test_pg_import_and_finance_approval_serialize_to_one_winner',
     )),

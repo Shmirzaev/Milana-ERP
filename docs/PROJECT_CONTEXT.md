@@ -193,7 +193,11 @@ and slot states match active `20261110_135430` / `cfe03885e03e4310e9b7c86ec9649f
 the production baseline file remains unchanged. Frozen HR and pricing migrations
 are joined by metadata-only head `0157_pricing_gate_live_merge`. The combined
 local suite passes 765 cases, real Windows connector 224, and the eight HR PG
-cases are now mandatory CI evidence. Earlier failing integration evidence is
+cases are now mandatory CI evidence (660 required cases after pricing guard
+coverage). The catalogue import accepts only the two reviewed single heads;
+seven PostgreSQL guards and the repaired HR pagination harness pass. Eight
+synthetic Edge requests, HR archive/restore/reload and 21 audit-chain records
+passed readback and exact target cleanup. Earlier failing integration evidence is
 retained. Exact-source immutable CI, compatible recovery startup/replacement/
 restart evidence and the current Edge session belong to the new preparation
 packet; older results are not relabeled. Production disk is above the 70% alert.

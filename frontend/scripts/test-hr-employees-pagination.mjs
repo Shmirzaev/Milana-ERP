@@ -70,6 +70,7 @@ new Function("require", "exports", "module", output)(name => {
     return () => null;
   } };
   if (name === "@/components/hr/turnstile/turnstilePreview") return { PREVIEW_ENABLED: false, BACKEND_ENABLED: false };
+  if (name === "@/components/hr/turnstile/turnstileLive") return { LIVE_ENABLED: false };
   if (name === "@/components/hr/turnstile/turnstileBackendCopy") return { backendCopy: {} };
   if (name === "@/components/hr/turnstile/turnstilePreviewCopy") return { gateCopy: {} };
   if (name === "@/lib/auth") return { useMe: () => ({ me: { permissions: ["*"] } }) };
