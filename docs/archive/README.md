@@ -4,6 +4,8 @@ These reports preserve what was observed at their recorded date. They are not
 current implementation instructions or proof of today's production state.
 Start with [current context](../PROJECT_CONTEXT.md) for active work.
 
+- [November pricing scope and latest Excel, 11 November 2026](VARIANT_PRICING_NOVEMBER_SCOPE_20261111.md): green 20261111_052632 deployed; one fabric field, Order No., recent non-Usluga queues, 131 retirements, 14 missing-price fills, conserved orders and accepted public timing exceptions.
+
 - [Variant pricing release, 11 November 2026](VARIANT_PRICING_RELEASE_20261111.md): blue 20261110_135430 / schema 0156 deployed; exact CI and recovery, owner latency exceptions, price/backfill completion record.
 
 - [Variant pricing candidate, 10 November 2026](VARIANT_PRICING_WORKFLOW_20261110.md): explicit team submissions and Finance approval, complete Excel, isolated workflow/lock verification; historical candidate evidence, superseded by the release record.

@@ -15,41 +15,46 @@ Last updated 2026-11-11. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
-## Variant pricing workflow (11 November; deployed)
+## Variant pricing November scope (11 November; deployed)
 
-Blue release `20261110_135430` is active on both application hosts at runtime
-commit `cfe03885e03e4310e9b7c86ec9649ff350565d65`, schema
-`0156_variant_price_workflow`. Compatible green recovery `20261110_135420` /
-`6f72351eda41ba47857643d5c046e2a0bd319088` preserves ordinary orders and guards
-pricing with 503; old unguarded images are not approved rollback targets for 0156.
-Runtime source is integrated into `clone_main`. Both full immutable CI runs passed;
-the final required PostgreSQL gate passed 645 required cases, 17 Purchasing cases
-and 84 runner contracts without skips.
+Both hosts serve green `20261111_052632`, runtime
+`519c9fa36f3d90905f935caf08fe781417cf7e24`, manifest
+`55d0edc9b7893df95987102cc6d9ccbe5b59a89f3c369eb5ea1f46a9868d4520`.
+Schema remains `0156_variant_price_workflow`; no migration. Healthy full-app
+rollback is blue `20261110_135430` / `cfe03885e03e4310e9b7c86ec9649ff350565d65`.
+Source was fast-forwarded into `clone_main`; deployment metadata is a later commit.
 
-Missing-price passports create independent Purchasing/Abbosxon and Accessories
-submissions, followed by explicit Finance selling-price confirmation. Admin has
-both submission screens; Finance has pending, approval, history and full Excel.
-Existing prices are reused. Pricing does not gate manufacturing or rewrite saved
-order prices. The owner authorized source F + USD 0.30 once from `10-11.xlsx`,
-including unique variant-number matches and exact model/variant conflict priority.
-The live import filled 519 missing prices with USD/catalog provenance, preserving
-5,897 already-correct prices and their provenance; all 6,416 rows passed readback.
-Authorized historical backfill created 166 requests: 153 MIL and 13 ECO, with no
-costs or approvals entered. All 36 protected business tables, existing requests
-and targeted variants stayed identical during backfill. See the
-[11 November release record](archive/VARIANT_PRICING_RELEASE_20261111.md).
+Only missing-price standard variants created from 1 November 2026, 00:00
+Asia/Tashkent, qualify for active pricing. Usluga and older variants are excluded
+from automatic/manual creation, submission and approval, without gating Cutting.
+Admin retains Purchasing/Abbosxon and Accessories screens; Finance confirms after
+both submissions and has pending, history and full Excel. Existing prices are
+reused. Purchasing has one Fabric price USD input feeding the existing formula;
+cards show the public Order No. Internal Cutting evidence remains intact.
 
-Owner waived only the 30-minute observation; no observer/substitute monitor ran.
-Both staged paired gates passed. The public gate preserved all full facts,
-medians and payload sizes but failed Sales p95 (+74.16%, 140 to 243 ms) and Cutting
-passports p95 (+24.67%, 148 to 185 ms). Owner explicitly accepted those two
-exceptions and authorized completing price/backfill writes. Cause remains
-unproven; failed samples are retained. Fresh backups, actual public Admin forms
-and the 6,587-row Excel, 30-GET full functional parity with compatible recovery,
-and both-host formal closing passed. The post-import benchmark remains incomplete
-after audited staff stock consumption changed inventory quantities; this is not
-an all-performance-gates pass. Staff account-to-team mapping and human/QA-master
-acceptance remain open; AI evidence does not establish human acceptance.
+Latest `11-11.xlsx` F + USD0.30 once filled exactly 14 missing prices. All 6,435
+matched prices verify; 6,421 existing prices/provenance remain unchanged. Exact
+model/variant wins; variant fallback must be unique across all catalogues.
+Exactly 131 older active requests were cancelled with costs/history preserved.
+Final snapshot: 39 active eligible requests, 36 MIL and 3 ECO, zero Usluga.
+All 36 protected business tables (119,419 rows) stayed identical through both
+writes, including order prices, manufacturing, stock and shipments. The original
+519-price import/backfill history remains in the [previous release record](archive/VARIANT_PRICING_RELEASE_20261111.md).
+
+Exact-source CI: 6,735 backend passes / 1,589 reported skips / 36 subtests,
+649 required PostgreSQL cases plus supplements/contracts, frontend and security.
+Staged 550 paired GETs passed. Public 280 GETs preserved complete facts, medians
+and payloads but failed model-options p95 162.13 to 202.97 ms (+25.19%) and Cutting
+passports 154.33 to 647.94 ms (+319.85%). Owner explicitly accepted these two
+new-release exceptions; cause remains unproven and failed evidence is retained.
+No replacement timing epoch was run. After writes, 30 full-fact comparisons across
+public, active and rollback passed, as did fresh both-host formal closing/all four
+health checks. The verified pre-cutover/data backup has 1,400 restore objects.
+Actual public Admin forms, imported price/history and the 6,596-row three-sheet
+Excel passed; one external ad-blocker error, zero ERP console errors. Owner waived
+30-minute observation; no observer/substitute monitor ran. Staff account-to-team
+mapping and human/QA-master acceptance remain unrecorded. See the
+[scope and deployment record](archive/VARIANT_PRICING_NOVEMBER_SCOPE_20261111.md).
 
 ## Process QR base-model operations (10 November; previous release)
 
