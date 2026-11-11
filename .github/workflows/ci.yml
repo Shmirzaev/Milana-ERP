@@ -259,6 +259,31 @@ jobs:
             docker rm --force "$(cat "$RUNNER_TEMP/ci-postgres.cid")"
           fi
 
+  hikvision-connector:
+    if: github.event_name != 'schedule' && !(github.event_name == 'workflow_dispatch' && inputs.security_scan_only)
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -r connectors/hikvision_attendance/requirements-test.txt
+      - name: Test pinned HTTPS protocol, reader boundaries and real Windows DPAPI
+        run: python -m pytest -q connectors/hikvision_attendance --junitxml=connector-report.xml
+      - name: Refuse skipped or missing connector evidence
+        shell: python
+        run: |
+          import xml.etree.ElementTree as ET
+          cases = list(ET.parse("connector-report.xml").getroot().iter("testcase"))
+          assert len(cases) >= 224
+          assert all(not any(case.find(tag) is not None for tag in ("failure", "error", "skipped")) for case in cases)
+          assert any(case.get("name") == "test_real_windows_journal_is_protected_and_round_trips" for case in cases)
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hikvision-connector-report
+          path: connector-report.xml
   frontend:
     if: github.event_name != 'schedule' && !(github.event_name == 'workflow_dispatch' && inputs.security_scan_only)
     runs-on: ubuntu-latest
@@ -381,7 +406,7 @@ jobs:
 
   release:
     if: github.event_name == 'workflow_dispatch' && !inputs.security_scan_only
-    needs: [backend, frontend, security-scan]
+    needs: [backend, frontend, hikvision-connector, security-scan]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -441,6 +466,16 @@ jobs:
           ROLLBACK_BACKEND_IMAGE: ${{ steps.images.outputs.backend }}@${{ steps.backend_image.outputs.digest }}
           ROLLBACK_SOURCE_REVISION: ${{ github.sha }}
         run: python scripts/test_rollback_image_schema_0150.py --image "$ROLLBACK_BACKEND_IMAGE" --revision "$ROLLBACK_SOURCE_REVISION"
+      - name: Verify HR schema startup, worker replacement and restart on the published image
+        if: hashFiles('scripts/test_rollback_image_schema_0157.py') != ''
+        timeout-minutes: 12
+        env:
+          HR_BACKEND_IMAGE: ${{ steps.images.outputs.backend }}@${{ steps.backend_image.outputs.digest }}
+          HR_SOURCE_REVISION: ${{ github.sha }}
+        run: |
+          args=()
+          if [ -f backend/app/models/people/turnstile_live_service.py ]; then args+=(--live-routes); fi
+          python scripts/test_rollback_image_schema_0157.py --image "$HR_BACKEND_IMAGE" --revision "$HR_SOURCE_REVISION" "${args[@]}"
       - name: Publish scanned frontend image
         id: frontend_image
         env:

@@ -23,6 +23,13 @@ from refactor_pg_evidence import (
 # Minimum collected counts pin the current parameterized business cases. Adding
 # cases is allowed; removing a required case needs an explicit ledger change.
 GROUPS = {
+    'test_turnstile_live_postgres': (8, (
+        'test_live_migration_roundtrip_preserves_prior_schema',
+        'test_pg_parallel_same_request_and_claim_have_single_owner',
+        'test_pg_bounded_workers_and_expired_claim_never_repeat',
+        'test_pg_audit_failure_rolls_back_intent_and_same_key_retries',
+        'test_pg_constraints_reject_cross_factory_and_invalid_vocabulary',
+    )),
     'test_catalog_price_import_postgres': (2, (
         'test_pg_import_deferred_commit_failure_preserves_prices_requests_and_history',
         'test_pg_import_and_finance_approval_serialize_to_one_winner',

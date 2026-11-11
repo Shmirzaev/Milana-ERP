@@ -184,6 +184,29 @@ adoption and security audit are not complete. Exact identities, backup/evidence
 hashes, exceptions and limits are in the
 [release record](archive/ECT_WAREHOUSE_RELEASE_2026-11-09.md).
 
+## HR deployment preparation (11 November; not deployed)
+
+The owner requested deployment preparation while deferring real-person testing.
+A new isolated candidate on `codex/hr-deployment-ready-20261111` starts from
+`c02f83ac0`, preserving the currently deployed pricing runtime. Both host manifests
+and slot states match active `20261110_135430` / `cfe03885e03e4310e9b7c86ec9649ff350565d65`;
+the production baseline file remains unchanged. Frozen HR and pricing migrations
+are joined by metadata-only head `0157_pricing_gate_live_merge`. The combined
+local suite passes 765 cases, real Windows connector 224, and the eight HR PG
+cases are now mandatory CI evidence. Earlier failing integration evidence is
+retained. Exact-source immutable CI, compatible recovery startup/replacement/
+restart evidence and the current Edge session belong to the new preparation
+packet; older results are not relabeled. Production disk is above the 70% alert.
+
+A separate schema-compatible recovery candidate preserves deployed application
+behavior; existing 0156 images cannot restart on 0157. Initial promotion must
+keep backend management disabled, device write approvals false and the LAN
+writer inactive. Installed reader settings/tasks/pins and the previous ERP stay
+unchanged. No production migration, deployment or physical write is authorized
+by preparation. QA-master approval, release authorization and the owner's
+allowlisted physical/dual-report pilot remain separate gates. See
+[the preparation and promotion checklist](HR_DEPLOYMENT_PREPARATION_20261111.md).
+
 ## HR readiness fixes (9–10 November; local candidate)
 
 The organization selector now submits canonical types independently of EN/RU/UZ

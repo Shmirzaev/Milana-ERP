@@ -1,4 +1,5 @@
 -r requirements.txt
+cryptography==50.0.2
 ruff==0.14.9
 bandit==1.9.4
 pip-audit==2.10.1

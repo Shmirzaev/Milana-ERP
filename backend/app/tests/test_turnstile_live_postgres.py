@@ -12,7 +12,7 @@ from app.core.config import settings
 from app.libs.dto.people.turnstile_live import LiveDeviceInput, LiveRequestInput, LiveResultInput
 from app.libs.enums.turnstile import GateMode, LiveGateAction, LiveGateState
 from app.models.people import turnstile_live_service as service
-from app.schemas import AttendanceDevice, AttendanceEvent, Employee, User
+from app.schemas import AttendanceDevice, AttendanceEvent, Employee, Model, PriceCalculationRequest, User
 from app.schemas.people.turnstile_live import GateLiveJob
 from app.tests.test_customer_create_postgres import customer_pg_sessions as customer_pg_sessions
 
@@ -23,10 +23,42 @@ def test_live_migration_roundtrip_preserves_prior_schema(customer_pg_sessions):
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(settings, "DATABASE_URL", engine.url.render_as_string(hide_password=False).replace("%", "%%"))
         patch.setattr(sa, "engine_from_config", lambda *args, **kwargs: engine)
-        command.downgrade(Config(ini), "0155_eco_gate_merge")
+        # Undo only the additive gate branch. Deployed pricing is forward-only;
+        # it and its saved business rows must survive a gate storage roundtrip.
+        def remove_gate_storage():
+            command.downgrade(Config(ini), "0156_variant_price_workflow")
+            with engine.connect() as connection:
+                assert set(connection.execute(sa.text("SELECT version_num FROM alembic_version")).scalars()) == {
+                    "0156_variant_price_workflow", "0156_gate_live_integration"}
+            command.downgrade(Config(ini), "0156_gate_live_integration@-1")
+            with engine.connect() as connection:
+                assert connection.execute(sa.text("SELECT version_num FROM alembic_version")).scalars().all() == ["0156_variant_price_workflow"]
+        remove_gate_storage()
         assert "gate_live_jobs" not in sa.inspect(engine).get_table_names()
         assert "mode" not in {c["name"] for c in sa.inspect(engine).get_columns("gate_employee_devices")}
+        assert "workflow_state" in {c["name"] for c in sa.inspect(engine).get_columns("price_calculation_requests")}
+        with customer_pg_sessions.begin() as db:
+            actor = User(name="Migration preservation", email=uuid4().hex+"@example.invalid", password_hash="unused")
+            model = Model(code=uuid4().hex, name="Migration preservation", status="approved")
+            employee = Employee(full_name="Migration preservation", employee_no="PG-MERGE", factory_code="MIL", status="active")
+            db.add_all([actor, model, employee]); db.flush()
+            db.add(PriceCalculationRequest(model_id=model.id, active_model_id=model.id,
+                created_by_id=actor.id, workflow_state="approved", factory_code="MIL",
+                revision=7, selling_price=12.34, materials_json=[{"key":"preserve","rate":2.5}],
+                approval_snapshot_json={"preserve":"approved pricing"}))
+        def facts():
+            with engine.connect() as connection:
+                return {name: (
+                    connection.execute(sa.text("SELECT to_regclass(:name)::oid"), {"name":name}).scalar_one(),
+                    connection.execute(sa.text(f"SELECT row_to_json(t)::text FROM {name} t ORDER BY 1")).scalars().all(),
+                ) for name in ("users", "models", "employees", "price_calculation_requests")}
+        before = facts()
         command.upgrade(Config(ini), "head")
+        assert facts() == before
+        remove_gate_storage()
+        assert facts() == before
+        command.upgrade(Config(ini), "head")
+        assert facts() == before
     assert "gate_live_jobs" in sa.inspect(engine).get_table_names()
 
 

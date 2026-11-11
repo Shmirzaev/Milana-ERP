@@ -614,6 +614,17 @@
         "test_signed_receipt_finalization_commit_rollback_retry",
         "test_signed_receipt_observed_wait_one_transition"
       ]
+    },
+    "test_turnstile_live_postgres": {
+      "revision": "5447aa89d plus reviewed 0157 integration patch",
+      "selected_functions": [
+        "test_live_migration_roundtrip_preserves_prior_schema",
+        "test_pg_parallel_same_request_and_claim_have_single_owner",
+        "test_pg_bounded_workers_and_expired_claim_never_repeat",
+        "test_pg_audit_failure_rolls_back_intent_and_same_key_retries",
+        "test_pg_constraints_reject_cross_factory_and_invalid_vocabulary"
+      ],
+      "git_blob_sha256": "2898be24628b79acfe69323c8029f8fed495d0efadabe792c280b700158169bb"
     }
   },
   "cases": {
@@ -1383,6 +1394,16 @@
       "test_signed_receipt_finalization_commit_rollback_retry[audit]",
       "test_signed_receipt_finalization_commit_rollback_retry[commit]",
       "test_signed_receipt_observed_wait_one_transition"
+    ],
+    "test_turnstile_live_postgres": [
+      "test_live_migration_roundtrip_preserves_prior_schema",
+      "test_pg_parallel_same_request_and_claim_have_single_owner",
+      "test_pg_bounded_workers_and_expired_claim_never_repeat",
+      "test_pg_audit_failure_rolls_back_intent_and_same_key_retries",
+      "test_pg_constraints_reject_cross_factory_and_invalid_vocabulary[factory_code-ECO]",
+      "test_pg_constraints_reject_cross_factory_and_invalid_vocabulary[state-made_up]",
+      "test_pg_constraints_reject_cross_factory_and_invalid_vocabulary[attempt_count-4]",
+      "test_pg_constraints_reject_cross_factory_and_invalid_vocabulary[dispatch_count--1]"
     ]
   },
   "isolated_supplemental_cases": [

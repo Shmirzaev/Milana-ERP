@@ -32,10 +32,11 @@ class RequiredPGGateTests(unittest.TestCase):
 
     def test_complete_evidence_passes(self):
         counts = gate.check_report(self.write_report(self.report()))
-        self.assertEqual(sum(counts.values()), 645)
+        self.assertEqual(sum(counts.values()), 653)
 
     def test_variant_price_workflow_cases_cannot_be_missing_or_skipped(self):
-        modules = {"test_variant_price_workflow_postgres": 4, "test_catalog_price_import_postgres": 2}
+        modules = {"test_variant_price_workflow_postgres": 4, "test_catalog_price_import_postgres": 2,
+                   "test_turnstile_live_postgres": 8}
         for module, expected_count in modules.items():
             self.assertEqual(gate.GROUPS[module][0], expected_count)
             self.assertEqual(len(gate.REQUIRED_CASES[module]), expected_count)
