@@ -22,6 +22,7 @@ def shipment_invoice_workbook(document: dict, language: str, *, show_prices: boo
     lang = language if language in LABELS else "en"
     text = LABELS[lang]
     workbook = Workbook()
+    body_size = 7.5  # Excel stores points: 10 CSS pixels = 7.5 points.
     sheet = workbook.active
     sheet.title = "Invoice"
     packages = document.get("package_details")
@@ -76,8 +77,8 @@ def shipment_invoice_workbook(document: dict, language: str, *, show_prices: boo
     sheet.row_dimensions[8].height = 16
     headers = invoice_headers(lang)
     for column, title in enumerate(headers, 1):
-        put(9, column, title, bold=True, fill="1F3864" if column in (1, 11) else "2F5597", color="FFFFFF", align="center", size=9)
-    sheet.row_dimensions[9].height = max(30, *(text_height(title, width, 9) for title, width in zip(headers, widths)))
+        put(9, column, title, bold=True, fill="1F3864" if column in (1, 11) else "2F5597", color="FFFFFF", align="center", size=body_size)
+    sheet.row_dimensions[9].height = max(30, *(text_height(title, width, body_size) for title, width in zip(headers, widths)))
     packages = document.get("package_details")
     if packages is None:
         packages = list({line["package_no"]: {"package_no": line["package_no"], "weight_kg": None} for line in document.get("lines", [])}.values())
@@ -101,7 +102,7 @@ def shipment_invoice_workbook(document: dict, language: str, *, show_prices: boo
         for column, value in enumerate(values, 1):
             cell = put(row, column, value, fill="FFFFFF",
                        align="right" if column >= 6 else "left" if column in (4, 5) else "center",
-                       bold=column in (1, 2, 11), size=9)
+                       bold=column in (1, 2, 11), size=body_size)
             cell.border = border
             cell.alignment = Alignment(horizontal=cell.alignment.horizontal, vertical="center", wrap_text=column != 5, shrink_to_fit=False)
             if column >= 6:
@@ -109,25 +110,25 @@ def shipment_invoice_workbook(document: dict, language: str, *, show_prices: boo
         for column in (6, 8, 9):
             if span > 1:
                 sheet.merge_cells(start_row=row, end_row=row + span - 1, start_column=column, end_column=column)
-        sheet.row_dimensions[row].height = max(23.1, *(text_height(value, width, 9) for column, (value, width) in enumerate(zip(values, widths), 1) if column != 5))
+        sheet.row_dimensions[row].height = max(23.1, *(text_height(value, width, body_size) for column, (value, width) in enumerate(zip(values, widths), 1) if column != 5))
     total_row = 10 + len(rows)
-    merged(total_row, 1, 5, text["total"], bold=True, fill="C6D9F1", color="1F3864")
+    merged(total_row, 1, 5, text["total"], bold=True, fill="C6D9F1", color="1F3864", size=body_size)
     for column, value in enumerate([document["packages_count"], document["quantity"], float(recorded_weight(document)), float(recorded_weight(document))], 6):
-        cell = put(total_row, column, value, bold=True, fill="C6D9F1", color="1F3864", align="right")
+        cell = put(total_row, column, value, bold=True, fill="C6D9F1", color="1F3864", align="right", size=body_size)
         cell.number_format = '#,##0.00' if column >= 8 else '#,##0'
     put(total_row, 10, None, fill="C6D9F1")
     amount = (float(Decimal(str(document["amount"]))) if document.get("amount") is not None else "—") if show_prices else None
-    cell = put(total_row, 11, amount, bold=True, fill="1F3864", color="FFFFFF", align="right", size=9)
+    cell = put(total_row, 11, amount, bold=True, fill="1F3864", color="FFFFFF", align="right", size=body_size)
     cell.number_format = '#,##0.00'
     sheet.row_dimensions[total_row].height = max(22, text_height(text["total"], sum(widths[:5]), 9),
         *(text_height(sheet.cell(total_row, column).value, widths[column - 1], 9) for column in range(6, last_column + 1)))
     signature_row = total_row + 2
     officer = {"en": "Responsible warehouse officer", "ru": "Ответственный кладовщик", "uz": "Mas’ul omborchi"}[lang]
     signature = {"en": "Warehouse signature", "ru": "Подпись кладовщика", "uz": "Omborchi imzosi"}[lang]
-    merged(signature_row, 1, 5, officer, bold=True, fill="1F3864", color="FFFFFF", align="center", size=9)
-    merged(signature_row, 6, 11, signature, bold=True, fill="2F5597", color="FFFFFF", align="center", size=9)
+    merged(signature_row, 1, 5, officer, bold=True, fill="1F3864", color="FFFFFF", align="center", size=body_size)
+    merged(signature_row, 6, 11, signature, bold=True, fill="2F5597", color="FFFFFF", align="center", size=body_size)
     merged(signature_row + 1, 1, 5, None, bold=True, fill="F2F5FA", color="1F3864", align="center", size=11)
-    merged(signature_row + 1, 6, 11, "________________________________", color="1F3864", align="center")
+    merged(signature_row + 1, 6, 11, "________________________________", color="1F3864", align="center", size=body_size)
     sheet.row_dimensions[signature_row].height = 20
     sheet.row_dimensions[signature_row + 1].height = 36
     footer = signature_row + 3
