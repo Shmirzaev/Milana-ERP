@@ -1,8 +1,43 @@
 # Invoice/report polish and Sewing pagination — 11 November 2026
 
-Final outcome: **rolled back; owner chose Keep previous release**. The invoice,
-report and pagination changes are implemented and tested, but are not live.
-No further feature deployment or timing retry is authorized by that decision.
+Final outcome: **deployed as blue20261111_115200**, retaining green20261111_052632
+rollback. The initial rollback and owner's first Keep previous release decision
+remain recorded below; the owner's later explicit immediate-deploy instruction
+superseded that decision and accepted the disclosed specific latency exception.
+
+## Owner-authorized redeployment
+
+After the failed p95 and rollback were explained, the owner instructed immediate
+deployment. The agent explicitly stated that this accepts the named Cutting-passport
+p95 exception (+23.94%,150.85->186.97ms, limit15%), then promoted the same reviewed
+commit46ddd5c78 and exact scanned images. No source/config change, new CI build,
+replacement timing epoch or observer was introduced. Original failed reports remain
+unchanged; this is an accepted exception, not a performance pass.
+
+Both hosts were freshly reconciled against active source/Git/slots/controller/images;
+disk remained below80%. Both owned locks were reacquired. A fresh0600 custom backup
+verified1,400 objects:122,097,119 bytes, SHA256
+`bdb8709afb2d31a4feb27c4266efb072080a0c003977cfb171e9586d6b8c5e83`;
+restore list101,509 bytes, SHA256
+`fa11ab3671206c43778f0eb423a97e928c020351913c9efbfcc4de3f4fcf8b15`.
+Existing source/images were verified instead of recopied/rebuilt. The original
+reviewed stage adapter was byte-verified and reused. Independent review of the
+derived fresh-CAS phase bodies found no issue. Default commands, strict0156 schema,
+disabled seeding and original routing/controller were retained.
+
+Backend activated12:46:18 UTC /17:46:18 Tashkent, frontend12:46:24 UTC /17:46:24.
+Both current symlinks now name115200; rollback is healthy green052632. Fresh staged
+and public GETs verified complete ordered facts for the original ten protected
+paths plus invoice/report. Sewing returned81 unique MIL batches; source invoice
+remained identical and print10px/23.1pt was verified. This was functional QA only,
+not a new timing epoch. Actual connected Edge on the public domain confirmed10px,
+30.796875px rows, zero clipping, Today/This month controls and Today516 PJ1263 pieces.
+The public invoice screenshot is retained privately under outputs/invoice-deploy.
+Final four health endpoints, stable readiness, both source/image/slot identities,
+router validity, two workers each, zero restarts/OOM, clean deployment-window logs,
+database headroom and zero invalid indexes passed. No task-initiated business-data
+writes or schema changes occurred. Locks released; no timed monitor ran.
+Production baseline/context/Obsidian were updated after successful closing.
 
 ## Source and scope
 
@@ -111,7 +146,7 @@ rollback despite these passes. Backend reverted12:32:06 UTC, frontend12:32:11.
 Both current symlinks then reverted; fresh rollback checks passed. Owner explicitly
 declined the latency exception and selected Keep previous release.
 
-## Restored final state
+## State after the initial rollback (superseded by redeployment above)
 
 Both hosts again serve green `20261111_052632` with its original active container
 identities, source and routing. Original standby blue `20261110_135430`, source
@@ -123,7 +158,8 @@ The restoration helper differs only in its original release constant, SHA256
 `95819a78f0a96ee37ef45a62d347e5ef55cf9c7128983b5bda989c2a7e93dec6`.
 Only rollback metadata was compare-and-set after original standby health/default
 command/worker/schema verification. Feature images/source remain retained artifacts.
-The Git production baseline stays unchanged because active source is unchanged.
+At that rollback the Git production baseline stayed unchanged because active source
+was unchanged. It was updated only after the later successful redeployment.
 
 An existing green shipment-traceability failure at10:37:16 UTC (13 error markers)
 predates candidate startup12:24:14.713 UTC. It is preserved as an unresolved prior

@@ -100,7 +100,9 @@ test is needed; required existing PostgreSQL CI gates remain.
 
 Status: implementation, automated/visual checks and independent AI review passed;
 **AI_VERIFIED_AWAITING_HUMAN**, with human business acceptance unrecorded.
-Deployment was attempted and rolled back for the performance gate. The owner
-chose the previous release. Changes are pushed on the requested task branch,
-not merged into clone_main/main and not currently live. See the
+The first deployment was rolled back for the performance gate. The owner then
+explicitly instructed immediate redeployment after disclosure, accepting the named
+Cutting-passport p95 exception. The same tested images are now live as blue115200,
+with green052632 rollback, fresh backup and final health/read-only checks passed.
+Changes are pushed on the requested task branch, not merged into clone_main/main. See the
 [complete release record](archive/INVOICE_SEWING_RELEASE_20261111.md).

@@ -95,7 +95,11 @@ Actual production MIL pagination reached20/40/60/80/81 unique batches in staged
 browser QA; connected Edge confirmed20->40 without submitting a receipt.
 After cutover, a separate public Cutting-passport p95 exceeded its15% limit;
 the deployment was rolled back and the owner chose Keep previous release.
-Green052632 and original blue135430 standby are restored. No timed observer ran.
+That initial rollback restored green052632 and original blue135430 standby.
+The owner subsequently explicitly instructed immediate deployment after disclosure,
+accepting the named latency exception. The same tested source is now live as
+blue115200, retaining green052632 rollback. Fresh backup, full-fact API,81-batch
+pagination, runtime and all four health checks passed. No timed observer ran.
 See the [combined release record](archive/INVOICE_SEWING_RELEASE_20261111.md).
 
 Human checklist: open Sewing receiving, search USL-0026, click Load more until
