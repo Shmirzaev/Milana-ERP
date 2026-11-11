@@ -614,12 +614,33 @@
         "test_signed_receipt_finalization_commit_rollback_retry",
         "test_signed_receipt_observed_wait_one_transition"
       ]
+    },
+    "test_hr_recovery_schema_postgres": {
+      "revision": "c02f83ac0 plus reviewed HR recovery storage contract",
+      "selected_functions": [
+        "test_hr_recovery_source_and_baseline_are_frozen",
+        "test_hr_recovery_refuses_changed_runtime_pin",
+        "test_hr_recovery_exception_requires_all_or_no_mappings",
+        "test_hr_recovery_exact_contract_and_original_drift_baseline_pass",
+        "test_hr_recovery_refuses_storage_drift_and_cleans_only_expected_schema",
+        "test_hr_recovery_rejects_unapproved_target_namespace_before_expected_ddl"
+      ]
+    },
+    "test_catalog_price_import_postgres": {
+      "integration_note": "Seven reviewed-single-head schema guard cases added for HR merge; original two import rollback/race cases retained."
     }
   },
   "cases": {
     "test_catalog_price_import_postgres": [
       "test_pg_import_deferred_commit_failure_preserves_prices_requests_and_history",
-      "test_pg_import_and_finance_approval_serialize_to_one_winner"
+      "test_pg_import_and_finance_approval_serialize_to_one_winner",
+      "test_pg_import_schema_guard_allows_only_reviewed_single_heads[pricing]",
+      "test_pg_import_schema_guard_allows_only_reviewed_single_heads[hr-merge]",
+      "test_pg_import_schema_guard_allows_only_reviewed_single_heads[pre-pricing]",
+      "test_pg_import_schema_guard_allows_only_reviewed_single_heads[gate-only]",
+      "test_pg_import_schema_guard_allows_only_reviewed_single_heads[unknown]",
+      "test_pg_import_schema_guard_allows_only_reviewed_single_heads[multiple]",
+      "test_pg_import_schema_guard_allows_only_reviewed_single_heads[empty]"
     ],
     "test_variant_price_workflow_postgres": [
       "test_pg_concurrent_creation_one_slot_audit_and_team_notice",
@@ -1383,6 +1404,36 @@
       "test_signed_receipt_finalization_commit_rollback_retry[audit]",
       "test_signed_receipt_finalization_commit_rollback_retry[commit]",
       "test_signed_receipt_observed_wait_one_transition"
+    ],
+    "test_hr_recovery_schema_postgres": [
+      "test_hr_recovery_source_and_baseline_are_frozen",
+      "test_hr_recovery_refuses_changed_runtime_pin",
+      "test_hr_recovery_exception_requires_all_or_no_mappings[False]",
+      "test_hr_recovery_exception_requires_all_or_no_mappings[True]",
+      "test_hr_recovery_exact_contract_and_original_drift_baseline_pass",
+      "test_hr_recovery_refuses_storage_drift_and_cleans_only_expected_schema[extra_column]",
+      "test_hr_recovery_refuses_storage_drift_and_cleans_only_expected_schema[missing_column]",
+      "test_hr_recovery_refuses_storage_drift_and_cleans_only_expected_schema[column_type]",
+      "test_hr_recovery_refuses_storage_drift_and_cleans_only_expected_schema[nullable]",
+      "test_hr_recovery_refuses_storage_drift_and_cleans_only_expected_schema[default]",
+      "test_hr_recovery_refuses_storage_drift_and_cleans_only_expected_schema[timezone]",
+      "test_hr_recovery_refuses_storage_drift_and_cleans_only_expected_schema[primary_key]",
+      "test_hr_recovery_refuses_storage_drift_and_cleans_only_expected_schema[foreign_key]",
+      "test_hr_recovery_refuses_storage_drift_and_cleans_only_expected_schema[foreign_key_action]",
+      "test_hr_recovery_refuses_storage_drift_and_cleans_only_expected_schema[foreign_key_deferral]",
+      "test_hr_recovery_refuses_storage_drift_and_cleans_only_expected_schema[foreign_key_validation]",
+      "test_hr_recovery_refuses_storage_drift_and_cleans_only_expected_schema[unique_columns]",
+      "test_hr_recovery_refuses_storage_drift_and_cleans_only_expected_schema[unique_nulls]",
+      "test_hr_recovery_refuses_storage_drift_and_cleans_only_expected_schema[check]",
+      "test_hr_recovery_refuses_storage_drift_and_cleans_only_expected_schema[nonunique_index]",
+      "test_hr_recovery_refuses_storage_drift_and_cleans_only_expected_schema[extra_index]",
+      "test_hr_recovery_refuses_storage_drift_and_cleans_only_expected_schema[index_include]",
+      "test_hr_recovery_refuses_storage_drift_and_cleans_only_expected_schema[binding_default]",
+      "test_hr_recovery_refuses_storage_drift_and_cleans_only_expected_schema[binding_nullable]",
+      "test_hr_recovery_refuses_storage_drift_and_cleans_only_expected_schema[binding_check]",
+      "test_hr_recovery_refuses_storage_drift_and_cleans_only_expected_schema[operation_check]",
+      "test_hr_recovery_refuses_storage_drift_and_cleans_only_expected_schema[simulator_check]",
+      "test_hr_recovery_rejects_unapproved_target_namespace_before_expected_ddl"
     ]
   },
   "isolated_supplemental_cases": [

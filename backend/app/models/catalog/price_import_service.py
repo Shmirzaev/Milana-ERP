@@ -40,9 +40,13 @@ def import_reviewed_prices(db, manifest: PriceImportManifest, actor, *, apply=Fa
     if db.bind.dialect.name == "postgresql":
         db.execute(text("SET LOCAL lock_timeout = '5s'"))
         db.execute(text("SET LOCAL statement_timeout = '60s'"))
-        revision = db.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-        if revision != "0156_variant_price_workflow":
-            raise HTTPException(409, "Catalogue import requires the reviewed pricing schema0156")
+        revisions = db.execute(text("SELECT version_num FROM alembic_version")).scalars().all()
+        # The reviewed HR merge preserves the exact deployed pricing storage.
+        # Unknown descendants and partially migrated multi-head databases refuse.
+        if len(revisions) != 1 or revisions[0] not in {
+            "0156_variant_price_workflow", "0157_pricing_gate_live_merge"
+        }:
+            raise HTTPException(409, "Catalogue import requires a reviewed pricing schema head")
     ids = sorted(row.model_id for row in manifest.prices)
     query = db.query(Model).options(lazyload("*")).filter(Model.id.in_(ids)).order_by(Model.id)
     if apply:

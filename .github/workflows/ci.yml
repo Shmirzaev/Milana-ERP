@@ -435,6 +435,16 @@ jobs:
           ROLLBACK_BACKEND_IMAGE: ${{ steps.images.outputs.backend }}@${{ steps.backend_image.outputs.digest }}
           ROLLBACK_SOURCE_REVISION: ${{ github.sha }}
         run: python scripts/test_rollback_image_schema_0150.py --image "$ROLLBACK_BACKEND_IMAGE" --revision "$ROLLBACK_SOURCE_REVISION"
+      - name: Verify HR schema startup, worker replacement and restart on the published image
+        if: hashFiles('scripts/test_rollback_image_schema_0157.py') != ''
+        timeout-minutes: 12
+        env:
+          HR_BACKEND_IMAGE: ${{ steps.images.outputs.backend }}@${{ steps.backend_image.outputs.digest }}
+          HR_SOURCE_REVISION: ${{ github.sha }}
+        run: |
+          args=()
+          if [ -f backend/app/models/people/turnstile_live_service.py ]; then args+=(--live-routes); fi
+          python scripts/test_rollback_image_schema_0157.py --image "$HR_BACKEND_IMAGE" --revision "$HR_SOURCE_REVISION" "${args[@]}"
       - name: Publish scanned frontend image
         id: frontend_image
         env:

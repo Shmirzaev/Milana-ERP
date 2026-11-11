@@ -15,6 +15,25 @@ Last updated 2026-11-11. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
+## HR recovery artifact preparation (11 November; not deployed)
+
+Separate branch `codex/hr-schema-recovery-20261111` preserves the deployed
+`cfe03885e` application, with the explicitly reviewed catalogue-import single-head
+compatibility guard and frozen HR migration/0157 merge metadata. It contains no
+live HR routes/mappings or writer activation. Both active host manifests and slot
+states match `20261110_135430`; production-base.json is unchanged. The original
+94-entry schema-drift baseline is preserved by a pinned test-only storage contract
+and 22 altered-storage faults. Local storage/bootstrap/import checks pass 66
+cases with 17 explicitly inapplicable historical cases; all 28 new contract cases
+ran without skips. Exact-source immutable CI and a 680-case mandatory PostgreSQL
+gate remain required before promotion. The real published-image CMD must prove
+strict startup, two workers, child replacement/restart and complete saved-data
+preservation on 0157; old 0156 images cannot serve as restart-safe rollback there.
+Production disk is above the 70% alert. No production migration, deployment, live
+profile/settings or old-ERP connection was changed. Human QA-master acceptance,
+release authorization and the owner's physical pilot remain separate. See
+[the recovery preparation record](HR_SCHEMA_RECOVERY_20261111.md).
+
 ## Variant pricing workflow (11 November; deployed)
 
 Blue release `20261110_135430` is active on both application hosts at runtime

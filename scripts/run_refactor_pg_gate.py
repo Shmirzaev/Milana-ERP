@@ -23,7 +23,16 @@ from refactor_pg_evidence import (
 # Minimum collected counts pin the current parameterized business cases. Adding
 # cases is allowed; removing a required case needs an explicit ledger change.
 GROUPS = {
-    'test_catalog_price_import_postgres': (2, (
+    'test_hr_recovery_schema_postgres': (28, (
+        'test_hr_recovery_source_and_baseline_are_frozen',
+        'test_hr_recovery_refuses_changed_runtime_pin',
+        'test_hr_recovery_exception_requires_all_or_no_mappings',
+        'test_hr_recovery_exact_contract_and_original_drift_baseline_pass',
+        'test_hr_recovery_refuses_storage_drift_and_cleans_only_expected_schema',
+        'test_hr_recovery_rejects_unapproved_target_namespace_before_expected_ddl',
+    )),
+    'test_catalog_price_import_postgres': (9, (
+        'test_pg_import_schema_guard_allows_only_reviewed_single_heads',
         'test_pg_import_deferred_commit_failure_preserves_prices_requests_and_history',
         'test_pg_import_and_finance_approval_serialize_to_one_winner',
     )),
