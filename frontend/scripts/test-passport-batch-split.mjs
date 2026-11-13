@@ -20,6 +20,14 @@ function walk(node) {
   return [node,...walk(node.props?.children)];
 }
 const lib=compile(read("../src/lib/passportBatchSplit.ts"));
+const {businessDate}=compile(read("../src/components/dashboard/types.ts"));
+for(const [stamp,expected] of [
+  ["2026-11-12T18:59:59Z","2026-11-12"],
+  ["2026-11-12T19:00:00Z","2026-11-13"],
+  ["2026-11-12T23:59:59Z","2026-11-13"],
+  ["2026-11-13T19:00:00Z","2026-11-14"],
+]) assert.equal(businessDate(new Date(stamp)),expected,"Passport dates follow Tashkent midnight independently of the host timezone");
+const factoryNow=new Date("2026-11-12T20:00:00Z");
 const batches={1:{id:1,batch_no:"LOT-A",item_id:5,color:" RED ",unit:"kg",width:180,gsm:180,available_quantity:150},
   2:{id:2,batch_no:"LOT-B",item_id:5,color:"red",unit:"kg",width:180,gsm:180,available_quantity:250}};
 const group={stock_batch_id:1,planned_kg:300,layer_weight_kg:6,total_layers:50,pieces:600,
@@ -90,11 +98,13 @@ function visit(node){
 visit(ast);
 const fabricSources=compile(read("../src/lib/fabricSource.ts"));
 const context=vm.createContext({ ...lib, ...fabricSources, console, Number,Date, Map,Set,lang:"en",splitText:lib.passportBatchText("en"),
+  businessDate:(now=factoryNow)=>businessDate(now),
   t:key=>key,editing:null,saving:false,splitTarget:1,selectedMaterial:{...batches[2],item_name:"Cotton"},materialAmount:"200",batchInfos:batches,
   mutate:async()=>{},refreshCache:async()=>{},resetMaterialPicker:()=>{},setShowForm:()=>{},setSelectedMaterial:()=>{},setMaterialAmount:()=>{},setMaterialPickerOpen:()=>{},setSplitTarget:()=>{},
 });
 const run=code=>vm.runInContext(ts.transpileModule(code,{compilerOptions:{target:ts.ScriptTarget.ES2020}}).outputText,context);
 run(`const EMPTY_FORM=${empty}; globalThis.empty=EMPTY_FORM; ${parts.join("\n")}`);
+assert.equal(context.empty.date,"2026-11-13","The actual form initializer must use the real factory-date helper");
 context.form={...context.empty,date:"2026-11-05",production_order_id:7,pieces:600};
 context.materialForms=[{...context.form,stock_batch_id:1,fabric_type:"Cotton",lot_no:"LOT-A",planned_kg:100},
   {...context.form,stock_batch_id:2,fabric_type:"Cotton",lot_no:"LOT-B",planned_kg:200}];

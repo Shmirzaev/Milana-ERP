@@ -132,3 +132,21 @@ images, sales references, exact-size, chunking and no-blob assertions. The fixtu
 has no Cutting work orders, so links must remain null rather than be fabricated.
 No runtime code or SQL changed. The17 focused query-growth/factory-report tests
 pass on Windows and in the root's `milana-factory-qa:20261113` Linux image.
+
+## Actual form initializer in the build harness
+
+Root's frontend build on `8bc7a2781` exposed the batch-split VM harness missing
+the `businessDate` binding used by the actual form initializer. The ReferenceError
+was reproduced unchanged before this test-only correction. The harness now
+compiles the real shared date helper, verifies four UTC instants across Tashkent
+midnight, then supplies an explicit20:00UTC instant while evaluating the actual
+EMPTY_FORM. It asserts the next Tashkent date, rather than stubbing a date string.
+The size-edit and metre-formula VM contexts were inspected; they do not evaluate
+this initializer or call the new date helper. Runtime code is unchanged. Passport
+batch-split, autofill and multi-material Planning build dependencies pass; scoped
+ESLint has zero errors and the existing unused React import warning. Root owns
+the final integrated Next build and rendered ERP verification.
+The complete pre-Next build chain passed this repaired harness, then failed the
+separate stale Planning selector assertion in `check-branded-fabric-type-override.mjs:13`
+(old central-only list versus the approved CUT/ECT-selected list). The ECO worker
+owns that correction; no complete build pass is claimed here.
