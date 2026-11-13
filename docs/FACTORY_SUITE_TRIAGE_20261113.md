@@ -64,3 +64,14 @@ scan and over-receiving checks. It now refuses21>20 actual output, checks queue2
 saves18 despite17 historical receipts, and verifies queue2, actual input18, exactly2
 unchanged historical receipts and zero automatic packages. No application change.
 Full test_production_flow.py passes81 tests in the owned derivative image.
+
+## Automatic queue empty-state wording
+
+Root connected-browser inspection found the old Russian empty state still said
+accepted orders, contradicting automatic availability. Updated only the existing
+page.packagingReceive.queueEmpty value in EN/RU/UZ and mechanically equivalent
+supplemental locale mirrors; historical receipt/history labels remain unchanged.
+Actual queue SSR regression uses real runtime dictionaries for all3 languages,
+asserts the automatic-availability hint and empty state, and refuses the former
+accepted/received-order wording. User-access/render/redirect contract passes,
+full i18n audit passes3447 keys and strict TypeScript passes. No API/data change.

@@ -1166,7 +1166,7 @@ export default {
     "page.packagingReceive.packed": "Упаковано",
     "page.packagingReceive.readyToPack": "Готово к упаковке",
     "page.packagingReceive.packing": "Упаковка",
-    "page.packagingReceive.queueEmpty": "Нет принятых заказов, ожидающих упаковки.",
+    "page.packagingReceive.queueEmpty": "Нет заказов, готовых к упаковке.",
     "page.packagingReceive.queueSearch": "Заказ, модель или вариант",
     "nav.packingQueue": "Очередь упаковки",
     "auth.requiredFields": "Введите электронную почту и пароль.",

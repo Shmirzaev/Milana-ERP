@@ -1167,7 +1167,7 @@ export default {
     "page.packagingReceive.packed": "Packed",
     "page.packagingReceive.readyToPack": "Ready to pack",
     "page.packagingReceive.packing": "Packing",
-    "page.packagingReceive.queueEmpty": "No received orders are waiting to be packed.",
+    "page.packagingReceive.queueEmpty": "No orders are ready for packaging.",
     "page.packagingReceive.queueSearch": "Order, model, or variant",
     "page.bundleScan.sewingSubtitle": "Scan a cutting-sheet batch QR, choose the accepting sewing line in the dialog, and receive and assign every bundle in that batch.",
     "page.bundleScan.sewingLine": "Sewing line",

@@ -3,6 +3,7 @@ import fs from "node:fs";
 import vm from "node:vm";
 import ts from "typescript";
 import "./test-besttex-cutting.mjs";
+import { runtimeMessages } from "./runtime-locales.mjs";
 
 function load(path) {
   const exports = {};
@@ -149,6 +150,36 @@ for (const page of ["packages", "packaging/queue", "packaging/reports"]) {
   }
 }
 console.log("Active Packaging pages request only the selected factory, with or without query parameters.");
+// Render the actual empty queue with its real localized copy. Availability is
+// automatic; the empty state must not imply a separate acceptance action.
+const { renderToStaticMarkup } = await import("react-dom/server");
+const queueSource = ts.transpileModule(fs.readFileSync("src/app/(app)/packaging/queue/page.tsx", "utf8"), {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.ReactJSX },
+}).outputText;
+for (const language of ["en", "ru", "uz"]) {
+  const messages = runtimeMessages(language);
+  const queueExports = {};
+  vm.runInNewContext(queueSource, { URLSearchParams, exports: queueExports, require: name => {
+    if (name === "react") return React;
+    if (name === "react/jsx-runtime") return runtime;
+    if (name === "next/navigation") return { useSearchParams: () => new URLSearchParams("packaging_department=ECP") };
+    if (name === "next/link") return { default: props => React.createElement("a", props) };
+    if (name === "swr") return { default: () => ({ data: [], isLoading: false }) };
+    if (name === "lucide-react") return { Search: () => null, PackageOpen: () => null, RefreshCw: () => null, ArrowRight: () => null };
+    if (name === "@/components/PageHeader") return { default: props => React.createElement("p", null, props.subtitle) };
+    if (name === "@/lib/i18n") return { useT: () => ({ lang: language, t: key => messages.get(key) || key }) };
+    if (name === "@/lib/auth") return { useMe: () => ({ me: { factory_code: "ECO", permissions: packingPermissions } }) };
+    if (name === "@/lib/access") return access;
+    if (name === "@/lib/packagingAvailabilityText") return load("src/lib/packagingAvailabilityText.ts");
+    if (name === "@/lib/api" || name === "@/lib/variantDisplay" || name === "@/lib/orderRef" || name === "@/lib/modelImages") return {};
+    throw new Error(name);
+  }});
+  const markup = renderToStaticMarkup(React.createElement(queueExports.default));
+  assert.ok(markup.includes(messages.get("page.packagingReceive.queueEmpty")));
+  assert.match(markup, /automatically|автоматически|avtomatik/);
+  assert.doesNotMatch(markup, /received orders|принятых заказов|qabul qilingan buyurtmalar/);
+}
+
 // Legacy acceptance bookmarks redirect without accepting or creating business data.
 const receiveSource = fs.readFileSync("src/app/(app)/packaging/receive/page.tsx", "utf8");
 const receiveModule = ts.transpileModule(receiveSource, { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText;

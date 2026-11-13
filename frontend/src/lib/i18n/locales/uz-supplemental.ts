@@ -1166,7 +1166,7 @@ export default {
     "page.packagingReceive.packed": "Qadoqlangan",
     "page.packagingReceive.readyToPack": "Qadoqlashga tayyor",
     "page.packagingReceive.packing": "Qadoqlash",
-    "page.packagingReceive.queueEmpty": "Qadoqlashni kutayotgan qabul qilingan buyurtmalar yo‘q.",
+    "page.packagingReceive.queueEmpty": "Qadoqlashga tayyor buyurtmalar yo‘q.",
     "page.packagingReceive.queueSearch": "Buyurtma, model yoki variant",
     "nav.packingQueue": "Qadoqlash navbati",
     "auth.requiredFields": "Elektron pochta va parolni kiriting.",
