@@ -15,42 +15,39 @@ Last updated 2026-11-13. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
-## Factory workflows (13 November; deployed)
+## Factory workflow deployment rolled back (13 November)
 
-Both hosts serve green `20261113_094409`, exact source
-`e5383f2509ceef4eb20f73f34dc0beba64fcea19`, manifest
-`4696c9736e3561610dbf92a98888cd2cb2cc7eca1911d668e51b7a8d2496a821`.
-Healthy rollback is blue `20261111_115200` / `46ddd5c7`; schema remains
-`0156_variant_price_workflow`. Backend/frontend activated 10:57:27 / 10:57:31 UTC.
-The dedicated branch is pushed, not merged into clone_main/main; deployment
-metadata is a later documentation commit, not a different runtime build.
+The owner reported bugs after Packaging appeared unchanged overall and instructed
+"return the last deployment there are bugs". Both hosts now serve blue
+`20261111_115200`, exact source `46ddd5c7864f0a68bd9a3c884d835a2a5dbf9bfb`,
+manifest `db9df64cbcf57e4ab93ac83ef677d7d394b07652a1a4cf3fe1815abc92adac28`.
+Backend/frontend returned at11:21:38/11:21:43 UTC (16:21 Tashkent); both current
+links and served identities agree. Database head remains0156_variant_price_workflow.
 
-All seven requested fixes are live: new batch references follow the public order
-number; passed Sewing output reaches Packaging automatically with selected Nastils
-and label counts; passport Open goes directly to Cutting; Cutting reports use
-physical balances and complete passport material facts; invoice package rows are
-uniform at 10pt; Milana Planning can use genuine Eco fabric for ECT; ECO selection,
-reservation and consumption retain physical ECO ownership. Historical batch/QR
-and receipt evidence remain intact. Authorized writes alone create any required
-zero-quantity central identity; GETs do not backfill or create stock.
+The seven-fix release094409/sourcee538 is withdrawn. Its green containers remain
+off traffic; although runtime metadata names them as rollback, they are NOT a
+known-good fallback. Do not reactivate/redeploy this build using earlier approval.
+Any corrected release requires fresh owner authorization and completed verification.
+Older052632 source/images remain retained; no extra standby staging occurred.
+The task branch preserves the withdrawn code for investigation, not as live source.
 
-Exact-source CI/security/scanned images, required PostgreSQL, isolated persisted
-workflow tests, staged/public Edge, independent SQL oracles (26 checks), strict
-public performance (270 GETs), four health endpoints and final runtime checks
-passed. The original paired gate remains FAIL for only Sales median +11.03% and
-p95 +26.39%; the owner explicitly approved those two failures. Public limits and
-original timing baseline were unchanged and all ten public paths passed. Timed
-monitoring was explicitly waived; no observer or substitute monitor ran.
+Fresh mode0600 backup123,661,339bytes verified1,400 restore objects (SHA5da6b689).
+No database downgrade/restore, schema change, business-data deletion or production
+fixture occurred; activity since cutover is preserved. All four health/login
+endpoints, readiness, source/image/default-command identities, routers, two workers,
+zero restart/OOM/log markers, database headroom and zero invalid indexes passed
+after rollback and independent review. Both deployment locks were released.
+Timed monitoring remained waived; no observer or substitute monitor ran.
 
-Verified fresh backup has 1,400 restore objects. Schema upgrade was a no-op and
-there were no task-initiated business-data writes. Natural operator transactions
-and six physical Sewing receipts invalidated older data snapshots; failures,
-transaction proofs and independently approved complete replacement fact packets
-are preserved. Live restricted Planning had no eligible confirmed order, so full
-creation/debit was exercised in isolated same-source infrastructure, not by adding
-production fixtures. Human domain/QA-master acceptance remains unrecorded. See
-the [release record](archive/FACTORY_WORKFLOWS_RELEASE_20261113.md) and
-[task packet](FACTORY_WORKFLOWS_20261113.md).
+The reported defects remain unresolved. Prior automated, isolated and read-only
+QA passes are historical evidence and do not override the owner's rollback or
+establish human acceptance. Connected Chrome inspection during the follow-up
+failed in its control bridge; no fresh Chrome visual pass is claimed. Disk remains
+about78.55%/78.08%, above70% alert and below80% stop. See the
+[rollback record](archive/FACTORY_WORKFLOWS_ROLLBACK_20261113.md),
+[original deployment](archive/FACTORY_WORKFLOWS_RELEASE_20261113.md) and
+[task packet](FACTORY_WORKFLOWS_20261113.md). The dedicated branch is pushed, not
+merged into clone_main/main; later metadata commits are not deployed runtime code.
 
 ## Invoice/report and Sewing update (11 November; previous release)
 

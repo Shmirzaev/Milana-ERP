@@ -278,3 +278,27 @@ unrecorded; explicit owner deployment authorization is not invented acceptance.
 The task branch is pushed, not merged into clone_main/main. A later metadata-only
 commit advances production-base/context; deployed runtime source remains e538.
 See the [full release record](archive/FACTORY_WORKFLOWS_RELEASE_20261113.md).
+
+## Owner rollback — final production state, 13 November 2026
+
+After reporting that Packaging still looked unchanged overall, the owner instructed:
+**"return the last deployment there are bugs"**. This supersedes the earlier
+deployment/latency-exception approval. All seven changes were withdrawn from
+production by restoring both hosts to blue `20261111_115200`, exact source
+`46ddd5c7864f0a68bd9a3c884d835a2a5dbf9bfb`, manifest db9df64c.
+
+Backend/frontend switched back at11:21:38/11:21:43 UTC (16:21 Tashkent), followed by
+atomic source links. Fresh current-data backup verified1,400 restore objects.
+There was no database downgrade/restore, business-data deletion or test record.
+All four health endpoints, readiness, image/source/default-command identities,
+workers/router/log/database checks passed after rollback and independent review.
+Locks were released. No timed observer or substitute monitor ran.
+
+Inactive green094409 remains retained for investigation. Although the controller
+names it in rollback metadata, it is a withdrawn build, **not a known-good fallback**;
+do not activate/redeploy it without fresh owner authorization and completed bug
+verification. The precise reported defects remain unresolved. Earlier automated
+and read-only QA passes remain historical evidence and do not override rejection.
+The branch preserves this code for investigation; no code merge or fresh release
+was made. Production-base/context now point to the restored46ddd runtime, not
+the task branch HEAD. See the [rollback record](archive/FACTORY_WORKFLOWS_ROLLBACK_20261113.md).

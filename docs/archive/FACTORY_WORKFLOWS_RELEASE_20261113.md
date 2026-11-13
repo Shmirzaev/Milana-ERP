@@ -1,5 +1,10 @@
 # Factory workflows release — 13 November 2026
 
+**Superseded by the owner's same-day rollback after reported bugs.** Both hosts
+now serve blue `20261111_115200`. Release094409 is withdrawn; the results below
+are historical deployment evidence, not human acceptance or reactivation approval.
+See the [rollback record](FACTORY_WORKFLOWS_ROLLBACK_20261113.md).
+
 Deployed **green `20261113_094409`** on both hosts, exact runtime source
 `e5383f2509ceef4eb20f73f34dc0beba64fcea19`. Healthy rollback is blue
 `20261111_115200` / `46ddd5c7864f0a68bd9a3c884d835a2a5dbf9bfb`.
