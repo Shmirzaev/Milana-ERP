@@ -7,6 +7,7 @@ import useSWR, { useSWRConfig } from "swr";
 import SearchableSelect from "@/components/SearchableSelect";
 import { Plus, Search, Pencil, Trash2, BookOpen, Download, ExternalLink } from "lucide-react";
 import CuttingPassportDashboard from "@/components/CuttingPassportDashboard";
+import { businessDate } from "@/components/dashboard/types";
 import { fetcher, api, fetchResponse } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
@@ -23,6 +24,7 @@ import { compatiblePassportGroup, passportBatchText, passportSourceIds, passport
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 type Passport = {
+  cutting_work_order_id?: number | null;
   stock_batch_id?: number;
   batch_allocations?: PassportBatchAllocation[];
   used_for_cutting?: boolean;
@@ -150,7 +152,7 @@ const EXCEL_EXAMPLE = {
 
 const EMPTY_FORM = {
   passport_no: "",
-  date: new Date().toISOString().slice(0, 10),
+  date: businessDate(),
   production_order_id: "" as string | number,
   operator_id: "" as string | number,
   model_code: "",
@@ -313,9 +315,7 @@ export default function CuttingPassportsPage() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   function selectPeriod(period: "today" | "thisWeek" | "thisMonth") {
-    const today = new Intl.DateTimeFormat("en-CA", {
-      timeZone: "Asia/Tashkent", year: "numeric", month: "2-digit", day: "2-digit",
-    }).format(new Date());
+    const today = businessDate();
     // Calculate calendar boundaries in UTC after resolving the factory's local day.
     const start = new Date(`${today}T00:00:00Z`);
     if (period === "thisWeek") start.setUTCDate(start.getUTCDate() - (start.getUTCDay() + 6) % 7);
@@ -406,7 +406,7 @@ export default function CuttingPassportsPage() {
     resetMaterialPicker();
     setMaterialForms([]);
     setBatchInfos({});
-    setForm({ ...EMPTY_FORM, date: new Date().toISOString().slice(0, 10) });
+    setForm({ ...EMPTY_FORM, date: businessDate() });
     setSizeChoices([]);
     setEditing(null);
     setErr("");
@@ -472,7 +472,7 @@ export default function CuttingPassportsPage() {
     openEdit(passport);
     setEditing(null);
     setForm((current) => ({
-      ...EMPTY_FORM, date: new Date().toISOString().slice(0, 10),
+      ...EMPTY_FORM, date: businessDate(),
       production_order_id: current.production_order_id, model_code: current.model_code,
       variant: current.variant, mold_no: current.mold_no, image_ref: current.image_ref,
       meter_mode: current.meter_mode,
@@ -958,7 +958,7 @@ export default function CuttingPassportsPage() {
                   {/* Frozen right */}
                   <td className="bg-white group-hover:bg-stone-50 px-2 py-2 lg:sticky lg:right-0 lg:z-10 lg:shadow-[-2px_0_6px_-1px_rgba(0,0,0,0.08)]">
                     <div className="flex gap-1">
-                      {p.production_order_id && <Link className="btn btn-ghost p-1 whitespace-nowrap" href={`/production-orders/${p.production_order_id}`} title={lang === "ru" ? "Открыть заказ" : lang === "uz" ? "Buyurtmani ochish" : "Open order"}><ExternalLink className="h-3.5 w-3.5" />{lang === "ru" ? "Открыть" : lang === "uz" ? "Ochish" : "Open"}</Link>}
+                      {p.cutting_work_order_id && <Link className="btn btn-ghost p-1 whitespace-nowrap" href={`/work-orders/${p.cutting_work_order_id}/cutting`} title={lang === "ru" ? "Открыть раскрой" : lang === "uz" ? "Bichishni ochish" : "Open Cutting"}><ExternalLink className="h-3.5 w-3.5" />{lang === "ru" ? "Открыть" : lang === "uz" ? "Ochish" : "Open"}</Link>}
                       <button type="button" className="btn btn-ghost p-1 whitespace-nowrap" onClick={() => openNewBatch(p)}><Plus className="h-3.5 w-3.5" />{t("passportBatch.add")}</button>
                       <button className="btn btn-ghost p-1" onClick={() => openEdit(passports.find((item) => item.id === p.id) || p)}>
                         <Pencil className="h-3.5 w-3.5" />

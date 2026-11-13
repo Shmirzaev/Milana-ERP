@@ -29,7 +29,7 @@ def test_readable_invoice_sizes_expand_horizontally_and_surrounding_excel_grid(l
     sheet = load_workbook(BytesIO(shipment_invoice_workbook(document, lang, show_prices=show_prices))).active
     widths = [sheet.column_dimensions[get_column_letter(column)].width for column in range(1, 12)]
     assert widths[4] == max(widths) and widths[4] > 14
-    # Numeric values stay numeric and cannot wrap in Excel. Reserve room at 7.5 pt
+    # Numeric values stay numeric and cannot wrap in Excel. Reserve room at 10 pt
     # for six-digit piece counts and five-digit kilogram values plus decimals.
     assert widths[6] >= 7 and widths[7] >= 8 and widths[8] >= 9
     assert sum(invoice_column_widths()) == pytest.approx(100)
@@ -37,7 +37,7 @@ def test_readable_invoice_sizes_expand_horizontally_and_surrounding_excel_grid(l
     assert sheet.row_dimensions[10].height == 23.1
     assert not sheet["E10"].alignment.wrap_text and not sheet["E10"].alignment.shrink_to_fit
     assert all(sheet.cell(4, column).font.sz == 11 for column in (1, 3, 5, 7))
-    assert all(sheet.cell(row, column).font.sz == 7.5 for row in (9, 10) for column in range(1, 12))
+    assert all(sheet.cell(row, column).font.sz == 10 for row in (9, 10) for column in range(1, 12))
     assert sheet.sheet_view.showGridLines is True
     assert sheet.sheet_view.showRowColHeaders is True
     assert sheet.freeze_panes is None

@@ -22,7 +22,7 @@ def shipment_invoice_workbook(document: dict, language: str, *, show_prices: boo
     lang = language if language in LABELS else "en"
     text = LABELS[lang]
     workbook = Workbook()
-    body_size = 7.5  # Excel stores points: 10 CSS pixels = 7.5 points.
+    body_size = 10  # The Excel package table is explicitly specified in points.
     sheet = workbook.active
     sheet.title = "Invoice"
     packages = document.get("package_details")
@@ -30,6 +30,10 @@ def shipment_invoice_workbook(document: dict, language: str, *, show_prices: boo
         packages = list({line["package_no"]: {"package_no": line["package_no"], "weight_kg": None} for line in document.get("lines", [])}.values())
     rows = document.get("invoice_rows") or build_invoice_rows(document.get("lines", []), packages)
     widths = invoice_column_widths(rows)
+    # The unwrapped size labels and numeric cells need the same breathing room
+    # at 10 pt that the shared print layout reserves for its 7.5 pt type.
+    for index in (4, 5, 6, 7, 8, 9, 10):
+        widths[index] *= body_size / 7.5
     last_column = len(widths)
     for column, width in enumerate(widths, 1):
         sheet.column_dimensions[get_column_letter(column)].width = width
@@ -85,6 +89,7 @@ def shipment_invoice_workbook(document: dict, language: str, *, show_prices: boo
     rows = document.get("invoice_rows") or build_invoice_rows(document.get("lines", []), packages)
     line = Side(style="thin", color="8EA9DB")
     border = Border(left=line, right=line, top=line, bottom=line)
+    package_row_height = 23.1
     for index, item in enumerate(rows, 1):
         row = index + 9
         size_text = ", ".join(invoice_size_labels(item.get("sizes", [])))
@@ -110,13 +115,18 @@ def shipment_invoice_workbook(document: dict, language: str, *, show_prices: boo
         for column in (6, 8, 9):
             if span > 1:
                 sheet.merge_cells(start_row=row, end_row=row + span - 1, start_column=column, end_column=column)
-        sheet.row_dimensions[row].height = max(23.1, *(text_height(value, width, body_size) for column, (value, width) in enumerate(zip(values, widths), 1) if column != 5))
+        package_row_height = max(package_row_height, *(text_height(value, width, body_size)
+            for column, (value, width) in enumerate(zip(values, widths), 1) if column != 5))
+    # Excel cannot auto-fit generated wrapped text. Give every package row the
+    # height required by the longest row, including split-package model rows.
+    for row in range(10, 10 + len(rows)):
+        sheet.row_dimensions[row].height = package_row_height
     total_row = 10 + len(rows)
     merged(total_row, 1, 5, text["total"], bold=True, fill="C6D9F1", color="1F3864", size=body_size)
     for column, value in enumerate([document["packages_count"], document["quantity"], float(recorded_weight(document)), float(recorded_weight(document))], 6):
         cell = put(total_row, column, value, bold=True, fill="C6D9F1", color="1F3864", align="right", size=body_size)
         cell.number_format = '#,##0.00' if column >= 8 else '#,##0'
-    put(total_row, 10, None, fill="C6D9F1")
+    put(total_row, 10, None, fill="C6D9F1", size=body_size)
     amount = (float(Decimal(str(document["amount"]))) if document.get("amount") is not None else "—") if show_prices else None
     cell = put(total_row, 11, amount, bold=True, fill="1F3864", color="FFFFFF", align="right", size=body_size)
     cell.number_format = '#,##0.00'

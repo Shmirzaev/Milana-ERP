@@ -35,7 +35,7 @@ def test_size_labels_are_consistent_sorted_and_do_not_invent_sizes(sizes, expect
 
 @pytest.mark.parametrize("language", ["en", "ru", "uz"])
 @pytest.mark.parametrize("prices", [True, False])
-def test_print_and_excel_share_sizes_ten_pixel_type_and_retained_height(language, prices):
+def test_print_and_excel_share_sizes_with_ten_point_excel_type(language, prices):
     document = {"shipment_no": "SIZE-QA", "packages_count": 1, "quantity": 60,
                 "amount": "120.00", "invoice_layout_version": 2,
                 "package_details": [{"package_no": "SIZE-QA", "weight_kg": "2.50"}],
@@ -49,7 +49,7 @@ def test_print_and_excel_share_sizes_ten_pixel_type_and_retained_height(language
     assert sheet["E10"].value == "(46, 48, 50) × 60"
     assert '.items{font-size:10px;' in html and '.signatures{' in html
     assert 'height:23.1pt' in html and sheet.row_dimensions[10].height == 23.1
-    assert all(sheet.cell(row, col).font.sz == 7.5 for row in (9, 10) for col in range(1, 12))
-    assert sheet["A13"].font.sz == sheet["F13"].font.sz == 7.5
+    assert all(sheet.cell(row, col).font.sz == 10 for row in (9, 10) for col in range(1, 12))
+    assert sheet["A13"].font.sz == sheet["F13"].font.sz == 10
     assert sheet["G11"].value == 60 and sheet["K11"].value == (120 if prices else None)
     assert document == before

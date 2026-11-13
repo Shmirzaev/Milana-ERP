@@ -29,6 +29,7 @@ from app.models.production.passport_material_allocation_service import (
     grouped_passport_has_execution,
 )
 from app.models.passport_nastil_service import passport_batch_map, sync_passport_nastil
+from app.models.production.cutting_passport_navigation_service import passport_cutting_work_orders
 from app.models.factory_scope_service import available_factory_codes, selected_factory_code
 from app.models.model_images_service import model_display_image_url
 from app.models.production.ect_passport_fabric_service import list_passport_fabrics, transferred_fabric_balances
@@ -98,7 +99,11 @@ def _material_values(passport, row):
     return {**values, **computed}
 
 
-def _serialize(p: CuttingPassport, db=None, model_cache: dict | None = None, batch_map: dict | None = None) -> dict:
+def _serialize(p: CuttingPassport, db=None, model_cache: dict | None = None, batch_map: dict | None = None, cutting_links: dict | None = None, current=None) -> dict:
+    if db is not None:
+        batch_map = batch_map if batch_map is not None else passport_batch_map(db, [p.id])
+        if cutting_links is None and current is not None:
+            cutting_links = passport_cutting_work_orders(db, [p], batch_map, current)
     po = p.production_order
     op = p.operator
     model_code = p.model_code
@@ -117,7 +122,8 @@ def _serialize(p: CuttingPassport, db=None, model_cache: dict | None = None, bat
             if model_cache is not None:
                 model_cache[po.model_id] = (m.code if m else None, model_name, model_image_url)
     d = {
-        **((batch_map if batch_map is not None else passport_batch_map(db, [p.id])).get(p.id, {}) if db is not None else {}),
+        **((batch_map or {}).get(p.id, {})),
+        "cutting_work_order_id": (cutting_links or {}).get(p.id),
         "id": p.id,
         "passport_no": p.passport_no,
         "date": p.date,
@@ -575,7 +581,8 @@ def list_passports(
     model_cache = _passport_model_cache(db, rows)
     batch_map = {row.id: {"production_batch_id": bid, "nastil_name": name, "used_for_cutting": is_used}
                  for row, bid, name, is_used in result}
-    return [_serialize(r, db, model_cache, batch_map) for r in rows]
+    cutting_links = passport_cutting_work_orders(db, rows, batch_map, current)
+    return [_serialize(r, db, model_cache, batch_map, cutting_links) for r in rows]
 
 
 def _report_passports(db, current, q, cutting_department_code, date_from, date_to):
@@ -646,7 +653,7 @@ def get_passport(pid: int, db: DbSession, current: CurrentUser):
         raise HTTPException(404, "Cutting passport not found")
     if p.production_order_id:
         _passport_order(db, p.production_order_id, current)
-    return _serialize(p, db)
+    return _serialize(p, db, current=current)
 
 
 def _passport_order(db, order_id, current, *, lock=False):
@@ -833,7 +840,7 @@ def create_passport(
     log_action(db, current, "create", "CuttingPassport", p.id, new_value={"passport_no": p.passport_no, "tepa_pass": p.tepa_pass})
     db.commit()
     db.refresh(p)
-    return _serialize(p, db)
+    return _serialize(p, db, current=current)
 
 
 @router.put("/{pid}", response_model=CuttingPassportOut)
@@ -876,7 +883,7 @@ def update_passport(
     log_action(db, current, "update", "CuttingPassport", p.id, new_value={"passport_no": p.passport_no, "tepa_pass": p.tepa_pass})
     db.commit()
     db.refresh(p)
-    return _serialize(p, db)
+    return _serialize(p, db, current=current)
 
 
 @router.delete("/{pid}", status_code=204)

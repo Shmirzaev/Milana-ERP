@@ -31,10 +31,21 @@ def cutting_inventory_condition():
 
 
 def cutting_origin_condition(db, department: str):
+    # A historical order may contain Cutting work from both factories. The
+    # bundle's actual source record is stronger evidence than any other work
+    # order on that production order. Keep the legacy fallback for unlinked
+    # bundles, which have no record-level origin to consult.
+    origins = db.query(CuttingRecord.id).join(
+        WorkOrder, WorkOrder.id == CuttingRecord.work_order_id,
+    ).join(Department, Department.id == WorkOrder.department_id).filter(
+        WorkOrder.operation == "cutting", Department.code.in_(("CUT", "ECT")))
+    matching_origin = Bundle.cutting_record_id.in_(origins.filter(Department.code == department))
+    known_origin = Bundle.cutting_record_id.in_(origins)
     eco_orders = db.query(WorkOrder.production_order_id).join(Department).filter(
         WorkOrder.operation == "cutting", Department.code == "ECT")
-    return (Bundle.production_order_id.in_(eco_orders) if department == "ECT"
-            else Bundle.production_order_id.notin_(eco_orders))
+    fallback = (Bundle.production_order_id.in_(eco_orders) if department == "ECT"
+                else Bundle.production_order_id.notin_(eco_orders))
+    return or_(matching_origin, and_(or_(Bundle.cutting_record_id.is_(None), ~known_origin), fallback))
 
 
 def destination_column():

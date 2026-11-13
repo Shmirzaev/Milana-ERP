@@ -72,6 +72,7 @@ class PassportMaterialOut(PassportMaterial):
 class CuttingPassportOut(ORMModel):
     model_config = ConfigDict(from_attributes=True, protected_namespaces=())
     id: int
+    cutting_work_order_id: int | None = None
     production_batch_id: int | None = None
     nastil_name: str | None = None
     used_for_cutting: bool = False

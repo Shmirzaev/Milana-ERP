@@ -28,7 +28,8 @@ const built = await build({ stdin: { contents: `import React from 'react';import
 const css = await compileAppCss();
 const sample = Array.from({ length: 6 }, (_, index) => ({
   id: index + 1, passport_no: `CP-${String(101 + index).padStart(4, '0')}`, date: `2026-10-${String(12 + index).padStart(2, '0')}T00:00:00Z`,
-  created_at: '2026-10-17T00:00:00Z', updated_at: '2026-10-17T00:00:00Z', production_order_id: null,
+  created_at: '2026-10-17T00:00:00Z', updated_at: '2026-10-17T00:00:00Z',
+  production_order_id: index === 0 ? 450 : null, cutting_work_order_id: index === 0 ? 701 : null,
   operator_id: null, operator_name: 'Aziz', operator_name_manual: 'Aziz', model_code: 'TJ2220', model_name: 'TJ2220', variant: String(6470 + index),
   mold_no: 'TJ-22', size_range: '44, 46, 48, 50, 52', fabric_type: index === 4 ? 'Poplin' : 'Cotton jersey', lot_no: `FAB-${100 + index}`,
   order_no: `PO-0${450 + index}`, has_print: false, meter_mode: index === 4, tepa_pass: index === 5,
@@ -90,6 +91,8 @@ if (!serve) {
     await page.clock.setFixedTime(new Date('2026-10-16T20:00:00Z'));
     await page.goto(url);
     await page.getByText('CP-0106', { exact: true }).waitFor();
+    assert.equal(await page.getByRole('link', { name: 'Open', exact: true }).count(), 1);
+    assert.equal(await page.getByRole('link', { name: 'Open', exact: true }).getAttribute('href'), '/work-orders/701/cutting');
     await page.screenshot({ path: path.join(out, 'passports.png'), fullPage: true });
     await page.getByRole('tab', { name: 'Dashboard', exact: true }).click();
     await page.locator('[data-metric="pieces"]').getByText('2,100', { exact: true }).waitFor();
@@ -111,6 +114,7 @@ if (!serve) {
     await page.getByText(dictionaries.en['passportReport.empty'], { exact: true }).waitFor();
     await page.getByRole('button', { name: 'All time', exact: true }).click();
     await page.getByRole('button', { name: dictionaries.en['page.cuttingPassports.newPassport'], exact: true }).click();
+    assert.equal(await page.locator('form input[type="date"]').inputValue(), '2026-10-17');
     await page.getByRole('button', { name: dictionaries.en['page.cuttingPassports.exampleLoad'], exact: true }).click();
     await page.getByLabel('Tepa pass', { exact: true }).check();
     await page.locator('input[type="number"][placeholder="240"]').fill('300');
