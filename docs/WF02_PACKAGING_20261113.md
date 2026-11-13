@@ -112,3 +112,17 @@ one label only and remaining output persists. Select exactly two batches and Cop
 then inspect each allocation and remaining15. Print final partial separately.
 Try the wrong factory and over-remaining input; verify refusals and unchanged rows.
 Check EN/RU/UZ, phone/tablet form and the old receive bookmark redirect.
+
+Follow-up exact-candidate evidence (e5a1cbc70, before any further source edit):
+- 48 downstream backend tests passed: package_delete_reentry,
+  package_evidence_integrity, sewing_later_nastil_workflow,
+  packaging_receipt_query_growth. This includes partial/full label deletion,
+  re-entry/reprint, damaged evidence and received sibling preservation.
+- 30 tests passed in the owned Docker PostgreSQL environment:
+  packaging_stale_counters and packaging_receive_options_query_growth. No skips;
+  the four PostgreSQL-only checks skipped in the first Windows run are covered.
+- Strengthened dedicated-factory regression verifies shared PKG cannot submit the
+  exact ECP batch (409), ECP cannot submit the MIL batch (400), and MIL cannot read
+  ECP batch progress (403); zero records are created by these crafted requests.
+- Actual single-source page submit requested five packs against only75 pieces
+  produces exactly60+15, never empty/phantom packs.
