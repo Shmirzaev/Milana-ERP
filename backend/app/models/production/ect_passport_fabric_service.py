@@ -1,8 +1,9 @@
-"""Use transferred fabric at ECT without debiting its Milana source twice.
+"""Use ECO fabric at ECT without debiting its central identity twice.
 
 The existing central batch ID remains the planning/material identity. Only an
 authoritative EcoMaterialBatch.source_stock_batch_id link selects the physical
-ECO ledger. Direct ECO receipts and legacy ECT central stock remain separate.
+ECO ledger, including zero-balance direct-receipt identities created by explicit
+Planning/passport saves. Legacy ECT central stock retains its existing path.
 Callers own authorization, order/record locks, rollback and commit.
 """
 from collections import defaultdict
@@ -14,7 +15,7 @@ from sqlalchemy.orm import Session
 from app.libs.enums.eco_inventory import EcoMaterialMovementKind
 from app.models.factory_scope_service import require_factory_access, selected_factory_code
 from app.models.inventory.eco_inventory_service import quality_passed
-from app.schemas import CuttingRecord, Department, Item, ProductionOrder, StockBatch, User, WorkOrder
+from app.schemas import CuttingRecord, Department, ProductionOrder, StockBatch, User, WorkOrder
 from app.schemas.inventory import eco_inventory_persistence as persistence
 from app.schemas.inventory.eco_inventory import EcoMaterialBatch, EcoMaterialMovement
 
@@ -83,34 +84,14 @@ def list_transferred_passport_fabrics(db: Session, current: User, production_ord
     require_factory_access(current, "ECO")
     if not is_ect_order(db, production_order_id):
         raise HTTPException(400, "Select an Eco Cotton cutting order")
-    query = db.query(StockBatch, Item, EcoMaterialBatch).join(Item, Item.id == StockBatch.item_id).join(
-        EcoMaterialBatch, EcoMaterialBatch.source_stock_batch_id == StockBatch.id,
-    ).filter(EcoMaterialBatch.kind == "fabric", Item.category.in_(("fabric", "semi_finished")))
-    if item_id is not None:
-        query = query.filter(Item.id == item_id)
-    grouped = {}
-    search = q.strip().casefold()
-    for source, item, receipt in query.order_by(StockBatch.id.desc(), EcoMaterialBatch.id).all():
-        if receipt.item_id != source.item_id or receipt.unit != source.unit:
-            continue
-        if search and not any(search in str(value or "").casefold() for value in
-                              (item.name, item.sku, source.batch_no, source.internal_batch_no, source.color)):
-            continue
-        row = grouped.setdefault(source.id, {"id": source.id, "item_id": item.id,
-            "item_name": item.name, "item_sku": item.sku, "batch_no": source.batch_no,
-            "internal_batch_no": source.internal_batch_no, "color": source.color, "unit": source.unit,
-            "width": source.width, "gsm": source.gsm, "warehouse_name": "Eco Cotton",
-            "quantity": Decimal(0), "available_quantity": Decimal(0)})
-        row["quantity"] += Decimal(str(receipt.quantity))
-        row["available_quantity"] += available_transferred_fabric([receipt])
-    return [{**row, "quantity": float(row["quantity"]), "available_quantity": float(row["available_quantity"])}
-            for row in grouped.values() if row["available_quantity"] > 0]
+    from app.models.production.eco_fabric_source_service import eco_fabric_options
+    return eco_fabric_options(db, q=q, item_id=item_id)
 
 
 def list_passport_fabrics(db: Session, current: User, production_order_id: int, q: str = "", item_id: int | None = None) -> list[dict]:
     """Caller first authorizes the selected production order's cutting work."""
     from app.models.inventory.stock_service import list_batches
-    allowed = ("id", "item_id", "item_name", "item_sku", "batch_no", "internal_batch_no", "color", "unit",
+    allowed = ("id", "item_id", "item_name", "item_sku", "item_category", "image_url", "batch_no", "internal_batch_no", "color", "unit",
                "width", "gsm", "warehouse_name", "quantity", "available_quantity")
     central = [{key: row.get(key) for key in allowed} for row in
         list_batches(db, current, group="materials", hide_empty=True, page_size=500, q=q, item_id=item_id)]

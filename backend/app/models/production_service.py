@@ -1,5 +1,6 @@
 """Production service: build production orders and work orders, manage flow."""
 from datetime import datetime, timezone
+from decimal import Decimal
 import math
 import re
 from fastapi import HTTPException
@@ -110,6 +111,7 @@ def create_production_order(
     estimated_material_amount: float | None = None,
     estimated_material_unit: str | None = None,
     materials: list[dict] | None = None,
+    eco_fabric_available: dict[int, Decimal] | None = None,
     printing_instructions: str | None = None,
     printing_attachments: list[dict] | None = None,
     destination_warehouse_id: int | None = None,
@@ -193,9 +195,14 @@ def create_production_order(
         item = db.get(Item, batch.item_id)
         if not item or str(item.category or "").lower() not in {"fabric", "semi_finished"}:
             raise HTTPException(400, f"Material #{index} is not a fabric inventory batch")
-        if available_stock_for_batch(db, int(batch.id)) <= 0:
+        available = (eco_fabric_available or {}).get(batch.id)
+        if (available_stock_for_batch(db, int(batch.id)) if available is None else available) <= 0:
             raise HTTPException(400, f"Material #{index} batch has no available stock")
+        if available is not None and Decimal(str(quantity)) > available:
+            raise HTTPException(409, "Estimated fabric quantity exceeds available Eco Cotton stock")
         unit = str(row.get("unit") or batch.unit or item.unit or "kg").strip()
+        if available is not None and unit != batch.unit:
+            raise HTTPException(400, "Material unit must match the Eco Cotton fabric unit")
         if not unit:
             raise HTTPException(400, f"Material #{index} requires a unit")
         seen_batch_ids.add(batch_id)
@@ -225,8 +232,11 @@ def create_production_order(
                 "fabric", "semi_finished",
             }:
                 raise HTTPException(400, "Selected inventory batch is not fabric")
-            if available_stock_for_batch(db, int(selected_fabric_batch.id)) <= 0:
+            available = (eco_fabric_available or {}).get(selected_fabric_batch.id)
+            if (available_stock_for_batch(db, int(selected_fabric_batch.id)) if available is None else available) <= 0:
                 raise HTTPException(400, "Selected fabric batch has no available stock")
+            if available is not None and Decimal(str(estimated_material_amount or 0)) > available:
+                raise HTTPException(409, "Estimated fabric quantity exceeds available Eco Cotton stock")
             material_code = selected_fabric_item.sku
             material_unit = selected_fabric_batch.unit or selected_fabric_item.unit
         else:

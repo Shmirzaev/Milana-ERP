@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from app.libs.dto.production.fabric_source_input import FabricSourceIn
 
 
 class PassportBatchAllocation(BaseModel):
@@ -59,6 +60,23 @@ class PassportMaterial(BaseModel):
         if self.batch_allocations:
             ids = [row.stock_batch_id for row in self.batch_allocations]
             if len(ids) < 2 or len(set(ids)) != len(ids) or self.stock_batch_id not in ids:
+                raise ValueError("Grouped materials require at least two distinct batches including the primary batch")
+        return self
+
+
+class PassportBatchAllocationIn(PassportBatchAllocation, FabricSourceIn):
+    stock_batch_id: int | None = Field(default=None, strict=True, gt=0)
+
+
+class PassportMaterialIn(PassportMaterial, FabricSourceIn):
+    stock_batch_id: int | None = Field(default=None, gt=0)
+    batch_allocations: list[PassportBatchAllocationIn] = Field(default_factory=list, max_length=1000)
+
+    @model_validator(mode="after")
+    def grouped_sources(self):
+        if self.batch_allocations:
+            ids = [(row.stock_batch_id, row.eco_material_batch_id) for row in self.batch_allocations]
+            if len(ids) < 2 or len(set(ids)) != len(ids) or (self.stock_batch_id, self.eco_material_batch_id) not in ids:
                 raise ValueError("Grouped materials require at least two distinct batches including the primary batch")
         return self
 

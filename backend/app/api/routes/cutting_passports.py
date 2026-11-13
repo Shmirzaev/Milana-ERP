@@ -33,6 +33,8 @@ from app.models.production.cutting_passport_navigation_service import passport_c
 from app.models.factory_scope_service import available_factory_codes, selected_factory_code
 from app.models.model_images_service import model_display_image_url
 from app.models.production.ect_passport_fabric_service import list_passport_fabrics, transferred_fabric_balances
+from app.models.production.eco_fabric_source_service import resolve_eco_fabric_sources
+from app.libs.enums.production import CuttingDepartmentCode
 
 router = APIRouter(prefix="/cutting-passports", tags=["cutting_passports"])
 _MATERIAL_CATEGORIES = ("fabric", "semi_finished")
@@ -796,6 +798,13 @@ def _passport_values(db, payload: CuttingPassportIn, current, passport_id=None) 
     values = payload.model_dump(exclude={"additional_materials"})
     if payload.production_order_id:
         order, work_order = _passport_order(db, payload.production_order_id, current, lock=True)
+        material_count = len(payload.materials)
+        resolved = resolve_eco_fabric_sources(db,
+            [row.model_dump() for row in payload.materials] + [row.model_dump() for row in payload.additional_materials],
+            current, cutting_code=CuttingDepartmentCode(db.get(Department, work_order.department_id).code), planning=False)
+        payload = CuttingPassportIn.model_validate({**payload.model_dump(),
+            "materials": resolved[:material_count], "additional_materials": resolved[material_count:]})
+        values["materials"] = resolved[:material_count]
         values["materials"] = normalize_grouped_materials(db, order, values["materials"], current, passport_id=passport_id)
         _add_passport_materials(db, order, work_order, payload, current)
         if payload.materials:

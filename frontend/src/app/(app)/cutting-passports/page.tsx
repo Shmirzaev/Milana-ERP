@@ -9,6 +9,7 @@ import { Plus, Search, Pencil, Trash2, BookOpen, Download, ExternalLink } from "
 import CuttingPassportDashboard from "@/components/CuttingPassportDashboard";
 import { businessDate } from "@/components/dashboard/types";
 import { fetcher, api, fetchResponse } from "@/lib/api";
+import { fabricSelectionRows, fabricSourceInput } from "@/lib/fabricSource";
 import PageHeader from "@/components/PageHeader";
 import Modal from "@/components/Modal";
 import { formatOrderReference, orderReference, rawOrderReference } from "@/lib/orderRef";
@@ -354,9 +355,10 @@ export default function CuttingPassportsPage() {
   const [materialAmount, setMaterialAmount] = useState("");
   const [materialPickerBusy, setMaterialPickerBusy] = useState(false);
   const [saving, setSaving] = useState(false);
-  const { data: materialBatches = [], error: materialBatchError, isLoading: materialBatchLoading } = useSWR<any[]>(
+  const { data: rawMaterialBatches = [], error: materialBatchError, isLoading: materialBatchLoading } = useSWR<any[]>(
     materialPickerOpen && form.production_order_id ? `/api/cutting-passports/material-batches?production_order_id=${form.production_order_id}&q=${encodeURIComponent(materialSearch)}${splitTarget !== null && batchInfos[splitTarget]?.item_id ? `&item_id=${batchInfos[splitTarget].item_id}` : ""}` : null, fetcher,
   );
+  const materialBatches = fabricSelectionRows(rawMaterialBatches);
   const resetMaterialPicker = () => { setAdditionalMaterials([]); setMaterialPickerOpen(false); setSelectedMaterial(null); setMaterialAmount(""); setMaterialSearch(""); setSplitTarget(null); };
   const splitText = passportBatchText(lang);
   const rememberBatches = (defaults: MaterialDefault) => setBatchInfos(current => ({ ...current,
@@ -559,9 +561,9 @@ export default function CuttingPassportsPage() {
       const payload = { ...buildPayload(), additional_materials: additionalMaterials.map((row) => {
         const group = materialForms.find(material => passportSourceIds(material).includes(row.stock_batch_id));
         const allocation = group?.batch_allocations?.find(source => source.stock_batch_id === row.stock_batch_id);
-        return { ...row, estimated_quantity: allocation ? Number(allocation.quantity) : ["kg", "m"].includes(row.unit.toLowerCase()) ? Number(group?.planned_kg || 0) : row.estimated_quantity };
-      }), materials: materialForms.map((row) => ({ ...buildPayload(row), stock_batch_id: row.stock_batch_id,
-        batch_allocations: row.batch_allocations && row.batch_allocations.length > 1 ? row.batch_allocations.map(source => ({ stock_batch_id: source.stock_batch_id, quantity: Number(source.quantity) })) : [],
+        return { ...row, ...fabricSourceInput(row.stock_batch_id), estimated_quantity: allocation ? Number(allocation.quantity) : ["kg", "m"].includes(row.unit.toLowerCase()) ? Number(group?.planned_kg || 0) : row.estimated_quantity };
+      }), materials: materialForms.map((row) => ({ ...buildPayload(row), ...fabricSourceInput(row.stock_batch_id),
+        batch_allocations: row.batch_allocations && row.batch_allocations.length > 1 ? row.batch_allocations.map(source => ({ ...fabricSourceInput(source.stock_batch_id), quantity: Number(source.quantity) })) : [],
       })) };
       if (editing) {
         await api.patch(`/api/cutting-passports/${editing.id}`, payload);

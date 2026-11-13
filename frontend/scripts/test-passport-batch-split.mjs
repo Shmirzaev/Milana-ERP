@@ -88,7 +88,8 @@ function visit(node){
   ts.forEachChild(node,visit);
 }
 visit(ast);
-const context=vm.createContext({ ...lib, console, Number,Date, Map,Set,lang:"en",splitText:lib.passportBatchText("en"),
+const fabricSources=compile(read("../src/lib/fabricSource.ts"));
+const context=vm.createContext({ ...lib, ...fabricSources, console, Number,Date, Map,Set,lang:"en",splitText:lib.passportBatchText("en"),
   t:key=>key,editing:null,saving:false,splitTarget:1,selectedMaterial:{...batches[2],item_name:"Cotton"},materialAmount:"200",batchInfos:batches,
   mutate:async()=>{},refreshCache:async()=>{},resetMaterialPicker:()=>{},setShowForm:()=>{},setSelectedMaterial:()=>{},setMaterialAmount:()=>{},setMaterialPickerOpen:()=>{},setSplitTarget:()=>{},
 });

@@ -397,6 +397,15 @@ export default function CuttingPage() {
     po && !isUsluga ? "/api/inventory/batches?group=materials&page_size=1000" : null,
     fetcher,
   );
+  const { data: ecoFabricSources = [] } = useSWR<Array<Omit<StockBatchOption, "id"> & { id: number | null }>>(
+    isEcoCottonCutting && !isUsluga && po?.id
+      ? `/api/cutting-passports/material-batches?production_order_id=${po.id}` : null, fetcher,
+  );
+  // Direct receipts acquire their canonical material identity when Planning or
+  // the passport saves. Cutting only offers those already resolved identities.
+  const ecoMaterialBatches = useMemo(() => ecoFabricSources.filter(
+    (batch): batch is StockBatchOption => batch.id !== null,
+  ), [ecoFabricSources]);
   const { data: cuttingPassports = [] } = useSWR<CuttingPassportSummary[]>(
     po?.id ? `/api/cutting-passports?production_order_id=${po.id}&limit=50` : null,
     fetcher,
@@ -480,7 +489,7 @@ export default function CuttingPage() {
 
   const fabricBatches = useMemo(() => {
     const materialIdSet = new Set(materialItemIds);
-    return [...(batches || [])]
+    return [...(isEcoCottonCutting ? ecoMaterialBatches : batches || [])]
       .filter((batch) => {
         const itemId = Number(batch?.item_id || 0);
         if (materialIdSet.size > 0 && !materialIdSet.has(itemId)) return false;
@@ -497,10 +506,10 @@ export default function CuttingPage() {
         if (Math.abs(availableDiff) > 0.0001) return availableDiff;
         return Number(b.id || 0) - Number(a.id || 0);
       });
-  }, [batches, materialItemIds, po?.id]);
+  }, [batches, ecoMaterialBatches, isEcoCottonCutting, materialItemIds, po?.id]);
   const allSearchableFabricBatches = useMemo(() => {
     const materialIdSet = new Set(materialItemIds);
-    return uniqueBatchOptions(fabricBatches, allMaterialBatches)
+    return uniqueBatchOptions(fabricBatches, isEcoCottonCutting ? ecoMaterialBatches : allMaterialBatches)
       .filter((batch) => {
         const category = String(batch?.item_category || "").toLowerCase();
         if (!MATERIAL_BATCH_CATEGORIES.has(category)) return false;
@@ -518,7 +527,7 @@ export default function CuttingPage() {
         if (Math.abs(availableDiff) > 0.0001) return availableDiff;
         return Number(b.id || 0) - Number(a.id || 0);
       });
-  }, [allMaterialBatches, fabricBatches, materialItemIds, po?.id]);
+  }, [allMaterialBatches, ecoMaterialBatches, isEcoCottonCutting, fabricBatches, materialItemIds, po?.id]);
   const fabricSearchQuery = fabricSearch.trim();
   const fabricPickerOptions = useMemo(() => {
     const source = fabricSearchQuery ? allSearchableFabricBatches : fabricBatches;

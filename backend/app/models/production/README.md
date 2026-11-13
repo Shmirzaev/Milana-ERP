@@ -27,6 +27,16 @@ balance is exhausted. The caller owns authorization, order/record locks and comm
 mapped writes use the existing Eco schema persistence operations. See the
 [task packet](../../../../docs/PASSPORT_TOTALS_ECT_20261106.md) for scope and tests.
 
+Direct ECO receipts now participate through `eco_fabric_source_service.py`.
+Planning (MIL/ECO `planning.production`) or an authorized ECT passport save accepts
+an explicit `eco_material_batch_id`; it atomically assigns a central zero-balance
+material identity through schema-owned persistence. `source_stock_batch_id` is
+the production material identity, not proof of a Milana transfer. Actual transfer
+evidence remains in `FactoryFabricTransferLine`. No central quantity, reservation
+or movement is created; the original ECO receipt keeps all physical quantities,
+QC, reservations, debit and reversal evidence. GETs never assign an identity.
+See [WF06/WF07 evidence](../../../../docs/FACTORY_ECO_FABRIC_20261113.md).
+
 ## One passport material with several source batches
 
 `PassportMaterial.batch_allocations` optionally records at least two distinct

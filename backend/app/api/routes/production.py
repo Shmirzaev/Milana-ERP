@@ -3680,6 +3680,12 @@ def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depend
     elif report_piece_count:
         raise HTTPException(400, "Report-only pieces can be recorded only for secondary Usluga fabric")
 
+    # Lock shared material sources before inserting CuttingRecord/Usage foreign
+    # keys. Two orders otherwise both hold KEY SHARE then deadlock upgrading
+    # the same source to FOR UPDATE during consumption.
+    material_consumption_context = prepare_cutting_material_consumption(
+        db, production_order_id=int(wo.production_order_id), lines=cutting_materials,
+    )
     rec = CuttingRecord(
         cutting_passport_id=payload.cutting_passport_id,
         work_order_id=payload.work_order_id,
@@ -3727,9 +3733,6 @@ def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depend
         wo.passed_qty += passed_pieces
         wo.failed_qty += defective_pieces
     pending_materials = []
-    material_consumption_context = prepare_cutting_material_consumption(
-        db, production_order_id=int(wo.production_order_id), lines=cutting_materials,
-    )
     require_full_material_reservation = require_material_reservation_before_cutting(db) if cutting_materials else False
     for material in cutting_materials:
         try:

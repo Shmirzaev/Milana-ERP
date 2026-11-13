@@ -10,12 +10,20 @@ from app.libs.dto.planning.branded_planning_order_input import (
 from app.libs.dto.planning.material_requirement_output import MaterialRequirement
 from app.libs.dto.planning.branded_planning_order_output import BrandedPlanningOrderOut
 from app.libs.dto.production.production import ProductionOrderIn, ProductionOrderOut
+from app.libs.dto.planning.fabric_source_output import PlanningFabricSourceOut
 from app.libs.enums.planning import BrandedPlanningOrderStatus
 from app.models.planning import branded_orders_service, production_planning_service
 from app.models.planning_service import material_requirements_for_sales_order
+from app.models.production.eco_fabric_source_service import list_planning_eco_fabrics
 from app.schemas import User
 
 router = APIRouter(prefix="/planning", tags=["planning"])
+
+
+@router.get("/eco-fabrics", response_model=list[PlanningFabricSourceOut])
+def eco_fabric_sources(db: DbSession, current: User = Depends(require_permissions("planning.production", "*")),
+                      q: str = Query("", max_length=200)):
+    return list_planning_eco_fabrics(db, current, q)
 
 
 @router.get("/branded-orders/{order_id}/export.xlsx")

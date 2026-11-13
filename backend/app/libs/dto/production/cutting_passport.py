@@ -1,7 +1,8 @@
 from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel, ConfigDict, Field
-from app.libs.dto.production.cutting_material import PassportMaterial
+from app.libs.dto.production.cutting_material import PassportMaterial, PassportMaterialIn
+from app.libs.dto.production.fabric_source_input import FabricSourceIn
 
 from app.libs.dto.common import ORMModel
 
@@ -11,8 +12,7 @@ class CuttingOperatorOut(ORMModel):
     name: str
 
 
-class PassportAdditionalMaterial(BaseModel):
-    stock_batch_id: int = Field(gt=0)
+class PassportAdditionalMaterial(FabricSourceIn):
     estimated_quantity: float = Field(
         gt=0, le=9_999_999_999.9999, allow_inf_nan=False,
     )
@@ -22,7 +22,7 @@ class PassportAdditionalMaterial(BaseModel):
 class CuttingPassportIn(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
 
-    materials: list[PassportMaterial] = Field(default_factory=list)
+    materials: list[PassportMaterialIn] = Field(default_factory=list)
     additional_materials: list[PassportAdditionalMaterial] = Field(default_factory=list)
     passport_no: str = Field(default="", max_length=32)
     date: datetime
