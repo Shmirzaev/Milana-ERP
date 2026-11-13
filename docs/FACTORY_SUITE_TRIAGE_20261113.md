@@ -49,3 +49,18 @@ owned derivative image. No application source changes were needed.
 No full-suite pass is claimed while the root run remains incomplete. Independent
 review of this assertion change, final combined reruns, browser readback, human
 acceptance and deployment approval remain coordinator-owned gates.
+
+## Legacy flow assertion reconciled with automatic availability
+
+The original root full run's67% failure was
+`test_production_flow.py::test_packaging_receives_sewing_work_by_scan_and_manual_entry`.
+It deliberately expected18 input to be refused after17 legacy receipts despite20
+actual passed Sewing pieces. This conflicts with the owner's requested automatic
+availability; the real API correctly returns201 on the candidate. Standalone red
+reproduction confirms201-versus-old400.
+
+The renamed compatibility test retains all manual/scan receipt history, duplicate
+scan and over-receiving checks. It now refuses21>20 actual output, checks queue20,
+saves18 despite17 historical receipts, and verifies queue2, actual input18, exactly2
+unchanged historical receipts and zero automatic packages. No application change.
+Full test_production_flow.py passes81 tests in the owned derivative image.

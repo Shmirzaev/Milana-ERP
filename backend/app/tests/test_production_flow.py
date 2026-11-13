@@ -707,7 +707,7 @@ def test_process_tracking_new_waiting_order_starts_at_cutting(client, auth_heade
     assert {stage["operation"]: stage["status"] for stage in tracked["stages"]}["storage_transfer"] == "waiting"
 
 
-def test_packaging_receives_sewing_work_by_scan_and_manual_entry(client, auth_headers):
+def test_legacy_packaging_receipts_do_not_limit_automatic_sewing_availability(client, auth_headers):
     response = client.post(
         "/api/planning/create-branded-production",
         json={
@@ -813,14 +813,14 @@ def test_packaging_receives_sewing_work_by_scan_and_manual_entry(client, auth_he
         "/api/packaging/records",
         json={
             "work_order_id": packaging_work_order_id,
-            "input_qty": 18,
-            "packed_qty": 18,
+            "input_qty": 21,
+            "packed_qty": 21,
             "damaged_qty": 0,
         },
         headers=auth_headers,
     )
     assert over_pack.status_code == 400, over_pack.text
-    assert "received from sewing 17" in over_pack.text
+    assert "sewing passed output 20" in over_pack.text
 
     receipts = client.get("/api/packaging/receipts?limit=10", headers=auth_headers)
     assert receipts.status_code == 200, receipts.text
@@ -833,9 +833,9 @@ def test_packaging_receives_sewing_work_by_scan_and_manual_entry(client, auth_he
         row for row in received_orders.json() if row["production_order_id"] == production_order["id"]
     )
     assert received_order["work_order_id"] == packaging_work_order_id
-    assert received_order["received_quantity"] == 17
+    assert received_order["received_quantity"] == 20
     assert received_order["packing_input_quantity"] == 0
-    assert received_order["remaining_quantity"] == 17
+    assert received_order["remaining_quantity"] == 20
     assert "model_image_url" in received_order
 
     db = SessionLocal()
@@ -845,6 +845,24 @@ def test_packaging_receives_sewing_work_by_scan_and_manual_entry(client, auth_he
         assert packaging_work_order.status == "collected"
     finally:
         db.close()
+
+
+    # Legacy receipts remain history; proven Sewing output is now available
+    # automatically. Saving physical Packaging output is still a separate step.
+    packed = client.post("/api/packaging/records", headers=auth_headers, json={
+        "work_order_id": packaging_work_order_id, "input_qty": 18,
+        "packed_qty": 18, "damaged_qty": 0,
+    })
+    assert packed.status_code == 201, packed.text
+    queue = client.get("/api/packaging/received-orders", headers=auth_headers)
+    assert queue.status_code == 200, queue.text
+    row = next(row for row in queue.json() if row["work_order_id"] == packaging_work_order_id)
+    assert (row["received_quantity"], row["packing_input_quantity"], row["remaining_quantity"]) == (20, 18, 2)
+    from app.schemas import Package, PackagingReceipt
+    with SessionLocal() as db:
+        assert db.get(WorkOrder, packaging_work_order_id).actual_input_qty == 18
+        assert db.query(PackagingReceipt).filter_by(work_order_id=packaging_work_order_id).count() == 2
+        assert db.query(Package).filter_by(production_order_id=production_order["id"]).count() == 0
 
 
 def test_zero_quantity_storage_transfer_does_not_override_cutting(client, auth_headers):
