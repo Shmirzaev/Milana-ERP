@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.core.deps import user_permissions
 from app.libs.enums.production import CuttingDepartmentCode
+from app.libs.dto.production.production import ProductionOrderIn
 from app.models.audit_service import log_action
 from app.models.factory_scope_service import selected_factory_code
 from app.models.inventory.eco_inventory_service import quality_passed
@@ -18,6 +19,12 @@ from app.models.identity.access_policy_service import denied_for
 from app.schemas import Department, Item, StockBatch, User, Warehouse
 from app.schemas.inventory.eco_fabric_identity import insert_direct_fabric_identity
 from app.schemas.inventory.eco_inventory import EcoMaterialBatch
+
+
+def require_planning_for_eco_selection(payload: ProductionOrderIn) -> None:
+    """The legacy generic creator must never silently drop explicit ECO input."""
+    if payload.eco_fabric_batch_id is not None or any(row.eco_material_batch_id is not None for row in payload.materials):
+        raise HTTPException(400, "Create Eco Cotton fabric orders through Planning so the selected source is validated")
 
 
 def require_eco_source_access(current: User, *, planning: bool) -> None:

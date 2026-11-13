@@ -283,3 +283,16 @@ def test_unrecognized_cutting_department_cannot_resolve_direct_eco_source(client
     assert rejected.status_code == 400 and "requires Eco Cotton Cutting" in rejected.text
     with SessionLocal() as db:
         assert db.get(EcoMaterialBatch, eco_case["receipt"]).source_stock_batch_id is None
+
+
+@pytest.mark.parametrize("source_field", ["primary", "materials"])
+def test_generic_production_api_explicitly_refuses_unresolved_eco_inputs_without_writes(client, eco_case, source_field):
+    payload = planning_payload(eco_case, **({"materials": []} if source_field == "primary" else {"eco_fabric_batch_id": None}))
+    with SessionLocal() as db:
+        before = tuple(db.query(table).count() for table in (ProductionOrder, WorkOrder, StockBatch, StockMovement, EcoMaterialMovement, AuditLog))
+    response = client.post("/api/production-orders", headers=eco_case["mil_headers"], json=payload)
+    assert response.status_code == 400 and "through Planning" in response.text, response.text
+    with SessionLocal() as db:
+        assert tuple(db.query(table).count() for table in (ProductionOrder, WorkOrder, StockBatch, StockMovement, EcoMaterialMovement, AuditLog)) == before
+        receipt = db.get(EcoMaterialBatch, eco_case["receipt"])
+        assert receipt.source_stock_batch_id is None and receipt.quantity == 100 and receipt.reserved_quantity == 10

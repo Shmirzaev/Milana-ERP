@@ -593,6 +593,8 @@ def list_pos(
 
 @router.post("/production-orders", response_model=ProductionOrderDetail, status_code=201)
 def create_po(payload: ProductionOrderIn, db: DbSession, current: User = Depends(require_permissions("planning.production", "*"))):
+    from app.models.production.eco_fabric_source_service import require_planning_for_eco_selection
+    require_planning_for_eco_selection(payload)
     printing_attachments = printing_attachments_for_storage(payload.printing_attachments)
     po = create_production_order(
         db,

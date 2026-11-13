@@ -43,6 +43,12 @@ Cutting department yields canonical CUT/ECT; missing, unknown or mixed routes
 yield null. Passport selectors require an exact department match. This read does
 not mutate routing, broaden the list's access or guess an execution work order.
 
+The legacy generic `POST /production-orders` explicitly refuses new unresolved
+ECO primary/material inputs through `require_planning_for_eco_selection` before
+any creator writes. Use Planning's validated ECO participant; never silently
+drop an explicit ECO source. The separate Usluga creator keeps its customer-
+supplied, non-inventory material contract.
+
 ## One passport material with several source batches
 
 `PassportMaterial.batch_allocations` optionally records at least two distinct

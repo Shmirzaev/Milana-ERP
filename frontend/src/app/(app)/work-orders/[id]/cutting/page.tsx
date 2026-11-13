@@ -392,12 +392,12 @@ export default function CuttingPage() {
     }
     return `/api/inventory/batches?${params.toString()}`;
   }, [isUsluga, materialItemParam, po]);
-  const { data: batches = [] } = useSWR<StockBatchOption[]>(fabricBatchUrl, fetcher);
-  const { data: allMaterialBatches = [] } = useSWR<StockBatchOption[]>(
+  const { data: batches = [], mutate: refreshFabricBatches } = useSWR<StockBatchOption[]>(fabricBatchUrl, fetcher);
+  const { data: allMaterialBatches = [], mutate: refreshAllMaterialBatches } = useSWR<StockBatchOption[]>(
     po && !isUsluga ? "/api/inventory/batches?group=materials&page_size=1000" : null,
     fetcher,
   );
-  const { data: ecoFabricSources = [] } = useSWR<Array<Omit<StockBatchOption, "id"> & { id: number | null }>>(
+  const { data: ecoFabricSources = [], mutate: refreshEcoFabricSources } = useSWR<Array<Omit<StockBatchOption, "id"> & { id: number | null }>>(
     isEcoCottonCutting && !isUsluga && po?.id
       ? `/api/cutting-passports/material-batches?production_order_id=${po.id}` : null, fetcher,
   );
@@ -406,6 +406,9 @@ export default function CuttingPage() {
   const ecoMaterialBatches = useMemo(() => ecoFabricSources.filter(
     (batch): batch is StockBatchOption => batch.id !== null,
   ), [ecoFabricSources]);
+  async function refreshFabricSources() {
+    if (!isUsluga) await Promise.all([refreshFabricBatches(), refreshAllMaterialBatches(), refreshEcoFabricSources()]);
+  }
   const { data: cuttingPassports = [] } = useSWR<CuttingPassportSummary[]>(
     po?.id ? `/api/cutting-passports?production_order_id=${po.id}&limit=50` : null,
     fetcher,
@@ -1067,7 +1070,7 @@ export default function CuttingPage() {
     try {
       await api.del(`/api/work-orders/${id}/batches/${row.id}`);
       setEditingBatchId(0);
-      await Promise.all([mutatePo(), mutateWo(), mutateBatchProgress(), mutateBundles()]);
+      await Promise.all([mutatePo(), mutateWo(), mutateBatchProgress(), mutateBundles(), refreshFabricSources()]);
       setDoneMsg(t("batch.deleted"));
     } catch (error: any) {
       setBatchPlanEditErr(error.message || t("batch.deleteFailed"));
@@ -1216,7 +1219,7 @@ export default function CuttingPage() {
         material_rolls_used: "",
         notes: "",
       }));
-      await Promise.all([mutatePo(), mutateWo(), mutateBatchProgress(), mutateBundles(), mutateUslugaCutting()]);
+      await Promise.all([mutatePo(), mutateWo(), mutateBatchProgress(), mutateBundles(), mutateUslugaCutting(), refreshFabricSources()]);
     } catch (e: any) {
       setErr(e.message);
     } finally {
@@ -1414,6 +1417,7 @@ export default function CuttingPage() {
         layup_operator_name: editingCuttingDetails.layup_operator_name.trim() || null,
         notes: editingCuttingDetails.notes.trim() || null,
       });
+      if (editingCuttingDetails.materialUsagePending) await refreshFabricSources();
       setEditingCuttingDetails(null);
       setDoneMsg(t("page.cutting.detailsUpdated"));
     } catch (e: any) {

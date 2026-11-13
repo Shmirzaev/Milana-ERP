@@ -201,3 +201,38 @@ preserved, while direct ECO resolution refuses400 outside actual ECT. No invente
 enum values or guessed factory routing. Both existing real-PostgreSQL optional-
 operator cases pass. Actual ERP rerun/readback and independent source review on
 the combined correction remain root-owned gates.
+
+## Last caller and post-confirmation visibility review
+
+Independent review reproduced a further shared-DTO caller omission: generic
+`POST /api/production-orders` accepted `eco_fabric_batch_id` but silently ignored
+it, returning201 with no selected fabric. Explicit material ECO inputs failed
+later on the absent central ID. This caller is now explicitly refused400 through
+a typed public source-service guard before attachments, numbering or creator
+writes; callers must use the validated Planning operation. Both primary-only and
+material-list forms are regression-tested with complete relevant table counts,
+receipt identity, physical quantity and reservation unchanged. This is deliberate
+refusal, not support or implicit factory rerouting. Existing generic central
+inputs remain unchanged. The full creation caller ledger is Planning client,
+Planning branded, legacy generic (new ECO inputs refused), and separate Usluga
+(its own non-inventory DTO). Repository MCP code contains info/notifications but
+no independent production writer; external callers of the generic HTTP contract
+receive the same explicit refusal.
+
+Root's actual ERP save/confirmation then passed6.5kg/10pieces/one ECO bundle,
+with persisted physical100->93.5, reserved10, central0, no central movement and
+exactly one ECO consume6.5. The immediately displayed source balance was stale
+until reload because submit refreshed production state but not the stock reads.
+The actual successful submit now revalidates the three existing source queries
+(filtered central, all central, authorized ECT projection), preserving selected
+identity/manual choice. Successful deferred physical usage and eligible Nastil
+delete/reversal use the same bounded refresh; refused writes, metadata-only edits
+and Usluga do not request these stock refreshes. No GET writes or accounting change.
+
+The new test executes the actual submit/deferred/delete/helper functions extracted
+from CuttingPage, delays write acknowledgment, and proves no refresh before
+success, exactly three existing source revalidations afterward, visible fixture
+83.5available/93.5physical/10reserved, preserved selected/manual state, and no
+refresh on refusal/metadata/Usluga. It runs with the existing frontend build
+contract. Root owns actual ERP post-write screen rerun on the final combined
+candidate; this handler regression is not a claim of that pending full UI check.
