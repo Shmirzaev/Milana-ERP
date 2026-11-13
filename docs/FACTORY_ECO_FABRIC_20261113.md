@@ -71,11 +71,14 @@ resolved canonical identity. Existing English/Russian/Uzbek labels are reused.
 
 ## Evidence and original failure retained
 
-- New14 SQLite API regressions passed: MIL Planning selection and inventory denial;
+- New16 SQLite API regressions passed: MIL Planning selection and inventory denial;
   lookup no-writes; create/passport/reopen/actual6.5kg consumption/retry/delete;
   failed create and failed passport rollback; held/reserved/insufficient/unit/route
   refusals; linked real availability; explicit destination denial; trusted balance
-  injection and ambiguous identity rejection.
+  injection and ambiguous identity rejection. Independent review added first-
+  material authority (no incidental bridge for unused primary receipt) and
+  grouped-source search regressions: complete linked balance is aggregated before
+  filtering, preserving displayed canonical source lot/color and receipt search.
 - Wider focused run passed56 and skipped32 PostgreSQL-only cases in the Windows
   environment: direct/transferred/grouped passports, submission/deferred usage and
   material reservation concurrency module. The subsequently added policy-denial
@@ -86,6 +89,11 @@ resolved canonical identity. Existing English/Russian/Uzbek labels are reused.
   central physical/reserved/movement totals zero. Two orders each claiming60kg
   from100kg with10kg reserved produced one201 and one409; remaining physical40kg,
   reserved10kg, exactly one ECO debit, no central movement; retries refused.
+  A subsequent real-PostgreSQL run of the new cases plus the inherited material-
+  reservation concurrency module passed45 with no skips, including its32 cases
+  skipped by the unconfigured Windows-only run. The registration race was further
+  strengthened to share one BSO (avoiding pre-registration numbering serialization)
+  and synchronize all initial receipt mapping reads before any receipt lock.
 - Original first PostgreSQL run: registration PASS, competing actual cuts FAIL
   with `psycopg2.errors.DeadlockDetected`, transactions873/874, processes144/145,
   while upgrading `stock_batches` FK KEY SHARE to `FOR UPDATE`; one request500,

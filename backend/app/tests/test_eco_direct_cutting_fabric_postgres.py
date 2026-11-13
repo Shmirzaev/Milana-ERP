@@ -8,6 +8,7 @@ import importlib.util
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from sqlalchemy import event
 from sqlalchemy.orm import sessionmaker
 
 from app.api.router import api_router
@@ -78,14 +79,26 @@ def save_for_cut(app, sessions, case, quantity):
 def test_four_competing_identity_registrations_create_one_zero_balance_bridge(eco_postgres):
     sessions, app = eco_postgres
     case = make_eco_fabric_case(sessions)
+    planning_order = post(app, "/api/planning/branded-orders", case["mil_headers"], {"ordered_for_type": "milana"})
+    assert planning_order.status_code == 201, planning_order.text
     barrier = Barrier(4)
+    # Share an existing BSO so its numbering lock cannot serialize these requests
+    # before receipt registration. Force all four initial mapping reads to finish
+    # before any receipt lock acquires, exercising the stale-link conflict path.
+    engine = sessions.kw["bind"]
+    def before_receipt_lock(_connection, _cursor, statement, _parameters, _context, _many):
+        if "FOR UPDATE OF eco_material_batches" in statement:
+            barrier.wait(timeout=8)
     def create():
-        barrier.wait(timeout=5)
-        return post(app, "/api/planning/create-branded-production", case["mil_headers"], planning_payload(case))
-    with ThreadPoolExecutor(max_workers=4) as pool:
-        results = [future.result(timeout=20) for future in [pool.submit(create) for _ in range(4)]]
-    assert all(row.status_code in (201, 409) for row in results), [(row.status_code, row.text) for row in results]
-    assert any(row.status_code == 201 for row in results)
+        return post(app, "/api/planning/create-branded-production", case["mil_headers"],
+                    planning_payload(case, planning_order_id=planning_order.json()["id"]))
+    event.listen(engine, "before_cursor_execute", before_receipt_lock)
+    try:
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            results = [future.result(timeout=20) for future in [pool.submit(create) for _ in range(4)]]
+    finally:
+        event.remove(engine, "before_cursor_execute", before_receipt_lock)
+    assert sorted(row.status_code for row in results) == [201, 409, 409, 409], [(row.status_code, row.text) for row in results]
     with sessions() as db:
         receipt = db.get(EcoMaterialBatch, case["receipt"])
         assert receipt.quantity == 100 and receipt.reserved_quantity == 10

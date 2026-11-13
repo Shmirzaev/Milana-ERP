@@ -41,10 +41,12 @@ def _planning_fabric_sources(db: Session, payload: ProductionOrderIn, current: U
     materials = [row.model_dump() for row in payload.materials]
     primary = ({"eco_material_batch_id": payload.eco_fabric_batch_id} if payload.eco_fabric_batch_id
                else {"stock_batch_id": payload.fabric_batch_id})
-    rows = materials + ([primary] if any(primary.values()) else [])
+    # The existing production operation makes its first material authoritative.
+    # Do not assign an unused primary receipt's identity as an incidental write.
+    rows = materials or ([primary] if any(primary.values()) else [])
     resolved = resolve_eco_fabric_sources(db, rows, current, cutting_code=payload.cutting_department_code, planning=True)
-    fabric_batch_id = resolved[-1]["stock_batch_id"] if any(primary.values()) else None
-    materials = resolved[:len(materials)]
+    fabric_batch_id = resolved[0]["stock_batch_id"] if resolved else None
+    materials = resolved if materials else []
     ids = {row["stock_batch_id"] for row in materials} | ({fabric_batch_id} if fabric_batch_id else set())
     available = planning_eco_balances(db, ids, current, payload.cutting_department_code)
     return fabric_batch_id, materials, available

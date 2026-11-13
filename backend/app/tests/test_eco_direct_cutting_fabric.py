@@ -3,7 +3,7 @@ from decimal import Decimal
 import pytest
 
 from app.db.session import SessionLocal
-from app.schemas import CuttingRecord, MaterialReservation, ProductionOrder, StockBatch, StockMovement, User, WorkOrder
+from app.schemas import AuditLog, CuttingRecord, MaterialReservation, ProductionOrder, StockBatch, StockMovement, User, WorkOrder
 from app.schemas.inventory.eco_inventory import EcoMaterialBatch, EcoMaterialMovement
 from app.tests.eco_fabric_fixture import make_eco_fabric_case, planning_payload
 
@@ -166,3 +166,39 @@ def test_explicit_destination_planning_denial_is_not_bypassed(client, eco_case):
     assert rejected.status_code == 403, rejected.text
     with SessionLocal() as db:
         assert db.get(EcoMaterialBatch, eco_case["receipt"]).source_stock_batch_id is None
+
+
+def test_first_material_authority_does_not_assign_unused_primary_receipt(client, eco_case):
+    with SessionLocal() as db:
+        other = EcoMaterialBatch(item_id=eco_case["item"], kind="fabric", batch_no="OTHER-DIRECT", color="white",
+            unit="kg", quantity=50, reserved_quantity=0, created_by=eco_case["operator"])
+        db.add(other); db.flush(); other_id = other.id
+        db.add(EcoMaterialMovement(batch_id=other_id, kind="receive", quantity=50, created_by=eco_case["operator"]))
+        db.commit()
+    payload = planning_payload(eco_case, materials=[{"eco_material_batch_id": other_id, "estimated_quantity": 8, "unit": "kg"}])
+    created = client.post("/api/planning/create-branded-production", headers=eco_case["mil_headers"], json=payload)
+    assert created.status_code == 201, created.text
+    with SessionLocal() as db:
+        assert db.get(EcoMaterialBatch, eco_case["receipt"]).source_stock_batch_id is None
+        assert db.query(StockBatch).filter_by(internal_batch_no=f"ECO-DIRECT-{eco_case['receipt']}").count() == 0
+        assert db.query(AuditLog).filter_by(entity_type="EcoMaterialBatch", entity_id=eco_case["receipt"], action="assign_cutting_identity").count() == 0
+        assert db.get(EcoMaterialBatch, other_id).source_stock_batch_id == created.json()["fabric_batch_id"]
+
+
+def test_search_keeps_complete_linked_balance_and_searches_displayed_source_labels(client, eco_case):
+    created = client.post("/api/planning/create-branded-production", headers=eco_case["mil_headers"], json=planning_payload(eco_case))
+    assert created.status_code == 201, created.text
+    source_id = created.json()["fabric_batch_id"]
+    with SessionLocal() as db:
+        source = db.get(StockBatch, source_id)
+        source.batch_no = "DISPLAYED-CENTRAL-LOT"
+        source.color = "SEARCHABLE-COLOUR"
+        other = EcoMaterialBatch(item_id=eco_case["item"], kind="fabric", batch_no="SECOND-PHYSICAL-RECEIPT",
+            unit="kg", quantity=20, reserved_quantity=0, created_by=eco_case["operator"], source_stock_batch_id=source_id)
+        db.add(other); db.commit()
+    for query in (eco_case["batch_no"], "SECOND-PHYSICAL", "DISPLAYED-CENTRAL", "SEARCHABLE-COLOUR"):
+        result = client.get("/api/planning/eco-fabrics", headers=eco_case["mil_headers"], params={"q": query})
+        assert result.status_code == 200, result.text
+        row = next(row for row in result.json() if row["id"] == source_id)
+        assert row["quantity"] == 120 and row["available_quantity"] == 110
+        assert row["color"] == "SEARCHABLE-COLOUR"
