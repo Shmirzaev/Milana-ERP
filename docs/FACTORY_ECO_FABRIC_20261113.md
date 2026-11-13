@@ -236,3 +236,21 @@ success, exactly three existing source revalidations afterward, visible fixture
 refresh on refusal/metadata/Usluga. It runs with the existing frontend build
 contract. Root owns actual ERP post-write screen rerun on the final combined
 candidate; this handler regression is not a claim of that pending full UI check.
+
+## Typed list boundary correction from the full backend run
+
+Root's broad backend run exposed four existing direct list-route readers that
+require attribute access (`row.id`, `row.order_no`, `row.sales_order_no`). The
+initial routing helper returned dictionaries and broke that internal boundary
+despite correct HTTP JSON. It now explicitly returns
+`list[ProductionOrderListOut]`, validating each ORM row and copying only the
+canonical routing projection into the typed result. HTTP list/page shape and
+facts remain identical; no writes or new query are introduced by this correction.
+
+Pagination tests retain typed attribute readers. The query budget explicitly
+accounts for the previously added single routing projection: four selects for a
+counted page and three for a plain list, with exactly one WorkOrder query for
+1/50/401-order fixtures. The helper regression additionally requires every result
+to be a real `ProductionOrderListOut`, preserving order IDs. Pagination plus
+routing regression modules pass9 cases; Ruff is clean. Root owns the exact
+combined broader rerun and independent final review.

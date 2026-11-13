@@ -4,6 +4,7 @@ from sqlalchemy import event
 from app.db.session import SessionLocal
 from app.schemas import Department, ProductionOrder, WorkOrder
 from app.models.production.order_routing_read_service import production_order_list_output
+from app.libs.dto.production.production import ProductionOrderListOut
 from app.tests.eco_fabric_fixture import make_eco_fabric_case, planning_payload
 
 
@@ -62,4 +63,6 @@ def test_routing_projection_is_one_batched_query_for_all_returned_orders(client)
         finally:
             event.remove(engine, "before_cursor_execute", capture)
         assert len(result) == len(rows)
+        assert all(isinstance(row, ProductionOrderListOut) for row in result)
+        assert [row.id for row in result] == [row.id for row in rows]
         assert len(statements) == 1

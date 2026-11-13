@@ -6,7 +6,7 @@ from app.libs.enums.production import CuttingDepartmentCode, WorkOrderStatus
 from app.schemas import Department, ProductionOrder, WorkOrder
 
 
-def production_order_list_output(db: Session, orders: list[ProductionOrder]) -> list[dict]:
+def production_order_list_output(db: Session, orders: list[ProductionOrder]) -> list[ProductionOrderListOut]:
     if not orders:
         return []
     codes: dict[int, set[str]] = {}
@@ -15,10 +15,10 @@ def production_order_list_output(db: Session, orders: list[ProductionOrder]) -> 
             WorkOrder.production_order_id.in_([order.id for order in orders]),
             WorkOrder.operation == "cutting", WorkOrder.status != WorkOrderStatus.CANCELLED).all():
         codes.setdefault(order_id, set()).add(code)
-    result = []
+    result: list[ProductionOrderListOut] = []
     for order in orders:
         route = codes.get(order.id, set())
         code = next(iter(route)) if len(route) == 1 else None
         cutting = CuttingDepartmentCode(code) if code in (CuttingDepartmentCode.MILANA, CuttingDepartmentCode.ECO_COTTON) else None
-        result.append({**ProductionOrderListOut.model_validate(order).model_dump(), "cutting_department_code": cutting})
+        result.append(ProductionOrderListOut.model_validate(order).model_copy(update={"cutting_department_code": cutting}))
     return result
