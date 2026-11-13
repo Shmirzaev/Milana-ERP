@@ -29,7 +29,7 @@ integrated change under AGENTS.md. Human/operator acceptance remains pending.
 
 | Operation | Intended change and acceptance | Source seams | State |
 | --- | --- | --- | --- |
-| WF01 numbering | New Nastil serial uses public order number, retains unique batch suffix; historical identities/QR remain stable; retry does not duplicate. | production_service, order_reference, batchSerial and consumers | Study |
+| WF01 numbering | New Nastil serial uses public order number, retains unique batch suffix; historical identities/QR remain stable; retry does not duplicate. | production_service, passport_nastil_service, extra-batch route, production/batch_number_service | Implemented; automated PASS, visual/review pending |
 | WF02 packaging | Proven Sewing output immediately appears in Packaging without a manual acceptance action. Operator chooses source batch(es) and a bounded number of packs to label; unselected balances stay available. Preserve physical Packaging/warehouse evidence, factory scope, partial packs, retry/concurrency protection. | workflow/batch progress, packaging receipt/source services and Packaging UI | Study |
 | WF03 passport navigation | Open resolves the actual authorized Cutting work order rather than whole-order detail, including ECT. | passport output/UI and Cutting route | Study |
 | WF04 Cutting dashboard | Trace the main Cutting and passport dashboard calculations, dates/factory/status filters, multi-material/Nastil grain, units and partial output; fix evidenced defects and reconcile independently computed totals. | dashboards and cutting_passport_reports | Study |
@@ -55,3 +55,21 @@ merge clone_main or deploy without the owner's separate authority.
 
 Implementation worktree: C:/ERP/.codex-work/factory-workflows-20261113.
 Branch: codex/factory-workflows-20261113. Preserve C:/ERP unchanged.
+
+## WF01 technical evidence
+
+Six defect regressions failed on reconciled source: initial PO/SO/USL/five-digit
+numbers, manual extra batch, and later passport Nastil all used the PK rather
+than the public reference. The fix uses one pure shared formatter for those three
+writers. It reads ProductionOrder.order_no (SalesOrder first when linked), keeps
+the familiar numeric suffix plus two-digit Nastil suffix, and never rewrites
+existing rows. Nonstandard historical references retain their old creation fallback.
+No API/DTO/storage type, permission, QR payload or sequence stream was changed.
+The schema-hotfix historical repair and frontend missing-serial fallback remain
+unchanged; neither creates new regular orders or overwrites a stored serial.
+
+Windows focused suite: 38 passed. Same focused tests plus the existing PostgreSQL
+numbering concurrency check on Linux: 39 passed. Three additional real PostgreSQL
+PO/SO/USL commit/reopen/retry cases passed. Reports: outputs/factory-qa/numbering.xml
+and numbering-pg.xml. Scoped Ruff and git diff --check passed. Existing test-only
+deprecation/short synthetic JWT warnings remain. Browser/independent review pending.

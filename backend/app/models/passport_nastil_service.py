@@ -2,8 +2,9 @@
 from fastapi import HTTPException
 from sqlalchemy import func
 
-from app.schemas import Bundle, CuttingRecord, ProductionBatch, WorkOrder
+from app.schemas import Bundle, CuttingRecord, ProductionBatch, ProductionOrder, WorkOrder
 from app.models.audit_service import log_action
+from app.models.production.batch_number_service import new_batch_number
 
 
 def pending_passport_batches(db):
@@ -82,10 +83,11 @@ def sync_passport_nastil(db, passport, current, *, is_new=False):
             if work_order.production_batch_id is not None:
                 raise HTTPException(409, "Select the existing Nastil work order before adding another passport")
             index = max((row.batch_index for row in batches), default=0) + 1
-            batch_no = f"{passport.production_order_id:04d}-{index:02d}"
+            order = db.get(ProductionOrder, passport.production_order_id)
+            batch_no = new_batch_number(order, index)
             while any(row.batch_no == batch_no for row in batches):
                 index += 1
-                batch_no = f"{passport.production_order_id:04d}-{index:02d}"
+                batch_no = new_batch_number(order, index)
             batch = ProductionBatch(production_order_id=passport.production_order_id, batch_index=index,
                                     batch_no=batch_no, name=f"Nastil {index}", planned_quantity=quantity, start_date=passport.date)
             db.add(batch)

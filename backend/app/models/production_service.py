@@ -11,6 +11,7 @@ from app.schemas import (
 )
 from app.core.signing import strip_signature
 from app.models.numbering_service import next_production_order_no, next_usluga_order_no
+from app.models.production.batch_number_service import new_batch_number
 from app.models.inventory_service import available_stock_for_batch, missing_material_reservation_for_cutting
 from app.models.model_images_service import model_print_image_url
 
@@ -337,7 +338,7 @@ def create_production_batches(db: Session, production_order_id: int, batches: li
 
     for idx, raw in enumerate(batches, start=1):
         qty = int(raw.get("planned_quantity", 0))
-        proposed_no = f"{int(po.id):04d}-{idx:02d}"
+        proposed_no = new_batch_number(po, idx)
         batch_no = proposed_no
         suffix = 2
         while batch_no.lower() in used_nos:

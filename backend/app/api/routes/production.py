@@ -102,6 +102,7 @@ from app.models.model_identity_service import model_number_fields
 from app.models.model_images_service import material_preview_image_url, model_preview_image_url
 from app.models.cutting_sheet_service import render_cutting_sheet_html
 from app.models.passport_nastil_service import pending_work_order_passport_batches
+from app.models.production.batch_number_service import new_batch_number
 from app.libs.dto.production.production import CuttingSewingFactoryIn
 from app.models.cutting_batch_guard_service import require_cutting_batch_mutable, sewing_output_batch_query
 from app.models.factory_scope_service import require_factory_access, selected_factory_code, factory_for_department
@@ -2298,7 +2299,7 @@ def add_extra_cutting_batch(
         or 0
     )
     batch_index = max_index + 1
-    proposed_no = f"{int(po.id):04d}-{batch_index:02d}"
+    proposed_no = new_batch_number(po, batch_index)
     batch_no = proposed_no
     suffix = 2
     while db.query(ProductionBatch.id).filter(
