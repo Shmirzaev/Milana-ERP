@@ -109,7 +109,7 @@ assert.equal(factoryWorkspaceHome({ role: "Packaging", factory_code: "MIL", perm
 assert.match(fs.readFileSync("src/app/login/page.tsx", "utf8"), /window\.location\.href = "\/";/);
 console.log("Packaging login and stale landing recovery passed; factory isolation and existing homes preserved.");
 // Exercise each page's real query construction, including query-less bookmarks.
-for (const page of ["packages", "packaging/queue", "packaging/receive", "packaging/reports"]) {
+for (const page of ["packages", "packaging/queue", "packaging/reports"]) {
   const pageSource = fs.readFileSync(`src/app/(app)/${page}/page.tsx`, "utf8");
   const ast = ts.createSourceFile("page.tsx", pageSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   const component = ast.statements.find(node => ts.isFunctionDeclaration(node) && node.modifiers?.some(m => m.kind === ts.SyntaxKind.DefaultKeyword));
@@ -125,7 +125,7 @@ for (const page of ["packages", "packaging/queue", "packaging/receive", "packagi
       const keys = [];
       let stateIndex = 0;
       vm.runInNewContext(queryCode, {
-        URLSearchParams, Intl, Date, packageReturnText: { en: {} }, packageWorkflowCopy: { en: {} }, packageIdentityText, sewingFactoryLabel,
+        URLSearchParams, Intl, Date, packagingAvailabilityText: { en: {} }, packageReturnText: { en: {} }, packageWorkflowCopy: { en: {} }, packageIdentityText, sewingFactoryLabel,
         useT: () => ({ t: value => value, lang: "en" }),
         useMe: () => ({ me: { factory_code: factory, permissions: packingPermissions } }),
         useSearchParams: () => new URLSearchParams(query),
@@ -148,7 +148,25 @@ for (const page of ["packages", "packaging/queue", "packaging/receive", "packagi
     }
   }
 }
-console.log("All four Packaging pages request only the selected factory, with or without query parameters.");
+console.log("Active Packaging pages request only the selected factory, with or without query parameters.");
+// Legacy acceptance bookmarks redirect without accepting or creating business data.
+const receiveSource = fs.readFileSync("src/app/(app)/packaging/receive/page.tsx", "utf8");
+const receiveModule = ts.transpileModule(receiveSource, { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText;
+for (const department of ["", "PKG", "BPK", "ECP"]) {
+  const receiveExports = {};
+  const destinations = [];
+  new Function("exports", "require", receiveModule)(receiveExports, name => {
+    if (name === "react") return { useEffect: fn => fn() };
+    if (name === "next/navigation") return {
+      useRouter: () => ({ replace: target => destinations.push(target) }),
+      useSearchParams: () => new URLSearchParams(department ? `packaging_department=${department}` : ""),
+    };
+    throw new Error(`Acceptance redirect must not call APIs: ${name}`);
+  });
+  assert.equal(receiveExports.default(), null);
+  assert.deepEqual(destinations, [`/packaging/queue${department ? `?packaging_department=${department}` : ""}`]);
+}
+
 let selectedFactory = "MIL";
 let effective = ["planning.view"];
 let grantable = true;

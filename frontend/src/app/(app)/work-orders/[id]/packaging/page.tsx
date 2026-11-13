@@ -158,15 +158,8 @@ export default function PackagingPage() {
     [orderColorItems, packageableColorQty],
   );
 
-  const totalColorQty = useMemo(
-    () => colorOrderItems.reduce((s: number, it: any) => s + Number(it?.planned_quantity || 0), 0),
-    [colorOrderItems],
-  );
-
-  const suggestedCopies = useMemo(() => {
-    const cap = Math.max(1, Number(capacity || 0));
-    return totalColorQty > 0 ? Math.max(1, Math.ceil(totalColorQty / cap)) : 1;
-  }, [totalColorQty, capacity]);
+  // Start with one pack; operators choose how much saved output to label.
+  const suggestedCopies = 1;
 
   const autoPackageItems = useMemo(() => {
     const cap = Math.max(1, Number(capacity || 0));
@@ -253,8 +246,8 @@ export default function PackagingPage() {
       remainingMap.set(size, Math.max(0, demand - used));
     }
     const remainingTotal = Array.from(remainingMap.values()).reduce((a, b) => a + b, 0);
-    const partialFromDemand = remainingTotal > 0 ? Math.ceil(remainingTotal / packageTotal) : 0;
-    const extraEmpty = Math.max(0, targetCopies - fullCount - partialFromDemand);
+    const partialFromDemand = Math.min(Math.max(0, targetCopies - fullCount),
+      remainingTotal > 0 ? Math.ceil(remainingTotal / packageTotal) : 0);
 
     const partialPackages: Array<{ index: number; items: Array<{ size: string; qty: number }>; total: number }> = [];
     for (let p = 0; p < partialFromDemand; p += 1) {
@@ -295,10 +288,6 @@ export default function PackagingPage() {
       partialPackages.push({ index: p + 1, items: packItems, total });
     }
 
-    for (let i = 0; i < extraEmpty; i += 1) {
-      partialPackages.push({ index: partialFromDemand + i + 1, items: [], total: 0 });
-    }
-
     return {
       fullCount,
       notFullCount: partialPackages.length,
@@ -336,7 +325,6 @@ export default function PackagingPage() {
         if (items.length > 0) plans.push({ items });
       }
     }
-    if (plans.length === 0 && basePackageItems.length > 0 && !packOnlyFullPackages) plans.push({ items: basePackageItems });
     return plans;
   }, [basePackageItems, color, packOnlyFullPackages, packingPreview.fullCount, packingPreview.partialPackages, po?.model_id]);
 
@@ -366,7 +354,7 @@ export default function PackagingPage() {
   const packagePlans = useMemo<PackagePlan[]>(() => {
     if (!mergeAcrossBatches) return standardPackagePlans;
     if (packOnlyFullPackages || mergedPackingPlan.pendingQty <= 0 || mergedPartialItems.length === 0) {
-      return mergedPackingPlan.plans;
+      return mergedPackingPlan.plans.slice(0, Math.max(0, Math.floor(Number(copies || 0))));
     }
     return [
       ...mergedPackingPlan.plans,
@@ -374,8 +362,9 @@ export default function PackagingPage() {
         items: mergedPartialItems,
         batch_allocations: mergedPackingPlan.pendingAllocations,
       },
-    ];
+    ].slice(0, Math.max(0, Math.floor(Number(copies || 0))));
   }, [
+    copies,
     mergeAcrossBatches,
     mergedPackingPlan.pendingAllocations,
     mergedPackingPlan.pendingQty,
@@ -385,6 +374,9 @@ export default function PackagingPage() {
     standardPackagePlans,
   ]);
   const packageWeightCount = packagePlans.length;
+  const createsMergedPartial = !packOnlyFullPackages && Number(copies) > mergedPackingPlan.plans.length;
+  const selectedOutputRemaining = Math.max(0, (mergeAcrossBatches ? mergedPackingPlan.totalAvailable : packageableColorQty)
+    - packagePlans.reduce((sum, plan) => sum + plan.items.reduce((quantity, item) => quantity + item.quantity, 0), 0));
 
   useEffect(() => {
     setPkgItems(autoPackageItems);
@@ -449,6 +441,9 @@ export default function PackagingPage() {
     setPkgNotice(null);
     setIsCreating(true);
     try {
+      if (!Number.isInteger(Number(copies)) || Number(copies) < 1 || Number(copies) > 500) {
+        throw new Error(multiCopy.packCount);
+      }
       if (mergeAcrossBatches && selectedMergeBatchCount < 2) throw new Error(multiCopy.chooseTwo);
       const weightValues = packagePlans.map((_, index) => {
         return parseOptionalDecimalInput(packageWeights[index]);
@@ -696,8 +691,10 @@ export default function PackagingPage() {
               <input
                 className="input"
                 min={1}
+                max={500}
+                step={1}
                 type="number"
-                disabled={mergeAcrossBatches || isCreating}
+                disabled={isCreating}
                 value={copies}
                 onChange={(e) => {
                   setCopiesTouched(true);
@@ -709,6 +706,7 @@ export default function PackagingPage() {
           <div className="text-xs text-slate-500">
             {t("page.packaging.autoMixHint")}
           </div>
+          <p className="text-sm">{multiCopy.remaining}: {selectedOutputRemaining}</p>
           <div className="rounded-md border border-[#ecebe3] bg-[#faf9f4] px-3 py-2 text-sm">
             <label className="flex items-start gap-2">
               <input
@@ -773,7 +771,7 @@ export default function PackagingPage() {
               </div>
               {mergedPackingPlan.previewLines.length > 0 && (
                 <div className="mt-1 text-xs text-slate-600">
-                  {t("page.packaging.mergeSources")}: {mergedPackingPlan.previewLines.join(" | ")}
+                  {t("page.packaging.mergeSources")}: {mergedPackingPlan.previewLines.slice(0, packagePlans.length).join(" | ")}
                 </div>
               )}
               </>}
@@ -825,12 +823,12 @@ export default function PackagingPage() {
           <div className="mt-3 grid grid-cols-3 gap-3 text-sm">
             <div className="rounded-md border border-[#ecebe3] p-3">
               <div className="text-xs uppercase tracking-wide text-slate-500">{t("page.packaging.fullPackages")}</div>
-              <div className="text-xl font-semibold">{mergeAcrossBatches ? mergedPackingPlan.plans.length : packingPreview.fullCount}</div>
+              <div className="text-xl font-semibold">{mergeAcrossBatches ? Math.min(packagePlans.length, mergedPackingPlan.plans.length) : packingPreview.fullCount}</div>
             </div>
             <div className="rounded-md border border-[#ecebe3] p-3">
               <div className="text-xs uppercase tracking-wide text-slate-500">{t("page.packaging.notFullPackages")}</div>
               <div className="text-xl font-semibold">
-                {mergeAcrossBatches ? (mergedPackingPlan.pendingQty > 0 ? 1 : 0) : packingPreview.notFullCount}
+                {mergeAcrossBatches ? (createsMergedPartial && mergedPackingPlan.pendingQty > 0 ? 1 : 0) : packingPreview.notFullCount}
               </div>
             </div>
             <div className="rounded-md border border-[#ecebe3] p-3">
@@ -847,14 +845,14 @@ export default function PackagingPage() {
                 <div className="rounded-md border border-[#ecebe3] px-3 py-2">
                   <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                     <div className="text-sm font-medium">
-                      {packOnlyFullPackages ? t("page.packaging.pendingLeftover") : t("page.packaging.finalPartialPackage")} - {mergedPackingPlan.pendingQty}/{packingPreview.packageTotal}
+                      {!createsMergedPartial ? t("page.packaging.pendingLeftover") : t("page.packaging.finalPartialPackage")} - {mergedPackingPlan.pendingQty}/{packingPreview.packageTotal}
                     </div>
-                    <span className="badge">{packOnlyFullPackages ? t("page.packaging.pendingNotCreated") : t("page.packaging.willBeCreated")}</span>
+                    <span className="badge">{!createsMergedPartial ? t("page.packaging.pendingNotCreated") : t("page.packaging.willBeCreated")}</span>
                   </div>
                   <div className="mt-1 text-xs text-slate-600">
-                    {packOnlyFullPackages ? t("page.packaging.pendingLeftoverHint") : t("page.packaging.partialWarehouseHint")}
+                    {!createsMergedPartial ? t("page.packaging.pendingLeftoverHint") : t("page.packaging.partialWarehouseHint")}
                   </div>
-                  {!packOnlyFullPackages && mergedPartialItems.length > 0 && (
+                  {createsMergedPartial && mergedPartialItems.length > 0 && (
                     <div className="mt-1 text-xs text-slate-600">
                       {mergedPartialItems.map((x) => `${x.size}: ${x.quantity}`).join(" | ")}
                     </div>

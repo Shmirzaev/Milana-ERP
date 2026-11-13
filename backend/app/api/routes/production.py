@@ -2991,6 +2991,7 @@ def packaging_batch_progress(wid: int, db: DbSession, _: User = Depends(require_
         raise HTTPException(404, "Work order not found")
     if wo.operation != "packaging":
         raise HTTPException(400, "Work order is not a packaging operation")
+    require_packaging_work_order_access(_, db, wo)
 
     _, batches = _ordered_batches_for_work_order(db, wo)
     input_budgets = _packaging_input_budgets(db, wo)
@@ -5565,31 +5566,8 @@ def get_sewing(rid: int, db: DbSession, _: User = Depends(require_permissions(*P
 
 # ===== Packaging =====
 def _packaging_input_budgets(db: DbSession, wo: WorkOrder) -> dict[int | None, dict[str, int]]:
-    """Passed Sewing output is the ceiling; physical receipts can narrow it."""
-    sewing_batch = func.coalesce(SewingRecord.production_batch_id, WorkOrder.production_batch_id)
-    sewn = dict(db.query(sewing_batch, func.sum(SewingRecord.passed_qty)).join(
-        WorkOrder, WorkOrder.id == SewingRecord.work_order_id,
-    ).filter(
-        WorkOrder.production_order_id == wo.production_order_id,
-        WorkOrder.operation == "sewing",
-        WorkOrder.status != "cancelled",
-    ).group_by(sewing_batch).all())
-    receipts = dict(db.query(PackagingReceipt.production_batch_id, func.sum(PackagingReceipt.quantity)).filter(
-        PackagingReceipt.work_order_id == wo.id,
-    ).group_by(PackagingReceipt.production_batch_id).all())
-    inputs = dict(db.query(PackagingRecord.production_batch_id, func.sum(PackagingRecord.input_qty)).filter(
-        PackagingRecord.work_order_id == wo.id,
-    ).group_by(PackagingRecord.production_batch_id).all())
-    budgets = {}
-    for batch_id in sewn.keys() | receipts.keys() | inputs.keys():
-        output = int(sewn.get(batch_id) or 0)
-        limit = min(output, int(receipts.get(batch_id) or 0)) if receipts else output
-        budgets[batch_id] = {
-            "sewing_output_qty": output,
-            "input_limit_qty": limit,
-            "available_input_qty": max(0, limit - int(inputs.get(batch_id) or 0)),
-        }
-    return budgets
+    from app.models.packaging.sewing_availability_service import input_budgets
+    return input_budgets(db, wo)
 
 
 def _packaging_source_work_order(
@@ -5980,17 +5958,9 @@ def packaging_received_orders(
     packaging_department_code: str | None = None,
 ):
     department_code = packaging_department_scope(current, packaging_department_code)
-    receipt_rows = (
-        db.query(
-            PackagingReceipt.work_order_id,
-            PackagingReceipt.production_order_id,
-            func.coalesce(func.sum(PackagingReceipt.quantity), 0).label("received_quantity"),
-            func.max(PackagingReceipt.created_at).label("last_received_at"),
-        )
-        .filter(PackagingReceipt.packaging_department_code == department_code)
-        .group_by(PackagingReceipt.work_order_id, PackagingReceipt.production_order_id)
-        .all()
-    )
+    from app.libs.enums.packaging import PackagingDepartment
+    from app.models.packaging.sewing_availability_service import available_orders
+    receipt_rows = available_orders(db, PackagingDepartment(department_code))
     work_order_ids = sorted({int(row.work_order_id) for row in receipt_rows})
     production_order_ids = sorted({int(row.production_order_id) for row in receipt_rows})
     if not work_order_ids:
@@ -6166,16 +6136,11 @@ def post_packaging(payload: PackagingRecordIn, db: DbSession, current: User = De
         payload.production_batch_id,
         operation_name="packaging",
     )
-    uses_receipts = bool(
-        db.query(PackagingReceipt.id)
-        .filter(PackagingReceipt.work_order_id == wo.id)
-        .first()
-    )
 
     budget = _packaging_input_budgets(db, wo).get(batch_id, {})
     available = int(budget.get("available_input_qty", 0))
     if int(payload.input_qty or 0) > available:
-        source = "received from sewing" if uses_receipts else "sewing passed output"
+        source = "sewing passed output"
         raise HTTPException(400, f"Packaging input exceeds {source} {budget.get('input_limit_qty', 0)}; available {available} for this batch")
 
     rec_data = payload.model_dump()
@@ -6184,7 +6149,13 @@ def post_packaging(payload: PackagingRecordIn, db: DbSession, current: User = De
     rec.operator_id = payload.operator_id or current.id
     db.add(rec)
     db.flush()
-    if not uses_receipts:
+    # Historical acceptance receipts must not be counted again as physical
+    # Packaging input; the saved record ledger is authoritative.
+    if db.query(PackagingReceipt.id).filter(PackagingReceipt.work_order_id == wo.id).first():
+        wo.actual_input_qty = int(db.query(func.coalesce(func.sum(PackagingRecord.input_qty), 0)).filter(
+            PackagingRecord.work_order_id == wo.id,
+        ).scalar() or 0)
+    else:
         wo.actual_input_qty += payload.input_qty
     wo.actual_output_qty += payload.packed_qty
     wo.passed_qty += payload.packed_qty

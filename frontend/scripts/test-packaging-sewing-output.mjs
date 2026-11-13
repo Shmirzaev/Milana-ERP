@@ -69,7 +69,7 @@ assert.match(render(585, 285, false), /min="0" max="285" value=""/);
 
 // Exercise the actual page submit closure, not just the planner: source selection
 // must reach the atomic endpoint and must not create packs from the third Nastil.
-const merged = { states: { 9: true, 10: [1, 2] }, batches: [], sources: [
+const merged = { states: { 7: 2, 9: true, 10: [1, 2] }, batches: [], sources: [
   { id: 1, name: "Nastil A", available_to_package: 35 },
   { id: 2, name: "Nastil B", available_to_package: 40 },
   { id: 3, name: "Unselected", available_to_package: 90 },
@@ -82,6 +82,18 @@ await merged.submitPackage({ preventDefault() {} });
 assert.equal(merged.created.packages.length, 2);
 assert.deepEqual(merged.created.packages.map(pack => pack.items.reduce((sum, item) => sum + item.quantity, 0)), [60, 15]);
 assert.deepEqual(merged.created.packages.flatMap(pack => pack.batch_allocations.map(row => [row.production_batch_id, row.quantity])), [[1, 35], [2, 25], [2, 15]]);
+const onePack = { ...merged, states: { 7: 1, 9: true, 10: [1, 2] }, created: undefined };
+render(75, 0, true, onePack);
+await onePack.submitPackage({ preventDefault() {} });
+assert.equal(onePack.created.packages.length, 1);
+assert.deepEqual(onePack.created.packages[0].batch_allocations.map(row => [row.production_batch_id, row.quantity]), [[1, 35], [2, 25]]);
+// The real single-source submit must stop after the requested full or partial pack.
+for (const [quantity, copies, expected] of [[300, 1, [60]], [130, 2, [60, 60]], [75, 2, [60, 15]], [75, 5, [60, 15]], [0, 1, []]]) {
+  const events = { states: { 7: copies }, batches: [{ id: 1, packed_qty: quantity, available_to_package: quantity }] };
+  render(quantity, 0, true, events);
+  await events.submitPackage({ preventDefault() {} });
+  assert.deepEqual((events.created?.packages || []).map(pack => pack.items.reduce((sum, item) => sum + item.quantity, 0)), expected);
+}
 const incomplete = { ...merged, states: { 9: true, 10: [1] }, created: undefined };
 render(75, 0, true, incomplete);
 await incomplete.submitPackage({ preventDefault() {} });

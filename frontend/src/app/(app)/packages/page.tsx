@@ -319,7 +319,7 @@ export default function PackagesPage() {
     <div>
       <PageHeader title={`${factoryLabel} - ${t("page.packages.title")}`} subtitle={t("page.packages.subtitle")} actions={<>
         <ManualPackageReceipt key={packagingDepartment} packagingDepartment={packagingDepartment} onCreated={() => { void refreshPackages(); }} />
-        <Link href={`/packaging/receive?packaging_department=${packagingDepartment}`} className="btn">{t("nav.receiveFromSewing")}</Link>
+        <Link href={`/packaging/queue?packaging_department=${packagingDepartment}`} className="btn">{t("nav.packingQueue")}</Link>
       </>} />
       <label className="my-3 flex items-center gap-2"><input type="checkbox" checked={returnedOnly} onChange={e => { setReturnedOnly(e.target.checked); setPage(1); }} />{returnText.returnList}</label>
       <PendingPackageWorkflow path="/api/packages/resend-corrected" onResolved={refreshPackages} />

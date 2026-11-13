@@ -9,6 +9,7 @@ import { ArrowRight, PackageOpen, RefreshCw, Search } from "lucide-react";
 import useSWR from "swr";
 
 import PageHeader from "@/components/PageHeader";
+import { packagingAvailabilityText } from "@/lib/packagingAvailabilityText";
 import { fetcher } from "@/lib/api";
 import { useMe } from "@/lib/auth";
 import { packagingDepartmentForSession } from "@/lib/access";
@@ -35,7 +36,8 @@ function orderLabel(row: ReceivedOrder) {
 }
 
 export default function PackagingQueuePage() {
-  const { t } = useT();
+  const { t, lang } = useT();
+  const copy = packagingAvailabilityText[lang];
   const searchParams = useSearchParams();
   const { me } = useMe();
   const requestedDepartment = searchParams.get("packaging_department");
@@ -61,7 +63,7 @@ export default function PackagingQueuePage() {
     <div>
       <PageHeader
         title={`${factoryLabel} - ${t("page.packagingReceive.queueTitle")}`}
-        subtitle={t("page.packagingReceive.queueHint")}
+        subtitle={copy.hint}
         actions={(
           <button type="button" className="btn" onClick={() => mutate()}>
             <RefreshCw className="h-4 w-4" aria-hidden="true" />
@@ -91,7 +93,7 @@ export default function PackagingQueuePage() {
                 <th className="w-20">{t("field.picture")}</th>
                 <th>{t("field.orderNo")}</th>
                 <th>{t("page.packagingReceive.modelVariant")}</th>
-                <th className="text-right">{t("field.received")}</th>
+                <th className="text-right">{copy.output}</th>
                 <th className="text-right">{t("page.packagingReceive.packed")}</th>
                 <th className="text-right">{t("page.packagingReceive.readyToPack")}</th>
                 <th>{t("field.actions")}</th>

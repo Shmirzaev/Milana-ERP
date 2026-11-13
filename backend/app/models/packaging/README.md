@@ -31,6 +31,13 @@ WOs without widening record-entry/progress scope. It performs no writes.
 See [the 7 November operation packet](../../../../docs/PACK_TWO_NASTILS_20261107.md)
 for quantities, source/field coverage, automated evidence and pending browser gates.
 
+`sewing_availability_service.py` reads passed Sewing output for the automatic
+Packaging queue and exact-batch entry budgets. Historical acceptance receipts
+remain audit history and do not cap this availability. Packaging records still
+provide physical output evidence before normal package labels; selected label
+counts leave the unused source balance available. See
+[WF02 evidence](../../../../docs/WF02_PACKAGING_20261113.md).
+
 **Purpose:** Own package creation, contents/allocation, identity, change approval and production of valid labels.
 
 **Engineering owner:** Mirshoir. **Reviewer:** Ismail.

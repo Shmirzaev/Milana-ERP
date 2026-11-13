@@ -89,7 +89,7 @@ def test_actual_tracks_cutting_sewing_packaging_and_limits_partial_input(client,
 
 @pytest.mark.parametrize("factory,department", [("MIL", "PKG"), ("BST", "BPK"), ("ECO", "ECP")])
 @pytest.mark.parametrize("scoped", [False, True])
-def test_sewing_budget_is_exact_batch_and_receipt_limited(client, auth_headers, factory, department, scoped):
+def test_sewing_budget_is_exact_batch_and_old_receipts_are_history(client, auth_headers, factory, department, scoped):
     from app.core.security import create_access_token
     from app.schemas import ProductionBatch
 
@@ -122,9 +122,9 @@ def test_sewing_budget_is_exact_batch_and_receipt_limited(client, auth_headers, 
     assert response.status_code == 200, response.text
     progress = next(row for row in response.json()["items"] if row["id"] == bid)
     assert progress["sewing_output_qty"] == 590
-    assert progress["available_input_qty"] == 580
-    assert _pack(client, auth_headers, work["packaging"], bid, 581).status_code == 400
-    response = _pack(client, auth_headers, work["packaging"], bid, 580)
+    assert progress["available_input_qty"] == 590
+    assert _pack(client, auth_headers, work["packaging"], bid, 591).status_code == 400
+    response = _pack(client, auth_headers, work["packaging"], bid, 590)
     assert response.status_code == 201, response.text
 
 
