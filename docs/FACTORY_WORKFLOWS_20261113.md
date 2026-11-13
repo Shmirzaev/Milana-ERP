@@ -1,6 +1,6 @@
 # Factory workflow corrections — 13 November 2026
 
-## Authorization and reconciled source
+## Initial authorization and reconciled implementation baseline
 
 The owner requested: (1) matching public Order No/new batch numbering; (2)
 automatic Sewing-to-Packaging availability, selectable batch and pack-label count;
@@ -10,14 +10,15 @@ Cotton fabric for Eco Cutting; (7) repair Eco passport fabric lookup/consumption
 Plan then implement; wait for separate deployment approval. The owner subsequently
 authorized reconciling the baseline with the verified live release.
 
-Fetched clone_main: 3053788f2e17bd5585bccf8cd4547a62cc297516. Both hosts serve
+Fetched clone_main: 3053788f2e17bd5585bccf8cd4547a62cc297516. Both hosts then served
 20261111_115200, manifest db9df64cbcf57e4ab93ac83ef677d7d394b07652a1a4cf3fe1815abc92adac28;
 both complete live manifest checks passed. All 2,495 manifest files match Git
 46ddd5c7864f0a68bd9a3c884d835a2a5dbf9bfb byte-for-byte (LF Git archive).
 The already-deployed source and later release metadata on fa9177846 were merged
-into this isolated task branch as 479c5bf6. No production mutation occurred.
-Recorded rollback remains 20261111_052632 and schema 0156_variant_price_workflow;
-protected slot-state access requires sudo and has not been reverified in this task.
+into this isolated task branch as 479c5bf6. No production mutation occurred during
+baseline reconciliation. Recorded rollback was 20261111_052632 and schema
+0156_variant_price_workflow. Protected slot-state access required sudo and was
+pending at this checkpoint; the deployment addendum records its later verification.
 
 ## Implementation plan and operation ledger
 
@@ -170,8 +171,9 @@ Turbopack compilation, TypeScript and routes) passed with freshly installed lock
 dependencies. Configured project typechecking passed; lint has zero errors and
 14 existing warnings.
 
-Correction to earlier worker/packet wording: the configured TypeScript check is
-not a strict audit; tsconfig.strict remains false. The explicit optional command
+Correction to earlier worker/packet wording: configured `npm run typecheck:strict`
+uses `tsconfig.strict.json` with `strict: true` and a scoped include list; it passed.
+The main `tsconfig.json` remains non-strict. The explicit optional whole-app command
 `npx tsc --noEmit --strict --incremental false` reports 16 primary diagnostics.
 A separate clean ba2ac53b worktree with identical lockfile/config/dependencies
 reports exactly the same 16 diagnostics on unchanged source expressions: zero
@@ -219,7 +221,7 @@ use the exact reviewed clean Git commit and DEPLOYMENT.md immutable-image
 blue/green procedure, verify backup/migrations before touching the active release,
 and retain the recorded rollback. Approval to implement is not deployment approval.
 
-## Handoff state
+## Implementation handoff (historical; superseded by release addendum)
 
 WF01-WF07: **AI_VERIFIED_AWAITING_HUMAN**. Independent final typed-boundary review
 passed nine pagination/routing cases on 951279cbf (integrated 04bfd2b16), with no
@@ -231,3 +233,48 @@ remain disclosed above. Release CI/security/image/staging gates are separate.
 The root branch is intended to be committed and pushed as a review candidate,
 without merging clone_main/main or deploying. Final commit/push state is reported
 at handoff; no promise of production readiness bypasses DEPLOYMENT.md.
+
+## Deployment addendum — 13 November 2026
+
+The owner subsequently instructed deployment without 30-minute monitoring and,
+after disclosure of the actual failed paired Sales measurements, replied
+**"Deploy with this specific exception"**. This authorizes only that gate's Sales
+median +11.0316% (10% limit) and p95 +26.3905% (15% limit); the failed artifact is
+retained as FAIL. No public timing cap, data check or other failure was waived.
+
+Exact reviewed source `e5383f2509ceef4eb20f73f34dc0beba64fcea19` is deployed on both
+hosts as green `20261113_094409`, with healthy blue `20261111_115200` rollback.
+Both source symlinks/manifests and scanned immutable images agree. The database
+remains at `0156_variant_price_workflow`; migration was a no-op after a verified
+1,400-object backup. No task-initiated production business-data writes occurred.
+
+Exact-source CI43403793296 and PG43403798457 passed. Backend: 6,808 passes,
+1,596 reported optional skips and 36 subtests. Required PG: five numbering cases,
+649 mandatory cases, 17 supplements and 84 shared contracts, with no required
+skips. Frontend lint/build/configured scoped strict check and security passed;
+five known quarantined Node failures and 34 NEEDS_APP outcomes remain disclosed,
+not relabeled as passes. All 17 applicable browser scripts passed.
+
+Actual staged/public Edge and complete independent database oracles passed all
+26 checks, including all three Packaging queues, both Cutting departments,
+restricted Planning ECO lookup/negative authorization, and invoice XLSX values,
+merges, 10pt fonts and uniform package-row heights. Shipment44 contains 100
+packages grouped into 57 invoice rows; all 57 were checked. Live Planning had zero
+eligible confirmed orders; complete creation, ECO debit/reopen and central-zero
+readback were tested in isolated same-source infrastructure instead of creating
+production fixtures. Public browser console errors were zero; one SSL EOF event
+in the private MIL viewing transport remains recorded separately.
+
+Staff activity invalidated earlier frozen facts. Complete operator-ledger proofs
+and independently reviewed whole current-facts packets replaced only expected
+business bodies, preserving the original paired failure and original public
+timing baseline. One final strict public epoch passed all 270 GETs with complete
+ordered bodies and unchanged median10%/p9515%/bytes15% limits. Fresh four health
+checks, readiness, two workers, strict head, zero restarts/OOM/log errors, router
+validity, source/image identities, database headroom and rollback checks passed.
+No observer or substitute monitor ran. Human domain/QA-master acceptance remains
+unrecorded; explicit owner deployment authorization is not invented acceptance.
+
+The task branch is pushed, not merged into clone_main/main. A later metadata-only
+commit advances production-base/context; deployed runtime source remains e538.
+See the [full release record](archive/FACTORY_WORKFLOWS_RELEASE_20261113.md).

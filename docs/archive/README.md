@@ -4,6 +4,8 @@ These reports preserve what was observed at their recorded date. They are not
 current implementation instructions or proof of today's production state.
 Start with [current context](../PROJECT_CONTEXT.md) for active work.
 
+- [Factory workflows release, 13 November 2026](FACTORY_WORKFLOWS_RELEASE_20261113.md): all seven fixes deployed as green094409; owner accepted only the two paired Sales latency failures, strict public checks passed, healthy blue115200 retained, monitoring waived.
+
 - [Invoice/report and Sewing release, 11 November 2026](INVOICE_SEWING_RELEASE_20261111.md): blue115200 deployed after owner accepted the named p95 exception; initial rollback preserved, green052632 retained, fresh backup/public checks passed, monitoring waived.
 
 - [November pricing scope and latest Excel, 11 November 2026](VARIANT_PRICING_NOVEMBER_SCOPE_20261111.md): green 20261111_052632 deployed; one fabric field, Order No., recent non-Usluga queues, 131 retirements, 14 missing-price fills, conserved orders and accepted public timing exceptions.

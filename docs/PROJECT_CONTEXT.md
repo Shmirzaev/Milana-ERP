@@ -15,40 +15,50 @@ Last updated 2026-11-13. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
-## Factory workflow candidate (13 November; not deployed)
+## Factory workflows (13 November; deployed)
 
-The owner requested new order/batch numbering alignment, automatic Sewing-to-
-Packaging availability with selected Nastils/label counts, passport links directly
-to Cutting, corrected Cutting reports, uniform invoice package rows at10pt, and
-Milana Planning using genuine Eco Cotton fabric for Eco Cutting. Implementation
-and local verification are on `codex/factory-workflows-20261113` in
-`C:/ERP/.codex-work/factory-workflows-20261113`; separate deployment approval is
-required. See the [task packet](FACTORY_WORKFLOWS_20261113.md) for current evidence,
-review, human checklist and remaining gates. No shared-branch merge or deployment.
+Both hosts serve green `20261113_094409`, exact source
+`e5383f2509ceef4eb20f73f34dc0beba64fcea19`, manifest
+`4696c9736e3561610dbf92a98888cd2cb2cc7eca1911d668e51b7a8d2496a821`.
+Healthy rollback is blue `20261111_115200` / `46ddd5c7`; schema remains
+`0156_variant_price_workflow`. Backend/frontend activated 10:57:27 / 10:57:31 UTC.
+The dedicated branch is pushed, not merged into clone_main/main; deployment
+metadata is a later documentation commit, not a different runtime build.
 
-Both live manifests and complete file checks were reverified on13November:
-`20261111_115200`, manifest
-`db9df64cbcf57e4ab93ac83ef677d7d394b07652a1a4cf3fe1815abc92adac28`.
-All2,495 source files match Git`46ddd5c7864f0a68bd9a3c884d835a2a5dbf9bfb`;
-that deployed branch was reconciled with the requested `clone_main` baseline.
-Recorded rollback/schema below remain unchanged; protected slot state was not
-reverified without sudo. Production business data and the legacy checkout were
-untouched. All new QA records are disposable local fixtures.
+All seven requested fixes are live: new batch references follow the public order
+number; passed Sewing output reaches Packaging automatically with selected Nastils
+and label counts; passport Open goes directly to Cutting; Cutting reports use
+physical balances and complete passport material facts; invoice package rows are
+uniform at 10pt; Milana Planning can use genuine Eco fabric for ECT; ECO selection,
+reservation and consumption retain physical ECO ownership. Historical batch/QR
+and receipt evidence remain intact. Authorized writes alone create any required
+zero-quantity central identity; GETs do not backfill or create stock.
 
-The candidate keeps historical batch identities and receipt history. New labels
-use real saved Packaging evidence; Sewing availability does not mint stock.
-Direct ECO receipts gain only a zero-quantity central identity on authorized
-Planning/passport writes, while QC, reservation and physical debit remain ECO-
-owned. No migration or automatic GET backfill is introduced. Exact source and
-runtime gates must be rechecked before any approved release.
+Exact-source CI/security/scanned images, required PostgreSQL, isolated persisted
+workflow tests, staged/public Edge, independent SQL oracles (26 checks), strict
+public performance (270 GETs), four health endpoints and final runtime checks
+passed. The original paired gate remains FAIL for only Sales median +11.03% and
+p95 +26.39%; the owner explicitly approved those two failures. Public limits and
+original timing baseline were unchanged and all ten public paths passed. Timed
+monitoring was explicitly waived; no observer or substitute monitor ran.
 
-## Invoice/report and Sewing update (11 November; deployed)
+Verified fresh backup has 1,400 restore objects. Schema upgrade was a no-op and
+there were no task-initiated business-data writes. Natural operator transactions
+and six physical Sewing receipts invalidated older data snapshots; failures,
+transaction proofs and independently approved complete replacement fact packets
+are preserved. Live restricted Planning had no eligible confirmed order, so full
+creation/debit was exercised in isolated same-source infrastructure, not by adding
+production fixtures. Human domain/QA-master acceptance remains unrecorded. See
+the [release record](archive/FACTORY_WORKFLOWS_RELEASE_20261113.md) and
+[task packet](FACTORY_WORKFLOWS_20261113.md).
 
-Both hosts serve blue `20261111_115200`, runtime
+## Invoice/report and Sewing update (11 November; previous release)
+
+That release served blue `20261111_115200`, runtime
 `46ddd5c7864f0a68bd9a3c884d835a2a5dbf9bfb`, manifest
 `db9df64cbcf57e4ab93ac83ef677d7d394b07652a1a4cf3fe1815abc92adac28`.
-Healthy rollback is green `20261111_052632` /
-`519c9fa36f3d90905f935caf08fe781417cf7e24`. Schema remains
+Its rollback was green `20261111_052632` /
+`519c9fa36f3d90905f935caf08fe781417cf7e24`. Schema remained
 `0156_variant_price_workflow`; no task-initiated business-data writes or schema changes.
 The requested task branch is pushed, not merged into clone_main/main.
 
