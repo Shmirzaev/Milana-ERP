@@ -29,13 +29,13 @@ integrated change under AGENTS.md. Human/operator acceptance remains pending.
 
 | Operation | Intended change and acceptance | Source seams | State |
 | --- | --- | --- | --- |
-| WF01 numbering | New Nastil serial uses public order number, retains unique batch suffix; historical identities/QR remain stable; retry does not duplicate. | production_service, passport_nastil_service, extra-batch route, production/batch_number_service | Implemented; automated PASS, visual/review pending |
-| WF02 packaging | Proven Sewing output immediately appears in Packaging without a manual acceptance action. Operator chooses source batch(es) and a bounded number of packs to label; unselected balances stay available. Preserve physical Packaging/warehouse evidence, factory scope, partial packs, retry/concurrency protection. | workflow/batch progress, packaging receipt/source services and Packaging UI | Study |
-| WF03 passport navigation | Open resolves the actual authorized Cutting work order rather than whole-order detail, including ECT. | passport output/UI and Cutting route | Study |
-| WF04 Cutting dashboard | Trace the main Cutting and passport dashboard calculations, dates/factory/status filters, multi-material/Nastil grain, units and partial output; fix evidenced defects and reconcile independently computed totals. | dashboards and cutting_passport_reports | Study |
-| WF05 invoice Excel | Package table font is 10 pt; all package rows share a common height sufficient for the longest wrapped row. Preserve counts, money, sorting, images and existing print settings. | shipment_invoice_excel_service and export tests | Study |
-| WF06 Planning ECO | Milana Planning can select valid Eco stock and create an order routed to ECT, without an account/factory bypass. Reject unauthorized/unavailable sources. | production_planning, material selection and Planning UI | Study |
-| WF07 ECO fabric | Trace direct and transferred receipts through selection, reservation, passport confirmation and exact physical ledger debit/reversal. Support real eligible ECO fabric; never debit MIL a second time, fabricate stock, or bypass QC/reservations. | ect_passport_fabric and eco inventory/planning services | Study |
+| WF01 numbering | New Nastil serial uses public order number, retains unique batch suffix; historical identities/QR remain stable; retry does not duplicate. | production_service, passport_nastil_service, extra-batch route, production/batch_number_service | Implemented; automated, real PG, browser and independent review PASS |
+| WF02 packaging | Proven Sewing output immediately appears in Packaging without a manual acceptance action. Operator chooses source batch(es) and a bounded number of packs to label; unselected balances stay available. Preserve physical Packaging/warehouse evidence, factory scope, partial packs, retry/concurrency protection. | workflow/batch progress, packaging receipt/source services and Packaging UI | Implemented; workflow, PG, browser and independent review PASS |
+| WF03 passport navigation | Open resolves the actual authorized Cutting work order rather than whole-order detail, including ECT. | passport output/UI and Cutting route | Implemented; CUT/ECT browser and query-budget checks PASS |
+| WF04 Cutting dashboard | Trace the main Cutting and passport dashboard calculations, dates/factory/status filters, multi-material/Nastil grain, units and partial output; fix evidenced defects and reconcile independently computed totals. | dashboards and cutting_passport_reports | Implemented; computed facts, real PG, browser/review PASS |
+| WF05 invoice Excel | Package table font is 10 pt; all package rows share a common height sufficient for the longest wrapped row. Preserve counts, money, sorting, images and existing print settings. | shipment_invoice_excel_service and export tests | Implemented; numeric/format assertions and rendered export PASS |
+| WF06 Planning ECO | Milana Planning can select valid Eco stock and create an order routed to ECT, without an account/factory bypass. Reject unauthorized/unavailable sources. | production_planning, material selection and Planning UI | Implemented; restricted MIL Planning -> actual ECT passport/Cutting browser PASS |
+| WF07 ECO fabric | Trace direct and transferred receipts through selection, reservation, passport confirmation and exact physical ledger debit/reversal. Support real eligible ECO fabric; never debit MIL a second time, fabricate stock, or bypass QC/reservations. | ect_passport_fabric and eco inventory/planning services | Implemented; physical ledger, reservations, races and browser/review PASS |
 
 New/changed fixed vocabulary must reuse canonical enums; configurable fabric,
 factory and order identities remain data. No broad refactor or historical data
@@ -82,3 +82,152 @@ with a wrong-order HTTP 200 before the correction; lookup now refuses ambiguous
 serials with HTTP 409. Exact BATCH_ID printed QR resolution is preserved. The
 numbering/traceability/query-growth suite then passed 32 tests; scoped Ruff passed.
 No other active batch creator was missed in the independent source search.
+
+## Combined candidate and bounded scope
+
+Detailed operation evidence: [Packaging](WF02_PACKAGING_20261113.md),
+[reports/invoice/navigation](FACTORY_REPORTS_20261113.md),
+[Eco fabric and Planning](FACTORY_ECO_FABRIC_20261113.md), and
+[full-suite triage](FACTORY_SUITE_TRIAGE_20261113.md).
+The root branch includes all frozen implementation/review corrections; its final
+handoff commit is recorded in Git. No main/clone_main integration or production
+deployment has been performed. Human domain/operator and QA-master acceptance are
+unrecorded. The final verification results and remaining release gates are below.
+
+New fixed vocabulary uses the existing CuttingDepartmentCode/WorkOrderStatus,
+stock QC/material movement enums and typed DTOs. Order/Nastil numbers, fabric
+SKU/color, factory/catalog records and role/permission configuration remain data.
+The new list-only routing output is nullable for missing/ambiguous routes and has
+one batched query; detail/create output is retained. Explicit ECO source IDs are
+distinct from central StockBatch IDs. Persistence is behind inventory schema
+operations using the caller's Session/transaction; no migration, background
+stock creation, GET mutation or duplicate physical inventory is introduced.
+Unrelated legacy route/service and enum extraction work remains outside this task.
+
+## Actual connected-browser evidence
+
+The actual integrated Next/FastAPI application ran only on127.0.0.1:18933/18932.
+`backend/app/tests/factory_workflows_browser.py` creates isolated SQLite fixtures,
+with optional resume of its verified test database. Production was never used
+for test writes. Local fixture accounts, stock, orders and packages are synthetic.
+Screenshots, raw console, JSON readbacks, Excel and JUnit are under the ignored
+`outputs/factory-qa/` directory in this worktree.
+
+- CUT dashboard:20current pieces,1bundle/1order/1work order;27created/7transferred;
+  waste2.5kg/3m. Today passport dashboard:1passport/400dashboard pieces with Tepa,
+ 12kg/14.5m/5rolls, independently specified fixture facts. ECT fixture gives30
+  current pieces. Mixed CUT/ECT order retains each bundle's true Cutting origin.
+  CUT passport Open navigated directly to/work-orders/5/cutting.
+- Packaging queue immediately showed95unaccepted Sewing pieces and a later-Nastil
+  legacy order with240passed/75packed/165remaining. Saving95Packaging pieces then
+  Copies1 created exactly one60-piece package, retaining35. Selecting only the
+  first two packed Nastils produced one60-piece package allocated35+25;15remained
+  on the second source and the third source stayed untouched. Reload and API
+  source-ledger readbacks agreed. No automatic package or finished-goods receipt.
+- Restricted Milana planner (planning.production only) selected a genuine direct
+  ECO100kg receipt with10reserved/90available, Brand and ECT in the real Sales
+  Planning dialog. Created order6/publicSO-2025-000001 with8kg estimate and actual
+  ECTCutting work order9. No fabric debit on Planning/passport save. Passport
+  dropdown includes that order and excludes ambiguous routes.
+- ECT passport selected the exact planned source. First Nastil0001-01/10Mpieces,
+ 2kg x3layers +0.5scrap saved/reopened and Open led directly to/work-orders/9/cutting.
+  Confirmed Cutting created one10-piece ECO bundle and exactly one6.5kg ECO debit:
+  physical100->93.5, reservation10unchanged, central identity0/zero movements.
+  Second passport/Nastil0001-02/5Mpieces used2.5kg: immediate screen showed81kg
+  available/91kg physical/10reserved, without page reload. Two actual bundles/15
+  pieces persisted. Historical batch numbers were not modified.
+- Actual generated invoice export was downloaded from the candidate endpoint and
+  imported read-only for a rendered A9:K12 inspection. Its two package rows have
+  the same sufficient height;10pt table/header/signature checks and totals
+ 7pieces/2.75kg/17.50passed. Long and short descriptions fit the uniform height.
+- English, Russian and Uzbek operator copy was inspected. Old accepted-order
+  empty-state wording found visually was removed in all three dictionaries/mirrors.
+  Existing tablet-width layout remained usable; automated page checks also cover
+  narrower viewports and real selection/submit handlers.
+
+Independent reviewer identity: /root/packaging reviewed WF01 and reports;
+/root/cutting_reports reviewed Packaging and ECO (including all follow-ups).
+The reviewer caught ambiguous serial lookup, a misleading mixed-pack preview,
+missing route projection, Enum adaptation and generic API silent source loss;
+all were corrected and rechecked. Root separately exercised the actual website
+and persisted effects. Developer console hydration warnings identify extension-
+injected bis_skin_checked/bis_register attributes; raw logs are preserved, not
+reported as a zero-warning run. No ERP exception occurred in successful flows.
+
+## Final verification ledger and human deployment checklist
+
+Passed local gates: 649 required PostgreSQL operation cases; 17 supplemental
+Purchasing/Fabric cases on the same owned PG17.10 instance; 84 shared audit,
+idempotency, readiness, boundary and runner contracts (both SQLite and PostgreSQL);
+113 affected workflow tests with real PostgreSQL and no skips; two separate S06
+stock-adjustment races; four real HAProxy gateway cases; and 171 JWT contracts.
+The integrated correction run passed 140 cases before the final typed-list
+boundary fix; its expanded final rerun includes existing pagination contracts.
+New follow-up HTTP/no-write and actual React handler tests passed independently.
+Full backend Ruff and compile passed, with one unchanged Alembic head:
+0156_variant_price_workflow. The complete normal npm build (contracts, optimized
+Turbopack compilation, TypeScript and routes) passed with freshly installed locked
+dependencies. Configured project typechecking passed; lint has zero errors and
+14 existing warnings.
+
+Correction to earlier worker/packet wording: the configured TypeScript check is
+not a strict audit; tsconfig.strict remains false. The explicit optional command
+`npx tsc --noEmit --strict --incremental false` reports 16 primary diagnostics.
+A separate clean ba2ac53b worktree with identical lockfile/config/dependencies
+reports exactly the same 16 diagnostics on unchanged source expressions: zero
+introduced, zero removed. These inherited strict-mode findings remain unresolved;
+this task does not expand into unrelated global typing cleanup.
+
+The first broad diagnostic run retained 8,290 passes, 11 failures, 17 errors,
+77 skips and 36 passing subtests. The corrected-environment second snapshot had
+6,801 passes, five failures, 1,596 optional skips and 36 passing subtests. These
+are failing historical runs, never relabeled PASS. Four second-run failures
+identified a real direct-reader boundary defect: the new list helper returned
+dicts where existing consumers use row.id/sales_order_no. It now returns actual
+typed ProductionOrderListOut objects with identical HTTP JSON. The fifth was the
+obsolete legacy acceptance test already loaded before its approved replacement;
+the current complete production_flow file passed 81 cases in the 140-case run.
+The final expanded rerun on 04bfd2b16 passed all 145 cases without skips, covering
+every affected failed test on integrated source (final-boundaries.xml).
+Required PostgreSQL/readiness/gateway cases skipped by the default SQLite run
+were executed separately as recorded above; optional skips are not claimed as
+passes. No clean full-suite result for an untested later commit is invented.
+
+Local environment corrections were confined to owned QA infrastructure: missing
+barcode/dev extras, obsolete python-jose/ecdsa inherited from the old test image,
+HAProxy and the actual slot manager's API error-file fixture, guarded disposable
+database names, and a fresh local node_modules directory instead of an external
+junction rejected by Turbopack. Shared dependencies and production were untouched.
+The optimized local preview startup was rejected by automatic approval review
+with only "blocked by policy" supplied. No retry bypass or deployment was made;
+the actual candidate browser flows/screenshots were completed before the build.
+
+The 17 supplement cases ran directly with the approved local 55439 identity; the
+CI-only supplement launcher hardcodes55432/review_ci_refactor_ and was not claimed
+to have run unchanged. CI/release image security scans and production staging,
+backup, slot-state, paired runtime/health and QA-master review remain release
+gates, to run only as part of an authorized deployment. No performance waiver is
+created by this task. Failed diagnostics remain in the local evidence directory.
+
+Before deployment approval, the owner/QA master should inspect new Order No and
+Nastil numbers, automatic Packaging arrival, exact selected-source pack counts,
+partial remainder/reprint, both Cutting dashboards and passport navigation,
+uniform10pt invoice, and Milana Planning -> ECO passport -> real inventory debit.
+Retain factory denial/held-stock/over-quantity refusals and historical QR/receipt
+compatibility. Reconcile fresh clone_main/live manifests/protected slot state,
+use the exact reviewed clean Git commit and DEPLOYMENT.md immutable-image
+blue/green procedure, verify backup/migrations before touching the active release,
+and retain the recorded rollback. Approval to implement is not deployment approval.
+
+## Handoff state
+
+WF01-WF07: **AI_VERIFIED_AWAITING_HUMAN**. Independent final typed-boundary review
+passed nine pagination/routing cases on 951279cbf (integrated 04bfd2b16), with no
+remaining findings. The named domain owners/operator and QA master have
+not accepted a production build. The normal build and focused/current regression
+gates passed; inherited strict-mode findings and historical broad-run failures
+remain disclosed above. Release CI/security/image/staging gates are separate.
+
+The root branch is intended to be committed and pushed as a review candidate,
+without merging clone_main/main or deploying. Final commit/push state is reported
+at handoff; no promise of production readiness bypasses DEPLOYMENT.md.

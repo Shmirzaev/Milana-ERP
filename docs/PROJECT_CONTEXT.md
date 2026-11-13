@@ -11,9 +11,36 @@ this checkout, a new combined candidate or deployed production. Inspect current
 code and the operation ledger before advancing a gate. Schema-owned writers,
 system-wide enum/type adoption and human acceptance remain incomplete.
 
-Last updated 2026-11-11. Keep this file short: current decisions, release pointers and
+Last updated 2026-11-13. Keep this file short: current decisions, release pointers and
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
+
+## Factory workflow candidate (13 November; not deployed)
+
+The owner requested new order/batch numbering alignment, automatic Sewing-to-
+Packaging availability with selected Nastils/label counts, passport links directly
+to Cutting, corrected Cutting reports, uniform invoice package rows at10pt, and
+Milana Planning using genuine Eco Cotton fabric for Eco Cutting. Implementation
+and local verification are on `codex/factory-workflows-20261113` in
+`C:/ERP/.codex-work/factory-workflows-20261113`; separate deployment approval is
+required. See the [task packet](FACTORY_WORKFLOWS_20261113.md) for current evidence,
+review, human checklist and remaining gates. No shared-branch merge or deployment.
+
+Both live manifests and complete file checks were reverified on13November:
+`20261111_115200`, manifest
+`db9df64cbcf57e4ab93ac83ef677d7d394b07652a1a4cf3fe1815abc92adac28`.
+All2,495 source files match Git`46ddd5c7864f0a68bd9a3c884d835a2a5dbf9bfb`;
+that deployed branch was reconciled with the requested `clone_main` baseline.
+Recorded rollback/schema below remain unchanged; protected slot state was not
+reverified without sudo. Production business data and the legacy checkout were
+untouched. All new QA records are disposable local fixtures.
+
+The candidate keeps historical batch identities and receipt history. New labels
+use real saved Packaging evidence; Sewing availability does not mint stock.
+Direct ECO receipts gain only a zero-quantity central identity on authorized
+Planning/passport writes, while QC, reservation and physical debit remain ECO-
+owned. No migration or automatic GET backfill is introduced. Exact source and
+runtime gates must be rechecked before any approved release.
 
 ## Invoice/report and Sewing update (11 November; deployed)
 
