@@ -4,6 +4,7 @@ import { formatOrderReference } from "@/lib/orderRef";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import useSWR from "swr";
+import useSWRInfinite from "swr/infinite";
 import { useSearchParams } from "next/navigation";
 import {
   AlertCircle,
@@ -77,6 +78,7 @@ type ScanHistoryItem = {
 };
 
 const SEWING_DEPARTMENT_CODES = new Set(["SEW", "MIL", "BST", "ECO"]);
+const MANUAL_RECEIVE_PAGE_SIZE = 20;
 
 function latestBundleScan(rawCode: string): string {
   const value = rawCode.trimStart();
@@ -160,16 +162,39 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
     [departments],
   );
   const manualReceiveUrl = useMemo(() => {
-    const params = new URLSearchParams({ limit: "20" });
+    const params = new URLSearchParams({ limit: String(MANUAL_RECEIVE_PAGE_SIZE) });
     params.set("factory_code", factoryCode);
     if (manualSearch) params.set("q", manualSearch);
     return bandOnly ? `/api/sewing-bands/receive-options?q=${encodeURIComponent(manualSearch)}` : `/api/bundles/sewing-receive-options?${params.toString()}`;
   }, [manualSearch, factoryCode, bandOnly]);
   const {
-    data: manualOptions = [],
-    mutate: mutateManualOptions,
-    isLoading: manualLoading,
-  } = useSWR<ManualReceiveOption[]>(showManualReceive ? manualReceiveUrl : null, fetcher);
+    data: bandOptions,
+    mutate: mutateBandOptions,
+    isLoading: bandLoading,
+  } = useSWR<ManualReceiveOption[]>(showManualReceive && bandOnly ? manualReceiveUrl : null, fetcher);
+  const {
+    data: manualPages,
+    mutate: mutateManualPages,
+    isLoading: pagesLoading,
+    isValidating: pagesValidating,
+    error: manualError,
+    size: manualPageCount,
+    setSize: setManualPageCount,
+  } = useSWRInfinite<ManualReceiveOption[]>((index, previous: ManualReceiveOption[] | null) => {
+    if (!showManualReceive || bandOnly || (previous && previous.length < MANUAL_RECEIVE_PAGE_SIZE)) return null;
+    return `${manualReceiveUrl}&offset=${index * MANUAL_RECEIVE_PAGE_SIZE}`;
+  }, fetcher, { persistSize: false, keepPreviousData: false, revalidateAll: true });
+  useEffect(() => {
+    void setManualPageCount(1);
+  }, [manualReceiveUrl, setManualPageCount]);
+  const manualOptions = useMemo(
+    () => bandOnly ? bandOptions || [] : (manualPages || []).flat(),
+    [bandOnly, bandOptions, manualPages],
+  );
+  const manualLoading = bandOnly ? bandLoading : pagesLoading;
+  const manualMoreLoading = pagesValidating || (!manualError && Boolean(manualPages) && manualPageCount > (manualPages?.length ?? 0));
+  const manualHasMore = !bandOnly && manualPages?.at(-1)?.length === MANUAL_RECEIVE_PAGE_SIZE;
+  const mutateManualOptions = () => bandOnly ? mutateBandOptions() : mutateManualPages();
 
   const loadSewingBatch = useCallback(async (batchId: number) => {
     setMsg("");
@@ -711,7 +736,7 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
                     <td colSpan={bandOnly ? 6 : 7} className="text-slate-500">{t("common.loading")}</td>
                   </tr>
                 )}
-                {!manualLoading && manualOptions.length === 0 && (
+                {!manualLoading && !manualError && manualOptions.length === 0 && (
                   <tr>
                     <td colSpan={bandOnly ? 6 : 7} className="text-slate-500">{t("page.bundleScan.manualEmpty")}</td>
                   </tr>
@@ -776,6 +801,27 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
               </tbody>
             </table>
           </div>
+          {!bandOnly && manualError && (
+            <div role="alert" className="mt-3 flex items-center gap-3 text-sm">
+              <span>{manualError.message}</span>
+              <button type="button" className="btn" disabled={manualMoreLoading} onClick={() => void mutateManualPages()}>
+                {t("common.retry")}
+              </button>
+            </div>
+          )}
+          {manualHasMore && !manualError && (
+            <div className="mt-3 flex justify-center">
+              <button
+                type="button"
+                className="btn"
+                disabled={manualMoreLoading || Boolean(manualBusyKey)}
+                onClick={() => void setManualPageCount(manualPageCount + 1)}
+              >
+                {manualMoreLoading && <Loader2 className="h-4 w-4 animate-spin" />}
+                {manualMoreLoading ? t("common.loading") : t("common.loadMore")}
+              </button>
+            </div>
+          )}
         </div>
       )}
 

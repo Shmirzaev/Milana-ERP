@@ -15,13 +15,42 @@ Last updated 2026-11-11. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
-## Variant pricing November scope (11 November; deployed)
+## Invoice/report and Sewing update (11 November; deployed)
 
-Both hosts serve green `20261111_052632`, runtime
+Both hosts serve blue `20261111_115200`, runtime
+`46ddd5c7864f0a68bd9a3c884d835a2a5dbf9bfb`, manifest
+`db9df64cbcf57e4ab93ac83ef677d7d394b07652a1a4cf3fe1815abc92adac28`.
+Healthy rollback is green `20261111_052632` /
+`519c9fa36f3d90905f935caf08fe781417cf7e24`. Schema remains
+`0156_variant_price_workflow`; no task-initiated business-data writes or schema changes.
+The requested task branch is pushed, not merged into clone_main/main.
+
+Invoices share naturally sorted size text and 10px table/signature type, retaining
+23.1pt rows. Existing report has Today/This month Tashkent shortcuts; Sewing pages
+20 batches at a time. Exact-source CI passed6,756 backend cases /1,589 reported
+skips /36 subtests,649 mandatory PostgreSQL cases plus supplements/contracts,
+frontend and security. Staged browser/Excel and550 paired GETs passed.
+
+The first public280-GET check failed only Cutting-passport p95:150.85->186.97ms
+(+23.94%, limit15%); original failure and rollback are preserved. After initially
+keeping the old release, the owner explicitly instructed immediate deployment
+after disclosure of that failure, accepting this named exception. The same scanned
+images were promoted again without rebuilding or replacing the timing epoch.
+Fresh backup verified1,400 restore objects. Backend/frontend activated17:46:18 /
+17:46:24 Tashkent (12:46 UTC). Fresh staged/public complete-fact checks,81 unique
+MIL batches, connected Edge invoice/report, four health endpoints, readiness,
+source/image/router/worker/log/database checks passed. Timed observation remains
+waived; no observer or substitute monitor ran. Human domain acceptance remains
+unrecorded. Pre-existing shipment-traceability error at10:37:16 UTC remains unresolved;
+deployment-window logs were clean. See the [release record](archive/INVOICE_SEWING_RELEASE_20261111.md).
+
+## Variant pricing November scope (11 November; previous release)
+
+That release served green `20261111_052632`, runtime
 `519c9fa36f3d90905f935caf08fe781417cf7e24`, manifest
 `55d0edc9b7893df95987102cc6d9ccbe5b59a89f3c369eb5ea1f46a9868d4520`.
-Schema remains `0156_variant_price_workflow`; no migration. Healthy full-app
-rollback is blue `20261110_135430` / `cfe03885e03e4310e9b7c86ec9649ff350565d65`.
+Schema remained `0156_variant_price_workflow`; no migration. Its full-app
+rollback was blue `20261110_135430` / `cfe03885e03e4310e9b7c86ec9649ff350565d65`.
 Source was fast-forwarded into `clone_main`; deployment metadata is a later commit.
 
 Only missing-price standard variants created from 1 November 2026, 00:00

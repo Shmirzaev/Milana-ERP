@@ -11,6 +11,7 @@ import { useT } from "@/lib/i18n";
 import { shipmentReportText } from "@/lib/shipmentReportText";
 import { formatVariantNumber } from "@/lib/variantDisplay";
 import { formatOrderReference } from "@/lib/orderRef";
+import { shipmentReportDates } from "@/lib/shipmentReportDates";
 
 type ReportRow = {
   shipment_id: number; shipment_no: string; shipped_at: string; status: string;
@@ -41,6 +42,10 @@ export default function WarehouseShipmentReport() {
     return result;
   }, [filters]);
   const { data, error, isLoading } = useSWR<Report>(allowed ? `/api/warehouse-reports/shipments?${params}&page=${page}` : null, fetcher);
+  function applyPeriod(period: "day" | "month") {
+    const next = { q: draft.q.trim(), ...shipmentReportDates(period) };
+    setDraft(next); setFilters(next); setPage(1);
+  }
   async function download() {
     setBusy(true); setDownloadError("");
     try {
@@ -63,6 +68,11 @@ export default function WarehouseShipmentReport() {
       {allowed && <button type="button" className="btn btn-primary" disabled={busy || isLoading || Boolean(error) || !data?.rows.length} onClick={() => void download()}><Download className="h-4 w-4" />{busy ? t("common.loading") : text.download}</button>}
     </>} />
     {!me ? <p>{t("common.loading")}</p> : !allowed ? <p role="alert">{t("auth.accessDenied")}</p> : <>
+      <div className="mb-3 flex flex-wrap items-center gap-2" role="group" aria-label={text.period}>
+        <span className="mr-1 text-sm text-[#56503f]">{text.period}</span>
+        <button type="button" className="btn" onClick={() => applyPeriod("day")}>{text.today}</button>
+        <button type="button" className="btn" onClick={() => applyPeriod("month")}>{text.thisMonth}</button>
+      </div>
       <form className="mb-5 grid grid-cols-1 items-end gap-3 rounded-lg border border-[#e3dfd3] bg-[#fdfcf8] p-4 sm:grid-cols-2 xl:grid-cols-[minmax(240px,1fr)_170px_170px_auto_auto]" onSubmit={event => { event.preventDefault(); setFilters({ ...draft, q: draft.q.trim() }); setPage(1); }}>
         <label className="sm:col-span-2 xl:col-span-1"><span className="mb-1.5 block text-sm text-[#56503f]">{text.search}</span><div className="relative"><Search aria-hidden="true" className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-[#8a8472]" /><input className="input pl-9" placeholder={text.searchPlaceholder} value={draft.q} maxLength={140} onChange={event => setDraft(previous => ({ ...previous, q: event.target.value }))} /></div></label>
         <label><span className="mb-1.5 block text-sm text-[#56503f]">{text.from}</span><input className="input" type="date" value={draft.from} max={draft.to || undefined} onChange={event => setDraft(previous => ({ ...previous, from: event.target.value }))} /></label>

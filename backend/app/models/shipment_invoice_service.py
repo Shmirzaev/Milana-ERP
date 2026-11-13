@@ -170,17 +170,41 @@ def invoice_headers(lang: str) -> list[str]:
 def invoice_column_widths(rows: list[dict] | None = None) -> list[float]:
     # Grow only the size column; preserve the other columns' physical widths.
     size_characters = max((len(", ".join(invoice_size_labels(row.get("sizes", [])))) for row in rows or []), default=0)
-    return [3, 8, 8, 14, max(14, size_characters * 0.9), 6, 7, 8, 9, 10, 13]
+    # Match the 10px / 7.5pt type rather than the previous 9pt text width.
+    return [3, 8, 8, 14, max(14, size_characters * 0.75), 6, 7, 8, 9, 10, 13]
+
+
+def _invoice_size_sort_key(label: str) -> tuple:
+    """Order recorded labels without converting between unrelated size charts."""
+    natural = tuple((0, int(part)) if part.isdigit() else (1, part.casefold())
+                    for part in re.split(r"(\d+)", label) if part)
+    if re.fullmatch(r"\d+(?:\.\d+)?", label):
+        return (0, Decimal(label), natural)
+    letter = re.match(r"^(XXS|XS|S|M|L|XL|XXL|XXXL|[2-9]\d*XL)(?:$|[- /])", label.upper())
+    if letter:
+        name = letter[1]
+        rank = {"XXS": 0, "XS": 1, "S": 2, "M": 3, "L": 4, "XL": 5, "XXL": 6, "XXXL": 7}
+        return (1, rank[name] if name in rank else int(name[:-2]) + 4, natural)
+    return (2, 0, natural)
 
 
 def invoice_size_labels(sizes: list[dict]) -> list[str]:
-    """Compact size × pieces labels shared by print and Excel, without losing colors."""
-    multicolor = len({item.get("color") for item in sizes if item.get("color")}) > 1
-    return [
-        (f'{item.get("color") or ""} / ' if multicolor else "") + str(item.get("size") or "")
-        + ("" if item.get("aggregate") else f'×{int(item["quantity"])}')
-        for item in sizes
-    ]
+    """One display convention; an aggregate count belongs to the whole size list."""
+    multicolor = len({str(item.get("color") or "").strip() for item in sizes}) > 1
+    labels = []
+    for item in sizes:
+        color = str(item.get("color") or "").strip()
+        size = " ".join(str(item.get("size") or "").split()) or "—"
+        if item.get("aggregate"):
+            parts = [part.strip() for part in size.split(",") if part.strip()]
+            size = ", ".join(sorted(parts, key=_invoice_size_sort_key)) or "—"
+            display = f"({size})"
+        else:
+            display = size
+        prefix = f'{color or "—"} / ' if multicolor else ""
+        labels.append((color.casefold(), _invoice_size_sort_key(size),
+                       f'{prefix}{display} × {int(item["quantity"])}'))
+    return [label for _, _, label in sorted(labels)]
 
 
 def invoice_price_notes(document: dict, lang: str) -> list[str]:
@@ -280,19 +304,19 @@ table{{width:100%;border-collapse:collapse;table-layout:fixed}}td,th{{overflow-w
 .meta{{margin:3mm 0 4mm}}.meta th,.meta td{{padding:1mm 2mm 1mm 0;text-align:left;border:.75pt solid #8ea9db}}
 .meta,.items,.signatures{{border:1.5pt solid #1f3864}}
 .meta th{{font-size:11pt;font-weight:700;color:#4d5656;background:#f2f5fa}}.meta td{{font-size:11pt;font-weight:700}}.meta th:nth-child(3){{padding-left:2mm}}
-.items{{font-size:9pt;line-height:1.3}}.items th,.items td{{padding:1mm 1.1mm;border:.75pt solid #8ea9db;text-align:center}}
-.items thead th{{background:#2f5597;color:#fff;font-size:9pt;font-weight:700;padding:2mm .5mm;overflow-wrap:anywhere;border-bottom:1.5pt solid #d99b26}}
+.items{{font-size:10px;line-height:1.3}}.items th,.items td{{padding:1mm 1.1mm;border:.75pt solid #8ea9db;text-align:center}}
+.items thead th{{background:#2f5597;color:#fff;font-size:10px;font-weight:700;padding:2mm .5mm;overflow-wrap:anywhere;border-bottom:1.5pt solid #d99b26}}
 
 .items .row-number{{white-space:nowrap;overflow-wrap:normal;color:#64717e;font-variant-numeric:tabular-nums;padding-left:.5mm;padding-right:.5mm}}
 .items tbody tr{{height:23.1pt}}
-.items .identity{{font-weight:700;color:#1f3864}}.items .description,.items .sizes{{text-align:left}}.items .sizes{{font-size:9pt;color:#444b52;white-space:nowrap;overflow-wrap:normal}}
-.items .numeric{{text-align:right;font-variant-numeric:tabular-nums;white-space:normal;font-size:9pt}}
+.items .identity{{font-weight:700;color:#1f3864}}.items .description,.items .sizes{{text-align:left}}.items .sizes{{font-size:10px;color:#444b52;white-space:nowrap;overflow-wrap:normal}}
+.items .numeric{{text-align:right;font-variant-numeric:tabular-nums;white-space:normal;font-size:10px}}
 .size-label{{display:inline;white-space:nowrap}}
 thead{{display:table-header-group}}tr{{break-inside:avoid}}.items tbody:first-of-type tr:last-child{{break-after:avoid}}
 .items .totals td{{font-weight:700;background:#c6d9f1;color:#1f3864;border-top:1.5pt solid #1f3864;border-bottom:3pt double #1f3864;padding-top:2mm;padding-bottom:2mm}}
 .items .totals td:last-child{{background:#1f3864;color:white}}
-.items .totals .total-label{{font-size:9pt;text-align:right;padding-left:3mm}}
-.signatures{{margin-top:5mm;break-inside:avoid;color:#1f3864;font-size:8pt;text-align:center}}
+.items .totals .total-label{{font-size:10px;text-align:right;padding-left:3mm}}
+.signatures{{margin-top:5mm;break-inside:avoid;color:#1f3864;font-size:10px;text-align:center}}
 .signatures th{{background:#1f3864;color:white;padding:2mm;border:.75pt solid #8ea9db;border-bottom:1.5pt solid #d99b26}}
 .signatures td{{height:13mm;border:.75pt solid #8ea9db;background:#f2f5fa;font-weight:700}}
 .signatures td:last-child{{background:white}}

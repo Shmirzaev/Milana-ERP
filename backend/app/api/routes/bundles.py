@@ -1,7 +1,7 @@
 from app.models.variant_display_service import format_model_variant_code
 from app.core.order_reference import order_reference_contains
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Query
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from sqlalchemy import func, or_
@@ -10,6 +10,7 @@ from sqlalchemy.orm.attributes import set_committed_value
 import base64
 import hashlib
 from functools import lru_cache
+from typing import Annotated
 from html import escape
 from pathlib import Path
 
@@ -650,6 +651,7 @@ def sewing_receive_options(
     q: str | None = None,
     limit: int = 25,
     factory_code: str | None = None,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ):
     factory = sewing_line_factory_scope(current, factory_code)
     qry = db.query(
@@ -698,7 +700,8 @@ def sewing_receive_options(
             Model.code,
             Model.name,
         )
-        .order_by(func.max(Bundle.created_at).desc())
+        .order_by(func.max(Bundle.created_at).desc(), func.max(Bundle.id).desc())
+        .offset(offset)
         .limit(max(1, min(int(limit or 25), 100)))
         .all()
     )
