@@ -201,8 +201,12 @@ class ProductionOrderOut(ORMModel):
 
 
 
+class ProductionOrderListOut(ProductionOrderOut):
+    cutting_department_code: CuttingDepartmentCode | None = None
+
+
 class ProductionOrderPageOut(SchemaModel):
-    rows: list[ProductionOrderOut]
+    rows: list[ProductionOrderListOut]
     total: int
     page: int
     page_size: int

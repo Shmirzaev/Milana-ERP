@@ -843,12 +843,21 @@ export default function CuttingPage() {
 
   useEffect(() => {
     if (plannedMaterials.length > 0) return;
-    if (form.fabric_batch_id || fabricPickedManually || fabricBatches.length === 0) return;
-    const batch = fabricBatches.find(
-      (row) => Number(row.id || 0) === Number(po?.fabric_batch_id || 0),
-    ) || fabricBatches[0];
+    if (fabricPickedManually) return;
+    const plannedBatchId = Number(po?.fabric_batch_id || 0);
+    if (!plannedBatchId && form.fabric_batch_id) return;
+    // The saved source can arrive after generic inventory and can differ from
+    // the model BOM. Never auto-select another source while it is unavailable.
+    const batch = plannedBatchId
+      ? allSearchableFabricBatches.find(row => Number(row.id) === plannedBatchId)
+      : fabricBatches[0];
+    if (!batch) {
+      if (plannedBatchId && form.fabric_batch_id) setForm(prev => ({ ...prev, fabric_batch_id: 0 }));
+      return;
+    }
+    if (form.fabric_batch_id === Number(batch.id)) return;
     setForm((prev) => {
-      if (prev.fabric_batch_id) return prev;
+      if (prev.fabric_batch_id === Number(batch.id)) return prev;
       return {
         ...prev,
         fabric_batch_id: Number(batch.id || 0),
@@ -856,7 +865,7 @@ export default function CuttingPage() {
         waste_unit: batch.unit || prev.waste_unit,
       };
     });
-  }, [fabricBatches, fabricPickedManually, form.fabric_batch_id, plannedMaterials.length, po?.fabric_batch_id]);
+  }, [allSearchableFabricBatches, fabricBatches, fabricPickedManually, form.fabric_batch_id, plannedMaterials.length, po?.fabric_batch_id]);
 
 
   useEffect(() => {

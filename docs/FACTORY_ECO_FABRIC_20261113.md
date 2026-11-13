@@ -129,3 +129,41 @@ Check linked transferred fabric, held/depleted source and wrong factory refusals
 
 The root task packet owns final integrated source hashes, independent review,
 browser screenshots, human acceptance, publication and deployment state.
+
+## Follow-up from actual connected-browser QA
+
+Root's isolated real ERP browser exercise found two additional caller defects:
+new client order6 / Cutting WO9 defaulted to unrelated Milana FAB-COT-001500kg
+before its explicitly planned ECO90kg source arrived, and the ECT passport order
+dropdown was empty because `/production-orders` never projected the field used
+by the frontend's factory filter. These observations are retained as failures;
+the initial passing API/selector calculations did not cover these actual callers.
+
+The actual Cutting selection effect now prioritizes the saved primary identity
+from all authoritative eligible choices, even when that selected fabric differs
+from model BOM. A known unavailable/loading/held primary never selects an unrelated
+fallback. An earlier automatic fallback is corrected if the saved source arrives
+later; explicit manual choices and legacy no-primary defaults remain supported.
+
+`order_routing_read_service.production_order_list_output` adds canonical nullable
+Cutting routing through the list-specific `ProductionOrderListOut`, for plain and
+paginated results. It queries actual non-cancelled Cutting work orders once for
+the already-authorized returned rows. Missing/mixed/unsupported routes yield null,
+never a guessed CUT or ECT. Detail/create DTOs retain their existing shape.
+Both passport department filters now require an exact match, excluding null/mixed
+routing instead of mistakenly including it in Milana. No data or routing writes.
+
+Four backend HTTP/query-budget regressions pass: plain/page ECT routing, ambiguous
+and cancelled sibling semantics, and one query across multiple returned orders.
+The combined16 direct ECO + initial3 routing cases passed19 before the additional
+query-budget case; final routing module passed4. Ruff and strict TypeScript pass;
+scoped ESLint has no errors/warnings. Actual source-adapter/Cutting calculations
+and exact passport order filter tests pass and run in the existing build contract.
+
+`test-cutting-planned-source.browser.mjs` mounts the exact actual-page selection
+hook with real React effects in Chromium. It passes generic-before-ECO delivery,
+outside-BOM planned source90kg, no held-source fallback, deliberate manual choice,
+legacy no-primary and late saved-source correction, with zero page errors. The
+rendered harness screenshot was actually inspected. This focused harness is not
+a substitute for root's complete ERP connected-browser rerun and saved readback,
+which remain pending on the combined follow-up revision.

@@ -588,11 +588,7 @@ export default function CuttingPassportsPage() {
   }
 
   const allProdOrders: any[] = Array.isArray(prodOrders) ? prodOrders : (prodOrders as any)?.rows ?? [];
-  const prodOrdersArr = allProdOrders.filter((row: any) => (
-    cuttingDepartment === "ECT"
-      ? row.cutting_department_code === "ECT"
-      : row.cutting_department_code !== "ECT"
-  ));
+  const prodOrdersArr = allProdOrders.filter((row: any) => row.cutting_department_code === cuttingDepartment);
   const usersArr: any[] = Array.isArray(users) ? users : [];
   const f = form;
   const sf = (k: keyof typeof EMPTY_FORM) => (e: React.ChangeEvent<any>) =>

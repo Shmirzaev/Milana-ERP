@@ -46,7 +46,7 @@ from app.libs.dto.inventory.material_reservation_output import MaterialReservati
 from app.libs.dto.planning.production_cutting_factory import ProductionCuttingFactoryIn, ProductionCuttingFactoryOut
 from app.models.planning.cutting_factory_service import cutting_factory_options, change_cutting_factory
 from app.libs.dto.production.production import (
-    ProductionOrderIn, ProductionOrderUpdateIn, ProductionOrderOut, ProductionOrderDetail, ProductionOrderPageOut,
+    ProductionOrderIn, ProductionOrderUpdateIn, ProductionOrderOut, ProductionOrderListOut, ProductionOrderDetail, ProductionOrderPageOut,
     WorkOrderOut, WorkOrderUpdate,
     CuttingMaterialUsageIn, CuttingRecordIn, PrintingRecordIn, SewingRecordIn, PackagingRecordIn,
     QualityCheckIn, QualityCheckOut,
@@ -537,7 +537,7 @@ def _flow_committed_today(db: DbSession, flow_id: int, now: datetime) -> int:
 
 
 # ===== Production Orders =====
-@router.get("/production-orders", response_model=list[ProductionOrderOut] | ProductionOrderPageOut)
+@router.get("/production-orders", response_model=list[ProductionOrderListOut] | ProductionOrderPageOut)
 def list_pos(
     db: DbSession,
     _: User = Depends(require_permissions(*PRODUCTION_READ_PERMISSIONS)),
@@ -578,10 +578,12 @@ def list_pos(
         )
     total = qry.order_by(None).count() if include_total else 0
     rows = qry.order_by(ProductionOrder.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
+    from app.models.production.order_routing_read_service import production_order_list_output
+    output = production_order_list_output(db, rows)
     if not include_total:
-        return rows
+        return output
     return {
-        "rows": rows,
+        "rows": output,
         "total": total,
         "page": page,
         "page_size": page_size,

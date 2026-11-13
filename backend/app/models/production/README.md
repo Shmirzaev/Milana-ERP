@@ -37,6 +37,12 @@ or movement is created; the original ECO receipt keeps all physical quantities,
 QC, reservations, debit and reversal evidence. GETs never assign an identity.
 See [WF06/WF07 evidence](../../../../docs/FACTORY_ECO_FABRIC_20261113.md).
 
+`order_routing_read_service.py` projects `ProductionOrderListOut` routing with one
+batched query over the existing authorized list/page. A single non-cancelled
+Cutting department yields canonical CUT/ECT; missing, unknown or mixed routes
+yield null. Passport selectors require an exact department match. This read does
+not mutate routing, broaden the list's access or guess an execution work order.
+
 ## One passport material with several source batches
 
 `PassportMaterial.batch_allocations` optionally records at least two distinct
