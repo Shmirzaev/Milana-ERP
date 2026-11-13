@@ -119,3 +119,16 @@ State: IMPLEMENTED_WITH_FOCUSED_EVIDENCE; integrated build/full required gates,
 connected-browser inspection, independent AI review and human acceptance pending.
 Do not label AI_VERIFIED_AWAITING_HUMAN until those required AI gates pass. No
 merge, push or deployment is performed by this worker.
+
+## Combined-suite query-budget reconciliation
+
+On combined candidate `6570901bc`, the inherited passport-list query-growth test
+still expected7/7/12 SELECTs for1/50/401 distinct orders. The actual8/8/13 adds
+exactly the intentional single authorized Cutting-navigation projection. This
+was reproduced as a failing test before editing. The narrow test-only correction
+updates those fixed budgets and explicitly asserts exactly one scalar navigation
+query at all three cardinalities, while retaining the original ordering, model
+images, sales references, exact-size, chunking and no-blob assertions. The fixture
+has no Cutting work orders, so links must remain null rather than be fabricated.
+No runtime code or SQL changed. The17 focused query-growth/factory-report tests
+pass on Windows and in the root's `milana-factory-qa:20261113` Linux image.
