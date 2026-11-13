@@ -75,3 +75,20 @@ Actual queue SSR regression uses real runtime dictionaries for all3 languages,
 asserts the automatic-availability hint and empty state, and refuses the former
 accepted/received-order wording. User-access/render/redirect contract passes,
 full i18n audit passes3447 keys and strict TypeScript passes. No API/data change.
+
+## Outside-default S06 stock adjustment test caller
+
+Root's explicitly enabled backend/tests/test_stock_adjustment_postgres.py found
+one batch_delta case failing AttributeError: str has no value. Both the private
+service's StockMovementType annotation and schema persistence .value use already
+exist unchanged at ba2ac53b; gitdiff ba2ac53b..6570901bc is empty for the service,
+persistence helper and test. The test's direct private caller still passed the
+literal adjustment. This is stale test setup, not a candidate stock runtime change.
+
+Original failure preserved in ignored stock-adjustment-red.log:1fail/1pass.
+Changed only that direct test caller to the existing canonical
+StockMovementType.ADJUSTMENT. No service/schema relaxation or production change.
+On root-approved owned milana_test, both real PostgreSQL concurrency cases pass:
+concurrent delta final130 with matching20+10 ledger; concurrent absolute targets
+final120 with conserved net ledger. Schema teardown remains confined to its
+random s06_<uuid> schema. Independent review assigned to /root/cutting_reports.
