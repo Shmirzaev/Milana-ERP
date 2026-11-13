@@ -167,3 +167,37 @@ legacy no-primary and late saved-source correction, with zero page errors. The
 rendered harness screenshot was actually inspected. This focused harness is not
 a substitute for root's complete ERP connected-browser rerun and saved readback,
 which remain pending on the combined follow-up revision.
+
+## Further real-browser readback corrections
+
+Root's next actual ERP exercise confirmed the planned ECO source now selects
+correctly, but exposed two further facts not covered by the first branded-order
+handoff: the batch statistics showed Reserved0 against the real10kg reservation,
+and a client-order modal saving only the selected primary fabric (no explicit
+material rows) could not save the prefilled passport.
+
+Reserved is the batch-total label; the page has a separate optional "For this
+order" label. The source DTO/projection now retains actual `reserved_quantity`:
+central sources keep their existing material reservation total; linked/direct
+ECO sources sum authoritative ECO receipt reservations independently of QC holds.
+No accounting changes. Regression gross170/reserved13/available107 includes50kg
+held for QC, proving holds are not mislabeled as reservations. Actual rendered
+page statistics assert available90/on-hand100/reserved10.
+
+The client-only mismatch was reproduced RED with the exact HTTP400 "Passport
+materials must match the fabrics selected in planning". Passport identity checks
+now use the order's saved primary `fabric_batch_id` when explicit planned-material
+rows are absent, matching the existing defaults/stock/consumption helpers. The
+client regression creates a confirmed sales order with an unrelated model BOM,
+uses MIL Planning's primary-only ECO modal contract, saves/reopens the ECT
+passport, and confirms6.5kg exclusively in ECO:93.5kg physical,10kg reserved,
+central0 and no central debit.
+
+The broader Linux suite also exposed our unconditional enum cast for legacy
+configurable Cutting departments in an existing optional-operator PostgreSQL
+fixture. Recognized CUT/ECT values now map to canonical enums; unknown departments
+remain null for source-resolution purposes. Existing central-only behavior is
+preserved, while direct ECO resolution refuses400 outside actual ECT. No invented
+enum values or guessed factory routing. Both existing real-PostgreSQL optional-
+operator cases pass. Actual ERP rerun/readback and independent source review on
+the combined correction remain root-owned gates.

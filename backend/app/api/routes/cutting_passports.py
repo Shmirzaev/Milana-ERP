@@ -799,9 +799,13 @@ def _passport_values(db, payload: CuttingPassportIn, current, passport_id=None) 
     if payload.production_order_id:
         order, work_order = _passport_order(db, payload.production_order_id, current, lock=True)
         material_count = len(payload.materials)
+        department_code = db.get(Department, work_order.department_id).code
+        # Legacy central-only Cutting can use configurable departments. Only
+        # recognized canonical ECT routing may resolve a physical ECO source.
+        cutting_code = next((code for code in CuttingDepartmentCode if code.value == department_code), None)
         resolved = resolve_eco_fabric_sources(db,
             [row.model_dump() for row in payload.materials] + [row.model_dump() for row in payload.additional_materials],
-            current, cutting_code=CuttingDepartmentCode(db.get(Department, work_order.department_id).code), planning=False)
+            current, cutting_code=cutting_code, planning=False)
         payload = CuttingPassportIn.model_validate({**payload.model_dump(),
             "materials": resolved[:material_count], "additional_materials": resolved[material_count:]})
         values["materials"] = resolved[:material_count]
@@ -809,7 +813,7 @@ def _passport_values(db, payload: CuttingPassportIn, current, passport_id=None) 
         _add_passport_materials(db, order, work_order, payload, current)
         if payload.materials:
             ids = material_source_ids(values["materials"])
-            planned = {row.stock_batch_id for row in order.materials}
+            planned = {row.stock_batch_id for row in order.materials} or ({order.fabric_batch_id} if order.fabric_batch_id else set())
             if len(ids) != len(set(ids)) or set(ids) != planned:
                 raise HTTPException(400, "Passport materials must match the fabrics selected in planning")
             for material in values["materials"]:

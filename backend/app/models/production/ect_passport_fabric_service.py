@@ -92,7 +92,7 @@ def list_passport_fabrics(db: Session, current: User, production_order_id: int, 
     """Caller first authorizes the selected production order's cutting work."""
     from app.models.inventory.stock_service import list_batches
     allowed = ("id", "item_id", "item_name", "item_sku", "item_category", "image_url", "batch_no", "internal_batch_no", "color", "unit",
-               "width", "gsm", "warehouse_name", "quantity", "available_quantity")
+               "width", "gsm", "warehouse_name", "quantity", "reserved_quantity", "available_quantity")
     central = [{key: row.get(key) for key in allowed} for row in
         list_batches(db, current, group="materials", hide_empty=True, page_size=500, q=q, item_id=item_id)]
     if not is_ect_order(db, production_order_id):

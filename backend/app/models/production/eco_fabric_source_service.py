@@ -50,19 +50,22 @@ def eco_fabric_options(db: Session, *, q: str = "", item_id: int | None = None) 
             "internal_batch_no": source.internal_batch_no if source else None,
             "color": source.color if source else receipt.color, "unit": receipt.unit, "width": source.width if source else details.get("width"),
             "gsm": source.gsm if source else details.get("gsm"), "image_url": details.get("image_url"),
-            "warehouse_name": "Eco Cotton", "qc_status": "passed", "quantity": Decimal(0), "available_quantity": Decimal(0),
+            "warehouse_name": "Eco Cotton", "qc_status": "passed", "quantity": Decimal(0),
+            "reserved_quantity": Decimal(0), "available_quantity": Decimal(0),
             "_search": set()})
         row["_search"].update(str(value or "").casefold() for value in (
             item.name, item.sku, receipt.batch_no, receipt.color,
             source.batch_no if source else None, source.internal_batch_no if source else None, source.color if source else None))
         row["quantity"] += Decimal(str(receipt.quantity))
+        row["reserved_quantity"] += Decimal(str(receipt.reserved_quantity or 0))
         if quality_passed(receipt):
             row["available_quantity"] += Decimal(str(receipt.quantity)) - Decimal(str(receipt.reserved_quantity or 0))
     result = []
     for row in grouped.values():
         searchable = row.pop("_search")
         if row["available_quantity"] > 0 and (not search or any(search in value for value in searchable)):
-            result.append({**row, "quantity": float(row["quantity"]), "available_quantity": float(row["available_quantity"])})
+            result.append({**row, "quantity": float(row["quantity"]), "reserved_quantity": float(row["reserved_quantity"]),
+                           "available_quantity": float(row["available_quantity"])})
     return result
 
 
@@ -74,7 +77,7 @@ def list_planning_eco_fabrics(db: Session, current: User, q: str = "") -> list[d
 
 
 def resolve_eco_fabric_sources(db: Session, rows: list[dict], current: User, *,
-                             cutting_code: CuttingDepartmentCode, planning: bool) -> list[dict]:
+                             cutting_code: CuttingDepartmentCode | None, planning: bool) -> list[dict]:
     sources = [source for row in rows for source in [row, *(row.get("batch_allocations") or [])]]
     eco_ids = sorted({source["eco_material_batch_id"] for source in sources if source.get("eco_material_batch_id")})
     if not eco_ids:

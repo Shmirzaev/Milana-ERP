@@ -18,4 +18,5 @@ class CuttingPassportFabricOut(BaseModel):
     warehouse_name: str | None = None
     image_url: str | None = None
     quantity: float
+    reserved_quantity: float
     available_quantity: float
