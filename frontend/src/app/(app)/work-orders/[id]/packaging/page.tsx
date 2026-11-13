@@ -373,6 +373,9 @@ export default function PackagingPage() {
     packOnlyFullPackages,
     standardPackagePlans,
   ]);
+  const selectedSourcePreview = packagePlans.slice(0, 3).map(plan =>
+    (plan.batch_allocations || []).map(source => `${source.label}: ${source.quantity}`).join(" + "),
+  ).filter(Boolean);
   const packageWeightCount = packagePlans.length;
   const createsMergedPartial = !packOnlyFullPackages && Number(copies) > mergedPackingPlan.plans.length;
   const selectedOutputRemaining = Math.max(0, (mergeAcrossBatches ? mergedPackingPlan.totalAvailable : packageableColorQty)
@@ -766,12 +769,12 @@ export default function PackagingPage() {
               {!packageSourcesLoading && !packageSourcesError && !batchPackageAvailability.some(source => source.available > 0) && <p className="mt-1 text-xs">{multiCopy.noOutput}</p>}
               <div className="mt-2 text-xs text-slate-600">
                 {mergedPackingPlan.plans.length > 0
-                  ? `${t("page.packaging.mergeFullPackages", { count: mergedPackingPlan.plans.length })} · ${t("page.packaging.mergePending", { count: mergedPackingPlan.pendingQty })}`
+                  ? `${t("page.packaging.mergeFullPackages", { count: Math.min(packagePlans.length, mergedPackingPlan.plans.length) })} · ${t("page.packaging.mergePending", { count: selectedOutputRemaining })}`
                   : t("page.packaging.mergeNoPacked")}
               </div>
-              {mergedPackingPlan.previewLines.length > 0 && (
+              {selectedSourcePreview.length > 0 && (
                 <div className="mt-1 text-xs text-slate-600">
-                  {t("page.packaging.mergeSources")}: {mergedPackingPlan.previewLines.slice(0, packagePlans.length).join(" | ")}
+                  {t("page.packaging.mergeSources")}: {selectedSourcePreview.join(" | ")}
                 </div>
               )}
               </>}

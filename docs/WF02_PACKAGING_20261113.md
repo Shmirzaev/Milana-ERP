@@ -126,3 +126,14 @@ Follow-up exact-candidate evidence (e5a1cbc70, before any further source edit):
   ECP batch progress (403); zero records are created by these crafted requests.
 - Actual single-source page submit requested five packs against only75 pieces
   produces exactly60+15, never empty/phantom packs.
+
+Independent review correction (WF02 follow-up): reviewer /root/cutting_reports
+found that previewLines contains only mixed packs, so slicing it by selected count
+could preview an unselected second mixed pack while submitting a pure first pack.
+The source summary now derives directly from final selected packagePlans allocations,
+including pure and partial packs. The combined full-pack count shows selected packs;
+pending count shows all unused selected output. Actual page render+submit regressions
+cover A90/B90 Copies1 (A60 only), Copies2 (A60 then A30+B30), and A35/B40 Copies2
+(full35+25 then partial15). The new test fails against e5a1cbc70 with wrong preview
+and passes after correction. Strict TypeScript and scoped ESLint pass again.
+Independent follow-up review and connected browser remain root gates.

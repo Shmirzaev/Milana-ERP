@@ -35,7 +35,10 @@ function render(sewn, remaining, batched = true, events = {}) {
       : key === "/api/customers" ? [] : undefined }) },
     "@/lib/api": { api: { openLabel: async () => {} }, fetcher: noop },
     "@/lib/auth": { can: () => true, useMe: () => ({ me: {} }) },
-    "@/lib/i18n": { useT: () => ({ t: key => key, lang: "en" }) },
+    "@/lib/i18n": { useT: () => ({ t: (key, vars) => {
+      if (events.translations) events.translations[key] = vars;
+      return key;
+    }, lang: "en" }) },
     "@/lib/multiNastilPackaging": multiNastil,
     "@/lib/errorMessages": { localizeError: value => value },
     "@/lib/batchSerial": { formatBatchLabel: row => row.name, formatBatchSerial: row => row.batch_no },
@@ -93,6 +96,26 @@ for (const [quantity, copies, expected] of [[300, 1, [60]], [130, 2, [60, 60]], 
   render(quantity, 0, true, events);
   await events.submitPackage({ preventDefault() {} });
   assert.deepEqual((events.created?.packages || []).map(pack => pack.items.reduce((sum, item) => sum + item.quantity, 0)), expected);
+}
+// Source previews must describe the selected final plans, including a pure
+// first pack before a mixed second pack and the final partial pack.
+for (const [copies, balances, expected, preview, fullCount, pending] of [
+  [1, [90, 90], [[[1, 60]]], "Nastil A: 60", 1, 120],
+  [2, [90, 90], [[[1, 60]], [[1, 30], [2, 30]]], "Nastil A: 60 | Nastil A: 30 + Nastil B: 30", 2, 60],
+  [2, [35, 40], [[[1, 35], [2, 25]], [[2, 15]]], "Nastil A: 35 + Nastil B: 25 | Nastil B: 15", 1, 0],
+]) {
+  const events = { states: { 7: copies, 9: true, 10: [1, 2] }, translations: {}, sources: [
+    { id: 1, name: "Nastil A", available_to_package: balances[0] },
+    { id: 2, name: "Nastil B", available_to_package: balances[1] },
+    { id: 3, name: "Unselected", available_to_package: 90 },
+  ] };
+  const html = render(balances[0] + balances[1], 0, true, events);
+  assert.ok(html.includes(`page.packaging.mergeSources: ${preview}`), preview);
+  if (copies === 1) assert.ok(!html.includes("Nastil A: 30 + Nastil B: 30"), "Never preview an unselected second pack");
+  assert.equal(events.translations["page.packaging.mergeFullPackages"].count, fullCount);
+  assert.equal(events.translations["page.packaging.mergePending"].count, pending);
+  await events.submitPackage({ preventDefault() {} });
+  assert.deepEqual(events.created.packages.map(pack => pack.batch_allocations.map(row => [row.production_batch_id, row.quantity])), expected);
 }
 const incomplete = { ...merged, states: { 9: true, 10: [1] }, created: undefined };
 render(75, 0, true, incomplete);
