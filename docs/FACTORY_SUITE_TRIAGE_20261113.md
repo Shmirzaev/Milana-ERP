@@ -92,3 +92,31 @@ On root-approved owned milana_test, both real PostgreSQL concurrency cases pass:
 concurrent delta final130 with matching20+10 ledger; concurrent absolute targets
 final120 with conserved net ledger. Schema teardown remains confined to its
 random s06_<uuid> schema. Independent review assigned to /root/cutting_reports.
+
+## PERF26 package row budget: baseline customer-policy read
+
+Final original-suite XML identified the late package-read failure as
+`test_sales_branded_variant_queries.py::test_package_rows_do_not_grow_with_the_variant_count`.
+An initial marker-only name guess was wrong; final XML is authoritative. The
+failure reproduces identically on a separate clean ba2ac53b baseline worktree and
+candidate6570901bc:27->27 package rows for9 cells across1->4 variants, with2->2
+package-lock queries. Runtime/testdiff on relevant Sales/Fulfillment files between
+those commits is empty. This is an inherited stale exact-row expectation, not an
+additional Packaging availability query or a variant-count growth regression.
+
+The third existing Package read is the single batched source-customer policy
+projection at fulfillment/stock_service.py:515. It protects customer-owned stock
+from allocation to another customer and must remain. Updated only this test to
+expect3*cells, with explicit one-unlocked-policy-query and exact*cells row checks
+on both small/large cases. The2 package locks and variant-independent total bound
+are still pinned, alongside existing reservation and metadata assertions.
+Original baseline/candidate failures are preserved in ignored perf26-baseline.log
+and perf26-candidate.log; full PostgreSQL module passes after test correction.
+Ruff passes. Independent exact-change review assigned to /root/cutting_reports.
+
+Original root full-run final evidence:8290pass,11fail,17error,77skip. Fixed budgets,
+legacy receipt expectations and canonical caller adjustments are separate commits;
+13 ECO errors are DB-name guards,4 SEC09 errors require HAProxy in the owned test
+image, and JWT failure is inherited obsolete image packages. Root owns the final
+corrected-environment integrated reruns. This record never turns the original
+failing run into a pass.
