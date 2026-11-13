@@ -73,3 +73,12 @@ numbering concurrency check on Linux: 39 passed. Three additional real PostgreSQ
 PO/SO/USL commit/reopen/retry cases passed. Reports: outputs/factory-qa/numbering.xml
 and numbering-pg.xml. Scoped Ruff and git diff --check passed. Existing test-only
 deprecation/short synthetic JWT warnings remain. Browser/independent review pending.
+
+Independent WF01 reviewer /root/packaging reproduced a downstream ambiguity:
+separate POs sharing one Sales Order, or PO/USL numeric streams, can now share the
+same order-local Nastil serial. The old unscoped traceability lookup selected the
+newest matching row silently. Two added plain/BATCH reference regressions failed
+with a wrong-order HTTP 200 before the correction; lookup now refuses ambiguous
+serials with HTTP 409. Exact BATCH_ID printed QR resolution is preserved. The
+numbering/traceability/query-growth suite then passed 32 tests; scoped Ruff passed.
+No other active batch creator was missed in the independent source search.

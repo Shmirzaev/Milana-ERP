@@ -63,3 +63,25 @@ def test_later_passport_nastil_follows_public_order(client, auth_headers, passpo
     with SessionLocal() as db:
         assert db.get(ProductionBatch, response.json()["production_batch_id"]).batch_no == "0887-02"
         assert db.get(ProductionBatch, original[0]).batch_no == original[1]
+
+
+@pytest.mark.parametrize("reference", ["0027-01", "BATCH:0027-01"])
+def test_unscoped_duplicate_batch_scan_refuses_instead_of_opening_another_order(client, auth_headers, reference):
+    from app.api.routes.traceability import _find_production_batch
+
+    with SessionLocal() as db:
+        model_id = db.query(Model.id).first()[0]
+        orders = [ProductionOrder(production_no=number, model_id=model_id, production_type="branded_stock")
+                  for number in ("PO-0027", "USL-0027")]
+        db.add_all(orders)
+        db.flush()
+        batches = [create_production_batches(db, order.id, [{"planned_quantity": 3}])[0] for order in orders]
+        assert [row.batch_no for row in batches] == ["0027-01", "0027-01"]
+        ids = [row.id for row in batches]
+        db.commit()
+        # Existing printed ID-based QR codes retain precise resolution.
+        for batch_id in ids:
+            assert _find_production_batch(db, f"BATCH_ID:{batch_id}").id == batch_id
+    response = client.get(f"/api/traceability/production-batch/{reference}", headers=auth_headers)
+    assert response.status_code == 409, response.text
+    assert "multiple orders" in response.json()["detail"]
