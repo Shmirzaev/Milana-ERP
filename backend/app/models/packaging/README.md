@@ -18,25 +18,55 @@ Mixed batch origins remain a list; missing evidence remains unknown. Factory fil
 runs before list counts/paging, and response projection loads origins in 400-row chunks.
 No inventory or production data is changed by this projection.
 
-Selected-Nastil packaging uses the existing atomic create-packages print run and
-`PackageBatchAllocation` evidence. The UI explicitly selects two or more saved
-Packaging outputs; it never includes an unselected Nastil. Shared
-`packaging_scope_service.require_package_source_access` authorizes each source
-batch before all three creation APIs, including a merged package whose parent
-`production_batch_id` is null. One package retains one receiving department.
-`package_sources_service.py` owns GET `/packages/sources/{work_order_id}`: authorize
-the anchor Packaging WO and read same-department sibling Nastils using the saved
-output-minus-package-allocation ledger. This projection supports dedicated sibling
-WOs without widening record-entry/progress scope. It performs no writes.
-See [the 7 November operation packet](../../../../docs/PACK_TWO_NASTILS_20261107.md)
-for quantities, source/field coverage, automated evidence and pending browser gates.
+`create_packages_service.py` coordinates direct order Packaging and exact print runs.
+POST `/packages/print-runs/create-packages` explicitly opts in with `work_order_id`;
+omitting it preserves the legacy saved-output-only contract and request fingerprint.
+The direct action locks PO -> Sewing WOs -> Packaging WOs, reuses saved unlabelled
+output, then records only the additional passed Sewing needed by the selected labels.
+Selected sources must belong to the same active packaging department, and a supplied
+customer-order reference must match the PO. Single-source damage participates in the
+same action; `/packages/record-damage` handles all-damaged output without labels or
+stock. Both actions use the existing keyed retry/reconciliation wrapper and one outer
+commit. Helpers never commit or import routers. Sewing entry uses the same PO-first
+lock order, including defect/waste writes.
 
-`sewing_availability_service.py` reads passed Sewing output for the automatic
-Packaging queue and exact-batch entry budgets. Historical acceptance receipts
-remain audit history and do not cap this availability. Packaging records still
-provide physical output evidence before normal package labels; selected label
-counts leave the unused source balance available. See
-[WF02 evidence](../../../../docs/WF02_PACKAGING_20261113.md).
+`output_service.py` and schema-owned `packaging/output_persistence.py` share the
+physical output writer between legacy record entry and direct actions. BOM material
+consumption, waste, workflow, notification and audit operations participate in the
+same Session. Direct counters are rebuilt from the output ledger; legacy entry keeps
+its historical counter policy. Existing public package/workflow operations retain
+some schema-write migration debt; this slice does not claim a full domain extraction.
+No payroll, warehouse receipt, new table, migration or automatic GET write is added.
+Finished-goods accounting rows retain existing package receipt/stock eligibility gates.
+
+`direct_identity_service.py` validates configured order color/size membership and
+actual cumulative Sewing sizes when complete authoritative evidence exists. Missing
+actual sizes retain the ordinary operator recipe, without treating planned ratios as
+actual output. Grade paths retain strict size confirmation and mixed-batch guards.
+Scalar multi-source allocations cannot prove size x batch attribution; ordinary mixed
+packages retain their recipe while known selected/order-wide size bounds are checked.
+
+`package_sources_service.py` owns read-only GET `/packages/sources/{work_order_id}`:
+authorize the anchor WO and expose same-department siblings. `available_to_package`
+is saved unlabelled output plus unrecorded passed Sewing. `packed_qty` remains saved
+physical output; `sewing_output_qty` and `available_input_qty` expose source evidence.
+`unbatched_source` supports legacy orders without Nastils. Existing record progress
+keeps its saved-output-only field and additionally exposes direct availability.
+
+`sewing_availability_service.py` reads passed Sewing, saved output and exact package
+allocation ledgers for the automatic queue. Saved output stays ready until labels
+consume it. Historical acceptance receipts remain audit history, not another gate.
+Usluga confirmation uses its own counters/JSON and leaves the queue after confirmation;
+its customer-owned goods never enter warehouse print runs. Legacy unclassified WIP
+(input greater than packed plus damaged) is not silently converted into available goods.
+
+The type ledger retains canonical PackagingDepartment/WorkOrderStatus for this slice;
+new UUID/ID/quantity fields are constrained data. Existing PackageIn stock-kind Literal,
+free-form package type and shared wrapper operation-string vocabulary remain explicit
+migration debt. Public mappings/storage values are unchanged. Preserve the historical
+[7 November packet](../../../../docs/PACK_TWO_NASTILS_20261107.md) and
+[WF02 evidence](../../../../docs/WF02_PACKAGING_20261113.md); they do not verify this
+later direct-flow correction or establish human acceptance.
 
 **Purpose:** Own package creation, contents/allocation, identity, change approval and production of valid labels.
 

@@ -12,15 +12,15 @@ import { gradePackageWeights, type PackagingGrade } from "@/lib/gradePackageWeig
 
 export type PackagingSizeBalance = { needs_size_entry: boolean; total: number; version: string;
   sizes: { size: string; accepted: number | null; packed: number; remaining: number }[] };
-export default function FirstGradePackaging({ productionOrderId, batchId, modelId, color, onChanged }: {
-  productionOrderId: number; batchId?: number; modelId: number; color: string; onChanged: () => Promise<unknown>;
+export default function FirstGradePackaging({ productionOrderId, workOrderId, batchId, modelId, color, onChanged }: {
+  productionOrderId: number; workOrderId?: number; batchId?: number; modelId: number; color: string; onChanged: () => Promise<unknown>;
 }) {
   return <GradePackaging key={`${productionOrderId}:${batchId ?? ""}:${modelId}:${color}`}
-    productionOrderId={productionOrderId} batchId={batchId} modelId={modelId} color={color} onChanged={onChanged} />;
+    productionOrderId={productionOrderId} workOrderId={workOrderId} batchId={batchId} modelId={modelId} color={color} onChanged={onChanged} />;
 }
 
-function GradePackaging({ productionOrderId, batchId, modelId, color, onChanged }: {
-  productionOrderId: number; batchId?: number; modelId: number; color: string; onChanged: () => Promise<unknown>;
+function GradePackaging({ productionOrderId, workOrderId, batchId, modelId, color, onChanged }: {
+  productionOrderId: number; workOrderId?: number; batchId?: number; modelId: number; color: string; onChanged: () => Promise<unknown>;
 }) {
   const { lang } = useT(); const copy = firstGradeText[lang]; const { me } = useMe();
   const [grade, setGrade] = useState<PackagingGrade>("first_grade");
@@ -59,7 +59,7 @@ function GradePackaging({ productionOrderId, batchId, modelId, color, onChanged 
               weight_kg: row.weight_kg,
               items: [{ model_id: modelId, color, size: row.size, quantity: row.quantity }],
             }));
-          const result = await postPackageWorkflow<PackagePrintRun>(path, { packages }, me.id);
+          const result = await postPackageWorkflow<PackagePrintRun>(path, { packages, ...(workOrderId ? { work_order_id: workOrderId } : {}) }, me.id);
           setRun(result); setQuantities({}); setWeights({ ...weights, [grade]: "" }); setMessage(grade === "first_grade" ? copy.saved : copy.secondSaved); await mutate(); await onChanged();
         } catch (e) { setMessage(e instanceof Error ? e.message : String(e)); }
         finally { setBusy(false); }

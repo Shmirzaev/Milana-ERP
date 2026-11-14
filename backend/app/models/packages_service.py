@@ -345,11 +345,12 @@ def _compute_cost(db: Session, model_id: int) -> float:
 
 
 def _packaging_record_totals_by_batch(db: Session, production_order_id: int) -> dict[int | None, int]:
+    record_batch = func.coalesce(PackagingRecord.production_batch_id, WorkOrder.production_batch_id)
     rows = (
-        db.query(PackagingRecord.production_batch_id, func.coalesce(func.sum(PackagingRecord.packed_qty), 0))
+        db.query(record_batch, func.coalesce(func.sum(PackagingRecord.packed_qty), 0))
         .join(WorkOrder, WorkOrder.id == PackagingRecord.work_order_id)
         .filter(WorkOrder.production_order_id == production_order_id)
-        .group_by(PackagingRecord.production_batch_id)
+        .group_by(record_batch)
         .all()
     )
     return {int(batch_id) if batch_id is not None else None: int(qty or 0) for batch_id, qty in rows}

@@ -159,13 +159,24 @@ export function pendingPackageWorkflow(path: string, userId: number): PendingPac
   return readPendingSources(path, userId).pending;
 }
 
+const directPackagingPaths = ["/api/packages/print-runs/create-packages", "/api/packages/record-damage"];
+function packageWorkflowLockKey(path: string, userId: number): string {
+  return directPackagingPaths.includes(path) ? `package-request:${userId}:direct-packaging` : packageWorkflowStorageKey(path, userId);
+}
+
 async function preparePendingPackageWorkflow(
   path: string,
   userId: number,
   body: unknown,
 ): Promise<{ pending: PendingPackageRequest; isNew: boolean }> {
   const storageKey = packageWorkflowStorageKey(path, userId);
-  return packageWorkflowLocks().request(storageKey, () => {
+  return packageWorkflowLocks().request(packageWorkflowLockKey(path, userId), () => {
+    // Both actions can record the same physical damage. Preserve per-path retry
+    // evidence, but serialize preparation and refuse the alternate action until
+    // an uncertain request is reconciled, including requests in another tab.
+    if (directPackagingPaths.includes(path) && directPackagingPaths.some(other => other !== path && readPendingSources(other, userId).pending)) {
+      throw new Error(localizeError("Retry the saved package request before submitting changed values"));
+    }
     const sources = readPendingSources(path, userId);
     if (sources.pending) {
       if (JSON.stringify(sources.pending.body) !== JSON.stringify(body)) {
@@ -202,7 +213,7 @@ async function clearPendingPackageWorkflow(
   requestKey: string,
 ): Promise<boolean> {
   const storageKey = packageWorkflowStorageKey(path, userId);
-  return packageWorkflowLocks().request(storageKey, () => {
+  return packageWorkflowLocks().request(packageWorkflowLockKey(path, userId), () => {
     const sources = readPendingSources(path, userId);
     if (!sources.pending || sources.pending.requestKey !== requestKey) return false;
     try {
@@ -257,6 +268,7 @@ export type PackageWorkflowReconciliation<T> =
   | { status: "cancelled" };
 
 const reconciliationPath: Record<string, string> = {
+  "/api/packages/record-damage": "/api/packages/record-damage/reconcile",
   "/api/packages/manual-packaging": "/api/packages/manual-packaging/reconcile",
   "/api/packages/manual-receipt": "/api/packages/manual-receipt/reconcile",
   "/api/packages/print-runs": "/api/packages/print-runs/reconcile",

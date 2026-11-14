@@ -848,7 +848,8 @@ def test_legacy_packaging_receipts_do_not_limit_automatic_sewing_availability(cl
 
 
     # Legacy receipts remain history; proven Sewing output is now available
-    # automatically. Saving physical Packaging output is still a separate step.
+    # automatically. The compatible manual record API remains, and saved good
+    # output stays ready until labels consume it.
     packed = client.post("/api/packaging/records", headers=auth_headers, json={
         "work_order_id": packaging_work_order_id, "input_qty": 18,
         "packed_qty": 18, "damaged_qty": 0,
@@ -857,7 +858,7 @@ def test_legacy_packaging_receipts_do_not_limit_automatic_sewing_availability(cl
     queue = client.get("/api/packaging/received-orders", headers=auth_headers)
     assert queue.status_code == 200, queue.text
     row = next(row for row in queue.json() if row["work_order_id"] == packaging_work_order_id)
-    assert (row["received_quantity"], row["packing_input_quantity"], row["remaining_quantity"]) == (20, 18, 2)
+    assert (row["received_quantity"], row["packing_input_quantity"], row["packed_quantity"], row["remaining_quantity"]) == (20, 18, 18, 20)
     from app.schemas import Package, PackagingReceipt
     with SessionLocal() as db:
         assert db.get(WorkOrder, packaging_work_order_id).actual_input_qty == 18
@@ -4425,7 +4426,10 @@ def test_packaging_progress_finishes_with_sewing_defects(client, auth_headers):
 
     r = client.get("/api/packaging/received-orders", headers=auth_headers)
     assert r.status_code == 200, r.text
-    assert not any(int(row["production_order_id"]) == po_id for row in r.json())
+    ready = next(row for row in r.json() if int(row["production_order_id"]) == po_id)
+    # Physical Packaging is complete; all599 good pieces still await labels.
+    # The one Sewing defect is never offered as packageable output.
+    assert (ready["received_quantity"], ready["packed_quantity"], ready["remaining_quantity"]) == (599, 599, 599)
 
 
 def test_process_tracking_resolves_sewing_defects_for_storage(client, auth_headers):

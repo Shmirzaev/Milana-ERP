@@ -6,8 +6,15 @@ Existing Pydantic definitions in this group:
 
 - [tracking.py](tracking.py)
 - [package_source_output.py](package_source_output.py): read-only same-department
-  sibling-Nastil balances for package creation; canonical PackagingDepartment
-  output, existing batch labels and saved/consumed quantities.
+  sibling-Nastil balances for direct package creation; canonical PackagingDepartment
+  output, saved/labelled quantities, actual Sewing and unrecorded input. An optional
+  unbatched balance supports legacy orders without Nastils.
+- [packaging_damage_input.py](packaging_damage_input.py): keyed damage-only action;
+  constrained work-order/batch IDs and a positive integer damage quantity.
+- The existing fulfillment `PrintRunCreatePackagesIn` adds optional `work_order_id`
+  to select direct mode and zero-default `damaged_qty` for a single source. The
+  established no-anchor saved-output-only body/fingerprint is preserved. Print-run
+  creation remains bounded to 200 packages; all-damaged output uses its own action.
 
 These describe accepted inputs and returned data. They do not execute database
 writes, implement permissions or manage transactions. Existing filenames/class

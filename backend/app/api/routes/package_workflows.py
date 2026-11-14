@@ -12,17 +12,12 @@ from app.libs.dto.fulfillment.package_workflows import ManualPackageReceiptIn, P
 from app.libs.dto.packaging.tracking import PackageChangeRequestIn
 from app.libs.dto.packaging.manual_package_input import ManualPackageCreateIn
 from app.libs.dto.packaging.manual_package_output import ManualPackageCreateOut, ManualPackageRecoveryOut
+from app.libs.dto.packaging.packaging_damage_input import PackagingDamageIn
 from pydantic import BaseModel, ConfigDict, Field
 from app.models import package_workflows_service as service
-from app.models.audit_service import log_action
 from app.models.package_label_pages_service import label_document
 from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response
 from app.models.packaging_scope_service import packaging_department_for_order, packaging_department_scope, require_package_access
-from app.models.packages_service import (create_package, _packaging_record_totals_by_batch,
-    PackageWriteContext, prime_package_batch_memberships, prime_packaged_quantity_availability)
-from app.models.packaging_scope_service import require_package_source_access
-from app.models.numbering_service import next_package_nos
-from app.models.workflow_service import sync_production_order_status
 from app.libs.enums.packaging import PrintRunReceiptStatus
 from app.models.packaging import print_runs_service
 
@@ -195,11 +190,16 @@ _OPERATION_PERMISSIONS = {
     "resend-corrected": {"packaging.packages", "*"},
     "print-run": {"packaging.packages", "storage.packages", "*"},
     "create-packages-run": {"packaging.packages", "*"},
+    "record-damage": {"packaging.packages", "*"},
 }
 
 
 def _request_body(operation, payload):
     body = payload.model_dump(mode="json")
+    if operation == "create-packages-run" and body.get("work_order_id") is None:
+        body.pop("work_order_id", None)
+    if operation == "create-packages-run" and body.get("damaged_qty") == 0:
+        body.pop("damaged_qty", None)
     if operation == "manual-receipt" and body.get("pack_quantities") is None:
         body.pop("pack_quantities", None)
     return body
@@ -221,6 +221,10 @@ def _validate_package_workflow_replay(db, current, operation, replay):
         raise HTTPException(409, "This package request was cancelled; submit corrected values with a new key")
     if operation == "manual-receipt":
         _validate_manual_receipt_replay(db, replay)
+        return
+    if operation == "record-damage":
+        from app.models.packaging.create_packages_service import validate_damage_replay
+        validate_damage_replay(db, current, replay)
         return
     try:
         run_id = int(replay["id"])
@@ -414,68 +418,21 @@ def reconcile_print_run(payload: PrintRunIn, db: DbSession, current: CurrentUser
 @router.post("/print-runs/create-packages", status_code=201)
 def create_packages_and_run(payload: PrintRunCreatePackagesIn, db: DbSession,
                             current: User = Depends(require_permissions("packaging.packages", "*"))):
-    def action():
-        order_ids = {p.production_order_id for p in payload.packages}
-        if len(order_ids) != 1:
-            raise HTTPException(400, "Select one production order per packaging action")
-        order = db.query(ProductionOrder).filter(ProductionOrder.id.in_(order_ids)).with_for_update().first()
-        if not order:
-            raise HTTPException(404, "Production order not found")
-        if order.source_type == "usluga":
-            raise HTTPException(400, "Usluga does not enter warehouse receiving print runs")
-        # The existing helper has a legacy no-record fallback. This new path never uses it.
-        packed_by_batch = _packaging_record_totals_by_batch(db, order.id)
-        if not packed_by_batch:
-            raise HTTPException(409, "Save Packaging output before creating packages")
-        first_row = payload.packages[0]
-        if first_row.model_id != order.model_id or any(
-            item.model_id != order.model_id for item in first_row.items
-        ):
-            raise HTTPException(400, "Package model must match the production order")
-        batch_ids = {
-            int(batch_id)
-            for row in payload.packages
-            for batch_id in (
-                [row.production_batch_id] if row.production_batch_id is not None else []
-            ) + [allocation.production_batch_id for allocation in row.batch_allocations]
-        }
-        owners = require_package_source_access(current, db, int(order.id), payload.packages)
-        write_context = PackageWriteContext.empty()
-        write_context.locked_orders[int(order.id)] = order
-        prime_package_batch_memberships(
-            db,
-            write_context,
-            production_order_id=int(order.id),
-            production_batch_ids=batch_ids,
-        )
-        prime_packaged_quantity_availability(
-            db,
-            write_context,
-            production_order_id=int(order.id),
-            packed_by_batch=packed_by_batch,
-        )
-        package_numbers = next_package_nos(db, len(payload.packages))
-        packages = []
-        for index, row in enumerate(payload.packages):
-            if row.model_id != order.model_id or any(item.model_id != order.model_id for item in row.items):
-                raise HTTPException(400, "Package model must match the production order")
-            data = row.model_dump()
-            data["packaging_department_code"] = owners[index].value
-            data["user_id"] = current.id
-            data["is_admin"] = False
-            data["override_capacity"] = False
-            pkg = create_package(
-                db,
-                **data,
-                _write_context=write_context,
-                _package_no=package_numbers[index],
-                _sync_production=False,
-            )
-            log_action(db, current, "create", "Package", pkg.id, new_value={"package_no": pkg.package_no})
-            packages.append(pkg)
-        sync_production_order_status(db, int(order.id))
-        return service.run_payload(db, service.create_run(db, current, packages))
-    return _write(db, current, "create-packages-run", payload, action)
+    from app.models.packaging.create_packages_service import create_packages_run
+    return _write(db, current, "create-packages-run", payload,
+                  lambda: create_packages_run(db, current, payload))
+
+
+@router.post("/record-damage", status_code=201)
+def record_packaging_damage(payload: PackagingDamageIn, db: DbSession,
+                            current: User = Depends(require_permissions("packaging.packages", "*"))):
+    from app.models.packaging.create_packages_service import record_damage
+    return _write(db, current, "record-damage", payload, lambda: record_damage(db, current, payload))
+
+
+@router.post("/record-damage/reconcile")
+def reconcile_packaging_damage(payload: PackagingDamageIn, db: DbSession, current: CurrentUser):
+    return _reconcile_package_workflow(db, current, "record-damage", payload)
 
 
 @router.get("/print-runs")

@@ -11,9 +11,39 @@ this checkout, a new combined candidate or deployed production. Inspect current
 code and the operation ledger before advancing a gate. Schema-owned writers,
 system-wide enum/type adoption and human acceptance remain incomplete.
 
-Last updated 2026-11-13. Keep this file short: current decisions, release pointers and
+Last updated 2026-11-14. Keep this file short: current decisions, release pointers and
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
+
+## Direct Sewing to Packaging correction (14 November; local only)
+
+The owner requested removal of the separate Save Packaging Record step globally.
+Local correction on `codex/factory-workflows-20261113` now creates only the selected
+packs/labels directly from passed Sewing, reuses saved unlabelled output first,
+retains exact batch allocations, supports damage-only entry without labels and
+starts partial Packaging automatically. Shared keyed transactions, cross-action
+retry exclusion and PO-first Sewing/Packaging locks prevent duplicate quantities
+and the reproduced deadlock. Legacy record history/API remains; no migration.
+
+137 focused backend tests, four mandatory PostgreSQL cases and five additional
+reserve PostgreSQL cases passed. Frontend regression/property/recovery checks,
+TypeScript, changed-path ESLint, fresh exact-source production compilation and
+independent hash review passed. Connected Edge admin/Packaging-role UI and read-only
+isolated SQL verified full/partial/mixed/grade/damage-only output and warehouse
+receiving. Label-popup visual checking is BLOCKED by browser blob-URL policy;
+physical labels, hardware and human acceptance are pending. No whole-task
+AI_VERIFIED or release-readiness claim. See the
+[operation/evidence packet](PACKAGING_DIRECT_SEWING_20261114.md).
+
+Remaining policy/storage gaps: BOM shortages do not block packing, legacy
+input greater than packed+damaged needs reconciliation, mixed allocations lack
+size-by-batch detail, and material-linked cancellation lacks an operator reversal
+path. Header/queue wording can still confuse physical output with labelled stock.
+No production business data was touched. Active public health still identifies
+`20261111_115200`/source46ddd; withdrawn094409/e538 stays off traffic. This branch
+contains other withdrawn changes: reconcile the packaging patch with live source
+before any future release, complete remaining gates and obtain fresh deployment
+authorization. No merge or deployment was performed for this correction.
 
 ## Factory workflow deployment rolled back (13 November)
 

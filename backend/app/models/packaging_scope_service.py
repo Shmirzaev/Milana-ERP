@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.schemas import Department, User, WorkOrder
 from app.libs.enums.packaging import PackagingDepartment
+from app.libs.enums.production import WorkOrderStatus
 
 if TYPE_CHECKING:
     from app.libs.dto.packaging.tracking import PackageIn
@@ -50,6 +51,7 @@ def packaging_department_for_order(
         .filter(
             WorkOrder.production_order_id == production_order_id,
             WorkOrder.operation == "packaging",
+            WorkOrder.status != WorkOrderStatus.CANCELLED,
             Department.code.in_(PACKAGING_DEPARTMENT_CODES),
         )
     )
@@ -98,6 +100,7 @@ def packaging_departments_for_order(
         .filter(
             WorkOrder.production_order_id == production_order_id,
             WorkOrder.operation == "packaging",
+            WorkOrder.status != WorkOrderStatus.CANCELLED,
             Department.code.in_(PACKAGING_DEPARTMENT_CODES),
         )
         .order_by(WorkOrder.id.desc())

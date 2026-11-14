@@ -91,7 +91,6 @@ from app.models.sewing_input_service import sync_sewing_input
 from app.models.workflow_service import (
     WORKFLOW_SEQUENCE,
     advance_workflow,
-    consume_packaging_materials_from_bom,
     create_waste_record,
     notify_department,
     processed_work_order_qty,
@@ -2989,7 +2988,7 @@ def sewing_size_progress(
 
 
 @router.get("/work-orders/{wid}/packaging-batch-progress")
-def packaging_batch_progress(wid: int, db: DbSession, _: User = Depends(require_permissions(*PRODUCTION_READ_PERMISSIONS))):
+def packaging_batch_progress(wid: int, db: DbSession, _: User = Depends(require_permissions("packaging.packages", *PRODUCTION_READ_PERMISSIONS))):
     wo = db.get(WorkOrder, wid)
     if not wo:
         raise HTTPException(404, "Work order not found")
@@ -3089,6 +3088,7 @@ def packaging_batch_progress(wid: int, db: DbSession, _: User = Depends(require_
             "packed_qty": packed,
             "packaged_qty": packaged,
             "available_to_package": max(0, packed - packaged),
+            "direct_available_to_package": max(0, packed - packaged) + int(budget.get("available_input_qty", 0)),
             "damaged_qty": damaged,
             "remaining_quantity": max(0, planned - processed),
             "progress_pct": round((100.0 * processed / planned), 1) if planned > 0 else 0.0,
@@ -3103,7 +3103,8 @@ def packaging_batch_progress(wid: int, db: DbSession, _: User = Depends(require_
         packed = sum(int(packed_sum or 0) for batch_id, _, packed_sum, _ in rows if batch_id is None)
         packaged = _existing_package_totals_by_batch(db, wo.production_order_id).get(None, 0)
         scope_labels = {"packed_qty": packed, "packaged_qty": packaged,
-                        "available_to_package": max(0, packed - packaged)}
+                        "available_to_package": max(0, packed - packaged),
+                        "direct_available_to_package": max(0, packed - packaged) + int(scope_budget.get("available_input_qty", 0))}
     return {"work_order_id": wo.id, "items": items, **scope_budget, **scope_labels}
 
 
@@ -5361,7 +5362,12 @@ def post_sewing(payload: SewingRecordIn, db: DbSession, current: User = Depends(
     replay = replay_idempotent_response(db, scope="sewing:output", key=idempotency_key, payload=payload.model_dump())
     if replay is not None:
         return replay
-    wo = db.query(WorkOrder).filter(WorkOrder.id == payload.work_order_id).with_for_update().first()
+    # Packaging output/label actions hold PO before Sewing WO. Take the same
+    # order here: inserting defect waste later needs the PO foreign-key lock.
+    source_order = db.query(WorkOrder.production_order_id).filter(
+        WorkOrder.id == payload.work_order_id).scalar_subquery()
+    db.query(ProductionOrder.id).filter(ProductionOrder.id == source_order).with_for_update(of=ProductionOrder).first()
+    wo = db.query(WorkOrder).filter(WorkOrder.id == payload.work_order_id).with_for_update(of=WorkOrder).populate_existing().first()
     if not wo: raise HTTPException(404, "Work order not found")
     from app.models.factory_scope_service import require_work_order_factory_access
     require_work_order_factory_access(current, db, wo)
@@ -5959,7 +5965,7 @@ def packaging_receipts(
 @router.get("/packaging/received-orders")
 def packaging_received_orders(
     db: DbSession,
-    current: User = Depends(require_permissions("packaging.records", "planning.production", "*")),
+    current: User = Depends(require_permissions("packaging.packages", "packaging.records", "planning.production", "*")),
     q: str | None = None,
     limit: int = 200,
     packaging_department_code: str | None = None,
@@ -5973,20 +5979,6 @@ def packaging_received_orders(
     if not work_order_ids:
         return []
 
-    record_rows = (
-        db.query(
-            PackagingRecord.work_order_id,
-            func.coalesce(func.sum(PackagingRecord.input_qty), 0).label("packing_input_quantity"),
-            func.coalesce(func.sum(PackagingRecord.packed_qty), 0).label("packed_quantity"),
-        )
-        .filter(PackagingRecord.work_order_id.in_(work_order_ids))
-        .group_by(PackagingRecord.work_order_id)
-        .all()
-    )
-    records_by_work_order = {
-        int(row.work_order_id): (int(row.packing_input_quantity or 0), int(row.packed_quantity or 0))
-        for row in record_rows
-    }
     production_orders = db.query(ProductionOrder).filter(ProductionOrder.id.in_(production_order_ids)).all()
     po_by_id = {int(po.id): po for po in production_orders}
     model_ids = sorted({int(po.model_id) for po in production_orders if po.model_id})
@@ -6000,8 +5992,8 @@ def packaging_received_orders(
         work_order_id = int(row.work_order_id)
         production_order_id = int(row.production_order_id)
         received_quantity = int(row.received_quantity or 0)
-        packing_input_quantity, packed_quantity = records_by_work_order.get(work_order_id, (0, 0))
-        remaining_quantity = max(0, received_quantity - packing_input_quantity)
+        packing_input_quantity, packed_quantity = row.packing_input_quantity, row.packed_quantity
+        remaining_quantity = row.remaining_quantity
         if remaining_quantity <= 0:
             continue
         po = po_by_id.get(production_order_id)
@@ -6150,55 +6142,8 @@ def post_packaging(payload: PackagingRecordIn, db: DbSession, current: User = De
         source = "sewing passed output"
         raise HTTPException(400, f"Packaging input exceeds {source} {budget.get('input_limit_qty', 0)}; available {available} for this batch")
 
-    rec_data = payload.model_dump()
-    rec_data["production_batch_id"] = batch_id
-    rec = PackagingRecord(**rec_data)
-    rec.operator_id = payload.operator_id or current.id
-    db.add(rec)
-    db.flush()
-    # Historical acceptance receipts must not be counted again as physical
-    # Packaging input; the saved record ledger is authoritative.
-    if db.query(PackagingReceipt.id).filter(PackagingReceipt.work_order_id == wo.id).first():
-        wo.actual_input_qty = int(db.query(func.coalesce(func.sum(PackagingRecord.input_qty), 0)).filter(
-            PackagingRecord.work_order_id == wo.id,
-        ).scalar() or 0)
-    else:
-        wo.actual_input_qty += payload.input_qty
-    wo.actual_output_qty += payload.packed_qty
-    wo.passed_qty += payload.packed_qty
-    wo.failed_qty += payload.damaged_qty
-    consume_packaging_materials_from_bom(
-        db,
-        production_order_id=wo.production_order_id,
-        packed_qty=int(payload.packed_qty or 0),
-        reference_type="PackagingRecord",
-        reference_id=rec.id,
-        user_id=current.id,
-    )
-    create_waste_record(
-        db,
-        production_order_id=wo.production_order_id,
-        work_order_id=wo.id,
-        source_department_id=wo.department_id,
-        item_id=None,
-        batch_id=None,
-        waste_type="packaging_damage",
-        quantity=float(payload.damaged_qty or 0),
-        unit="pcs",
-        reason="Auto-created from packaging record",
-        created_by=current.id,
-    )
-    advance_workflow(db, wo, trigger_output_qty=int(payload.packed_qty or 0))
-    production_order = db.get(ProductionOrder, wo.production_order_id)
-    if int(payload.packed_qty or 0) > 0 and getattr(production_order, "source_type", "standard") != "usluga":
-        notify_department(
-            db,
-            department_code="FGS",
-            title="Packed goods ready",
-            message=f"Order {wo.order_no or wo.id} packed {payload.packed_qty} pcs and is ready for storage intake.",
-            link="/packages/scan",
-        )
-    log_action(db, current, "create", "PackagingRecord", rec.id, new_value={"work_order_id": wo.id})
+    from app.models.packaging.output_service import record_output
+    rec = record_output(db, current, wo, payload.model_copy(update={"production_batch_id": batch_id}))
     db.commit(); db.refresh(rec)
     return {"id": rec.id}
 

@@ -24,6 +24,14 @@ These links follow business ownership; some point to mixed files in another grou
 or shared core.py. Keep one authoritative mapping per table. Moving individual
 classes out of mixed files is a separate approved change.
 
+`output_persistence.py` inserts the authoritative existing PackagingRecord and
+applies validated work-order counter totals and a service-selected direct start
+transition/timestamp using the supplied Session. It performs
+no business authorization, material consumption, workflow decision or commit. The
+Packaging output service coordinates those existing operations in one outer action.
+The mapping/table remains in `schemas/production/production.py`; no duplicate mapping
+or database migration is introduced.
+
 ## How to make a file here
 
 1. Trace the approved business operation in [the service guide](../../models/packaging/README.md),

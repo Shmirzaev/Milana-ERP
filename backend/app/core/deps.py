@@ -55,6 +55,7 @@ READ_PERMISSIONS = {
         "printing.records",
         "sewing.records",
         "packaging.records",
+        "packaging.packages",
         "sewing.flows",
         "storage.packages",
         "storage.shipment",

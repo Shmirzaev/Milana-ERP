@@ -26,6 +26,13 @@ for (const selected of [[], [1], [1, 4], [1, 1]]) {
 }
 assert.equal(planSelectedNastils(items, sources, [1, 2, 3]).totalAvailable, 165);
 assert.equal(planSelectedNastils([{ ...items[0], quantity: 1.5 }], sources, [1, 2]).plans.length, 0);
+// Planning a small requested run must stay bounded even for a very large source.
+const bounded = planSelectedNastils([{ ...items[0], quantity: 1 }], [
+  { id: 1, label: "A", available: 1_000_000_000 }, { id: 2, label: "B", available: 1_000_000_000 },
+], [1, 2], 200);
+assert.equal(bounded.plans.length, 200);
+assert.equal(bounded.pendingQty, 2_000_000_000 - 200);
+assert.equal(bounded.plans.flatMap(row => row.batch_allocations).reduce((sum, row) => sum + row.quantity, 0), 200);
 // Bounded varied quantities: every available piece belongs to one exact selected source.
 for (let left = 1; left <= 50; left++) for (let right = 1; right <= 50; right++) {
   const plan = planSelectedNastils(items, [{ ...sources[0], available: left }, { ...sources[1], available: right }, sources[2]], [1, 2]);

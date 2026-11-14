@@ -2,10 +2,11 @@
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from app.libs.dto.packaging.package_source_output import PackageSourceOut, PackageSourcesOut
+from app.libs.dto.packaging.package_source_output import PackageSourceBalanceOut, PackageSourceOut, PackageSourcesOut
 from app.libs.enums.packaging import PackagingDepartment
 from app.models.packaging_scope_service import packaging_departments_for_order, require_packaging_work_order_access
 from app.models.packages_service import packaged_quantity_balances_by_batch
+from app.models.packaging.sewing_availability_service import direct_input_budgets
 from app.schemas import ProductionBatch, ProductionOrder, User, WorkOrder
 
 
@@ -24,12 +25,20 @@ def package_sources(db: Session, current: User, work_order_id: int) -> PackageSo
     ).order_by(ProductionBatch.batch_index, ProductionBatch.id).all()
     owners = packaging_departments_for_order(db, work_order.production_order_id, {row.id for row in batches})
     packed, packaged = packaged_quantity_balances_by_batch(db, work_order.production_order_id)
+    budgets = direct_input_budgets(db, work_order.production_order_id)
+
+    def balance(batch_id: int | None) -> dict[str, int]:
+        budget = budgets.get(batch_id, {"sewing_output_qty": 0, "available_input_qty": 0})
+        return {"packed_qty": max(0, packed.get(batch_id, 0)),
+                "packaged_qty": max(0, packaged.get(batch_id, 0)),
+                "available_to_package": max(0, packed.get(batch_id, 0) - packaged.get(batch_id, 0)) + budget["available_input_qty"],
+                **budget}
     return PackageSourcesOut(
         work_order_id=work_order.id, production_order_id=work_order.production_order_id,
         packaging_department=owner,
         items=[PackageSourceOut(
             id=row.id, batch_no=row.batch_no, batch_index=row.batch_index, name=row.name,
-            packed_qty=max(0, packed.get(row.id, 0)), packaged_qty=max(0, packaged.get(row.id, 0)),
-            available_to_package=max(0, packed.get(row.id, 0) - packaged.get(row.id, 0)),
+            **balance(row.id),
         ) for row in batches if PackagingDepartment(owners[row.id]) == owner],
+        unbatched_source=PackageSourceBalanceOut(**balance(None)) if not batches else None,
     )

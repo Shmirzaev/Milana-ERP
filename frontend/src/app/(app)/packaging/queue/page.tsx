@@ -52,7 +52,7 @@ export default function PackagingQueuePage() {
     if (search) params.set("q", search);
     return `/api/packaging/received-orders?${params.toString()}`;
   }, [packagingDepartment, search]);
-  const { data: orders = [], mutate, isLoading } = useSWR<ReceivedOrder[]>(queueUrl, fetcher);
+  const { data: orders = [], mutate, isLoading, error } = useSWR<ReceivedOrder[]>(queueUrl, fetcher);
 
   function submitSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -73,6 +73,7 @@ export default function PackagingQueuePage() {
       />
 
       <section className="card p-4">
+        {error && <p role="alert" className="mb-3 text-sm text-red-700">{error.message}</p>}
         <form className="mb-4 flex w-full gap-2 md:max-w-md" onSubmit={submitSearch}>
           <div className="relative flex-1">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8a8472]" />

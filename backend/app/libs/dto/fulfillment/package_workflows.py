@@ -48,6 +48,8 @@ class PrintRunIn(BaseModel):
 class PrintRunCreatePackagesIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     request_key: UUID
+    work_order_id: int | None = Field(default=None, gt=0, le=2_147_483_647)
+    damaged_qty: int = Field(default=0, ge=0, le=2_147_483_647, strict=True)
     packages: list[PackageIn] = Field(min_length=1, max_length=200)
 
 

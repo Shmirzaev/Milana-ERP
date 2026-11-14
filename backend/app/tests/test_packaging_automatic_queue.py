@@ -47,7 +47,9 @@ def test_automatic_queue_partial_and_legacy_receipt_history(client, auth_headers
     rows = _queue(client, headers, po['id'], department)
     assert rows[0]['received_quantity'] == 125
     assert rows[0]['packed_quantity'] == 70
-    assert rows[0]['remaining_quantity'] == 55
+    # Saved good output is still ready until actual package labels consume it:
+    # 55 unrecorded Sewing + 70 saved/unlabelled pieces.
+    assert rows[0]['remaining_quantity'] == 125
     with TestSessionLocal() as db:
         assert db.query(PackagingReceipt).count() == 1
         assert db.get(WorkOrder, work['packaging']).actual_input_qty == 70
