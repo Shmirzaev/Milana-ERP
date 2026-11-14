@@ -95,8 +95,8 @@ export default function PackagingQueuePage() {
                 <th>{t("field.orderNo")}</th>
                 <th>{t("page.packagingReceive.modelVariant")}</th>
                 <th className="text-right">{copy.output}</th>
-                <th className="text-right">{t("page.packagingReceive.packed")}</th>
-                <th className="text-right">{t("page.packagingReceive.readyToPack")}</th>
+                <th className="text-right">{copy.recordedOutput}</th>
+                <th className="text-right">{copy.available}</th>
                 <th>{t("field.actions")}</th>
               </tr>
             </thead>

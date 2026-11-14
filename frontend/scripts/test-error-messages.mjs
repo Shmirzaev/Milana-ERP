@@ -38,7 +38,7 @@ for (const lang of ["en", "ru", "uz"]) {
 assert.match(localizeError("Package is linked to a shipment and cannot be deleted", 409, "uz"), /jo‘natmaga/);
 assert.match(localizeError("Package stock is reserved and cannot be deleted", 409, "ru"), /зарезервирован/);
 for (const lang of ["en", "ru", "uz"]) {
-  for (const code of ["FIRST_GRADE_SIZE_EVIDENCE_REQUIRED", "FIRST_GRADE_SIZE_EXCEEDED", "FIRST_GRADE_ONE_PIECE_REQUIRED", "SHIPMENT_DELETE_BEFORE_DISPATCH", "SHIPMENT_ALREADY_DELETED"]) {
+  for (const code of ["FIRST_GRADE_SIZE_EVIDENCE_REQUIRED", "FIRST_GRADE_SIZE_EXCEEDED", "FIRST_GRADE_ONE_PIECE_REQUIRED", "SHIPMENT_DELETE_BEFORE_DISPATCH", "SHIPMENT_ALREADY_DELETED", "MIXED_PACKAGE_ITEM_BREAKDOWN_REQUIRED", "MIXED_PACKAGE_QUANTITY_REQUIRES_PACKAGING_CORRECTION"]) {
     const message = localizeError(code, 409, lang);
     assert.ok(message.length > 15 && !message.includes(code), `${code} must have a ${lang} message`);
   }

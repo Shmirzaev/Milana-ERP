@@ -193,6 +193,12 @@ def _package_out_payload(db: DbSession, pkg: Package, *, context: dict | None = 
 def _package_detail_payload(db: DbSession, pkg: Package, *, context: dict | None = None) -> dict:
     from app.models.package_workflows_service import active_members
     data = PackageDetail.model_validate(pkg).model_dump(mode="json")
+    production_batches = (context["production_batches"] if context is not None else _load_reference_map(
+        db, ProductionBatch, (row.production_batch_id for row in pkg.batch_allocations)))
+    for row in data["batch_allocations"]:
+        batch = production_batches.get(row["production_batch_id"])
+        row["batch_no"] = batch.batch_no if batch else None
+        row["batch_name"] = batch.name if batch else None
     if pkg.dispatched_quantities and pkg.status in {"received_in_storage", "reserved"}:
         data["total_quantity"] = remaining_quantity(pkg)
         for item, value in zip(pkg.items, data["items"]):
@@ -376,6 +382,8 @@ def _package_detail_reference_context(
         "customers": customers,
         "models": models,
         "manual_receipts": manual_receipts,
+        "production_batches": _load_reference_map(db, ProductionBatch,
+            (allocation.production_batch_id for package in packages for allocation in package.batch_allocations)),
         "print_run_ids": resolved_print_run_ids,
         "sewing_origins": package_sewing_origins(db, (pkg.id for pkg in packages)),
     }
@@ -406,6 +414,7 @@ def _package_detail_relationship_options():
             PackageBatchAllocation.package_id,
             PackageBatchAllocation.production_batch_id,
             PackageBatchAllocation.quantity,
+            PackageBatchAllocation.item_breakdown,
         ),
         selectinload(Package.scan_logs).load_only(
             PackageScanLog.id,
@@ -926,16 +935,16 @@ def _batch_allocations_html(
     production_batches: dict[int, ProductionBatch] | None = None,
 ) -> str:
     rows = [
-        (int(alloc.production_batch_id), int(alloc.quantity or 0))
+        (int(alloc.production_batch_id), int(alloc.quantity or 0), alloc.item_breakdown)
         for alloc in (pkg.batch_allocations if allocations is None else allocations)
     ]
     if not rows and pkg.production_batch_id:
-        rows = [(int(pkg.production_batch_id), int(pkg.total_quantity or 0))]
+        rows = [(int(pkg.production_batch_id), int(pkg.total_quantity or 0), None)]
     if not rows:
         return ""
 
     parts = []
-    for batch_id, _quantity in rows:
+    for batch_id, quantity, breakdown in rows:
         batch = (
             production_batches.get(batch_id)
             if production_batches is not None
@@ -947,7 +956,10 @@ def _batch_allocations_html(
                 label = f"{label} - {batch.name}"
         else:
             label = f"Batch #{batch_id}"
-        parts.append(_h(label))
+        detail = ", ".join(f"{_h(row['color'])} {_h(row['size'])}: {row['quantity']}" for row in breakdown or [])
+        if len(rows) > 1 and breakdown is None:
+            detail = "Sizes by batch unknown / Размеры по настилу неизвестны / Nastil bo‘yicha o‘lchamlar noma’lum"
+        parts.append(f"{_h(label)} ({quantity})" + (f"<br>{detail}" if detail else ""))
     return "<br>".join(parts)
 
 

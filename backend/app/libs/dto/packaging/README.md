@@ -33,3 +33,11 @@ the required visual and release acceptance checks.
 See [DTO rules](../README.md), [business services](../../../models/README.md),
 [database definitions](../../../schemas/README.md) and
 [ownership](../../../../../docs/TEAM_OWNERSHIP.md).
+
+`package_allocation_items.py` declares the strict full-identity cells used by
+`PackageBatchAllocationIn/Out.item_breakdown`. New mixed allocations require a
+complete matrix; historical read output remains nullable. Input serialization omits
+an absent/None matrix so existing keyed request fingerprints remain valid. Source
+balance outputs add actual-size verification and nullable per-size remaining values;
+none are inferred from the production plan. Existing mixed tracking DTO files stay
+in place; this slice does not claim every package/status/internal dict is migrated.

@@ -11,11 +11,13 @@ import PageHeader from "@/components/PageHeader";
 import ReleasePackageCustomer from "@/components/ReleasePackageCustomer";
 import { statusLabel } from "@/components/StagePipeline";
 import { useT } from "@/lib/i18n";
+import { allocationBatchLabel, originalBatchTraceText, packageBatchTraceText, type SavedBatchAllocation } from "@/lib/packageBatchTrace";
 
 export default function PackageDetail() {
   const { t, lang } = useT();
   const { me } = useMe();
   const identityText = packageIdentityText[lang];
+  const traceCopy = packageBatchTraceText[lang];
   const params = useParams<{ id: string }>();
   const id = params.id;
   const { data: p } = useSWR<any>(`/api/packages/${id}`, fetcher);
@@ -59,6 +61,19 @@ export default function PackageDetail() {
           </dl>
           <h4 className="mb-1 mt-3 font-medium">{t("page.packageDetail.sizes")}</h4>
           <ul className="text-sm">{p.items?.map((i: any) => <li key={i.id}>{i.size}: {i.quantity}</li>)}</ul>
+          {p.batch_allocations?.length > 0 && <section className="mt-4 overflow-x-auto" aria-label={originalBatchTraceText[lang].title}>
+            <h4 className="mb-2 font-medium">{originalBatchTraceText[lang].title}</h4>
+            <p className="mb-2 text-xs text-slate-600">{originalBatchTraceText[lang].hint}</p>
+            <table className="table text-sm">
+              <thead><tr><th>{traceCopy.batch}</th><th>{t("field.color")}</th><th>{t("field.size")}</th><th>{t("field.quantity")}</th></tr></thead>
+              <tbody>{p.batch_allocations.map((allocation: SavedBatchAllocation) => {
+                const label = allocationBatchLabel(allocation, traceCopy.missing);
+                return allocation.item_breakdown?.length ? allocation.item_breakdown.map((item, index) => <tr key={`${allocation.production_batch_id}:${index}`}>
+                  <th scope="row">{label}</th><td>{item.color}</td><td>{item.size}</td><td className="tabular-nums">{item.quantity}</td>
+                </tr>) : <tr key={allocation.production_batch_id}><th scope="row">{label}</th><td colSpan={2}>{traceCopy.unknown}</td><td className="tabular-nums">{allocation.quantity}</td></tr>;
+              })}</tbody>
+            </table>
+          </section>}
           {p.qr_code_url && <img className="mt-3 w-40" src={p.qr_code_url} alt="QR" />}
         </div>
         <div className="card overflow-x-auto p-4">

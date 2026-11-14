@@ -72,7 +72,7 @@ def test_create_package_batch_reads_distinct_allocations(monkeypatch, allocation
                 color="navy",
                 items=[{"model_id": model_id, "color": "navy", "size": "M", "quantity": allocation_count}],
                 batch_allocations=[
-                    {"production_batch_id": batch_id, "quantity": 1}
+                    {"production_batch_id": batch_id, "quantity": 1, "item_breakdown": [{"model_id": model_id, "color": "navy", "size": "M", "quantity": 1}]}
                     for batch_id in batch_ids
                 ],
                 capacity=allocation_count,

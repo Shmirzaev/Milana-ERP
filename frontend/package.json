@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "test:model-paid-operation-copy": "node --test scripts/test-model-paid-operation-copy.mjs",
-    "test:warehouse-workflows": "node scripts/test-warehouse-workspace.mjs && node scripts/test-multi-nastil-packaging.mjs",
+    "test:warehouse-workflows": "node scripts/test-warehouse-workspace.mjs && node scripts/test-multi-nastil-packaging.mjs && node scripts/test-package-batch-trace.mjs && node scripts/test-package-trace-edit-and-detail.mjs && node scripts/test-packaging-quantity-wording.mjs",
     "test:passport-batch-split": "node scripts/test-passport-batch-split.mjs && node scripts/test-cutting-passport-size-edit.mjs",
     "test:eco-fabric-inventory": "node scripts/test-eco-fabric-inventory.mjs && node scripts/test-eco-materials.mjs && node scripts/test-eco-receiving-table.mjs",
     "test:order-floor-fixes": "node scripts/test-order-floor-fixes.mjs",

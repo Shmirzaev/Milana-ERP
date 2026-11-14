@@ -462,7 +462,11 @@ def _package_payload(
     pkg: Package,
     *,
     warehouses: dict[int, Warehouse] | None = None,
+    allocations: dict[int, list[dict]] | None = None,
 ) -> dict:
+    from app.models.packaging.allocation_items_service import allocation_read_payloads
+    if allocations is None:
+        allocations = allocation_read_payloads(db, [int(pkg.id)], packages=[pkg])
     warehouse = (
         warehouses.get(int(pkg.warehouse_id))
         if warehouses is not None and pkg.warehouse_id
@@ -475,6 +479,7 @@ def _package_payload(
         "qr_code_url": pkg.qr_code_url,
         "production_order_id": int(pkg.production_order_id),
         "production_batch_id": int(pkg.production_batch_id) if pkg.production_batch_id else None,
+        "batch_allocations": allocations.get(int(pkg.id), []),
         "sales_order_id": int(pkg.sales_order_id) if pkg.sales_order_id else None,
         "brand_id": int(pkg.brand_id) if pkg.brand_id else None,
         "collection_id": int(pkg.collection_id) if pkg.collection_id else None,
@@ -505,7 +510,9 @@ def _package_payloads(
 ) -> list[dict]:
     if warehouses is None:
         warehouses = _package_warehouses(db, packages)
-    return [_package_payload(db, pkg, warehouses=warehouses) for pkg in packages]
+    from app.models.packaging.allocation_items_service import allocation_read_payloads
+    allocations = allocation_read_payloads(db, [int(pkg.id) for pkg in packages], packages=packages)
+    return [_package_payload(db, pkg, warehouses=warehouses, allocations=allocations) for pkg in packages]
 
 
 def _package_items(pkg: Package) -> list[dict]:

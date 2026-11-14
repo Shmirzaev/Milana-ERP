@@ -15,6 +15,37 @@ Last updated 2026-11-14. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
+## Mixed-package attribution and wording (14 November; local only)
+
+New mixed packages require exact source Nastil/model/color/size attribution; legacy
+NULL remains honestly unknown. Manual cells determine source totals, conserve package
+contents and enforce known actual Sewing size/total budgets across all requested packs.
+Metadata edits preserve evidence; physical corrections require replacement matrices.
+Snapshots/audits/labels/detail retain it through warehouse receipt. Unsupported exact
+mixed shipment quantity changes direct operators to attribution-aware Packaging
+correction. Migration0157 adds nullable JSON without backfill; downgrade refuses once
+exact evidence exists. Operator attribution is not independently proven Sewing color
+evidence. Per-size maxima remain capped by total availability after unsized damage.
+
+Packaging-only header now says input recorded; queue distinguishes passed Sewing,
+recorded Packaging output and availability including saved unlabelled goods, in
+EN/RU/UZ. No quantity formulas changed. 213 affected backend tests, independent
+21API/3real-PG checks, frontend conservation/recovery/render checks, TypeScript/ESLint,
+full exact-source production build and independent hash review passed. Actual
+Packaging-to-Warehouse UI plus independent SQL/HTTP verified exact30M/30L, remaining
+5/10, one receipt/location and unchanged prior cases, without duplicate stock.
+
+Print-popup visual gate remains BLOCKED by blob-URL browser policy; physical labels,
+hardware and human acceptance pending, no whole AI_VERIFIED/release-ready claim.
+This unpushed local checkpoint follows76820 on the investigation branch; it includes
+withdrawn ancestry and requires live-source reconciliation before a future release.
+No production data/schema change, push, merge or deployment. Public health still
+identifies115200; withdrawn094409/e538 stays off traffic. Detailed contract, hashes,
+preserved failures, migration recovery, limitations and human checklist are in
+[the evidence packet](PACKAGING_BATCH_SIZE_20261114.md). BOM shortage, legacy WIP and
+material-linked reversal gaps remain. At the owner's disk request, compression of
+eight inactive old build caches recovered~2.37GB without deleting any files.
+
 ## Direct Sewing to Packaging correction (14 November; local only)
 
 The owner requested removal of the separate Save Packaging Record step globally.
@@ -35,10 +66,10 @@ physical labels, hardware and human acceptance are pending. No whole-task
 AI_VERIFIED or release-readiness claim. See the
 [operation/evidence packet](PACKAGING_DIRECT_SEWING_20261114.md).
 
-Remaining policy/storage gaps: BOM shortages do not block packing, legacy
-input greater than packed+damaged needs reconciliation, mixed allocations lack
-size-by-batch detail, and material-linked cancellation lacks an operator reversal
-path. Header/queue wording can still confuse physical output with labelled stock.
+At that checkpoint, remaining gaps included mixed size-by-batch detail and confusing
+header/queue wording; the newer local-only section above addresses them. BOM shortages
+still do not block packing, legacy input greater than packed+damaged needs
+reconciliation, and material-linked cancellation lacks an operator reversal path.
 No production business data was touched. Active public health still identifies
 `20261111_115200`/source46ddd; withdrawn094409/e538 stays off traffic. This branch
 contains other withdrawn changes: reconcile the packaging patch with live source

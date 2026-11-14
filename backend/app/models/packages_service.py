@@ -12,6 +12,10 @@ from app.schemas import (
     ProductionBatch, StockReservation, ShipmentPackage, User,
     PackagingRecord, WorkOrder, PackagePrintRunMember, WarehousePackReservation,
 )
+from app.models.packaging.allocation_items_service import (
+    allocation_payload, enforce_source_sizes, item_totals, normalize_matrix,
+)
+from app.schemas.packaging.allocation_persistence import insert_allocations, replace_allocations
 from app.core.deps import user_permissions
 from app.schemas.core_persistence import add_notification_row
 from app.models.barcode_service import generate_barcode_value, save_qr_image, save_barcode_image
@@ -306,6 +310,7 @@ def package_snapshot(pkg: Package) -> dict:
             {
                 "production_batch_id": int(alloc.production_batch_id),
                 "quantity": int(alloc.quantity or 0),
+                **({"item_breakdown": alloc.item_breakdown} if alloc.item_breakdown is not None else {}),
             }
             for alloc in sorted((pkg.batch_allocations or []), key=lambda row: row.id)
         ],
@@ -664,6 +669,7 @@ def create_package(
     elif has_batches:
         raise HTTPException(400, "Select a production batch for this package")
 
+    normalized_allocations = normalize_matrix(normalized_allocations, items, raw_allocations=batch_allocations)
     _enforce_packaged_quantity_available(
         db,
         production_order_id=production_order_id,
@@ -684,6 +690,9 @@ def create_package(
             raise HTTPException(409, "Save Packaging output before creating packages")
     from app.models.first_grade_service import enforce_size_allocation
     enforce_size_allocation(db, po, batch_id, items, normalized_allocations, first_grade=stock_kind in {"first_grade", "second_grade"}, cache=_write_context.size_allocation if _write_context is not None else None)
+
+    enforce_source_sizes(db, po, normalized_allocations, items,
+                         cache=_write_context.size_allocation if _write_context is not None else None)
 
     resolved_sales_order_id = sales_order_id if sales_order_id is not None else po.sales_order_id
     resolved_brand_id, resolved_collection_id = infer_brand_and_collection(
@@ -739,12 +748,7 @@ def create_package(
             quantity=int(it["quantity"]),
         ))
 
-    for alloc in normalized_allocations:
-        db.add(PackageBatchAllocation(
-            package_id=pkg.id,
-            production_batch_id=alloc["production_batch_id"],
-            quantity=alloc["quantity"],
-        ))
+    insert_allocations(db, pkg.id, normalized_allocations)
 
     qr_payload = f"PACKAGE:{pkg_no}|{barcode_value}"
     pkg.qr_code_url = save_qr_image(qr_payload, f"package_qr_{pkg_no}")
@@ -986,8 +990,18 @@ def _validate_batch_allocations(
     if sum(batch_totals.values()) != total:
         raise HTTPException(400, "Batch allocation quantity must equal package total quantity")
 
+    breakdowns = {}
+    for row in raw_allocations:
+        batch = int(row["production_batch_id"])
+        incoming = row.get("item_breakdown")
+        if batch in breakdowns:
+            if (breakdowns[batch] is None) != (incoming is None):
+                raise HTTPException(400, "Every repeated source row requires its item breakdown")
+            breakdowns[batch] = breakdowns[batch] + incoming if incoming is not None else None
+        else:
+            breakdowns[batch] = incoming
     return [
-        {"production_batch_id": batch_id, "quantity": quantity}
+        {"production_batch_id": batch_id, "quantity": quantity, "item_breakdown": breakdowns[batch_id]}
         for batch_id, quantity in sorted(batch_totals.items())
     ]
 
@@ -1016,11 +1030,11 @@ def _normalize_package_batch_allocations(
         return []
 
     current = [
-        {"production_batch_id": int(alloc.production_batch_id), "quantity": int(alloc.quantity or 0)}
+        allocation_payload(alloc)
         for alloc in sorted((pkg.batch_allocations or []), key=lambda row: row.id)
     ]
     if len(current) == 1:
-        return [{"production_batch_id": current[0]["production_batch_id"], "quantity": total}]
+        return [{**current[0], "quantity": total}]
     if len(current) > 1:
         if sum(int(row["quantity"] or 0) for row in current) != total:
             raise HTTPException(400, "Update batch allocation quantities when changing package total quantity")
@@ -1068,6 +1082,22 @@ def normalize_package_edit_payload(db: Session, pkg: Package, payload: dict | No
         raise HTTPException(400, f"Package quantity {total} exceeds capacity {capacity}")
 
     batch_allocations = _normalize_package_batch_allocations(db, pkg, payload, total)
+    old_allocations = [allocation_payload(row) for row in pkg.batch_allocations]
+    old_items = [{"model_id": row.model_id or pkg.model_id, "color": row.color,
+                  "size": row.size, "quantity": row.quantity} for row in pkg.items]
+    old_totals = {row["production_batch_id"]: row["quantity"] for row in old_allocations}
+    new_totals = {row["production_batch_id"]: row["quantity"] for row in batch_allocations}
+    same_contents = item_totals(old_items) == item_totals(items) and old_totals == new_totals
+    if same_contents:
+        old_by_batch = {row["production_batch_id"]: row for row in old_allocations}
+        batch_allocations = [{**row, "item_breakdown": row.get("item_breakdown")
+            if row.get("item_breakdown") is not None else old_by_batch.get(row["production_batch_id"], {}).get("item_breakdown")}
+            for row in batch_allocations]
+    elif len(batch_allocations) == 1 and "batch_allocations" not in payload:
+        # Source is uniquely attributable; old contents cannot be copied into
+        # a changed single-source package.
+        batch_allocations = [{**batch_allocations[0], "item_breakdown": None}]
+    batch_allocations = normalize_matrix(batch_allocations, items, preserve_unknown=same_contents)
     production_batch_id = batch_allocations[0]["production_batch_id"] if len(batch_allocations) == 1 else None
     if pkg.production_order_id is not None:
         _enforce_packaged_quantity_available(
@@ -1258,7 +1288,9 @@ def _apply_package_edit_request(db: Session, request: PackageChangeRequest, user
         raise HTTPException(404, "Package not found")
     _ensure_package_can_change(db, pkg, allow_printed=allow_printed)
 
-    target = request.payload_json or {}
+    # Pending requests may predate the matrix contract. Revalidate after the
+    # production lock, including attribution and current size/quantity budgets.
+    target = normalize_package_edit_payload(db, pkg, request.payload_json or {})
     items = list(target.get("items") or [])
     allocations = list(target.get("batch_allocations") or [])
     if not items:
@@ -1278,6 +1310,7 @@ def _apply_package_edit_request(db: Session, request: PackageChangeRequest, user
         if old_items != new_items or int(target["capacity"]) != 1 or target.get("production_batch_id") != pkg.production_batch_id:
             raise HTTPException(409, "FIRST_GRADE_CONTENTS_IMMUTABLE")
     if pkg.production_order_id:
+        enforce_source_sizes(db, po, allocations, items, exclude_package_id=pkg.id)
         from app.models.first_grade_service import enforce_size_allocation
         enforce_size_allocation(db, po, target.get("production_batch_id"), items, allocations, exclude_package_id=pkg.id)
 
@@ -1303,7 +1336,6 @@ def _apply_package_edit_request(db: Session, request: PackageChangeRequest, user
         pkg.storage_placed_at = None
 
     db.query(PackageItem).filter(PackageItem.package_id == pkg.id).delete(synchronize_session=False)
-    db.query(PackageBatchAllocation).filter(PackageBatchAllocation.package_id == pkg.id).delete(synchronize_session=False)
     db.flush()
 
     for item in items:
@@ -1316,14 +1348,7 @@ def _apply_package_edit_request(db: Session, request: PackageChangeRequest, user
                 quantity=int(item["quantity"]),
             )
         )
-    for alloc in allocations:
-        db.add(
-            PackageBatchAllocation(
-                package_id=pkg.id,
-                production_batch_id=int(alloc["production_batch_id"]),
-                quantity=int(alloc["quantity"]),
-            )
-        )
+    replace_allocations(db, pkg.id, allocations)
 
     _replace_finished_goods_for_package(db, pkg, items)
     db.add(

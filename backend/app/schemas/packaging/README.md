@@ -30,7 +30,16 @@ transition/timestamp using the supplied Session. It performs
 no business authorization, material consumption, workflow decision or commit. The
 Packaging output service coordinates those existing operations in one outer action.
 The mapping/table remains in `schemas/production/production.py`; no duplicate mapping
-or database migration is introduced.
+is introduced by that output extraction.
+
+Migration0157 adds nullable JSON `PackageBatchAllocation.item_breakdown`; all old
+rows remain SQL NULL, explicitly unknown. New exact rows are validated as a whole
+by the Packaging allocation service and inserted/replaced by
+`allocation_persistence.py` in the caller's transaction. Scalar and item matrix
+totals are conserved together; no new table or inferred historical backfill.
+Downgrade refuses once exact source evidence exists because dropping the column
+would discard traceability. Source rollback therefore requires a separate reviewed
+data-recovery decision, rather than an automatic destructive downgrade.
 
 ## How to make a file here
 

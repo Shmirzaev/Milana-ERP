@@ -36,15 +36,37 @@ consumption, waste, workflow, notification and audit operations participate in t
 same Session. Direct counters are rebuilt from the output ledger; legacy entry keeps
 its historical counter policy. Existing public package/workflow operations retain
 some schema-write migration debt; this slice does not claim a full domain extraction.
-No payroll, warehouse receipt, new table, migration or automatic GET write is added.
+No payroll, warehouse receipt, new table or automatic GET write is added.
+Migration0157 adds nullable exact item evidence to existing batch allocation rows.
 Finished-goods accounting rows retain existing package receipt/stock eligibility gates.
 
 `direct_identity_service.py` validates configured order color/size membership and
 actual cumulative Sewing sizes when complete authoritative evidence exists. Missing
 actual sizes retain the ordinary operator recipe, without treating planned ratios as
 actual output. Grade paths retain strict size confirmation and mixed-batch guards.
-Scalar multi-source allocations cannot prove size x batch attribution; ordinary mixed
-packages retain their recipe while known selected/order-wide size bounds are checked.
+`allocation_items_service.py` now requires explicit operator-confirmed
+`item_breakdown` (model/color/size/positive quantity) on every new mixed source.
+It conserves each scalar source total and the complete package item identities;
+single-source contents have one unique attribution and can be derived. Historical
+mixed NULL remains unknown: metadata edits/read/labels never invent its matrix.
+All create/direct/bulk and edit/approval/returned-correction paths validate the
+same matrix. Approval rechecks under the PO lock. Exact cells consume original
+production source sizes regardless of package lifecycle state; only deletion
+releases production allocation. Adjusted legacy items cannot be treated as original
+source evidence. Unknown historical mixed sizes reserve the greatest possible
+consumption per source/size, which may conservatively refuse further packaging.
+A complete actual Sewing size breakdown is enforced when available; missing sizes
+retain the operator-confirmed recipe with `actual_size_verified=false`. Sewing does
+not prove color-by-size distribution; that matrix remains the operator's declaration.
+
+Exact matrices participate in immutable print-run/audit snapshots and label/source
+readback. Old NULL snapshots omit the new key, so unchanged historical labels remain
+valid. Quantity-changing shipment review refuses new exact mixed packs until an
+attribution-aware Packaging correction; unchanged reviews and historical unknown
+controls keep their existing behavior. Source `size_balances` reports known usage,
+conservative legacy reservation and nullable actual remaining sizes. Query reads
+are cached per package group, with allocation/business-label projections in400-row
+chunks. New persistence is schema-owned and does not independently commit.
 
 `package_sources_service.py` owns read-only GET `/packages/sources/{work_order_id}`:
 authorize the anchor WO and expose same-department siblings. `available_to_package`

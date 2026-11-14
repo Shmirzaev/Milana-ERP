@@ -105,7 +105,8 @@ def test_saved_unlabelled_and_unrecorded_selected_sources_do_not_double_consume(
     initial = sources(client, facts, auth_headers)["items"]
     assert [row["available_to_package"] for row in initial] == [80, 70, 90]
     mixed = package(facts, 60, batch_id=None, batch_allocations=[
-        {"production_batch_id": first, "quantity": 35}, {"production_batch_id": second, "quantity": 25}])
+        {"production_batch_id": first, "quantity": 35, "item_breakdown": [{"model_id": facts["model_id"], "color": "white", "size": "M", "quantity": 35}]},
+        {"production_batch_id": second, "quantity": 25, "item_breakdown": [{"model_id": facts["model_id"], "color": "white", "size": "M", "quantity": 25}]}])
     result = client.post(PATH, headers=auth_headers, json=body(facts, [mixed]))
     assert result.status_code == 201, result.text
     assert quantities(facts) == (2, 75, 75, 0, 1, 60)

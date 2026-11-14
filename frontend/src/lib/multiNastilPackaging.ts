@@ -1,9 +1,10 @@
 export type PackagePlanItem = { model_id: number; color: string; size: string; quantity: number };
-export type BatchAllocationPlan = { production_batch_id: number; quantity: number; label: string };
+export type BatchAllocationPlan = { production_batch_id: number; quantity: number; label: string; item_breakdown?: PackagePlanItem[] | null };
 export type PackagePlan = { items: PackagePlanItem[]; batch_allocations?: BatchAllocationPlan[] };
 export type NastilPackageSource = { id: number; label: string; available: number };
 export type PackageSourceQuantity = { packed_qty: number; packaged_qty: number; available_to_package: number;
-  sewing_output_qty: number; available_input_qty: number };
+  sewing_output_qty: number; available_input_qty: number; actual_size_verified?: boolean;
+  size_balances?: Array<{ size: string; accepted: number | null; packaged_qty: number; legacy_unknown_reserved_qty: number; remaining: number | null }> };
 export type PackageSourceBalances = { items: Array<PackageSourceQuantity & { id: number; batch_no: string; batch_index: number; name: string | null }>;
   unbatched_source?: PackageSourceQuantity | null };
 

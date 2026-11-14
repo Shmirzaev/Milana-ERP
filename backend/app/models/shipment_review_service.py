@@ -96,6 +96,9 @@ def correct_received_quantity(db: Session, shipment: Shipment, package_id: int,
         raise HTTPException(409, "Confirmed physical receipt is limited to 10000 pieces per package")
     if not increases and not reductions:
         return
+    exact_allocations = package.batch_allocations
+    if len(exact_allocations) > 1 and any(row.item_breakdown is not None for row in exact_allocations):
+        raise HTTPException(409, "MIXED_PACKAGE_QUANTITY_REQUIRES_PACKAGING_CORRECTION")
     allocations = db.query(PackageBatchAllocation).filter_by(package_id=package_id).with_for_update().all()
     stocks = db.query(FinishedGoodsStock).filter_by(package_id=package_id).order_by(FinishedGoodsStock.id).with_for_update().all()
     reservations = db.query(StockReservation).filter_by(package_id=package_id).order_by(StockReservation.id).with_for_update().all()

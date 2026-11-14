@@ -21,6 +21,12 @@ export function systemLanguage(): Lang {
   return "en";
 }
 const messages: Record<string, [string, string]> = {
+  "Invalid source item breakdown": ["Проверьте состав по настилам, цветам и размерам.", "Nastil, rang va o‘lcham bo‘yicha tarkibni tekshiring."],
+  "Every repeated source row requires its item breakdown": ["Для каждой строки настила укажите состав по цветам и размерам.", "Nastilning har bir qatori uchun rang va o‘lcham tarkibini kiriting."],
+  "Source item breakdown must match package contents": ["Состав настила должен совпадать с содержимым упаковки.", "Nastil tarkibi qadoq tarkibiga mos bo‘lishi kerak."],
+  "Source item breakdown must equal its batch quantity": ["Сумма по цветам и размерам должна совпадать с количеством настила.", "Rang va o‘lcham yig‘indisi nastil miqdoriga teng bo‘lishi kerak."],
+  "Source item breakdowns must conserve every package model, color and size": ["Проверьте суммы по моделям, цветам и размерам во всех настилах упаковки.", "Qadoqning barcha nastillarida model, rang va o‘lcham yig‘indilarini tekshiring."],
+  "Package size quantity exceeds actual passed Sewing for this batch; legacy unknown allocations may reserve its size balance": ["Не хватает подтверждённого выпуска этого размера в выбранном настиле. Проверьте старые смешанные упаковки без состава по размерам.", "Tanlangan nastilda bu o‘lchamning tasdiqlangan tikuv miqdori yetarli emas. O‘lcham tarkibi qayd etilmagan eski aralash qadoqlarni tekshiring."],
   "Authentication is temporarily unavailable. Try again later.": ["Вход и восстановление пароля временно недоступны. Повторите попытку позже.", "Tizimga kirish va parolni tiklash vaqtincha mavjud emas. Keyinroq qayta urinib ko‘ring."],
   "Admin access required": ["Требуется доступ администратора.", "Administrator ruxsati talab qilinadi."],
   "Shipment customer must match the sales order customer": ["Клиент отгрузки должен совпадать с клиентом заказа.", "Jo‘natma mijozi buyurtma mijoziga mos kelishi kerak."],
@@ -133,6 +139,8 @@ const fallback: Record<Lang, Record<string, string>> = {
   uz: { default: "Amalni bajarib bo‘lmadi.", "400": "Kiritilgan ma’lumotlarni tekshiring.", "401": "Tizimga qayta kiring.", "403": "Ushbu amal uchun ruxsatingiz yo‘q.", "404": "Yozuv topilmadi.", "409": "Yozuvning joriy holati ushbu amalni bajarishga yo‘l qo‘ymaydi. Ma’lumotlar va bog‘langan yozuvlarni tekshiring.", "422": "Majburiy maydonlar va kiritilgan qiymatlarni tekshiring.", "429": "So‘rovlar juda ko‘p. Keyinroq qayta urinib ko‘ring.", server: "Server so‘rovni bajara olmadi. Keyinroq qayta urinib ko‘ring." },
 };
 const workflowErrors: Record<string, Record<"en" | "ru" | "uz", string>> = {
+  MIXED_PACKAGE_ITEM_BREAKDOWN_REQUIRED: { en: "Enter the actual quantities by Nastil, color and size for this mixed package.", ru: "Введите фактические количества по настилам, цветам и размерам смешанной упаковки.", uz: "Aralash qadoqning haqiqiy miqdorlarini nastil, rang va o‘lcham bo‘yicha kiriting." },
+  MIXED_PACKAGE_QUANTITY_REQUIRES_PACKAGING_CORRECTION: { en: "Return this mixed package to Packaging and correct its quantities by Nastil and size before changing the quantity.", ru: "Верните смешанную упаковку в упаковочный отдел и исправьте количества по настилам и размерам перед изменением количества.", uz: "Miqdorni o‘zgartirishdan oldin aralash qadoqni qadoqlash bo‘limiga qaytaring va nastil hamda o‘lcham miqdorlarini tuzating." },
   "ecoAccessories.approvalRequired": {
     en: "Approve the current ECO accessory requirements before the sewing handoff or issue.",
     ru: "Утвердите актуальную потребность ECO до передачи в пошив или выдачи.",

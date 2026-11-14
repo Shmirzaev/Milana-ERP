@@ -1163,6 +1163,7 @@ export default {
     "page.packagingReceive.queueTitle": "Заказы, готовые к упаковке",
     "page.packagingReceive.queueHint": "Принятые швейные работы, которые ещё не обработаны упаковочным цехом.",
     "page.packagingReceive.modelVariant": "Модель / вариант",
+    "page.workOrder.packagingInputRecorded": "Учтено на входе упаковки",
     "page.packagingReceive.packed": "Упаковано",
     "page.packagingReceive.readyToPack": "Готово к упаковке",
     "page.packagingReceive.packing": "Упаковка",

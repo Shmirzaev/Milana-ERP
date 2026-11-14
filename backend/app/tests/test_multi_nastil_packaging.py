@@ -60,7 +60,7 @@ def package(order_id, model_id, allocations):
     return {"production_order_id": order_id, "production_batch_id": None,
             "model_id": model_id, "color": "White", "capacity": 60,
             "items": [{"model_id": model_id, "color": "White", "size": "M", "quantity": quantity}],
-            "batch_allocations": [{"production_batch_id": bid, "quantity": qty} for bid, qty in allocations]}
+            "batch_allocations": [{"production_batch_id": bid, "quantity": qty, "item_breakdown": [{"model_id": model_id, "color": "white", "size": "M", "quantity": qty}]} for bid, qty in allocations]}
 
 
 def assert_no_packages(order_id):

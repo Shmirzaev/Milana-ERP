@@ -1164,6 +1164,7 @@ export default {
     "page.packagingReceive.queueTitle": "Orders ready for packing",
     "page.packagingReceive.queueHint": "Received sewing work that has not yet been processed by Packaging.",
     "page.packagingReceive.modelVariant": "Model / variant",
+    "page.workOrder.packagingInputRecorded": "Packaging input recorded",
     "page.packagingReceive.packed": "Packed",
     "page.packagingReceive.readyToPack": "Ready to pack",
     "page.packagingReceive.packing": "Packing",

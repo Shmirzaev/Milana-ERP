@@ -1163,6 +1163,7 @@ export default {
     "page.packagingReceive.queueTitle": "Qadoqlashga tayyor buyurtmalar",
     "page.packagingReceive.queueHint": "Qabul qilingan, lekin qadoqlash bo‘limida hali ishlanmagan tikuv ishlari.",
     "page.packagingReceive.modelVariant": "Model / variant",
+    "page.workOrder.packagingInputRecorded": "Qadoqlashga kirim qayd etilgan",
     "page.packagingReceive.packed": "Qadoqlangan",
     "page.packagingReceive.readyToPack": "Qadoqlashga tayyor",
     "page.packagingReceive.packing": "Qadoqlash",
