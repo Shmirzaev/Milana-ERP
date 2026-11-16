@@ -1,0 +1,58 @@
+name: Owner requested invoice artifacts without tests
+on:
+  push:
+    branches: [codex/invoice-publish-20261116]
+permissions:
+  contents: read
+  packages: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SOURCE_SHA: 4adaa45d0f3d8268c0940110cfc20053d3e98193
+      BASE_SHA: 8fb52df54a34ce94127ead2460e94d81a90721b2
+      RELEASE_ID: '20261116_090442'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 4adaa45d0f3d8268c0940110cfc20053d3e98193
+          fetch-depth: 0
+      - name: Bind immutable application delta
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          git diff --quiet "$BASE_SHA" "$SOURCE_SHA" -- frontend backend/requirements.txt backend/Dockerfile backend/alembic backend/scripts
+          changed=$(git diff --name-only "$BASE_SHA" "$SOURCE_SHA" -- backend/app ':!backend/app/tests')
+          test "$changed" = 'backend/app/models/shipment_invoice_excel_service.py'
+          mkdir -p "$RUNNER_TEMP/invoice-backend" "$RUNNER_TEMP/invoice-frontend"
+          git show "$SOURCE_SHA:backend/app/models/shipment_invoice_excel_service.py" > "$RUNNER_TEMP/invoice-backend/shipment_invoice_excel_service.py"
+          cat > "$RUNNER_TEMP/invoice-backend/Dockerfile" <<EOF
+          FROM ghcr.io/shmirzaev/milana-erp-backend@sha256:d9c0ef0ea998554780779876b1aa14230066269d9528ef9a820281935f097732
+          COPY --chown=appuser:appuser shipment_invoice_excel_service.py /app/app/models/shipment_invoice_excel_service.py
+          LABEL org.opencontainers.image.revision="$SOURCE_SHA"
+          EOF
+          cat > "$RUNNER_TEMP/invoice-frontend/Dockerfile" <<EOF
+          FROM ghcr.io/shmirzaev/milana-erp-frontend@sha256:ff7beffb118fd7613de034bbec314cda8169301d8d8a82783b4fd1b94812ad59
+          LABEL org.opencontainers.image.revision="$SOURCE_SHA"
+          EOF
+      - name: Authenticate publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: printf '%s' "$GH_TOKEN" | docker login ghcr.io -u '${{ github.actor }}' --password-stdin
+      - name: Publish immutable images (no tests or application execution)
+        run: |
+          set -euo pipefail
+          for role in backend frontend; do
+            image="ghcr.io/shmirzaev/milana-erp-$role:$RELEASE_ID"
+            docker build --label "org.opencontainers.image.revision=$SOURCE_SHA" -t "$image" "$RUNNER_TEMP/invoice-$role"
+            docker push "$image"
+            docker image inspect --format '{{json .RepoDigests}}' "$image" | tee "$RUNNER_TEMP/$role-digest.json"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: invoice-image-identities-20261116_090442
+          path: ${{ runner.temp }}/*-digest.json
+      - name: Record exception scope
+        run: |
+          echo 'Owner explicitly requested production deployment without additional tests. Tests, performance sampling and observation were not run. Images derive from the exact currently live immutable bases; only the Git-bound invoice generator changes. This job publishes artifacts; it does not activate production.' >> "$GITHUB_STEP_SUMMARY"
