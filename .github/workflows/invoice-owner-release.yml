@@ -10,13 +10,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      SOURCE_SHA: 4adaa45d0f3d8268c0940110cfc20053d3e98193
-      BASE_SHA: 8fb52df54a34ce94127ead2460e94d81a90721b2
-      RELEASE_ID: '20261116_090442'
+      SOURCE_SHA: db8d8d64953eb4f9dadc22bb8218942cd0999ac7
+      BASE_SHA: 4adaa45d0f3d8268c0940110cfc20053d3e98193
+      RELEASE_ID: '20261116_092633'
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 4adaa45d0f3d8268c0940110cfc20053d3e98193
+          ref: db8d8d64953eb4f9dadc22bb8218942cd0999ac7
           fetch-depth: 0
       - name: Bind immutable application delta
         run: |
@@ -28,12 +28,12 @@ jobs:
           mkdir -p "$RUNNER_TEMP/invoice-backend" "$RUNNER_TEMP/invoice-frontend"
           git show "$SOURCE_SHA:backend/app/models/shipment_invoice_excel_service.py" > "$RUNNER_TEMP/invoice-backend/shipment_invoice_excel_service.py"
           cat > "$RUNNER_TEMP/invoice-backend/Dockerfile" <<EOF
-          FROM ghcr.io/shmirzaev/milana-erp-backend@sha256:d9c0ef0ea998554780779876b1aa14230066269d9528ef9a820281935f097732
+          FROM ghcr.io/shmirzaev/milana-erp-backend@sha256:08e4541a65f5d34e83290c7b907e4cb0a97e3e682efa03cecd07164700497729
           COPY --chown=appuser:appuser shipment_invoice_excel_service.py /app/app/models/shipment_invoice_excel_service.py
           LABEL org.opencontainers.image.revision="$SOURCE_SHA"
           EOF
           cat > "$RUNNER_TEMP/invoice-frontend/Dockerfile" <<EOF
-          FROM ghcr.io/shmirzaev/milana-erp-frontend@sha256:ff7beffb118fd7613de034bbec314cda8169301d8d8a82783b4fd1b94812ad59
+          FROM ghcr.io/shmirzaev/milana-erp-frontend@sha256:8033f22e3b00798306dc45bc284ece1adcbf57506d6c7f705879fceceed32b64
           LABEL org.opencontainers.image.revision="$SOURCE_SHA"
           EOF
       - name: Authenticate publication
@@ -51,7 +51,7 @@ jobs:
           done
       - uses: actions/upload-artifact@v4
         with:
-          name: invoice-image-identities-20261116_090442
+          name: invoice-image-identities-20261116_092633
           path: ${{ runner.temp }}/*-digest.json
       - name: Record exception scope
         run: |
