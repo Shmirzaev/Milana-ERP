@@ -24,12 +24,14 @@ revision locking and department submissions are preserved. Warehouse model cards
 open the existing detail route across their full area, including missing photos;
 model-less legacy stock retains its filter fallback. No new schema for these fixes.
 
-Both live hosts were verified115200/source46ddd, manifests match the recorded base.
-The requested factory branch also includes0157 and withdrawn feature ancestry;
-metadata-only old-image recovery can lose exact attribution on edits and reject
-new print-run receipts. Deployment remains blocked pending safe recovery/full
-candidate gates and the recorded pre-deployment human review. Timed observation
-is explicitly waived. No production business data or runtime changed. See
+Both live hosts were verified at115200/source46ddd, matching the recorded base.
+The owner explicitly selected the entire branch including Packaging and0157.
+Recovery source1ab6ff577 preserves exact snapshots and refuses old-code edits that
+could erase attribution. Both applications permit catalogue import at exactly0156/
+0157; unknown schema remains refused. All original failures/errors passed a71-case
+rerun; recovery's five migrated PG cases passed. Exact-image recovery and final
+CI/release gates plus recorded pre-deployment human review remain pending. Timed
+observation is explicitly waived. No production business data/runtime changed. See
 [the task evidence](PRICE_WAREHOUSE_FIXES_20261116.md).
 
 ## Mixed-package attribution and wording (14 November; local only)

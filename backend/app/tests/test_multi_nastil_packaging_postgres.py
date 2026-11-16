@@ -47,7 +47,9 @@ def kwargs(order_id, model_id, allocations):
     return dict(production_order_id=order_id, model_id=model_id, color="White", capacity=60,
                 packaging_department_code="ECP", _sync_production=False,
                 items=[dict(model_id=model_id, color="White", size="M", quantity=quantity)],
-                batch_allocations=[dict(production_batch_id=bid, quantity=qty) for bid, qty in allocations])
+                batch_allocations=[dict(production_batch_id=bid, quantity=qty,
+                                        item_breakdown=[dict(model_id=model_id, color="White", size="M", quantity=qty)])
+                                   for bid, qty in allocations])
 
 
 def stub_files(monkeypatch):
@@ -111,6 +113,21 @@ def test_source_projection_uses_real_postgres_allocation_and_fallback_ledgers(pa
     stub_files(monkeypatch)
     order_id, model_id, (first, second, third) = seed(sessions)
     actor = SimpleNamespace(department=SimpleNamespace(code="ECP"), factory_code="ECO", session_factory_code="ECO", role=None, extra_permissions=[])
+
+    def read_sources(db):
+        work_order_id = db.query(WorkOrder.id).filter_by(production_order_id=order_id, operation="packaging").scalar()
+        reads = []
+
+        def capture(_connection, _cursor, statement, *_args):
+            if statement.lstrip().upper().startswith("SELECT"):
+                reads.append(statement)
+
+        event.listen(db.bind, "before_cursor_execute", capture)
+        try:
+            return package_sources(db, actor, work_order_id), reads
+        finally:
+            event.remove(db.bind, "before_cursor_execute", capture)
+
     with sessions.begin() as db:
         service.create_package(db, **kwargs(order_id, model_id, [(first, 35), (second, 25)]))
         # Older packages without allocation rows still consume their batch budget,
@@ -119,22 +136,18 @@ def test_source_projection_uses_real_postgres_allocation_and_fallback_ledgers(pa
                        production_order_id=order_id, production_batch_id=second,
                        model_id=model_id, color="White", total_quantity=5,
                        quantity_shortfall=2, capacity=7, packaging_department_code="ECP"))
+        db.flush()
+        baseline, baseline_reads = read_sources(db)
+        assert len(baseline.items) == 3
         db.add_all([ProductionBatch(production_order_id=order_id, batch_no=f"READ-{order_id}-{index}",
                                     batch_index=index, planned_quantity=1) for index in range(4, 201)])
     with sessions() as db:
-        work_order_id = db.query(WorkOrder.id).filter_by(production_order_id=order_id, operation="packaging").scalar()
-        reads = []
-        def capture(_connection, _cursor, statement, *_args):
-            if statement.lstrip().upper().startswith("SELECT"):
-                reads.append(statement)
-        event.listen(db.bind, "before_cursor_execute", capture)
-        try:
-            result = package_sources(db, actor, work_order_id)
-        finally:
-            event.remove(db.bind, "before_cursor_execute", capture)
+        result, reads = read_sources(db)
         assert [(row.id, row.available_to_package) for row in result.items[:3]] == [(first, 0), (second, 8), (third, 90)]
         assert len(result.items) == 200 and all(row.available_to_package == 0 for row in result.items[3:])
-        assert len(reads) == 8, "Source reads must remain bounded across 200 sibling Nastils"
+        # Sewing availability, grades and exact source-size budgets add fixed
+        # reads; growing from three to 200 Nastils must add none.
+        assert len(reads) == len(baseline_reads) == 16
         assert result.items[1].packed_qty == 40 and result.items[1].packaged_qty == 32
         assert result.packaging_department.value == "ECP"
         assert not db.new and not db.dirty and not db.deleted

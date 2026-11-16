@@ -65,6 +65,26 @@ must retain an honest fallback without linking to an undefined model.
 - The full combined branch backend/PostgreSQL run is ongoing and has failures;
   preserve and investigate its exact report before claiming a release pass.
 
+The full local run completed:8362 passed,12 failed,17 errors,84 skipped. All failed
+and error cases plus adjacent operations subsequently passed a71-case Linux run,
+zero skips and clean exit. The substantive defect was catalogue import rejecting
+schema0157; both applications now allow exactly0156/0157 and keep unknown heads
+refused. PG proves unknown-head no-writes, deferred-commit rollback, Finance/import
+race and retirement/import serialization. Existing mixed-package fixtures now
+supply explicit matrices; label mocks carry honest NULL evidence. First-grade
+creation retains two distinct bounded Sewing reads; source projection performs16
+reads for both three and200 Nastils. The gateway fixture writes the actual API503
+document to an owned temporary path. ECO fixtures reran against an owned *_qa DB.
+
+The first rerun was interrupted when the workstation disk filled and its owned PG
+server stopped. Its XML/errors are preserved as interrupted-disk-full.xml, not
+counted as passing. Automatic review blocked deleting generated Next cache; NTFS
+compression preserved generated files, and the local Docker service was restored
+after it had stopped. The successful71-case rerun used a fresh owned PG instance.
+No production resource or business data changed. Recovery's combined migrated PG
+run passed five cases with successful process/cleanup. Independent review found
+no new actionable issue in these corrections or the strict recovery runner.
+
 ## Release blockers and owner decision
 
 The entire requested branch includes the withdrawn seven factory fixes plus two
@@ -91,6 +111,13 @@ records17.12-0+deb13u1 as fixed. Both final and recovery Dockerfiles now require
 that minimum for libpq-dev/libpq5, invalidating that layer and failing closed if
 the fixed package is unavailable. No security allowlist or severity policy changed.
 Official evidence: https://security-tracker.debian.org/tracker/CVE-2026-116304
+
+Security-only run43808560606 on855d9fd025f6793dc1ec5fbf720c1ccdeb669e12 passed.
+The two superseded full CI runs43807385043/43808766068 were cancelled after their
+known failed snapshots were corrected; they are not green release evidence.
+Recovery source1ab6ff57746b39e569b579dcd7f38d36d3ac1604 is pushed and its new
+full CI run43810018892 is pending. Final source must include that recovery ancestry
+while keeping attribution-aware final edits, then pass fresh exact-source CI.
 
 Pending release gates include full exact-source CI/security, safe0157 recovery,
 branch-wide label/visual verification, QA-master pre-deployment review, fresh

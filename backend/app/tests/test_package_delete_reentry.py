@@ -180,8 +180,10 @@ def test_mixed_batch_delete_releases_exact_allocations_and_keeps_siblings(client
     assert response.status_code == 201, response.text
     mixed = {**template, "production_batch_id": None,
              "items": [{**template["items"][0], "quantity": 100}],
-             "batch_allocations": [{"production_batch_id": ids["batch"], "quantity": 60},
-                                   {"production_batch_id": second_id, "quantity": 40}]}
+             "batch_allocations": [{"production_batch_id": ids["batch"], "quantity": 60,
+                                    "item_breakdown": [{**template["items"][0], "quantity": 60}]},
+                                   {"production_batch_id": second_id, "quantity": 40,
+                                    "item_breakdown": [{**template["items"][0], "quantity": 40}]}]}
     other = {**template, "production_batch_id": second_id, "items": [{**template["items"][0], "quantity": 40}]}
     response = client.post("/api/packages/print-runs/create-packages", headers=headers,
                            json={"request_key": str(uuid4()), "packages": [mixed, template, other]})

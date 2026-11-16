@@ -3972,8 +3972,10 @@ def test_package_can_merge_leftovers_from_multiple_batches(client, auth_headers)
             "capacity": 60,
             "items": [{"model_id": 1, "color": "white", "size": "M", "quantity": 60}],
             "batch_allocations": [
-                {"production_batch_id": batch_a["id"], "quantity": 50},
-                {"production_batch_id": batch_b["id"], "quantity": 10},
+                {"production_batch_id": batch_a["id"], "quantity": 50,
+                 "item_breakdown": [{"model_id": 1, "color": "white", "size": "M", "quantity": 50}]},
+                {"production_batch_id": batch_b["id"], "quantity": 10,
+                 "item_breakdown": [{"model_id": 1, "color": "white", "size": "M", "quantity": 10}]},
             ],
         },
         headers=auth_headers,
