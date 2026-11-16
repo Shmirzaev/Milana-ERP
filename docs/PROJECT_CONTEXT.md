@@ -15,9 +15,33 @@ Last updated 2026-11-16. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
-## Pricing and Packaging release (16 November; full branch live with owner exceptions)
+## Invoice Excel layout release (16 November; current production)
 
-Backend/frontend now serve `20261116_061924`, blue, exact reviewed runtime commit
+Backend/frontend serve `20261116_090442`, green, runtime commit
+`4adaa45d0f3d8268c0940110cfc20053d3e98193`, manifest
+`a4e7bd89f2b4cc091c9d8b5db57d2f4d0694b382f038d056b945b11d680a9231`.
+Rollback is the retained running `20261116_061924`, blue. Schema stays
+`0157_package_allocation_items`; no migration or business-data writes.
+Excel invoices use uniform24pt item rows, unchanged10pt font, no shrinking,
+wider description and narrower trailing7columns. Exceptionally long text may
+clip; full cell values remain. HTML invoices and all business calculations remain.
+Owner explicitly requested: "deploy without anything any test just deploy to production".
+No additional test/CI suites, scans, performance sampling, human review or timed
+observation ran for deployment; earlier80tests and native Excel review precede
+this request. Four operational health endpoints returned200; both source/slot
+identities match, zero container restarts/OOM. Immutable images were built outside
+production on current live pinned bases; only the exact Git invoice generator
+changed in the backend, frontend filesystem unchanged. Build-only publication
+run43836735590; runtime branch remains codex/factory-workflows-20261113, no main merge.
+An initial immediate router-release identity check failed and automatically
+restored blue; preserved receipts precede successful bounded router convergence
+and green cutover at09:09UTC. No failure was relabeled as a pass. Previous
+public-latency risks remain unresolved; this release was not benchmarked.
+Details: [deployment record](INVOICE_LAYOUT_RELEASE_20261116.md).
+
+## Earlier Pricing and Packaging release (16 November; owner exceptions)
+
+The earlier production release was `20261116_061924`, blue, exact reviewed runtime commit
 `8fb52df54a34ce94127ead2460e94d81a90721b2`, manifest
 `cd22477f24b62858d893ed4990d872ca8ca25dbed838b37314f06f0fbff3270b`.
 Backend activated08:35:47UTC, frontend08:36:07UTC; both source links match.
