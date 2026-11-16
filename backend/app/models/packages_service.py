@@ -2,6 +2,8 @@
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from app.models.packaging.recovery_guard_service import require_recovery_editable
+
 from fastapi import HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session, object_session
@@ -1255,6 +1257,7 @@ def _apply_package_edit_request(db: Session, request: PackageChangeRequest, user
     pkg = db.query(Package).filter(Package.id == request.package_id).with_for_update().populate_existing().first()
     if not pkg:
         raise HTTPException(404, "Package not found")
+    require_recovery_editable(pkg)
     _ensure_package_can_change(db, pkg, allow_printed=allow_printed)
 
     target = request.payload_json or {}
@@ -1345,6 +1348,7 @@ def _apply_package_delete_request(db: Session, request: PackageChangeRequest, *,
     pkg = db.query(Package).filter(Package.id == request.package_id).with_for_update().populate_existing().first()
     if not pkg:
         raise HTTPException(404, "Package not found")
+    require_recovery_editable(pkg)
     _ensure_package_can_change(db, pkg, allow_printed=allow_printed)
     production_order_id = pkg.production_order_id
     from app.models.packaging_corrections_service import finish_package_output_reset, undo_package_output

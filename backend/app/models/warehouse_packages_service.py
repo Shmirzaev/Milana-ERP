@@ -2,6 +2,8 @@
 from collections import defaultdict
 from datetime import datetime, timezone
 
+from app.models.packaging.recovery_guard_service import require_recovery_editable
+
 from fastapi import HTTPException
 
 from app.schemas import (FinishedGoodsStock, Package, PackageChangeRequest, PackagePrintRun,
@@ -70,6 +72,7 @@ def delete_warehouse_package(db, current, pid):
     if not package:
         raise HTTPException(404, "Package not found")
     require_package_access(current, package)
+    require_recovery_editable(package)
     if {m.run_id for m in db.query(PackagePrintRunMember).filter_by(package_id=pid)} != {r.id for r in runs}:
         raise HTTPException(409, "Package print run changed; refresh and retry")
     if package.status != "received_in_storage":

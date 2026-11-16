@@ -47,7 +47,8 @@ def contents(pkg, *, items=None, batch_allocations=None):
         "model_id": pkg.model_id, "color": pkg.color,
         "production_order_id": pkg.production_order_id, "production_batch_id": pkg.production_batch_id,
         "manual_receipt_id": pkg.manual_receipt_id, "legacy_receipt_id": pkg.legacy_receipt_id,
-        "batch_allocations": sorted([{"production_batch_id": a.production_batch_id, "quantity": a.quantity}
+        "batch_allocations": sorted([{"production_batch_id": a.production_batch_id, "quantity": a.quantity,
+                                      **({"item_breakdown": a.item_breakdown} if a.item_breakdown is not None else {})}
                                      for a in allocations], key=lambda a: a["production_batch_id"]),
         "quantity": pkg.total_quantity, "weight_kg": float(pkg.weight_kg) if pkg.weight_kg is not None else None,
         "items": sorted([{"model_id": item.model_id, "color": item.color, "size": item.size,

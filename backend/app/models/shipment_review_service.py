@@ -8,6 +8,8 @@ from decimal import Decimal, ROUND_HALF_UP
 from hashlib import sha256
 import json
 
+from app.models.packaging.recovery_guard_service import require_recovery_editable
+
 from fastapi import HTTPException
 from sqlalchemy.orm import Session, selectinload
 
@@ -59,6 +61,7 @@ def correct_received_quantity(db: Session, shipment: Shipment, package_id: int,
     package = db.query(Package).filter_by(id=package_id).with_for_update().populate_existing().first()
     if not link or not package:
         raise HTTPException(404, "Package is not attached to this shipment")
+    require_recovery_editable(package)
     if package.dispatched_quantities:
         raise HTTPException(409, "Partially dispatched packages require shipment selection, not receipt correction")
     if package.status not in {"received_in_storage", "reserved"}:

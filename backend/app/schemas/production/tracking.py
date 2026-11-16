@@ -198,6 +198,7 @@ class PackageBatchAllocation(Base, PkMixin, TimestampMixin):
     package_id: Mapped[int] = mapped_column(ForeignKey("packages.id"), nullable=False, index=True)
     production_batch_id: Mapped[int] = mapped_column(ForeignKey("production_batches.id"), nullable=False, index=True)
     quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    item_breakdown: Mapped[list[dict] | None] = mapped_column(JSON(none_as_null=True), nullable=True)
 
     package: Mapped["Package"] = relationship("Package", back_populates="batch_allocations")
 

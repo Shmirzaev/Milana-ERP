@@ -21,6 +21,7 @@ export function systemLanguage(): Lang {
   return "en";
 }
 const messages: Record<string, [string, string]> = {
+  "Exact-source packages require the attribution-aware release for edits or deletion": ["Для изменения или удаления упаковки с точным составом по настилам нужна версия с поддержкой этого состава.", "Nastil tarkibi aniq qayd etilgan qadoqni tahrirlash yoki o‘chirish uchun shu tarkibni qo‘llaydigan versiya kerak."],
   "Authentication is temporarily unavailable. Try again later.": ["Вход и восстановление пароля временно недоступны. Повторите попытку позже.", "Tizimga kirish va parolni tiklash vaqtincha mavjud emas. Keyinroq qayta urinib ko‘ring."],
   "Admin access required": ["Требуется доступ администратора.", "Administrator ruxsati talab qilinadi."],
   "Shipment customer must match the sales order customer": ["Клиент отгрузки должен совпадать с клиентом заказа.", "Jo‘natma mijozi buyurtma mijoziga mos kelishi kerak."],

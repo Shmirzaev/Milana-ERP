@@ -11,9 +11,21 @@ this checkout, a new combined candidate or deployed production. Inspect current
 code and the operation ledger before advancing a gate. Schema-owned writers,
 system-wide enum/type adoption and human acceptance remain incomplete.
 
-Last updated 2026-11-11. Keep this file short: current decisions, release pointers and
+Last updated 2026-11-16. Keep this file short: current decisions, release pointers and
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
+
+## Recovery preparation for factory branch (16 November; local only)
+
+Both live hosts verified115200/source46ddd, matching production-base metadata.
+The owner selected the entire factory branch including Packaging. An isolated
+recovery candidate adds exact0157 metadata/nullable mapping, conditional snapshot
+preservation and fail-closed exact-package mutation guards to the live application.
+52 focused API/SQLite and two actual migrated PG cases passed. Exact immutable-image
+scan/startup/restart, full release gates and human pre-deployment review remain
+pending. Timed monitoring waived; no production data/runtime change. See
+[the recovery record](RECOVERY_0157_20261116.md). Historical pointers below are not
+the current live readback.
 
 ## Variant pricing November scope (11 November; deployed)
 
