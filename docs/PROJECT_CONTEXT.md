@@ -15,39 +15,58 @@ Last updated 2026-11-16. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
-## Pricing print ownership and warehouse navigation (16 November; local only)
+## Pricing and Packaging release (16 November; compatibility active, feature stopped)
 
-Purchasing no longer enters printing_cost or waits for it to submit. Finance owns
-that finite nonnegative value; printed variants require an explicit value, including
-zero, before complete cost calculation/approval. Existing values, factory scope,
-revision locking and department submissions are preserved. Warehouse model cards
-open the existing detail route across their full area, including missing photos;
-model-less legacy stock retains its filter fallback. No new schema for these fixes.
+Active backend/frontend: `20261116_053002`, green, commit
+`1ab6ff57746b39e569b579dcd7f38d36d3ac1604`, manifest
+`304f2d4fea15243fe212b32135cc804c33eb55612e20b36d623ee436d096e2c4`.
+Database is `0157_package_allocation_items`: nullable allocation JSON, no backfill.
+This is the reviewed compatibility application, not the requested feature release.
+Full branch `codex/factory-workflows-20261113` at `8fb52df54` is pushed and its
+exact immutable release `20261116_061924` is prepared but NOT staged or activated.
+Purchasing-to-Finance print ownership, whole Warehouse card navigation, full
+Packaging attribution and the other factory changes are therefore NOT live.
 
-Both live hosts were verified at115200/source46ddd, matching the recorded base.
-The owner explicitly selected the entire branch including Packaging and0157.
-Recovery source1ab6ff577 preserves exact snapshots and refuses old-code edits that
-could erase attribution. Both applications permit catalogue import at exactly0156/
-0157; unknown schema remains refused. All original failures/errors passed a71-case
-rerun; recovery's five migrated PG cases passed. Combined review found additional
-legacy Sewing/Packaging lock inversions; parent-first entry fixes pass24 real-PG
-cases plus one SQLite capacity test. Physical receipt no longer double-counts
-recorded Packaging input. Broader596-case run passed587 with nine outdated query
-budgets; the corrected125-case Linux run passed with zero skips. Old-source
-overlays fail23 targeted lock/counter cases as intended. Both-host original
-source/routing and three retained sources/images remain verified without changes.
-Exact-image recovery and final
-CI/release gates plus recorded pre-deployment human review remain pending. Timed
-observation is explicitly waived. No production business data/runtime changed. See
-[the task evidence](PRICE_WAREHOUSE_FIXES_20261116.md).
+Owner explicitly selected the full branch and approved6c714f9cc including physical
+Packaging labels/scans, then approved the narrow Printing interlock fix8fb52df54.
+All five exact-source CI jobs passed: run43815960892. Related Linux127 tests pass
+without skips; complete CI backend6862 passes with1628 skips; required P2 PG238
+passes, zero skips. Recovery run43810018892 passed, including strict published-image0157 cold start, two workers,
+worker replacement/restart, shared counter and exact-attribution refusal tests.
 
-Owner-reported QA approved6c714f9cc including Packaging/physical label/scan checks.
-Final review then reproduced a Printing accessory-flush lock inversion with
-parent-first Sewing/Packaging. Printing now takes the parent before its work
-order; two real-PG label/damage races pass and both fail against exact6c source.
-The related127-case Linux run passed with zero skips and independent review.
-That narrow follow-up needs its own exact-source CI and recorded human review;
-the earlier acceptance remains tied to6c. Production is still115200, untouched.
+Both-host source/image/CMD/environment/slot checks, measured layer capacity,
+verified backups, explicit0157 migration, recovery43 whole-response semantic
+checks and26 complete ordered fact tables passed. Signed browser recovery QA and
+all four immediate public/internal health checks passed; two workers, zero
+restarts/OOM/errors, no invalid indexes. No business rows were created or changed
+by deployment. Initial live Packaging activity invalidated the first functional
+capture; its failed report remains preserved. Owner then authorized a roughly
+15minute entry pause, now ended; operators were told they can resume entries.
+
+A paired timing run contaminated by concurrent candidate-only browser/health load
+failed two p95 limits. One independently reviewed isolated correction kept the
+same facts/samples/10%-median,15%-p95,15%-bytes limits and passed all810 samples.
+After recovery activation, its270-sample public check failed PO762 detail median:
+154.047189ms before versus169.777115ms after, above169.451908ms maximum. This is an
+automatic stop, not a waived or rounded pass. Full feature promotion stopped; no
+cause/fix is established. Do not retime under a new phase name to erase failure.
+Bounded diagnosis found current public DNS lookup97.48ms; four TLS-verified
+DNS-pinned controls reduced total median163.33 to66.58ms while app time stayed
+about50ms. This proves a current DNS contribution, not the historical failure
+cause or a fix. Resolver-path remediation/instrumented measurement needs review
+before another promotion. Original/fresh/failed reports are kept
+in the task's ignored outputs and recovery readonly-qa epoch directories.
+
+Fresh closing postflight passed all four health checks. Under a separately
+reviewed owned CAS plan, inactive blue was replaced with the same exact validated
+1ab/053002 images; strict default CMD, pre/post0157 head, disabled seeds, two fresh
+workers, zero restarts/OOM/errors and health passed. Installed controller changed
+only rollback fields/timestamp to053002/blue; green container IDs, current source,
+proxy and shared config stayed unchanged. Both application slots now cold-start
+at0157. Original115200/052632/135430 sources/images remain verified on both hosts.
+All deployment leases released. Timed observation was explicitly waived; none ran.
+Two0600 PostgreSQL dumps each passed1400-object restore-list/hash checks; see
+[the task record](PRICE_WAREHOUSE_FIXES_20261116.md) for identities and open risks.
 
 ## Mixed-package attribution and wording (14 November; local only)
 

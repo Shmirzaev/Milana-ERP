@@ -4,6 +4,91 @@ Owner request: remove print price from Purchasing price requests because Finance
 will enter it; make the highlighted Warehouse Stock model card open its details;
 deploy `codex/factory-workflows-20261113` without 30-minute monitoring.
 
+## Current production outcome — 16 November
+
+The requested full feature release is **NOT LIVE**. Both applications serve the
+reviewed schema-compatible recovery `20261116_053002`, green, source1ab6ff577,
+manifest304f2d4fea15243fe212b32135cc804c33eb55612e20b36d623ee436d096e2c4.
+Migration0157 completed; its only change is nullable JSON attribution, no backfill.
+Exact feature8fb52df54 / release20261116_061924 passed all five CI jobs, source and
+immutable-image verification; images/source are prepared on both hosts but its
+containers were not staged and traffic was not activated. No merge to main or
+clone_main was performed. Owner QA approved both6c and its8fb Printing follow-up.
+
+A fresh complete functional capture after owner-confirmed entry pause passed.
+Recovery passed43 full ordered response contracts and26 complete source-fact
+arrays at staged and public points. Actual signed read-only browser screenshots,
+zero new console errors/warnings, strict image/default CMD/seed flags, two fresh
+workers, routers, disk/DB headroom and all four health checks passed. Historical
+local-dev extension hydration errors remain separately preserved. No business
+fixture, production record, inventory/stock quantity, permission or credential
+was changed by release operations. Legitimate operator Packaging writes caused
+the first failed snapshot; source and failure evidence were preserved. Operators
+were told to resume after the planned pause. No timed observer was started.
+
+One recovery paired810-request run failed two p95 budgets while candidate-only
+browser and health checks ran concurrently. The cause was not asserted proved.
+Independent review authorized one isolated correction with identical complete
+facts/requests/samples and unchanged10/15/15 limits; it passed (worst median+5.57%,
+p95+7.90%, bytes unchanged). After backend-first recovery activation and both
+source links, the270-request public closing run failed production-order detail
+median154.047189→169.777115ms (+10.21%; maximum169.451908ms). All complete payloads,
+other median limits and p95/byte limits passed. This failure is preserved and
+blocks full-feature promotion. A new phase must not hide or re-label it. Targeted
+public-path/runtime/network diagnosis is required before another release gate.
+
+Frozen two-phase plan SHA847902adf0a06fb3dd807fbd7a5711e2993a91cb3b400d1af9055cd0745ce36e.
+Initial failed functional SHA13eaed6b539c9f6729a7b9bdf99aebc47120f9b21479370e0d74cec73685f5ab.
+Successful initial SHA5f78f0a8cb2c8bf3c30716722abd549921edb703948d73aa0f8f207fcb98d889.
+Isolated paired SHA c3e7e73e9e3d100a3715bbecb215388f5762b889e551ede168ac3c99087c7aef.
+Failed public SHA39c4e2c1b6a0cd79ccd2a70776769b86ef009df6ce6f4f7715f3902ca9901763.
+Actual reports reside in recovery outputs/readonly-qa-20261116[-epoch02/-epoch03];
+main outputs/price-warehouse-20261116 holds phase attempts/results, images,
+review receipts, screenshots, halted journal and final health readbacks. Exact
+helper fixes for Windows UTF-8 decoding and [-B,-c] worker argv detection were
+independently reviewed as separate copies; frozen helper bytes never changed.
+
+Verified0600 backups, each1400 restore objects:
+
+- `/opt/milana-erp/shared/backups/milana_erp_pre_recovery_20261116_053002_20261116_070058.dump`,126553961bytes,
+  SHA22989e5ee0ebf8c6201d03a19d8034180ae32f5242b703c19f838cdd6ecfa5b0.
+- `/opt/milana-erp/shared/backups/milana_erp_pre_final_20261116_061924_20261116_071357.dump`,126588656bytes,
+  SHA3d563aba1a905a8f0df69fc9f346c9b7312c8a4b07b941ec4e996254471b2b20.
+
+Fresh halted recovery postflight passed; both owned deployment leases released.
+Original115200/052632/135430 sources and exact images remain manifest/revision
+verified on both hosts. A separately reviewed owned CAS standby procedure replaced
+only inactive blue with the same validated1ab/053002 images. A read-only0157 head
+check before its real default CMD prevented accidental migration. Disabled seeds,
+strict default commands, two fresh workers, zero restarts/OOM/errors and all health
+checks passed. Installed controller atomically changed only rollback fields plus
+updated_at to053002/blue; active green IDs/source/proxy/shared config remained
+unchanged on both hosts. Both slots now have a cold-start-compatible application.
+Standby plan SHA b244218f8e27ed18fa35b9041ac575f9ac1f84da05d7f9f9d74981303dccde46;
+seven offline fault challenges and actual pinned-controller Docker command proof
+passed before execution. Both leases released; final closing health/retention
+proofs passed. Never downgrade/stamp or start a withdrawn build. Three exact unused older ERP backend image copies
+were removed under independently reviewed retention ownership to establish
+measured capacity; immutable registry and preserved local copies verified. A
+partial alias-removal failure/readback and separate reconciliation are preserved.
+No generic prune, backup removal, source deletion or business-data cleanup ran.
+
+Bounded diagnosis after the entry pause used8 interleaved GETs per origin:
+old blue58.11ms, compatible green51.58ms, frontend HTTP59.45ms, public HTTPS163.33ms.
+Current public DNS median97.48ms, TLS/pretransfer110.95ms, app about50–60ms. Four
+additional controls pinned only the observed IP while preserving hostname, SNI,
+certificate verification and exact body. DNS became0.026ms and total66.58ms;
+app stayed about50ms. No DNS/proxy/configuration was changed. The controlled result
+establishes a current DNS contribution; the old failed epoch lacked component
+timings, so its15.73ms shift remains unexplained. These diagnostic samples do not
+qualify any release gate. Resolver-path remediation or an independently reviewed
+instrumented protocol is required before a further promotion attempt. Private
+complete diagnostic evidence is in recovery outputs/readonly-qa-20261116/diagnostic-public-path-20261116.
+
+The following sections preserve the earlier implementation and pre-release
+verification history; their historical pending/no-production-change statements
+are superseded by the actual outcome above.
+
 Starting candidate: 7c9729b63607e698659ac4a216f7865a8d9eb159, clean dedicated
 worktree C:/ERP/.codex-work/factory-workflows-20261113. Both live hosts verified
 20261111_115200, manifest db9df64cbcf57e4ab93ac83ef677d7d394b07652a1a4cf3fe1815abc92adac28,
