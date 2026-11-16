@@ -11,9 +11,26 @@ this checkout, a new combined candidate or deployed production. Inspect current
 code and the operation ledger before advancing a gate. Schema-owned writers,
 system-wide enum/type adoption and human acceptance remain incomplete.
 
-Last updated 2026-11-14. Keep this file short: current decisions, release pointers and
+Last updated 2026-11-16. Keep this file short: current decisions, release pointers and
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
+
+## Pricing print ownership and warehouse navigation (16 November; local only)
+
+Purchasing no longer enters printing_cost or waits for it to submit. Finance owns
+that finite nonnegative value; printed variants require an explicit value, including
+zero, before complete cost calculation/approval. Existing values, factory scope,
+revision locking and department submissions are preserved. Warehouse model cards
+open the existing detail route across their full area, including missing photos;
+model-less legacy stock retains its filter fallback. No new schema for these fixes.
+
+Both live hosts were verified115200/source46ddd, manifests match the recorded base.
+The requested factory branch also includes0157 and withdrawn feature ancestry;
+metadata-only old-image recovery can lose exact attribution on edits and reject
+new print-run receipts. Deployment remains blocked pending safe recovery/full
+candidate gates and the recorded pre-deployment human review. Timed observation
+is explicitly waived. No production business data or runtime changed. See
+[the task evidence](PRICE_WAREHOUSE_FIXES_20261116.md).
 
 ## Mixed-package attribution and wording (14 November; local only)
 

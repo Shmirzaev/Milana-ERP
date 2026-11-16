@@ -26,7 +26,7 @@ def protected_facts(db):
             for name in PROTECTED_TABLES if name in Base.metadata.tables}
 
 
-def setup(client, suffix, *, complete=True):
+def setup(client, suffix, *, complete=True, has_print=False):
     data = _setup_workflow_data(suffix)
     with SessionLocal() as db:
         model = db.get(Model, data["model_id"])
@@ -35,7 +35,7 @@ def setup(client, suffix, *, complete=True):
         model.details_json = {**model.details_json, "costing": {"target_margin_pct": "Infinity"}}
         db.commit()
     payload = {"passport_no": f"AUTO-{suffix}", "date": "2026-11-10T00:00:00Z", "model_code": code,
-               "size_range": "S, M"}
+               "size_range": "S, M", "has_print": has_print}
     if complete:
         payload.update(fabric_width_m=2, lay_length_m=4, gramage=0.2, beka_per_piece_kg=0.01)
     headers = _login(client, f"cutting.price.{suffix}@example.com")
@@ -61,7 +61,7 @@ def save_costs(client, data, *, no_accessories=False):
     base = f"/api/price-calculation/requests/{data['request_id']}"
     purchasing = client.patch(base + "/purchasing", headers=data["purchasing"], json={
         "expected_revision": request["revision"], "materials": [{"key": row["key"], "rate": 5} for row in request["materials"]],
-        "sewing_cost": 0.5, "printing_cost": 0.2 if request["printing_required"] else None})
+        "sewing_cost": 0.5})
     assert purchasing.status_code == 200, purchasing.text
     accessories = client.patch(base + "/accessories", headers=data["accessories"], json={
         "expected_revision": purchasing.json()["revision"],

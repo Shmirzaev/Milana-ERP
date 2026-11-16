@@ -12,12 +12,12 @@ import { numberInputValue, type PriceCalculationRequest } from "@/lib/priceCalcu
 import { priceWorkflowMessages } from "@/lib/priceWorkflowMessages";
 
 type Team = "purchasing" | "accessories";
-type Draft = { revision: number; fabric: string; sewing: string; printing: string; accessories: { name: string; price: string }[]; noAccessories: boolean; reason: string };
+type Draft = { revision: number; fabric: string; sewing: string; accessories: { name: string; price: string }[]; noAccessories: boolean; reason: string };
 const numeric = (value: string) => value.trim() ? Number(value) : null;
 function draftOf(request: PriceCalculationRequest): Draft {
   const rates = [...new Set(request.materials.map(row => row.rate))];
   return { revision: request.revision, fabric: numberInputValue(rates.length === 1 ? rates[0] : null),
-    sewing: numberInputValue(request.sewing_cost), printing: numberInputValue(request.printing_cost),
+    sewing: numberInputValue(request.sewing_cost),
     accessories: request.accessories.length ? request.accessories.map(row => ({ name: row.name || "", price: numberInputValue(row.price) })) : [{ name: "", price: "" }],
     noAccessories: Boolean(request.no_accessories_reason), reason: request.no_accessories_reason || "" };
 }
@@ -44,7 +44,7 @@ export default function DepartmentPriceQueue({ team }: { team: Team }) {
         await api.post(`/api/price-calculation/requests/${request.id}/submit/${team}`, { expected_revision: request.revision });
       } else if (draft) {
         const payload = team === "purchasing" ? {
-          expected_revision: draft.revision, sewing_cost: numeric(draft.sewing), printing_cost: numeric(draft.printing),
+          expected_revision: draft.revision, sewing_cost: numeric(draft.sewing),
           fabric_price: numeric(draft.fabric),
         } : {
           expected_revision: draft.revision, no_accessories_reason: draft.noAccessories ? draft.reason : null,
@@ -75,7 +75,7 @@ export default function DepartmentPriceQueue({ team }: { team: Team }) {
         {request.correction_reason ? <p className="mb-3 text-sm text-amber-900">{m.correction}: {request.correction_reason}</p> : null}
         {team === "purchasing" ? <>
           <div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr><th className="text-left">{m.material}</th><th className="text-right">{m.consumption}</th></tr></thead><tbody>{request.materials.map(material => <tr key={material.key} className="border-t border-[var(--erp-border)]"><td className="py-2">{material.name}</td><td className="py-2 text-right tabular-nums">{material.consumption === null ? m.quantityMissing : fmt.format(material.consumption)} {material.unit}</td></tr>)}</tbody></table></div>
-          <div className="mt-3 grid gap-3 sm:grid-cols-2"><label className="text-sm">{m.fabricPrice}<input className="input mt-1" type="number" min="0" step="0.0001" disabled={!draft} value={row.fabric} onChange={event => update(request.id, { fabric: event.target.value })} /></label><label className="text-sm">{m.sewing}<input className="input mt-1" type="number" min="0" step="0.0001" disabled={!draft} value={row.sewing} onChange={event => update(request.id, { sewing: event.target.value })} /></label>{request.printing_required ? <label className="text-sm">{m.printing}<input className="input mt-1" type="number" min="0" step="0.0001" disabled={!draft} value={row.printing} onChange={event => update(request.id, { printing: event.target.value })} /></label> : null}</div>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2"><label className="text-sm">{m.fabricPrice}<input className="input mt-1" type="number" min="0" step="0.0001" disabled={!draft} value={row.fabric} onChange={event => update(request.id, { fabric: event.target.value })} /></label><label className="text-sm">{m.sewing}<input className="input mt-1" type="number" min="0" step="0.0001" disabled={!draft} value={row.sewing} onChange={event => update(request.id, { sewing: event.target.value })} /></label></div>
           {request.calculation_issues.includes("passport_consumption") ? <p className="mt-2 text-sm text-amber-900">{m.missing} <a className="underline" href="/cutting-passports">{m.viewPassport}</a></p> : null}
         </> : <div className="space-y-3">
           <label className="flex items-center gap-2 text-sm"><input type="checkbox" disabled={!draft} checked={row.noAccessories} onChange={event => update(request.id, { noAccessories: event.target.checked })} />{m.noAccessories}</label>

@@ -17,7 +17,7 @@ from app.models import price_calculation_service as pricing
 from app.models.audit_service import log_action
 from app.models.factory_scope_service import available_factory_codes, selected_factory_code
 from app.models.passport_sizes_service import passport_order_sizes, size_count_from_range
-from app.models.planning.price_workflow_calculation import amount, number, ready_for_finance, purchasing_ready, accessories_ready
+from app.models.planning.price_workflow_calculation import amount, number, ready_for_finance, purchasing_ready, accessories_ready, printing_ready
 from app.models.planning import variant_pricing_policy as policy
 from app.models.user_access_service import permission_denied
 from app.schemas import CuttingPassport, Model, ProductionOrder, User, WorkOrder, Department
@@ -351,6 +351,8 @@ def approve(db, request_id, payload, current):
     require_editable(request)
     if request.workflow_state != PriceWorkflowState.AWAITING_FINANCE or not ready_for_finance(request):
         raise HTTPException(409, "Both teams and passport evidence must be complete before confirmation")
+    if not printing_ready(request):
+        raise HTTPException(409, "Finance must enter the printing cost before confirmation")
     if request.cutting_passport:
         # populate_existing refreshes a passport held in this Session's identity map.
         db.refresh(request.cutting_passport)

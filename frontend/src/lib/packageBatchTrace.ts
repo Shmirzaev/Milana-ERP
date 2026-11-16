@@ -107,12 +107,13 @@ export function tracePackagePlans(plans: PackagePlan[], draft: BatchTraceDraft, 
     return { ...plan, batch_allocations };
   });
   if (sourceBudgets) for (const [batch, used] of usedSources) {
-    if (!Number.isInteger(used) || used < 0 || !Number.isInteger(sourceBudgets[batch]) || used > sourceBudgets[batch]) valid = false;
+    const available = sourceBudgets[batch];
+    if (!Number.isInteger(used) || used < 0 || available === undefined || !Number.isInteger(available) || used > available) valid = false;
   }
   if (sourceSizeBudgets) for (const [batch, used] of usedSizes) {
     if (!Object.hasOwn(sourceSizeBudgets, batch)) continue;
     for (const [size, quantity] of used) {
-      const available = sourceSizeBudgets[batch][size] ?? 0;
+      const available = sourceSizeBudgets[batch]?.[size] ?? 0;
       if (!Number.isInteger(available) || quantity > available) valid = false;
     }
   }

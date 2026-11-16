@@ -361,13 +361,14 @@ export default function WarehouseStockPage() {
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:max-h-[820px] xl:grid-cols-1 xl:overflow-y-auto">
           {isLoading && <p className="text-sm">{t("common.loading")}</p>}
           {modelGroups.slice(0, groupLimit).map((group) => (
-            <article key={group.key} className="overflow-hidden rounded-lg border border-[#e3dfd3] bg-[#fdfcf8] shadow-sm">
+            <article key={group.key} className="overflow-hidden rounded-lg border border-[#e3dfd3] bg-[#fdfcf8] shadow-sm relative">
+              {group.model_id ? <Link href={`/warehouse-stock/models/${group.model_id}?stock_kind=${stockKind}`} className="absolute inset-0 z-10 rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2" aria-label={`${formatModelVariantCode(group.model_code) || group.model_name || t("page.warehouseStock.stockByModel")}`} /> : null}
               <div className="grid min-h-[132px] grid-cols-[104px_minmax(0,1fr)]">
                 <div className="bg-[#f1efe8]">
                   {group.model_image_url ? (
-                    <a href={`/warehouse-stock/models/${group.model_id}?stock_kind=${stockKind}`} target="_blank" rel="noreferrer" className="block h-full min-h-[132px] w-full">
+                    <div className="block h-full min-h-[132px] w-full">
                       <img src={storageThumbnailUrl(group.model_image_url, 320)} alt={group.model_name || group.model_code || ""} className="h-full min-h-[132px] w-full object-contain p-1" loading="lazy" />
-                    </a>
+                    </div>
                   ) : (
                     <div className="flex h-full min-h-[132px] items-center justify-center border-r border-[#e3dfd3] text-[#8a8472]">
                       <ImageOff className="h-6 w-6" />
@@ -375,7 +376,7 @@ export default function WarehouseStockPage() {
                   )}
                 </div>
                 <div className="flex min-w-0 flex-col p-3">
-                  <div className="mono text-xs font-semibold text-[#56503f]"><button type="button" className="text-left underline" onClick={() => setSelectedVariant(group.key)}>{formatModelVariantCode(group.model_code) || group.model_name || "—"}</button></div>
+                  <div className="mono text-xs font-semibold text-[#56503f]">{group.model_id ? <span className="underline">{formatModelVariantCode(group.model_code) || group.model_name || "—"}</span> : <button type="button" className="text-left underline" onClick={() => setSelectedVariant(group.key)}>{formatModelVariantCode(group.model_code) || group.model_name || "—"}</button>}</div>
                   <div className="mt-1 line-clamp-2 text-sm font-semibold leading-snug text-[#14110b]">{group.model_name || t("page.models.noPreview")}</div>
                   <div className="mt-auto grid grid-cols-2 gap-2 pt-3 text-xs text-[#56503f]">
                     <div>

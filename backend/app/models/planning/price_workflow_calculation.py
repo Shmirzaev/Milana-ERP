@@ -31,9 +31,12 @@ def cutting_ready(request):
 def purchasing_ready(request):
     rows = request.materials_json or []
     sewing = amount(request.sewing_cost)
+    return bool(rows) and all(amount(row.get("rate")) is not None and amount(row.get("rate")) >= 0 for row in rows) and sewing is not None and sewing >= 0
+
+
+def printing_ready(request):
     printing = amount(request.printing_cost)
-    required = bool((request.passport_snapshot_json or {}).get("has_print"))
-    return bool(rows) and all(amount(row.get("rate")) is not None and amount(row.get("rate")) >= 0 for row in rows) and sewing is not None and sewing >= 0 and (not required or printing is not None and printing >= 0)
+    return not (request.passport_snapshot_json or {}).get("has_print") or printing is not None and printing >= 0
 
 
 def accessories_ready(request):
@@ -54,7 +57,7 @@ def projection(request):
         materials.append({**row, "cost": number(quantity * rate) if quantity is not None and rate is not None else None})
     ready = ready_for_finance(request)
     cost = None
-    if ready:
+    if ready and printing_ready(request):
         cost = sum((amount(row["consumption"]) * amount(row["rate"]) for row in materials), Decimal(0))
         cost += amount(request.sewing_cost) + Decimal("0.1")
         cost += sum((amount(row.get("price")) for row in request.accessories_json or []), Decimal(0))
@@ -67,6 +70,8 @@ def projection(request):
         issues.append("purchasing_costs")
     if not accessories_ready(request):
         issues.append("accessory_costs")
+    if not printing_ready(request):
+        issues.append("printing_costs")
     submitted_purchase = bool(request.purchasing_submitted_at)
     submitted_accessory = bool(request.accessories_submitted_at)
     return {

@@ -197,3 +197,12 @@ old/new separately -> test the real UI on isolated data -> reviewed switch -> hu
 production verification -> remove old code. Keep one write path per request.
 Record the test result, visual evidence, approver and cleanup condition in the task.
 Visual success alone does not prove permissions, concurrency or data correctness.
+
+### Printing price ownership (16 November 2026)
+
+Purchasing drafts accept fabric/sewing costs; printing_cost is a Finance-only
+field. Both department submissions may complete while it is empty. A printed
+variant has no complete net cost and cannot be approved until Finance supplies a
+finite nonnegative print price (zero is valid). Omitted Finance fields preserve
+saved values; explicit null removes the price and restores the approval block.
+No storage or manufacturing changes are part of this ownership correction.

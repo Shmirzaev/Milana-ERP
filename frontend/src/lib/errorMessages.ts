@@ -21,6 +21,7 @@ export function systemLanguage(): Lang {
   return "en";
 }
 const messages: Record<string, [string, string]> = {
+  "Finance must enter the printing cost before confirmation": ["Финансовый отдел должен указать стоимость печати перед подтверждением.", "Tasdiqlashdan oldin moliya bo‘limi bosma narxini kiritishi kerak."],
   "Invalid source item breakdown": ["Проверьте состав по настилам, цветам и размерам.", "Nastil, rang va o‘lcham bo‘yicha tarkibni tekshiring."],
   "Every repeated source row requires its item breakdown": ["Для каждой строки настила укажите состав по цветам и размерам.", "Nastilning har bir qatori uchun rang va o‘lcham tarkibini kiriting."],
   "Source item breakdown must match package contents": ["Состав настила должен совпадать с содержимым упаковки.", "Nastil tarkibi qadoq tarkibiga mos bo‘lishi kerak."],

@@ -5,6 +5,7 @@ from app.libs.dto.planning.price_workflow_input import PriceMaterialRateIn
 class PriceCalculationFinanceIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     expected_revision: int | None = Field(default=None, gt=0)
+    printing_cost: float | None = Field(default=None, ge=0, le=9_999_999_999.9999, allow_inf_nan=False)
     cost_price_uzs: float | None = Field(default=None, ge=0)
     selling_price: float | None = Field(
         default=None, ge=0, le=9_999_999_999.9999, allow_inf_nan=False,
@@ -21,7 +22,6 @@ class PriceCalculationPurchasingIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     expected_revision: int | None = Field(default=None, gt=0)
     materials: list[PriceMaterialRateIn] | None = Field(default=None, max_length=100)
-    printing_cost: float | None = Field(default=None, ge=0, le=9_999_999_999.9999, allow_inf_nan=False)
     fabric_price: float | None = Field(
         default=None, ge=0, le=9_999_999_999.9999, allow_inf_nan=False,
     )
