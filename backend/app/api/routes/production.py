@@ -5153,7 +5153,12 @@ def update_cutting_bundle_quantities(
 # ===== Printing =====
 @router.post("/printing/records", status_code=201)
 def post_printing(payload: PrintingRecordIn, db: DbSession, current: User = Depends(require_permissions("printing.records", "*"))):
-    wo = db.get(WorkOrder, payload.work_order_id)
+    # Printing also flushes Sewing accessory state before advancing the parent.
+    # Serialize before either child write, as scans and direct Packaging do.
+    source_order = db.query(WorkOrder.production_order_id).filter(
+        WorkOrder.id == payload.work_order_id).scalar_subquery()
+    db.query(ProductionOrder.id).filter(ProductionOrder.id == source_order).with_for_update(of=ProductionOrder).first()
+    wo = db.query(WorkOrder).filter(WorkOrder.id == payload.work_order_id).with_for_update(of=WorkOrder).populate_existing().first()
     if not wo: raise HTTPException(404, "Work order not found")
     from app.models.factory_scope_service import require_work_order_factory_access
     require_work_order_factory_access(current, db, wo)

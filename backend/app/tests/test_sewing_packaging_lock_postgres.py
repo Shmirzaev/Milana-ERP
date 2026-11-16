@@ -10,18 +10,18 @@ from sqlalchemy import text
 
 from app.api.routes.bundles import api_receive_sewing
 from app.api.routes.package_workflows import create_packages_and_run, record_packaging_damage
-from app.api.routes.production import PackagingReceiveFromSewingIn, receive_packaging_from_sewing
+from app.api.routes.production import PackagingReceiveFromSewingIn, post_printing, receive_packaging_from_sewing
 from app.api.routes.sewing_bands import ReceiveIn, receive, record_output
 from app.api.routes.sewing_corrections import Correction, DeleteInput, delete, update
 from app.libs.dto.fulfillment.package_workflows import PrintRunCreatePackagesIn
 from app.libs.dto.packaging.packaging_damage_input import PackagingDamageIn
-from app.libs.dto.production.production import SewingRecordIn
+from app.libs.dto.production.production import PrintingRecordIn, SewingRecordIn
 from app.libs.dto.production.sewing_manual_receive import SewingManualReceiveIn
 from app.models.factory_scope_service import bind_session_factory
 from app.models.idempotency_service import bind_idempotency_identity
 from app.models.production.sewing_receipt_service import accept_sewing_batch, receive_manual_sewing
 from app.schemas import (
-    Bundle, CuttingRecord, Department, Package, PackagingReceipt, PackagingRecord,
+    Bundle, CuttingRecord, Department, Package, PackagingReceipt, PackagingRecord, PrintingRecord, ProductionOrder,
     SewingAssignment, SewingFlow, SewingRecord, User, WorkOrder,
 )
 from app.tests.test_direct_packaging import body
@@ -83,10 +83,33 @@ def _seed(sessions, operation):
                                           status="in_progress", created_by=actor_id)
             db.add(assignment); db.flush()
             facts["assignment_id"] = assignment.id
+        if operation == "printing":
+            from app.models.inventory_service import ACCESSORY_SEWING_BLOCK_REASON
+            printing_department = db.query(Department).filter_by(code="PRT").first()
+            if printing_department is None:
+                printing_department = Department(code="PRT", name="Printing")
+                db.add(printing_department); db.flush()
+            printer = User(name="Printing lock QA", email=f"{uuid4().hex}@example.invalid", password_hash="unused",
+                           role_id=actor.role_id, factory_code="MIL")
+            printing = WorkOrder(production_order_id=facts["order_id"], department_id=printing_department.id,
+                                 operation="printing", status="in_progress", planned_input_qty=97, planned_output_qty=97,
+                                 actual_input_qty=96, actual_output_qty=96, passed_qty=96)
+            db.add_all([printer, printing]); db.flush()
+            db.add(PrintingRecord(work_order_id=printing.id, production_batch_id=facts["batch_ids"][0],
+                                  input_qty=96, printed_qty=96, passed_qty=96, rejected_qty=0))
+            work.is_blocked = True
+            work.block_reason = ACCESSORY_SEWING_BLOCK_REASON
+            db.get(ProductionOrder, facts["order_id"]).status = "printing"
+            facts.update(printing_work_order_id=printing.id, printing_actor_id=printer.id)
     return facts
 
 
 def _legacy(db, facts, operation):
+    if operation == "printing":
+        printer = db.get(User, facts["printing_actor_id"])
+        bind_session_factory(printer, "MIL")
+        return post_printing(PrintingRecordIn(work_order_id=facts["printing_work_order_id"],
+            production_batch_id=facts["batch_ids"][0], input_qty=1, printed_qty=1, passed_qty=1), db, printer)
     actor = _actor(db, facts["band_id"] if operation.startswith("band_") else facts["actor_id"])
     if operation == "packaging_receipt":
         return receive_packaging_from_sewing(PackagingReceiveFromSewingIn(
@@ -122,7 +145,7 @@ def _direct(db, facts, action):
 
 
 @pytest.mark.parametrize("operation", ["packaging_receipt", "band_output", "band_receive", "manual", "manual_flow",
-                                       "batch", "scanner", "correction_update", "correction_delete"])
+                                       "batch", "scanner", "correction_update", "correction_delete", "printing"])
 @pytest.mark.parametrize("action", ["labels", "damage"])
 def test_legacy_writer_waits_before_source_locks_then_direct_output_conserves(
         package_write_postgres_sessions, operation, action):
@@ -168,6 +191,9 @@ def test_legacy_writer_waits_before_source_locks_then_direct_output_conserves(
             # deadlocking direct Packaging. NOWAIT makes that regression decisive.
             holder.execute(text("SELECT id FROM work_orders WHERE id=:id FOR UPDATE NOWAIT"),
                            {"id": facts["sewing_work_order_id"]}).scalar_one()
+            if operation == "printing":
+                holder.execute(text("SELECT id FROM work_orders WHERE id=:id FOR UPDATE NOWAIT"),
+                               {"id": facts["printing_work_order_id"]}).scalar_one()
             holder.execute(text("SELECT id FROM production_batches WHERE id=:id FOR UPDATE NOWAIT"),
                            {"id": facts["batch_ids"][0]}).scalar_one()
             holder.execute(text("SELECT id FROM bundles WHERE id=:id FOR UPDATE NOWAIT"),
@@ -195,6 +221,11 @@ def test_legacy_writer_waits_before_source_locks_then_direct_output_conserves(
                 assert assignment.quantity == 97
         elif operation == "band_output":
             assert db.get(SewingAssignment, facts["assignment_id"]).completed_qty == 96
+        elif operation == "printing":
+            printing = db.get(WorkOrder, facts["printing_work_order_id"])
+            assert (printing.actual_input_qty, printing.actual_output_qty, printing.passed_qty) == (97, 97, 97)
+            assert db.query(PrintingRecord).filter_by(work_order_id=printing.id).count() == 2
+            assert not db.get(WorkOrder, facts["sewing_work_order_id"]).is_blocked
         assert sum(row.passed_qty for row in db.query(SewingRecord).filter_by(
             work_order_id=facts["sewing_work_order_id"])) == (96 if operation == "band_output" else 95)
 

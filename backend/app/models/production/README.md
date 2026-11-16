@@ -9,6 +9,9 @@ existing assignment and quantities, then receives and assigns in one transaction
 Manual, batch and scanner receipts lock the parent production order before any
 batch/bundle/work-order lock, matching Sewing output and direct Packaging. This
 also covers implicit foreign-key locks and receipt-driven status reconciliation.
+Printing records take the same parent-first lock before refreshing their work
+order: their accessory update can flush Sewing work orders before parent status
+advances, so they participate in the same scan/Packaging serialization.
 Assignment quantity uses the shared usable Sewing-input target, capped by physical
 bundle receipt and excluding this exact Nastil's Printing rejects; original bundle
 labels/counts stay unchanged. All-rejected input cannot create a zero assignment.

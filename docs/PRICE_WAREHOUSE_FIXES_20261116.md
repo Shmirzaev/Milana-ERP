@@ -174,3 +174,24 @@ production backup, staging/paired complete-fact performance and all closing chec
 The user's no30-minute-monitoring instruction waives only timed observation; no
 observer or substitute monitor has been started. Production remains115200.
 Production data touched:none. All fixture changes were isolated local QA only.
+
+## Final Printing interlock correction
+
+Owner-reported QA approved commit6c714f9cc, including Packaging and physical
+label/scan checks. Preserve that exact acceptance; it does not automatically
+approve a later source. Final review then found Printing's accessory-state flush
+could hold a Sewing work order before updating its parent, conflicting with the
+parent-first scanners and direct Packaging. Printing now locks the parent before
+refreshing/locking its own work order and before status, authorization and input
+checks; existing permissions, quantities and department handoffs are retained.
+
+Two real PostgreSQL cases force a real Printing increment to wait on the parent
+while direct labels or damage commits; the holder can lock Printing, Sewing,
+batch and bundle rows with NOWAIT. Readback proves exactly two Printing records,
+97 input/passed, unchanged95 Sewing output and conserved Packaging output.
+Overlaying only the exact6c Printing route makes both cases fail on its actual
+late parent UPDATE; the corrected route passes both. The complete related Linux
+suite passed127 cases with zero skips; independent runtime/test review, Ruff,
+compile and diff checks passed. New exact-source CI and recorded human review
+remain required before release. A first rerun used a nonexistent test filename
+and collected no tests; its failed report is retained and is not pass evidence.

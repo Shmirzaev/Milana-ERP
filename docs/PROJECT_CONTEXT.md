@@ -41,6 +41,14 @@ CI/release gates plus recorded pre-deployment human review remain pending. Timed
 observation is explicitly waived. No production business data/runtime changed. See
 [the task evidence](PRICE_WAREHOUSE_FIXES_20261116.md).
 
+Owner-reported QA approved6c714f9cc including Packaging/physical label/scan checks.
+Final review then reproduced a Printing accessory-flush lock inversion with
+parent-first Sewing/Packaging. Printing now takes the parent before its work
+order; two real-PG label/damage races pass and both fail against exact6c source.
+The related127-case Linux run passed with zero skips and independent review.
+That narrow follow-up needs its own exact-source CI and recorded human review;
+the earlier acceptance remains tied to6c. Production is still115200, untouched.
+
 ## Mixed-package attribution and wording (14 November; local only)
 
 New mixed packages require exact source Nastil/model/color/size attribution; legacy
