@@ -406,11 +406,21 @@ The completed 12-case run used the real JSON login plus MIL factory selection.
 
 ## SEC04 — model-file session authentication (2026-10-27 branch follow-up)
 
+- **16 November: undeployed pool-starvation fix candidate.** Image authentication
+  now acquires, validates and releases its Session in one synchronous call. The
+  old source fails the new 80-request / 40-worker / 8+4-pool regression; fixed
+  SQLite and real-PostgreSQL cases pass with recovery and zero leaked checkouts.
+  Focused checks: 35 passed; related checks: 51 passed / 8 existing skips.
+  [Task record and remaining acceptance](../docs/archive/SEC04_POOL_STARVATION_20261116.md).
+  Preserve the historical PostgreSQL/browser/8-concurrent stress evidence below;
+  the missing case was the higher scheduling threshold, not absence of testing.
+  Human review, real Next.js gallery acceptance and deployment remain pending.
 - **Merged in [#309](https://github.com/Shmirzaev/Milana-ERP/pull/309) as
   [`c0b1c618`](https://github.com/Shmirzaev/Milana-ERP/commit/c0b1c618a84a89ffde1e7e26a36b545dcadf65e3); human acceptance and production verification pending · Dilmurod; reviewer Mirshoir.** The existing `codex/sec04-model-file-auth` branch's browser-cache revalidation at `9f6895a9` was merged into current `clone_main`. Historical October rows below remain evidence; this is not a Finished entry.
 - Disabled/deleted accounts and revoked tokens must receive 401 on model files
   and cached thumbnails. Active MIL/BST/ECO users retain company-wide access.
-  Authenticate through `CurrentUser`, then close the auth session before I/O.
+  Reuse the current-user checks and close the auth Session in the same worker
+  call before image I/O.
 - The old cache policy let Chromium return 200 after revocation. The new
   filesystem policy requires revalidation; authenticated ETag/Last-Modified
   requests return 304, while revoked sessions return 401. Legacy DB fallback

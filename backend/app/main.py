@@ -1,5 +1,6 @@
 import os
 import logging
+from typing import Annotated
 from time import perf_counter
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -19,11 +20,12 @@ from fastapi.responses import JSONResponse, Response
 from app.core.config import settings
 from app.core import readiness as readiness_checks
 from app.core.proxy_trust import client_ip, effective_request_scheme, validate_proxy_runtime_configuration
-from app.core.deps import CurrentUser, DbSession
+from app.core.deps import DbSession, get_current_user, oauth2_scheme
 from app.core.security import decode_token
 from app.core.shared_store import get_shared_counter_store
 from app.api.router import api_router
 from app.db.session import SessionLocal, engine
+from app.db import session as db_session
 import app.schemas  # noqa: F401 — register models with metadata
 
 logging.basicConfig(level=logging.INFO)
@@ -350,15 +352,23 @@ def _model_image_record(name: str, db: DbSession):
     )
 
 
-def _require_model_file_token(_user: CurrentUser, db: DbSession) -> None:
+def _require_model_file_token(
+    request: Request,
+    token: Annotated[str | None, Depends(oauth2_scheme)],
+) -> None:
     """Check current session access, then release the authentication connection.
 
     CurrentUser rejects disabled/deleted accounts and revoked credentials. A
     model list can render hundreds of thumbnails at once, so do not hold that
     database connection during filesystem reads, image generation or streaming.
     These routes use separate short-lived sessions for database image fallback.
+
+    Acquire, validate and release inside the same threadpool call. Separate
+    synchronous dependencies can fill all workers with connection waiters before
+    an authenticated request gets another worker turn to release its connection.
     """
-    db.close()
+    with db_session.SessionLocal() as db:
+        get_current_user(request, token, db)
 
 
 @app.get("/storage/model-files/{name}", dependencies=[Depends(_require_model_file_token)])

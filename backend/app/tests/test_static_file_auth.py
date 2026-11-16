@@ -1,13 +1,23 @@
 from datetime import datetime, timedelta, timezone
+from functools import partial
+from threading import Event, Lock
+from time import perf_counter
 
+import anyio
+import httpx
 import pytest
+from fastapi.testclient import TestClient
 from PIL import Image
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import settings
 from app.core.security import create_access_token, decode_token, hash_password
 from app.core.signing import sign_path
 from app.schemas import Role, User
 from app.tests.conftest import TestSessionLocal, test_engine
+
+pytest_plugins = ("app.tests.test_modelcolor_create_postgres",)
 
 
 @pytest.fixture
@@ -197,3 +207,153 @@ def test_model_files_remain_company_wide(client, file_user, model_file_urls, fac
     # model permissions or ownership restrictions.
     for url in model_file_urls:
         assert client.get(url, headers=headers).status_code == 200
+
+
+@pytest.mark.parametrize("database", ["sqlite", "postgresql"])
+def test_model_image_burst_releases_authentication_pool(
+    request, client, file_user, model_file_urls, monkeypatch, database,
+):
+    """A pending image must not need a second worker turn to release its connection."""
+    import app.main as main
+    from app.core.deps import get_db
+    from app.db import session as session_module
+
+    user_id, token = file_user
+    if database == "postgresql":
+        from app.tests import pg_approved_instance
+
+        # Preserve the approved-instance identity and lifecycle checks, while
+        # exercising the same 8+4 connection budget as the serving workers.
+        monkeypatch.setattr(pg_approved_instance, "create_engine", partial(
+            create_engine, pool_size=8, max_overflow=4, pool_timeout=1,
+        ))
+        pg_sessions = request.getfixturevalue("pg_sessions")
+        pool_engine = pg_sessions.kw["bind"]
+        with pg_sessions() as db:
+            user = User(name="Image burst", email="image-burst@example.invalid",
+                        password_hash="unused", factory_code="MIL", is_active=True)
+            db.add(user)
+            db.commit()
+            user_id = user.id
+        token = create_access_token(user_id, extra={"factory_code": "MIL"})
+    else:
+        pool_engine = create_engine(test_engine.url, connect_args={"check_same_thread": False},
+                                    pool_size=8, max_overflow=4, pool_timeout=1)
+
+    # Warm both filesystem paths before introducing the constrained pool.
+    headers = {"Authorization": f"Bearer {file_user[1]}"}
+    warm = [client.get(url, headers=headers) for url in model_file_urls]
+    assert [response.status_code for response in warm] == [200, 200]
+    headers = {"Authorization": f"Bearer {token}"}
+    attempts = 0
+    attempts_lock = Lock()
+    workers_started = Event()
+
+    class BurstSession(Session):
+        def get(self, entity, ident, **kwargs):
+            nonlocal attempts
+            if entity is User:
+                with attempts_lock:
+                    attempts += 1
+                    if attempts >= 40:
+                        workers_started.set()
+                user = super().get(entity, ident, **kwargs)
+                assert workers_started.wait(5), "The bounded burst did not fill the 40 worker slots"
+                return user
+            return super().get(entity, ident, **kwargs)
+
+    sessions = sessionmaker(bind=pool_engine, class_=BurstSession, autoflush=False, expire_on_commit=False)
+
+    def pooled_db():
+        with sessions() as db:
+            yield db
+
+    monkeypatch.setattr(session_module, "SessionLocal", sessions)
+    monkeypatch.setitem(main.app.dependency_overrides, get_db, pooled_db)
+
+    async def burst():
+        limiter = anyio.to_thread.current_default_thread_limiter()
+        original_tokens = limiter.total_tokens
+        limiter.total_tokens = 40
+        transport = httpx.ASGITransport(app=main.app, raise_app_exceptions=False)
+        responses = [None] * 80
+        durations = [0.0] * 80
+        try:
+            async with httpx.AsyncClient(transport=transport, base_url="http://test", headers=headers) as http:
+                async def read_image(index):
+                    started = perf_counter()
+                    extra = {"If-None-Match": warm[1].headers["etag"]} if index % 2 else {}
+                    responses[index] = await http.get(model_file_urls[index % 2], headers=extra)
+                    durations[index] = perf_counter() - started
+
+                with anyio.fail_after(20):
+                    async with anyio.create_task_group() as group:
+                        for index in range(80):
+                            group.start_soon(read_image, index)
+                assert [response.status_code for response in responses] == [200, 304] * 40
+                assert pool_engine.pool.checkedout() == 0
+                recovery = await http.get("/api/notifications/summary")
+                assert recovery.status_code == 200, recovery.text
+                assert recovery.json() == {"count": 0, "rows": []}
+        finally:
+            limiter.total_tokens = original_tokens
+        print(f"{database}: 80 image reads, p95={sorted(durations)[75]:.3f}s, zero pool timeouts; API recovery passed")
+
+    try:
+        anyio.run(burst)
+        assert attempts == 81  # Eighty images plus the recovery API authentication.
+        assert pool_engine.pool.checkedout() == 0
+    finally:
+        if database == "sqlite":
+            pool_engine.dispose()
+
+
+@pytest.mark.parametrize("valid_bearer", [False, True])
+def test_model_image_preserves_bearer_precedence(client, file_user, model_file_urls, valid_bearer):
+    _, token = file_user
+    client.cookies.set(settings.AUTH_COOKIE_NAME, "invalid-cookie" if valid_bearer else token)
+    headers = {"Authorization": f"Bearer {token if valid_bearer else 'invalid-bearer'}"}
+    for url in model_file_urls:
+        response = client.get(url, headers=headers)
+        assert response.status_code == (200 if valid_bearer else 401)
+    assert test_engine.pool.checkedout() == 0
+
+
+@pytest.mark.parametrize("denial", ["unassigned_factory", "inactive_band"])
+def test_model_image_preserves_scope_denials(client, file_user, model_file_urls, denial):
+    user_id, token = file_user
+    if denial == "unassigned_factory":
+        token = create_access_token(user_id, extra={"factory_code": "ECO"})
+    else:
+        with TestSessionLocal() as db:
+            db.get(User, user_id).sewing_band_id = 999999
+            db.commit()
+    for url in model_file_urls:
+        response = client.get(url, headers={"Authorization": f"Bearer {token}"})
+        assert response.status_code == 403, response.text
+        assert response.headers["cache-control"] == "private, no-store"
+    assert test_engine.pool.checkedout() == 0
+
+
+def test_model_image_authentication_error_releases_its_session(file_user, model_file_urls, monkeypatch):
+    import app.main as main
+    from app.db import session as session_module
+
+    closed = []
+
+    class FailingSession(Session):
+        def get(self, entity, ident, **kwargs):
+            super().get(entity, ident, **kwargs)
+            raise RuntimeError("Injected authentication failure after database checkout")
+
+        def close(self):
+            super().close()
+            closed.append(True)
+
+    monkeypatch.setattr(session_module, "SessionLocal", sessionmaker(bind=test_engine, class_=FailingSession))
+    with TestClient(main.app, raise_server_exceptions=False) as http:
+        response = http.get(model_file_urls[0], headers={"Authorization": f"Bearer {file_user[1]}"})
+    assert response.status_code == 500
+    assert response.json() == {"detail": "Internal server error"}
+    assert closed == [True]
+    assert test_engine.pool.checkedout() == 0

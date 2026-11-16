@@ -58,7 +58,7 @@ def test_passport_link_chooses_its_own_nastil_and_never_another(client, auth_hea
 
 @pytest.mark.parametrize("language", ["en", "ru", "uz"])
 @pytest.mark.parametrize("prices", [True, False])
-def test_invoice_package_rows_use_one_sufficient_height_at_ten_points(language, prices):
+def test_invoice_package_rows_keep_approved_24pt_height_at_ten_points(language, prices):
     from copy import deepcopy
     from io import BytesIO
     from openpyxl import load_workbook
@@ -74,12 +74,15 @@ def test_invoice_package_rows_use_one_sufficient_height_at_ten_points(language, 
                            "size": "L", "quantity": 4, "unit_price": "2.50", "amount": "10.00"}]}
     before = deepcopy(document)
     sheet = load_workbook(BytesIO(shipment_invoice_workbook(document, language, show_prices=prices))).active
-    assert sheet.row_dimensions[10].height == sheet.row_dimensions[11].height
-    assert sheet.row_dimensions[10].height > 100, "The longest description must remain readable without shrinking"
+    # The owner-approved November 16 release uses fixed 24pt rows and a wider
+    # description column. Long descriptions must not restore the older tall rows.
+    assert sheet.row_dimensions[10].height == sheet.row_dimensions[11].height == 24
     assert sheet["D10"].font.sz == sheet["D11"].font.sz == 10
     assert sheet["G12"].value == 7 and sheet["I12"].value == 2.75
     assert sheet["K12"].value == (17.5 if prices else None)
-    assert sheet["D10"].alignment.wrap_text and not sheet["D10"].alignment.shrink_to_fit
+    for row in (10, 11):
+        assert not sheet[f"D{row}"].alignment.wrap_text
+        assert not sheet[f"D{row}"].alignment.shrink_to_fit
     assert len(sheet._images) == 1
     assert sheet.print_title_rows == "$9:$9"
     assert document == before

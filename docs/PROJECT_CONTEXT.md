@@ -15,6 +15,29 @@ Last updated 2026-11-16. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
+## Model-file pool fix candidate (16 November; not deployed)
+
+An isolated candidate on exact source `db8d8d64953eb4f9dadc22bb8218942cd0999ac7`
+keeps image authentication and Session release in one synchronous worker call.
+The old source fails an 80-request / 40-worker / 8+4-pool regression; the fixed
+focused suite passes 35 tests including real PostgreSQL, and related suites pass
+51 with eight existing PostgreSQL-upload skips. Browser image rendering,
+revocation and recovery passed independent review through the real Next.js gallery
+on desktop and phone. Frontend lint, strict type checking and production
+build/contracts pass. The initial gallery harness result was invalid and is
+retained separately. The broad cached-runtime suite reported 6,850 passed,
+1,600 skipped and eight failures also reproduced on unchanged production source.
+Corrected runs pass 208 invoice, 255 auth/image/JWT/transport and 1,754 QR tests;
+required PostgreSQL groups pass. Only stale invoice test expectations were aligned
+with the approved 24pt layout; the generator remains unchanged. Original failures
+and unexercised optional skips remain recorded. Exact-commit CI and release gates
+are pending. No frontend change,
+timeout/pool increase, migration, push, merge or deployment is included. Human
+acceptance remains pending. See the
+[scoped evidence and limitations](archive/SEC04_POOL_STARVATION_20261116.md).
+Earlier SEC04 evidence did include PostgreSQL/browser and 8-concurrent stress;
+the gap was testing above the pool/thread scheduling threshold.
+
 ## Adaptive invoice description width (16 November; current production)
 
 Backend/frontend serve `20261116_092917`, blue, runtime commit
