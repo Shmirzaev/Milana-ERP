@@ -8,7 +8,7 @@ COPY requirements.txt .
 RUN apt-get update \
     && apt-get upgrade -y --no-install-recommends \
     && apt-get install -y --no-install-recommends \
-        gcc libpq-dev libpq5 curl fonts-dejavu-core \
+        gcc 'libpq-dev>=17.12-0+deb13u1' 'libpq5>=17.12-0+deb13u1' curl fonts-dejavu-core \
     && pip install --no-cache-dir setuptools==84.2.1 \
     && pip install --no-cache-dir -r requirements.txt \
     && apt-get purge -y --auto-remove gcc libpq-dev \

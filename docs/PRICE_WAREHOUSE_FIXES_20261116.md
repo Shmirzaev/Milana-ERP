@@ -71,16 +71,26 @@ The entire requested branch includes the withdrawn seven factory fixes plus two
 later Packaging checkpoints (135 paths before today's fixes). User asked what it
 contains after being offered either the full branch or only these two changes on
 stable production; the features and migration implications were explained. No
-narrowed release scope is assumed without the owner's answer.
+narrowed release scope is assumed. The owner subsequently explicitly selected
+the entire branch, including Packaging changes, on16 November.
 
 Separate uncommitted recovery preparation at
 C:/ERP/.codex-work/factory-recovery-20261116 starts at exact active46ddd and adds
-only the exact0157 script and current production-base metadata. It is NOT a safe
-verified recovery candidate: although old ORM reads/named inserts tolerate the
-nullable column and strict head equality can be satisfied, the old package editor
-recreates allocations and would lose exact attribution. Old shipment correction
-also lacks the new guard; new print-run snapshots are safely refused on receipt.
-No recovery commit/image/push/staging/migration/activation has occurred.
+the exact0157 script, current production-base metadata and narrow compatibility
+guards. Recovery preserves exact attribution in print-run snapshots and refuses
+edits/deletion/physical shipment corrections for packages containing that evidence.
+Legacy NULL packages retain baseline behavior. Independent review caught and
+corrected a misplaced warehouse guard before any commit or deployment. Actual
+receipt/replay and each protected writer are being checked, followed by the strict
+image startup/restart rehearsal. No recovery commit/image/push/staging/migration/
+activation has occurred.
+
+The first exact-source CI run43807385043 passed the frontend job; security failed
+because its cached backend apt layer held libpq5 17.11. Debian's security tracker
+records17.12-0+deb13u1 as fixed. Both final and recovery Dockerfiles now require
+that minimum for libpq-dev/libpq5, invalidating that layer and failing closed if
+the fixed package is unavailable. No security allowlist or severity policy changed.
+Official evidence: https://security-tracker.debian.org/tracker/CVE-2026-116304
 
 Pending release gates include full exact-source CI/security, safe0157 recovery,
 branch-wide label/visual verification, QA-master pre-deployment review, fresh
