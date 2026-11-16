@@ -4,6 +4,8 @@ from io import BytesIO
 from pathlib import Path
 from textwrap import wrap
 
+from PIL import ImageFont
+
 from app.models.variant_display_service import format_variant_number
 
 from openpyxl import Workbook
@@ -18,6 +20,20 @@ from app.models.shipment_invoice_service import (
 )
 
 
+def _description_column_width(rows: list[dict], header: str, size: int) -> float:
+    """Fit the longest displayed line, rather than borrowing unrelated space."""
+    paths = (Path("C:/Windows/Fonts/calibri.ttf"),
+             Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"))
+    font_path = next((path for path in paths if path.is_file()), None)
+    # Measure at 30 pt (40 px) for subpixel precision, then scale to the body type.
+    font = ImageFont.truetype(str(font_path), size=40) if font_path else None
+    texts = [header, *(str(row.get("description") or "") for row in rows)]
+    lines = [line for text in texts for line in text.splitlines()] or [""]
+    pixels = max(font.getlength(line) * size / 30 if font else len(line) * 7 * size / 11 for line in lines)
+    # Excel column units use the default font's seven-pixel digit width.
+    return min(255, max(14, (pixels + 10) / 7))
+
+
 def shipment_invoice_workbook(document: dict, language: str, *, show_prices: bool = True) -> bytes:
     lang = language if language in LABELS else "en"
     text = LABELS[lang]
@@ -30,11 +46,9 @@ def shipment_invoice_workbook(document: dict, language: str, *, show_prices: boo
         packages = list({line["package_no"]: {"package_no": line["package_no"], "weight_kg": None} for line in document.get("lines", [])}.values())
     rows = document.get("invoice_rows") or build_invoice_rows(document.get("lines", []), packages)
     widths = invoice_column_widths(rows)
-    # Give the description the space freed by compact size/numeric columns,
-    # retaining the previous overall paper width and the original 10 pt font.
-    previous_trailing_width = sum(widths[4:]) * body_size / 7.5
+    # Description width follows this invoice's text, independently of size labels.
     widths[5:] = [5, 8, 9, 9, 8, 12]
-    widths[3] += previous_trailing_width - sum(widths[4:])
+    widths[3] = _description_column_width(rows, invoice_headers(lang)[3], body_size)
     last_column = len(widths)
     for column, width in enumerate(widths, 1):
         sheet.column_dimensions[get_column_letter(column)].width = width

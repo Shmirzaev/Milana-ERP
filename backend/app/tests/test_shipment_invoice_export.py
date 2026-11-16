@@ -28,7 +28,7 @@ def test_readable_invoice_sizes_expand_horizontally_and_surrounding_excel_grid(l
     original = deepcopy(document)
     sheet = load_workbook(BytesIO(shipment_invoice_workbook(document, lang, show_prices=show_prices))).active
     widths = [sheet.column_dimensions[get_column_letter(column)].width for column in range(1, 12)]
-    assert widths[3] > 14 and widths[4] > 14
+    assert widths[3] >= 14 and widths[4] > 14
     # Numeric values stay numeric and cannot wrap in Excel. Reserve room at 10 pt
     # for six-digit piece counts and five-digit kilogram values plus decimals.
     assert widths[6] >= 7 and widths[7] >= 8 and widths[8] >= 9

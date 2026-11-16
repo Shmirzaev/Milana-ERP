@@ -55,17 +55,34 @@ def test_compact_height_is_independent_of_description_and_pack_selection(languag
             assert render_shipment_invoice(document, language, show_prices=prices) == html_before
 
 
-def test_description_uses_space_freed_from_all_seven_trailing_columns():
+def test_description_width_follows_longest_text_instead_of_other_columns():
     from app.models.shipment_invoice_service import invoice_column_widths
     from openpyxl.utils import get_column_letter
 
-    document = compact_document('Халат "Большая пуговица" Великан', 3)
+    document = compact_document('Пижама "Новый Год"', 3)
     previous = invoice_column_widths(document["invoice_rows"])
     for index in range(4, 11):
         previous[index] *= 10 / 7.5
     sheet = load_workbook(BytesIO(shipment_invoice_workbook(document, "ru"))).active
     widths = [sheet.column_dimensions[get_column_letter(column)].width for column in range(1, 12)]
     assert widths[:3] == previous[:3]
-    assert widths[3] > 30
+    assert 14 <= widths[3] < 30
     assert all(widths[index] < previous[index] for index in range(4, 11))
-    assert sum(widths) == pytest.approx(sum(previous))
+    longer = deepcopy(document)
+    longer['invoice_rows'][-1]['description'] = 'Халат "Большая пуговица" Великан с длинным рукавом'
+    longer_sheet = load_workbook(BytesIO(shipment_invoice_workbook(longer, "ru"))).active
+    assert longer_sheet.column_dimensions['D'].width > widths[3]
+    # An unrelated size breakdown must not add spare width to the description.
+    document['invoice_rows'][0]['sizes'] = [{'size': ' / '.join(str(n) for n in range(40, 80)), 'quantity': 6}]
+    sizes_sheet = load_workbook(BytesIO(shipment_invoice_workbook(document, "ru"))).active
+    assert sizes_sheet.column_dimensions['D'].width == widths[3]
+    assert sizes_sheet.column_dimensions['E'].width > widths[4]
+
+
+def test_description_width_measures_glyphs_not_just_character_count():
+    def width(description):
+        document = compact_document(description, 1)
+        document['invoice_rows'][1]['description'] = ''
+        return load_workbook(BytesIO(shipment_invoice_workbook(document, 'en'))).active.column_dimensions['D'].width
+
+    assert width('W' * 30) > width('i' * 30)
