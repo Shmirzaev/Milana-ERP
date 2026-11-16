@@ -40,7 +40,7 @@ def test_compact_height_is_independent_of_description_and_pack_selection(languag
                 for cell in sheet[row][:11]:
                     if cell.value is not None:
                         assert not cell.alignment.wrap_text  # XLSX omits false alignment flags.
-                        assert cell.alignment.shrink_to_fit is True
+                        assert not cell.alignment.shrink_to_fit
                         assert cell.font.sz == 10
             assert sheet["D10"].value == description
             assert sheet["B10"].value == "=1+1" and sheet["B10"].data_type == "s"
@@ -53,3 +53,19 @@ def test_compact_height_is_independent_of_description_and_pack_selection(languag
             assert sheet.cell(total, 11).value == (pytest.approx(package_count * 49.8) if prices else None)
             assert document == before
             assert render_shipment_invoice(document, language, show_prices=prices) == html_before
+
+
+def test_description_uses_space_freed_from_all_seven_trailing_columns():
+    from app.models.shipment_invoice_service import invoice_column_widths
+    from openpyxl.utils import get_column_letter
+
+    document = compact_document('Халат "Большая пуговица" Великан', 3)
+    previous = invoice_column_widths(document["invoice_rows"])
+    for index in range(4, 11):
+        previous[index] *= 10 / 7.5
+    sheet = load_workbook(BytesIO(shipment_invoice_workbook(document, "ru"))).active
+    widths = [sheet.column_dimensions[get_column_letter(column)].width for column in range(1, 12)]
+    assert widths[:3] == previous[:3]
+    assert widths[3] > 30
+    assert all(widths[index] < previous[index] for index in range(4, 11))
+    assert sum(widths) == pytest.approx(sum(previous))

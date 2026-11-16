@@ -30,10 +30,11 @@ def shipment_invoice_workbook(document: dict, language: str, *, show_prices: boo
         packages = list({line["package_no"]: {"package_no": line["package_no"], "weight_kg": None} for line in document.get("lines", [])}.values())
     rows = document.get("invoice_rows") or build_invoice_rows(document.get("lines", []), packages)
     widths = invoice_column_widths(rows)
-    # The unwrapped size labels and numeric cells need the same breathing room
-    # at 10 pt that the shared print layout reserves for its 7.5 pt type.
-    for index in (4, 5, 6, 7, 8, 9, 10):
-        widths[index] *= body_size / 7.5
+    # Give the description the space freed by compact size/numeric columns,
+    # retaining the previous overall paper width and the original 10 pt font.
+    previous_trailing_width = sum(widths[4:]) * body_size / 7.5
+    widths[5:] = [5, 8, 9, 9, 8, 12]
+    widths[3] += previous_trailing_width - sum(widths[4:])
     last_column = len(widths)
     for column, width in enumerate(widths, 1):
         sheet.column_dimensions[get_column_letter(column)].width = width
@@ -109,13 +110,13 @@ def shipment_invoice_workbook(document: dict, language: str, *, show_prices: boo
                        align="right" if column >= 6 else "left" if column in (4, 5) else "center",
                        bold=column in (1, 2, 11), size=body_size)
             cell.border = border
-            cell.alignment = Alignment(horizontal=cell.alignment.horizontal, vertical="center", wrap_text=False, shrink_to_fit=True)
+            cell.alignment = Alignment(horizontal=cell.alignment.horizontal, vertical="center", wrap_text=False, shrink_to_fit=False)
             if column >= 6:
                 cell.number_format = '#,##0.00' if column >= 8 else '#,##0'
         for column in (6, 8, 9):
             if span > 1:
                 sheet.merge_cells(start_row=row, end_row=row + span - 1, start_column=column, end_column=column)
-    # Keep all exports compact; long item text fits on one line by shrinking.
+    # Keep all exports compact without changing or shrinking the item font.
     for row in range(10, 10 + len(rows)):
         sheet.row_dimensions[row].height = package_row_height
     total_row = 10 + len(rows)
