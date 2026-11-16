@@ -123,8 +123,10 @@ def gateway(request, tmp_path, monkeypatch):
         proxy_port = reservation.getsockname()[1]
         reservation.close()
         deployment.ROLES["backend"].update(stable=proxy_port, blue=port)
+        deployment.API_ERROR_PATH = tmp_path / "api-503.http"
+        deployment.API_ERROR_PATH.write_text(deployment.API_ERROR)
         configuration = deployment.proxy_config("backend", "blue")
-        # Only listener address/ports differ: no application VM port is exposed
+        # Only fixture file/listener paths differ: no application VM port is exposed
         # by this local fixture, and the deployment forwarding policy is intact.
         configuration = configuration.replace(f"bind 0.0.0.0:{proxy_port}", f"bind 127.0.0.1:{proxy_port}")
         config_path = tmp_path / "haproxy.cfg"

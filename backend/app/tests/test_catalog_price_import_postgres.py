@@ -8,6 +8,7 @@ import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy import text
 
 from app.libs.dto.planning.price_workflow_input import PriceWorkflowActionIn
 from app.models.catalog.price_import_service import import_reviewed_prices
@@ -16,6 +17,29 @@ from app.schemas import AuditLog, Model, PriceCalculationRequest, User
 from app.tests.test_catalog_price_import import manifest_for
 from app.tests.test_price_calculation_status_postgres import app_for, auth, customer_pg_sessions  # noqa: F401
 from app.tests.test_variant_price_workflow_postgres import ready_case
+
+
+def test_pg_import_refuses_unreviewed_schema_without_price_or_request_writes(customer_pg_sessions):
+    sessions = customer_pg_sessions
+    model_id, request_id, users = ready_case(sessions)
+    with sessions.begin() as db:
+        admin = db.get(User, users["finance"])
+        admin.extra_permissions = ["*", "admin.super"]
+        manifest = manifest_for([db.get(Model, model_id)])
+    with sessions() as db:
+        before_audits = db.query(AuditLog).count()
+        actual_head = db.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
+        # Only this approved fixture DB, uncommitted and restored by rollback.
+        db.execute(text("UPDATE alembic_version SET version_num='unreviewed_recovery_head'"))
+        with pytest.raises(HTTPException) as refusal:
+            import_reviewed_prices(db, manifest, db.get(User, users["finance"]), apply=True)
+        assert refusal.value.status_code == 409
+        assert refusal.value.detail == "Catalogue import requires the reviewed pricing schema0156"
+        assert db.get(Model, model_id).selling_price is None
+        assert db.get(PriceCalculationRequest, request_id).workflow_state == "collecting"
+        assert db.query(AuditLog).count() == before_audits
+        db.rollback()
+        assert db.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == actual_head
 
 
 def test_pg_import_deferred_commit_failure_preserves_prices_requests_and_history(customer_pg_sessions):
