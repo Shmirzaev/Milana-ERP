@@ -6,84 +6,80 @@ deploy `codex/factory-workflows-20261113` without 30-minute monitoring.
 
 ## Current production outcome — 16 November
 
-The requested full feature release is **NOT LIVE**. Both applications serve the
-reviewed schema-compatible recovery `20261116_053002`, green, source1ab6ff577,
+Backend/frontend now serve `20261116_061924`, blue, exact reviewed runtime commit
+`8fb52df54a34ce94127ead2460e94d81a90721b2`, manifest
+`cd22477f24b62858d893ed4990d872ca8ca25dbed838b37314f06f0fbff3270b`.
+Backend activated08:35:47UTC, frontend08:36:07UTC; both source links match.
+Rollback is the running compatible `20261116_053002`, green, commit1ab6ff577,
 manifest304f2d4fea15243fe212b32135cc804c33eb55612e20b36d623ee436d096e2c4.
-Migration0157 completed; its only change is nullable JSON attribution, no backfill.
-Exact feature8fb52df54 / release20261116_061924 passed all five CI jobs, source and
-immutable-image verification; images/source are prepared on both hosts but its
-containers were not staged and traffic was not activated. No merge to main or
-clone_main was performed. Owner QA approved both6c and its8fb Printing follow-up.
+DB remains `0157_package_allocation_items`: nullable JSON, no backfill/downgrade.
+The complete owner-selected branch is live: Purchasing no longer enters printing
+cost; Finance owns it. Whole Warehouse model cards open details, including missing
+pictures and Enter navigation. Direct/mixed Packaging and all factory changes are
+included. Source is pushed on codex/factory-workflows-20261113; no main/clone_main merge.
 
-A fresh complete functional capture after owner-confirmed entry pause passed.
-Recovery passed43 full ordered response contracts and26 complete source-fact
-arrays at staged and public points. Actual signed read-only browser screenshots,
-zero new console errors/warnings, strict image/default CMD/seed flags, two fresh
-workers, routers, disk/DB headroom and all four health checks passed. Historical
-local-dev extension hydration errors remain separately preserved. No business
-fixture, production record, inventory/stock quantity, permission or credential
-was changed by release operations. Legitimate operator Packaging writes caused
-the first failed snapshot; source and failure evidence were preserved. Operators
-were told to resume after the planned pause. No timed observer was started.
+Owner QA approved6c including physical labels/scans and its narrow8fb Printing
+follow-up. Exact CI43815960892 passed all five jobs: backend6862 passed/1628 skipped,
+required real-PG238 passed/zero skipped, related Linux127 passed/zero skipped.
+Recovery CI43810018892 and strict published0157 cold start/restart/worker/evidence
+compatibility passed. Immutable backend digestd9c0ef0ea998554780779876b1aa14230066269d9528ef9a820281935f097732;
+frontendff7beffb118fd7613de034bbec314cda8169301d8d8a82783b4fd1b94812ad59.
 
-One recovery paired810-request run failed two p95 budgets while candidate-only
-browser and health checks ran concurrently. The cause was not asserted proved.
-Independent review authorized one isolated correction with identical complete
-facts/requests/samples and unchanged10/15/15 limits; it passed (worst median+5.57%,
-p95+7.90%, bytes unchanged). After backend-first recovery activation and both
-source links, the270-request public closing run failed production-order detail
-median154.047189→169.777115ms (+10.21%; maximum169.451908ms). All complete payloads,
-other median limits and p95/byte limits passed. This failure is preserved and
-blocks full-feature promotion. A new phase must not hide or re-label it. Targeted
-public-path/runtime/network diagnosis is required before another release gate.
+Fresh staged43-response/26-table integrity checks and44 semantic checks passed.
+810 paired timing samples passed unchanged10% median/15% p95/15% bytes budgets
+(worst+3.64%,+7.91%,+1.48%). Public270 samples preserved all complete ordered bodies
+but FAILED two p95 limits: model groups334.919→1021.852ms; Cutting passports
+145.081→365.211ms. Owner explicitly chose “Keep the full release with these
+additional public-latency exceptions.” Earlier owner “deploy with an exception”
+covers the separate recovery PO762 median154.047→169.777ms (+10.21%). All original
+FAILED reports remain unchanged; neither timing reruns nor broader gate waivers
+were substituted. The public path latency cause remains unresolved.
 
-Frozen two-phase plan SHA847902adf0a06fb3dd807fbd7a5711e2993a91cb3b400d1af9055cd0745ce36e.
-Initial failed functional SHA13eaed6b539c9f6729a7b9bdf99aebc47120f9b21479370e0d74cec73685f5ab.
-Successful initial SHA5f78f0a8cb2c8bf3c30716722abd549921edb703948d73aa0f8f207fcb98d889.
-Isolated paired SHA c3e7e73e9e3d100a3715bbecb215388f5762b889e551ede168ac3c99087c7aef.
-Failed public SHA39c4e2c1b6a0cd79ccd2a70776769b86ef009df6ce6f4f7715f3902ca9901763.
-Actual reports reside in recovery outputs/readonly-qa-20261116[-epoch02/-epoch03];
-main outputs/price-warehouse-20261116 holds phase attempts/results, images,
-review receipts, screenshots, halted journal and final health readbacks. Exact
-helper fixes for Windows UTF-8 decoding and [-B,-c] worker argv detection were
-independently reviewed as separate copies; frozen helper bytes never changed.
+Actual staged/public signed read-only UI verified Purchasing/Finance, missing-image
+Warehouse model8836 (216 pieces, six sizes×36), direct Packaging PO0551/Nastil2
+(162 sewn/120 recorded/42 available) and Cutting. Zero ERP application console
+errors;51 staged/62 public M_ID errors originate solely in a browser extension.
+Public transport preserved one QR TLS interruption and four aborted unrelated
+prefetch requests; the latter causes are unproven. Two bounded TLS-verified public
+QR controls matched exact backend PNG732bytes/SHAfab1e4b26cf6b77e61fbf76edec43d7c7e8ccee60e495e26667c921c9dfdd013.
 
-Verified0600 backups, each1400 restore objects:
+Operator entries invalidated several captures despite pause confirmations. Exact
+pre-cutover ECT/Oyatullo additions (2batches/3Cutting records/24bundles/24creation
+logs) caused the original public global-fact-equality failure, preserved as FAILED.
+Separate independently reviewed transition verification proved all26 existing
+ordered fact tables unchanged/no deletions, exactly53 traced pre-cutover additions,
+all10 timing bodies unchanged, and all44 semantic/SQL checks using an explicit
+in-memory expected projection. No captured file or production fact was rewritten.
+A separate verifier omission of batch_no/name was corrected from authoritative
+SQL batch facts, retaining original failures and exact capture hashes.
 
-- `/opt/milana-erp/shared/backups/milana_erp_pre_recovery_20261116_053002_20261116_070058.dump`,126553961bytes,
-  SHA22989e5ee0ebf8c6201d03a19d8034180ae32f5242b703c19f838cdd6ecfa5b0.
-- `/opt/milana-erp/shared/backups/milana_erp_pre_final_20261116_061924_20261116_071357.dump`,126588656bytes,
-  SHA3d563aba1a905a8f0df69fc9f346c9b7312c8a4b07b941ec4e996254471b2b20.
+Fresh closing all four health checks passed at08:44:42UTC: both manifests/slots,
+strict defaultCMD/seeds, two workers, zero restarts/OOM/app errors, healthy routers,
+DB headroom/no invalid indexes, disk below80%. Compatible green remains running;
+original115200/052632/135430 sources/images retained. Fresh0600 PostgreSQL backup
+pre_final_20261116_061924_20261116_083243.dump:126631173bytes/1400restore objects,
+SHAcebdb35706458d2e95363e78637376e9a795cc3763549d87bfdd76092b7468e2.
+Both owned leases released; operators told to resume. No release business-data
+writes. Owner waived timed observation; no observer or substitute monitor ran.
+Detailed hashes and preserved failures are listed below.
 
-Fresh halted recovery postflight passed; both owned deployment leases released.
-Original115200/052632/135430 sources and exact images remain manifest/revision
-verified on both hosts. A separately reviewed owned CAS standby procedure replaced
-only inactive blue with the same validated1ab/053002 images. A read-only0157 head
-check before its real default CMD prevented accidental migration. Disabled seeds,
-strict default commands, two fresh workers, zero restarts/OOM/errors and all health
-checks passed. Installed controller atomically changed only rollback fields plus
-updated_at to053002/blue; active green IDs/source/proxy/shared config remained
-unchanged on both hosts. Both slots now have a cold-start-compatible application.
-Standby plan SHA b244218f8e27ed18fa35b9041ac575f9ac1f84da05d7f9f9d74981303dccde46;
-seven offline fault challenges and actual pinned-controller Docker command proof
-passed before execution. Both leases released; final closing health/retention
-proofs passed. Never downgrade/stamp or start a withdrawn build. Three exact unused older ERP backend image copies
-were removed under independently reviewed retention ownership to establish
-measured capacity; immutable registry and preserved local copies verified. A
-partial alias-removal failure/readback and separate reconciliation are preserved.
-No generic prune, backup removal, source deletion or business-data cleanup ran.
+Evidence under outputs/price-warehouse-20261116:
 
-Bounded diagnosis after the entry pause used8 interleaved GETs per origin:
-old blue58.11ms, compatible green51.58ms, frontend HTTP59.45ms, public HTTPS163.33ms.
-Current public DNS median97.48ms, TLS/pretransfer110.95ms, app about50–60ms. Four
-additional controls pinned only the observed IP while preserving hostname, SNI,
-certificate verification and exact body. DNS became0.026ms and total66.58ms;
-app stayed about50ms. No DNS/proxy/configuration was changed. The controlled result
-establishes a current DNS contribution; the old failed epoch lacked component
-timings, so its15.73ms shift remains unexplained. These diagnostic samples do not
-qualify any release gate. Resolver-path remediation or an independently reviewed
-instrumented protocol is required before a further promotion attempt. Private
-complete diagnostic evidence is in recovery outputs/readonly-qa-20261116/diagnostic-public-path-20261116.
+- feature-closing-state-journal.json binds final runtime, released leases, checks and exceptions.
+- resume-plan-v3-frozen.json SHA668790b0995db0d662b3c833d2012b8b42c52896347bee36bbb27c699c985d05.
+- resume-qa-batch-labels/final-promotion-gate.json SHAc0f7554eb4bf2914e06b260353fa46362c077b20e381cd229f0f014bf3f424b8.
+- resume-qa-batch-labels/postflight-transition-proof.json SHA1c716457da04cf7365d728025917e5a1f546b3bc2bd2e312b6268e05650ac103.
+- resume-qa-batch-labels/final-paired-benchmark.json SHAbbbaa45cb685d0b3c210cdf65b5fb419bde56127f906d6a3831182ae80b1dff8 is PASS.
+- resume-qa-batch-labels/final-public-benchmark.json SHA84bb62c2a08f0f6216817c5ccca844a636e56767869c824fa5b788336497f49c stays FAILED; explicit owner waiver is separate.
+- Historical recovery public report39c4e2c1b6a0cd79ccd2a70776769b86ef009df6ce6f4f7715f3902ca9901763 stays FAILED.
+- Both stage/activation/link/backup attempts and earlier released ownership records are immutable and were never replayed.
+
+Earlier two0600 backups remain retained (070058 recovery and071357 pre-final),
+plus082213/083243 fresh pre-final dumps. No generic prune, source/backup removal,
+credential/permission change, business fixture or stock cleanup occurred.
+Legacy ECT bundle creation still records current CUT department; ECT origin is
+traced through the actual Cutting record/work order. This pre-existing behavior
+was explicitly checked by the transition oracle and was not changed by release.
 
 The following sections preserve the earlier implementation and pre-release
 verification history; their historical pending/no-production-change statements

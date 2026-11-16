@@ -15,58 +15,64 @@ Last updated 2026-11-16. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
-## Pricing and Packaging release (16 November; compatibility active, feature stopped)
+## Pricing and Packaging release (16 November; full branch live with owner exceptions)
 
-Active backend/frontend: `20261116_053002`, green, commit
-`1ab6ff57746b39e569b579dcd7f38d36d3ac1604`, manifest
-`304f2d4fea15243fe212b32135cc804c33eb55612e20b36d623ee436d096e2c4`.
-Database is `0157_package_allocation_items`: nullable allocation JSON, no backfill.
-This is the reviewed compatibility application, not the requested feature release.
-Full branch `codex/factory-workflows-20261113` at `8fb52df54` is pushed and its
-exact immutable release `20261116_061924` is prepared but NOT staged or activated.
-Purchasing-to-Finance print ownership, whole Warehouse card navigation, full
-Packaging attribution and the other factory changes are therefore NOT live.
+Backend/frontend now serve `20261116_061924`, blue, exact reviewed runtime commit
+`8fb52df54a34ce94127ead2460e94d81a90721b2`, manifest
+`cd22477f24b62858d893ed4990d872ca8ca25dbed838b37314f06f0fbff3270b`.
+Backend activated08:35:47UTC, frontend08:36:07UTC; both source links match.
+Rollback is the running compatible `20261116_053002`, green, commit1ab6ff577,
+manifest304f2d4fea15243fe212b32135cc804c33eb55612e20b36d623ee436d096e2c4.
+DB remains `0157_package_allocation_items`: nullable JSON, no backfill/downgrade.
+The complete owner-selected branch is live: Purchasing no longer enters printing
+cost; Finance owns it. Whole Warehouse model cards open details, including missing
+pictures and Enter navigation. Direct/mixed Packaging and all factory changes are
+included. Source is pushed on codex/factory-workflows-20261113; no main/clone_main merge.
 
-Owner explicitly selected the full branch and approved6c714f9cc including physical
-Packaging labels/scans, then approved the narrow Printing interlock fix8fb52df54.
-All five exact-source CI jobs passed: run43815960892. Related Linux127 tests pass
-without skips; complete CI backend6862 passes with1628 skips; required P2 PG238
-passes, zero skips. Recovery run43810018892 passed, including strict published-image0157 cold start, two workers,
-worker replacement/restart, shared counter and exact-attribution refusal tests.
+Owner QA approved6c including physical labels/scans and its narrow8fb Printing
+follow-up. Exact CI43815960892 passed all five jobs: backend6862 passed/1628 skipped,
+required real-PG238 passed/zero skipped, related Linux127 passed/zero skipped.
+Recovery CI43810018892 and strict published0157 cold start/restart/worker/evidence
+compatibility passed. Immutable backend digestd9c0ef0ea998554780779876b1aa14230066269d9528ef9a820281935f097732;
+frontendff7beffb118fd7613de034bbec314cda8169301d8d8a82783b4fd1b94812ad59.
 
-Both-host source/image/CMD/environment/slot checks, measured layer capacity,
-verified backups, explicit0157 migration, recovery43 whole-response semantic
-checks and26 complete ordered fact tables passed. Signed browser recovery QA and
-all four immediate public/internal health checks passed; two workers, zero
-restarts/OOM/errors, no invalid indexes. No business rows were created or changed
-by deployment. Initial live Packaging activity invalidated the first functional
-capture; its failed report remains preserved. Owner then authorized a roughly
-15minute entry pause, now ended; operators were told they can resume entries.
+Fresh staged43-response/26-table integrity checks and44 semantic checks passed.
+810 paired timing samples passed unchanged10% median/15% p95/15% bytes budgets
+(worst+3.64%,+7.91%,+1.48%). Public270 samples preserved all complete ordered bodies
+but FAILED two p95 limits: model groups334.919→1021.852ms; Cutting passports
+145.081→365.211ms. Owner explicitly chose “Keep the full release with these
+additional public-latency exceptions.” Earlier owner “deploy with an exception”
+covers the separate recovery PO762 median154.047→169.777ms (+10.21%). All original
+FAILED reports remain unchanged; neither timing reruns nor broader gate waivers
+were substituted. The public path latency cause remains unresolved.
 
-A paired timing run contaminated by concurrent candidate-only browser/health load
-failed two p95 limits. One independently reviewed isolated correction kept the
-same facts/samples/10%-median,15%-p95,15%-bytes limits and passed all810 samples.
-After recovery activation, its270-sample public check failed PO762 detail median:
-154.047189ms before versus169.777115ms after, above169.451908ms maximum. This is an
-automatic stop, not a waived or rounded pass. Full feature promotion stopped; no
-cause/fix is established. Do not retime under a new phase name to erase failure.
-Bounded diagnosis found current public DNS lookup97.48ms; four TLS-verified
-DNS-pinned controls reduced total median163.33 to66.58ms while app time stayed
-about50ms. This proves a current DNS contribution, not the historical failure
-cause or a fix. Resolver-path remediation/instrumented measurement needs review
-before another promotion. Original/fresh/failed reports are kept
-in the task's ignored outputs and recovery readonly-qa epoch directories.
+Actual staged/public signed read-only UI verified Purchasing/Finance, missing-image
+Warehouse model8836 (216 pieces, six sizes×36), direct Packaging PO0551/Nastil2
+(162 sewn/120 recorded/42 available) and Cutting. Zero ERP application console
+errors;51 staged/62 public M_ID errors originate solely in a browser extension.
+Public transport preserved one QR TLS interruption and four aborted unrelated
+prefetch requests; the latter causes are unproven. Two bounded TLS-verified public
+QR controls matched exact backend PNG732bytes/SHAfab1e4b26cf6b77e61fbf76edec43d7c7e8ccee60e495e26667c921c9dfdd013.
 
-Fresh closing postflight passed all four health checks. Under a separately
-reviewed owned CAS plan, inactive blue was replaced with the same exact validated
-1ab/053002 images; strict default CMD, pre/post0157 head, disabled seeds, two fresh
-workers, zero restarts/OOM/errors and health passed. Installed controller changed
-only rollback fields/timestamp to053002/blue; green container IDs, current source,
-proxy and shared config stayed unchanged. Both application slots now cold-start
-at0157. Original115200/052632/135430 sources/images remain verified on both hosts.
-All deployment leases released. Timed observation was explicitly waived; none ran.
-Two0600 PostgreSQL dumps each passed1400-object restore-list/hash checks; see
-[the task record](PRICE_WAREHOUSE_FIXES_20261116.md) for identities and open risks.
+Operator entries invalidated several captures despite pause confirmations. Exact
+pre-cutover ECT/Oyatullo additions (2batches/3Cutting records/24bundles/24creation
+logs) caused the original public global-fact-equality failure, preserved as FAILED.
+Separate independently reviewed transition verification proved all26 existing
+ordered fact tables unchanged/no deletions, exactly53 traced pre-cutover additions,
+all10 timing bodies unchanged, and all44 semantic/SQL checks using an explicit
+in-memory expected projection. No captured file or production fact was rewritten.
+A separate verifier omission of batch_no/name was corrected from authoritative
+SQL batch facts, retaining original failures and exact capture hashes.
+
+Fresh closing all four health checks passed at08:44:42UTC: both manifests/slots,
+strict defaultCMD/seeds, two workers, zero restarts/OOM/app errors, healthy routers,
+DB headroom/no invalid indexes, disk below80%. Compatible green remains running;
+original115200/052632/135430 sources/images retained. Fresh0600 PostgreSQL backup
+pre_final_20261116_061924_20261116_083243.dump:126631173bytes/1400restore objects,
+SHAcebdb35706458d2e95363e78637376e9a795cc3763549d87bfdd76092b7468e2.
+Both owned leases released; operators told to resume. No release business-data
+writes. Owner waived timed observation; no observer or substitute monitor ran.
+Detailed hashes, preserved failures and limitations: [task record](PRICE_WAREHOUSE_FIXES_20261116.md).
 
 ## Mixed-package attribution and wording (14 November; local only)
 
