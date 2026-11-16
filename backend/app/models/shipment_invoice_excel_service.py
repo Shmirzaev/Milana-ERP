@@ -89,7 +89,7 @@ def shipment_invoice_workbook(document: dict, language: str, *, show_prices: boo
     rows = document.get("invoice_rows") or build_invoice_rows(document.get("lines", []), packages)
     line = Side(style="thin", color="8EA9DB")
     border = Border(left=line, right=line, top=line, bottom=line)
-    package_row_height = 23.1
+    package_row_height = 24
     for index, item in enumerate(rows, 1):
         row = index + 9
         size_text = ", ".join(invoice_size_labels(item.get("sizes", [])))
@@ -109,16 +109,13 @@ def shipment_invoice_workbook(document: dict, language: str, *, show_prices: boo
                        align="right" if column >= 6 else "left" if column in (4, 5) else "center",
                        bold=column in (1, 2, 11), size=body_size)
             cell.border = border
-            cell.alignment = Alignment(horizontal=cell.alignment.horizontal, vertical="center", wrap_text=column != 5, shrink_to_fit=False)
+            cell.alignment = Alignment(horizontal=cell.alignment.horizontal, vertical="center", wrap_text=False, shrink_to_fit=True)
             if column >= 6:
                 cell.number_format = '#,##0.00' if column >= 8 else '#,##0'
         for column in (6, 8, 9):
             if span > 1:
                 sheet.merge_cells(start_row=row, end_row=row + span - 1, start_column=column, end_column=column)
-        package_row_height = max(package_row_height, *(text_height(value, width, body_size)
-            for column, (value, width) in enumerate(zip(values, widths), 1) if column != 5))
-    # Excel cannot auto-fit generated wrapped text. Give every package row the
-    # height required by the longest row, including split-package model rows.
+    # Keep all exports compact; long item text fits on one line by shrinking.
     for row in range(10, 10 + len(rows)):
         sheet.row_dimensions[row].height = package_row_height
     total_row = 10 + len(rows)

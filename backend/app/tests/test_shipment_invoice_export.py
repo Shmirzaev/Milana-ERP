@@ -34,8 +34,8 @@ def test_readable_invoice_sizes_expand_horizontally_and_surrounding_excel_grid(l
     assert widths[6] >= 7 and widths[7] >= 8 and widths[8] >= 9
     assert sum(invoice_column_widths()) == pytest.approx(100)
     assert sheet["E10"].value == "48 × 10, 50 × 10, 52 × 10, 54 × 10, 56 × 10, 58 × 10"
-    assert sheet.row_dimensions[10].height == 23.1
-    assert not sheet["E10"].alignment.wrap_text and not sheet["E10"].alignment.shrink_to_fit
+    assert sheet.row_dimensions[10].height == 24
+    assert not sheet["E10"].alignment.wrap_text and sheet["E10"].alignment.shrink_to_fit
     assert all(sheet.cell(4, column).font.sz == 11 for column in (1, 3, 5, 7))
     assert all(sheet.cell(row, column).font.sz == 10 for row in (9, 10) for column in range(1, 12))
     assert sheet.sheet_view.showGridLines is True

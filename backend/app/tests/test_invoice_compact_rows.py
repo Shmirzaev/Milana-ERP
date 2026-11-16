@@ -1,0 +1,55 @@
+"""Shipment Excel item heights remain compact across different pack selections."""
+from copy import deepcopy
+from io import BytesIO
+
+from openpyxl import load_workbook
+import pytest
+
+from app.models.shipment_invoice_excel_service import shipment_invoice_workbook
+from app.models.shipment_invoice_service import build_invoice_rows, render_shipment_invoice
+
+
+def compact_document(description, package_count):
+    packages = [{"package_no": f"PACK-{index}", "quantity": 6, "weight_kg": "2.50"}
+                for index in range(package_count)]
+    lines = [{"package_no": package["package_no"], "model_no": f"MODEL-{index}",
+              "variant_no": "4678", "description": description if index == 0 else "Туника 3/4",
+              "size": "48", "quantity": 6, "unit_price": "8.30", "amount": "49.80"}
+             for index, package in enumerate(packages)]
+    # A split pack must keep its existing shared quantity/weight cells.
+    lines[0].update(model_no="=1+1", quantity=4, amount="33.20")
+    lines.insert(1, {**lines[0], "model_no": "OTHER", "description": "Other model", "quantity": 2, "amount": "16.60"})
+    return {"shipment_no": "COMPACT-QA", "package_details": packages, "lines": lines,
+            "invoice_rows": build_invoice_rows(lines, packages), "invoice_layout_version": 2,
+            "packages_count": package_count, "quantity": package_count * 6,
+            "total_weight_kg": str(package_count * 2.5), "amount": str(package_count * 49.8)}
+
+
+@pytest.mark.parametrize("language", ["en", "ru", "uz"])
+@pytest.mark.parametrize("prices", [True, False])
+def test_compact_height_is_independent_of_description_and_pack_selection(language, prices):
+    for package_count in (3, 100):
+        for description in ("Халат", 'Халат "Большая пуговица" Великан — длинное описание модели ' * 4):
+            document = compact_document(description, package_count)
+            before = deepcopy(document)
+            html_before = render_shipment_invoice(document, language, show_prices=prices)
+            sheet = load_workbook(BytesIO(shipment_invoice_workbook(document, language, show_prices=prices))).active
+            rows = document["invoice_rows"]
+            assert {sheet.row_dimensions[row].height for row in range(10, 10 + len(rows))} == {24}
+            for row in range(10, 10 + len(rows)):
+                for cell in sheet[row][:11]:
+                    if cell.value is not None:
+                        assert not cell.alignment.wrap_text  # XLSX omits false alignment flags.
+                        assert cell.alignment.shrink_to_fit is True
+                        assert cell.font.sz == 10
+            assert sheet["D10"].value == description
+            assert sheet["B10"].value == "=1+1" and sheet["B10"].data_type == "s"
+            assert sheet["G10"].value == 4 and sheet["G10"].data_type == "n"
+            assert sheet["H10"].value == 2.5 and sheet["H10"].number_format == '#,##0.00'
+            assert {"F10:F11", "H10:H11", "I10:I11"} <= {str(merged) for merged in sheet.merged_cells}
+            total = 10 + len(rows)
+            assert sheet.cell(total, 6).value == package_count
+            assert sheet.cell(total, 7).value == package_count * 6
+            assert sheet.cell(total, 11).value == (pytest.approx(package_count * 49.8) if prices else None)
+            assert document == before
+            assert render_shipment_invoice(document, language, show_prices=prices) == html_before

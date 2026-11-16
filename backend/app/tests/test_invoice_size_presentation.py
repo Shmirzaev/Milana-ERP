@@ -48,7 +48,7 @@ def test_print_and_excel_share_sizes_with_ten_point_excel_type(language, prices)
     assert '(46, 48, 50) × 60</span>' in html
     assert sheet["E10"].value == "(46, 48, 50) × 60"
     assert '.items{font-size:10px;' in html and '.signatures{' in html
-    assert 'height:23.1pt' in html and sheet.row_dimensions[10].height == 23.1
+    assert 'height:23.1pt' in html and sheet.row_dimensions[10].height == 24
     assert all(sheet.cell(row, col).font.sz == 10 for row in (9, 10) for col in range(1, 12))
     assert sheet["A13"].font.sz == sheet["F13"].font.sz == 10
     assert sheet["G11"].value == 60 and sheet["K11"].value == (120 if prices else None)
