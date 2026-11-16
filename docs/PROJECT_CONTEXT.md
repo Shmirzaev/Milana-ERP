@@ -15,29 +15,28 @@ Last updated 2026-11-16. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
-## Invoice Excel layout release (16 November; current production)
+## Adaptive invoice description width (16 November; current production)
 
-Backend/frontend serve `20261116_090442`, green, runtime commit
-`4adaa45d0f3d8268c0940110cfc20053d3e98193`, manifest
-`a4e7bd89f2b4cc091c9d8b5db57d2f4d0694b382f038d056b945b11d680a9231`.
-Rollback is the retained running `20261116_061924`, blue. Schema stays
+Backend/frontend serve `20261116_092917`, blue, runtime commit
+`db8d8d64953eb4f9dadc22bb8218942cd0999ac7`, manifest
+`54acee32ab64f7696a2cef52ad47c23f4f0aa7e8ebd45dafb3f5a3c3e71f96c3`.
+Running rollback is `20261116_090442`, green. Schema remains
 `0157_package_allocation_items`; no migration or business-data writes.
-Excel invoices use uniform24pt item rows, unchanged10pt font, no shrinking,
-wider description and narrower trailing7columns. Exceptionally long text may
-clip; full cell values remain. HTML invoices and all business calculations remain.
-Owner explicitly requested: "deploy without anything any test just deploy to production".
-No additional test/CI suites, scans, performance sampling, human review or timed
-observation ran for deployment; earlier80tests and native Excel review precede
-this request. Four operational health endpoints returned200; both source/slot
-identities match, zero container restarts/OOM. Immutable images were built outside
-production on current live pinned bases; only the exact Git invoice generator
-changed in the backend, frontend filesystem unchanged. Build-only publication
-run43836735590; runtime branch remains codex/factory-workflows-20261113, no main merge.
-An initial immediate router-release identity check failed and automatically
-restored blue; preserved receipts precede successful bounded router convergence
-and green cutover at09:09UTC. No failure was relabeled as a pass. Previous
-public-latency risks remain unresolved; this release was not benchmarked.
-Details: [deployment record](INVOICE_LAYOUT_RELEASE_20261116.md).
+Excel description width follows the longest description/header in each invoice,
+independently of the size column. Original10pt font, uniform24pt rows, no shrink
+and compact trailing columns remain. Excel's255-unit width limit still applies.
+Owner explicitly requested "deploy without any test". No additional tests/CI
+suites, scans, performance/browser QA, separate human approval or timed monitor
+ran for deployment; previous81tests/native Excel review are development evidence.
+Four operational endpoints returned200; both source/slot identities agree,
+zero container restarts/OOM. Immutable build-only run43839778882 reused live
+bases, changed only the Git-byte invoice generator; frontend filesystem unchanged.
+First092633attempt stopped before activation on source/image line-ending mismatch;
+its FAILED receipts remain. Final archive uses raw Git blobs, avoiding Windows
+archive EOL conversion. New blue cutover completed09:29UTC; both owned leases
+released, previous green retained. No main merge. Prior public-latency risks remain
+unresolved and this release was not benchmarked.
+Details: [deployment record](INVOICE_AUTO_WIDTH_RELEASE_20261116.md).
 
 ## Earlier Pricing and Packaging release (16 November; owner exceptions)
 

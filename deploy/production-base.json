@@ -1,6 +1,6 @@
 {
-  "release": "20261116_090442",
-  "source_manifest_sha256": "a4e7bd89f2b4cc091c9d8b5db57d2f4d0694b382f038d056b945b11d680a9231",
+  "release": "20261116_092917",
+  "source_manifest_sha256": "54acee32ab64f7696a2cef52ad47c23f4f0aa7e8ebd45dafb3f5a3c3e71f96c3",
   "database_revision": "0157_package_allocation_items",
-  "git_baseline_commit": "4adaa45d0f3d8268c0940110cfc20053d3e98193"
+  "git_baseline_commit": "db8d8d64953eb4f9dadc22bb8218942cd0999ac7"
 }
