@@ -6064,7 +6064,9 @@ def receive_packaging_from_sewing(
     require_packaging_work_order_access(current, db, target, department_code)
     if quantity <= 0:
         raise HTTPException(400, "Receiving quantity must be greater than zero")
-    # Serialize handoff against edits/deletion of the source sewing ledger.
+    # Direct Packaging and Sewing writers serialize on PO before source WOs.
+    # Receipt insertion also takes the PO FK lock; taking it last deadlocks.
+    db.query(ProductionOrder.id).filter_by(id=target.production_order_id).with_for_update().one()
     db.query(WorkOrder).filter_by(id=source.id).with_for_update().populate_existing().one()
     db.refresh(target, with_for_update=True)
     require_packaging_work_order_access(current, db, target, department_code)
@@ -6086,7 +6088,9 @@ def receive_packaging_from_sewing(
         notes=payload.notes,
     )
     db.add(receipt)
-    target.actual_input_qty = int(target.actual_input_qty or 0) + quantity
+    recorded_input = db.query(func.sum(PackagingRecord.input_qty)).filter_by(work_order_id=target.id).scalar()
+    target.actual_input_qty = (int(recorded_input) if recorded_input is not None
+                               else int(target.actual_input_qty or 0) + quantity)
     if target.status in {"new", "planning", "waiting", "pending", "ready"}:
         target.status = "collected"
     db.flush()

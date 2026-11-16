@@ -70,15 +70,20 @@ def test_bulk_sewing_receipt_has_bounded_shared_context_queries(monkeypatch, mod
     assert len(received_sum_reads) <= 1
     # Receipt status synchronization stays live per bundle, but its already
     # loaded order and work-order references are reused for the whole batch.
-    assert len(production_order_reads) <= 3
     assert len(receipt_order_reads) == 1
+    # One narrow parent lock serializes the whole receipt before batch/bundle
+    # locks. Its cost stays constant for 1, 50 and 401 bundles.
+    parent_lock_reads = [statement for statement in production_order_reads
+                         if statement.startswith("select production_orders.id ")]
+    assert len(parent_lock_reads) == 1
+    assert len(production_order_reads) - len(parent_lock_reads) <= 3
     assert "production_orders.source_type" in receipt_order_reads[0]
     assert "production_orders.handed_over_at" in receipt_order_reads[0]
     assert "production_orders.printing_attachments" not in receipt_order_reads[0]
     assert "production_orders.service_handover_notes" not in receipt_order_reads[0]
     assert len(work_order_reads) <= 4
     print(f"{mode} {bundle_count}: {len(statements)} SELECTs")
-    assert len(statements) == {"manual": 20, "accept": 30, "manual_line": 25}[mode]
+    assert len(statements) == {"manual": 21, "accept": 31, "manual_line": 26}[mode]
     with TestSessionLocal() as db:
         bundles = db.query(Bundle).filter(Bundle.id.in_(case["bundle_ids"])).all()
         assert {bundle.status for bundle in bundles} == {"received_sewing"}

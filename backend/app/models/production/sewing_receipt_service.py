@@ -1,7 +1,7 @@
 """Manual and batch-QR sewing receipts share one atomic line acceptance operation.
 
-The existing batch lock order and receipt helpers are retained. The service owns
-commit; schema helpers persist new assignment changes in its supplied Session.
+Parent orders serialize receipts with Sewing output and direct Packaging before
+batch/bundle locks. The service owns commit; schema helpers use its Session.
 """
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -12,7 +12,7 @@ from sqlalchemy import and_, or_, text
 from sqlalchemy.orm import Session
 
 from app.libs.dto.production.sewing_manual_receive import SewingManualReceiveIn
-from app.schemas import Bundle, Department, ProductionBatch, SewingAssignment, SewingFlow, User, WorkOrder
+from app.schemas import Bundle, Department, ProductionBatch, ProductionOrder, SewingAssignment, SewingFlow, User, WorkOrder
 from app.schemas.production.sewing_receipt import create_receipt_assignment, resize_receipt_assignment, start_receipt_assignment
 from app.models.audit_service import log_action
 from app.models.bundles_service import receive_many_at_sewing, resolve_sewing_factory_code, verify_sewing_accessory_gate
@@ -87,8 +87,9 @@ def receive_manual_sewing(db: Session, payload: SewingManualReceiveIn, current: 
                 "bundle_ids": accepted.received_ids, "sewing_flow_id": accepted.flow.id,
                 "sewing_assignment_id": accepted.assignment.id}
 
-    # Serialize manual receipts of sibling batches without reversing the existing
-    # bundle -> work-order lock order used by individual scanner receipts.
+    # Receipt transitions flush Sewing and synchronize the parent order. Acquire
+    # that parent before bundles, consistently with direct Packaging and scanners.
+    db.query(ProductionOrder.id).filter_by(id=payload.production_order_id).with_for_update().first()
     if db.get_bind().dialect.name == "postgresql":
         db.execute(text("SELECT pg_advisory_xact_lock(74201, :order_id)"), {"order_id": payload.production_order_id})
     qry = db.query(Bundle).filter(
@@ -126,6 +127,8 @@ def accept_sewing_batch(
     db: Session, production_batch_id: int, sewing_flow_id: int, current: User,
     *, manual_scope: SewingManualReceiveIn | None = None,
 ) -> SewingBatchAcceptance:
+    parent_id = db.query(ProductionBatch.production_order_id).filter_by(id=production_batch_id).scalar_subquery()
+    db.query(ProductionOrder.id).filter(ProductionOrder.id == parent_id).with_for_update().first()
     batch = (
         db.query(ProductionBatch)
         .filter(ProductionBatch.id == production_batch_id)

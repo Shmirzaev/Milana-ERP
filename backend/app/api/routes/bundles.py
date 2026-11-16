@@ -514,6 +514,10 @@ def _find_bundle_by_scanned_code(db: DbSession, code: str) -> Bundle | None:
 
 
 def _get_bundle_for_update(db: DbSession, bid: int) -> Bundle:
+    # Transitions update Sewing work orders and their parent. Match the parent-
+    # first lock order used by manual/batch receipts and direct Packaging.
+    parent_id = db.query(Bundle.production_order_id).filter(Bundle.id == bid).scalar_subquery()
+    db.query(ProductionOrder.id).filter(ProductionOrder.id == parent_id).with_for_update().first()
     b = db.query(Bundle).filter(Bundle.id == bid).with_for_update().first()
     if not b:
         raise HTTPException(404, "Bundle not found")

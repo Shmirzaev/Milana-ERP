@@ -62,8 +62,8 @@ must retain an honest fallback without linking to an undefined model.
 - Independent agent /root/release_review found no remaining actionable scoped
   correctness/security issue and inspected the screenshots and 7-pass PG report.
   Reviewer fingerprint:3b5dc5c6b52ae405403960f00783e67929d1008172789ea64467f4706670da6d.
-- The full combined branch backend/PostgreSQL run is ongoing and has failures;
-  preserve and investigate its exact report before claiming a release pass.
+- The original full combined branch backend/PostgreSQL failure report is preserved
+  below; it is not a clean full-suite pass.
 
 The full local run completed:8362 passed,12 failed,17 errors,84 skipped. All failed
 and error cases plus adjacent operations subsequently passed a71-case Linux run,
@@ -94,16 +94,17 @@ stable production; the features and migration implications were explained. No
 narrowed release scope is assumed. The owner subsequently explicitly selected
 the entire branch, including Packaging changes, on16 November.
 
-Separate uncommitted recovery preparation at
+Separate recovery preparation at
 C:/ERP/.codex-work/factory-recovery-20261116 starts at exact active46ddd and adds
 the exact0157 script, current production-base metadata and narrow compatibility
 guards. Recovery preserves exact attribution in print-run snapshots and refuses
 edits/deletion/physical shipment corrections for packages containing that evidence.
 Legacy NULL packages retain baseline behavior. Independent review caught and
 corrected a misplaced warehouse guard before any commit or deployment. Actual
-receipt/replay and each protected writer are being checked, followed by the strict
-image startup/restart rehearsal. No recovery commit/image/push/staging/migration/
-activation has occurred.
+receipt/replay and each protected writer passed52 focused cases and five combined
+migrated-PG cases. Source1ab6ff57746b39e569b579dcd7f38d36d3ac1604 is committed and
+pushed. Exact published-image startup/restart proof is pending CI artifacts; no
+production staging/migration/activation has occurred.
 
 The first exact-source CI run43807385043 passed the frontend job; security failed
 because its cached backend apt layer held libpq5 17.11. Debian's security tracker
@@ -116,8 +117,56 @@ Security-only run43808560606 on855d9fd025f6793dc1ec5fbf720c1ccdeb669e12 passed.
 The two superseded full CI runs43807385043/43808766068 were cancelled after their
 known failed snapshots were corrected; they are not green release evidence.
 Recovery source1ab6ff57746b39e569b579dcd7f38d36d3ac1604 is pushed and its new
-full CI run43810018892 is pending. Final source must include that recovery ancestry
-while keeping attribution-aware final edits, then pass fresh exact-source CI.
+full CI run43810018892 has passed backend, frontend and security and is publishing
+immutable artifacts. Final sourcea55b692cc includes that recovery
+ancestry through an ours merge preserving the final feature tree. Its CI43810107925
+was cancelled when combined review found the lock inversions described next;
+neither run is presented as completed final-release evidence.
+
+## Combined Sewing/Packaging lock review
+
+Direct Packaging locks the parent order before Sewing/Packaging work orders.
+Independent combined review found older receipt/report/output wrappers that could
+retain a work order, bundle, batch or implicit foreign-key lock before requesting
+that parent. The affected entry points now take the parent first: retained
+Packaging receipt, band receive/final output, daily-report create/update/delete,
+Sewing correction edit/delete, scanner transitions and manual/batch acceptance.
+Every production caller of the shared Sewing receipt helpers was inventoried;
+assignment-only writers and NOWAIT Cutting guards retain their existing contracts.
+Permissions, factory checks, stale revisions and one outer transaction are retained.
+
+Retained physical Packaging receipts also preserve the sum of recorded Packaging
+input once records exist, including explicit zero. Receipt-only legacy orders
+retain their incremental physical-input counter. Thus both receipt95 then direct60
+and direct60 then receipt95 end with recorded input60, rather than155.
+
+The first targeted run passed25 cases:24 real-PG and one SQLite capacity test.
+It forces each legacy writer to wait on a held parent, checks its actual waiting
+SQL and probes WO/batch/bundle with NOWAIT, commits real direct labels or damage,
+then verifies resumed results and saved facts. Correction writers must return the
+defined handed-off409 after output. Completed-WO scanner reopening and fresh
+first-line batch assignment succeed. Both receipt/output orders and zero input
+are checked. These tests are now included in the required CI PostgreSQL group.
+
+A broader596-case Sewing/Packaging run passed587 and exposed only nine outdated
+query-budget assertions. Their original evidence is retained as sewing-adjacent.
+The new parent lock costs exactly one narrow query per whole receipt; revised
+21/31/26-query budgets stay constant for1/50/401 bundles. All19 query-context cases
+passed on Windows. The125-case Linux final run passed with zero skips, combining
+the lock/query cases and the complete production-flow file. Replacing only six
+runtime files with the priora55 source through read-only container overlays made
+all18 legacy-writer races, all three daily-report lock cases and two counter cases
+fail as intended (23 failures; receipt-first and SQLite-capacity baselines still
+pass). No fault was written into tracked source. Original red/failed reports are
+preserved separately from the green reports. Repository Ruff and compilation
+passed. Independent runtime review found no remaining blocker; final changed-file
+review and exact commit CI remain pending.
+
+Fresh read-only source/routing checks still match115200 on both hosts. The retained
+115200/052632/135430 sources pass their exact manifests on both hosts, and all six
+immutable image digests have the expected OCI revisions. These historical copies
+are retention evidence, not schema0157-compatible runtime recovery. Disk headroom
+must still be budgeted against the actual new artifacts before any pull/extraction.
 
 Pending release gates include full exact-source CI/security, safe0157 recovery,
 branch-wide label/visual verification, QA-master pre-deployment review, fresh

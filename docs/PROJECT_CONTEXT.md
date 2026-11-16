@@ -29,7 +29,14 @@ The owner explicitly selected the entire branch including Packaging and0157.
 Recovery source1ab6ff577 preserves exact snapshots and refuses old-code edits that
 could erase attribution. Both applications permit catalogue import at exactly0156/
 0157; unknown schema remains refused. All original failures/errors passed a71-case
-rerun; recovery's five migrated PG cases passed. Exact-image recovery and final
+rerun; recovery's five migrated PG cases passed. Combined review found additional
+legacy Sewing/Packaging lock inversions; parent-first entry fixes pass24 real-PG
+cases plus one SQLite capacity test. Physical receipt no longer double-counts
+recorded Packaging input. Broader596-case run passed587 with nine outdated query
+budgets; the corrected125-case Linux run passed with zero skips. Old-source
+overlays fail23 targeted lock/counter cases as intended. Both-host original
+source/routing and three retained sources/images remain verified without changes.
+Exact-image recovery and final
 CI/release gates plus recorded pre-deployment human review remain pending. Timed
 observation is explicitly waived. No production business data/runtime changed. See
 [the task evidence](PRICE_WAREHOUSE_FIXES_20261116.md).

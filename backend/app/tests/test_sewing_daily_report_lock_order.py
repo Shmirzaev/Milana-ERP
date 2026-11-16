@@ -1,4 +1,4 @@
-"""Daily-report writers follow sewing's work-order then parent lock order."""
+"""Daily-report writers share Sewing/Packaging's parent-first lock protocol."""
 
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date
@@ -138,7 +138,7 @@ def report_lock_postgres_sessions(postgres_migrations):
 
 
 @pytest.mark.parametrize("operation", ["create", "update", "delete"])
-def test_postgres_report_write_waits_for_work_order_before_parent(report_lock_postgres_sessions, operation):
+def test_postgres_report_write_waits_for_parent_before_work_order(report_lock_postgres_sessions, operation):
     sessions = report_lock_postgres_sessions
     case = _case(sessions)
     worker_pid = Queue()
@@ -158,10 +158,10 @@ def test_postgres_report_write_waits_for_work_order_before_parent(report_lock_po
     with sessions() as holder, ThreadPoolExecutor(max_workers=1) as workers:
         assert holder.bind.dialect.name == "postgresql"
         holder_pid = holder.execute(text("SELECT pg_backend_pid()")).scalar_one()
-        work_order = (
-            holder.query(WorkOrder)
-            .filter(WorkOrder.id == case["work_order_ids"][0])
-            .with_for_update(of=WorkOrder)
+        order = (
+            holder.query(ProductionOrder)
+            .filter(ProductionOrder.id == case["order_id"])
+            .with_for_update(of=ProductionOrder)
             .one()
         )
         future = workers.submit(write_report)
@@ -175,18 +175,19 @@ def test_postgres_report_write_waits_for_work_order_before_parent(report_lock_po
                 ).scalars().all():
                     break
                 if future.done():
-                    pytest.fail("Report writer completed without waiting for the locked work order")
+                    pytest.fail("Report writer completed without waiting for the locked parent")
                 sleep(0.02)
             else:
-                pytest.fail("Report writer did not visibly wait for the locked work order")
+                pytest.fail("Report writer did not visibly wait for the locked parent")
 
-            parent = holder.execute(
-                text("SELECT id FROM production_orders WHERE id=:id FOR UPDATE NOWAIT"),
-                {"id": case["order_id"]},
+            work_id = holder.execute(
+                text("SELECT id FROM work_orders WHERE id=:id FOR UPDATE NOWAIT"),
+                {"id": case["work_order_ids"][0]},
             ).scalar_one()
-            assert parent == case["order_id"]
+            assert work_id == case["work_order_ids"][0]
+            work_order = holder.get(WorkOrder, work_id)
             work_order.notes = "sewing writer committed first"
-            holder.get(ProductionOrder, case["order_id"]).status = "sewing"
+            order.status = "sewing"
             holder.commit()
         finally:
             if holder.in_transaction():

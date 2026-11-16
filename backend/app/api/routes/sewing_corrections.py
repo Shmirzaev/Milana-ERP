@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, or_
 from app.core.deps import DbSession, require_permissions
-from app.schemas import (User, WorkOrder, SewingRecord, SewingAssignment, SewingFlow,
+from app.schemas import (User, WorkOrder, ProductionOrder, SewingRecord, SewingAssignment, SewingFlow,
                         SewingReplacementRequest, PackagingReceipt, PackagingRecord, CuttingRecord, PrintingRecord)
 from app.models.factory_scope_service import require_work_order_factory_access
 from app.models.audit_service import log_action
@@ -103,9 +103,11 @@ def list_records(wid: int, db: DbSession, user: User = Depends(require_permissio
 
 
 def locked_record(db, rid, user, version):
-    identity = db.query(SewingRecord.work_order_id).filter_by(id=rid).first()
+    identity = db.query(SewingRecord.work_order_id, WorkOrder.production_order_id).join(
+        WorkOrder, WorkOrder.id == SewingRecord.work_order_id).filter(SewingRecord.id == rid).first()
     if not identity:
         raise HTTPException(404, "Not found")
+    db.query(ProductionOrder.id).filter_by(id=identity[1]).with_for_update().one()
     wo = db.query(WorkOrder).filter_by(id=identity[0]).with_for_update().populate_existing().one()
     require_work_order_factory_access(user, db, wo)
     row = db.query(SewingRecord).filter_by(id=rid).with_for_update().populate_existing().first()
