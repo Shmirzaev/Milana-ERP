@@ -97,6 +97,13 @@ and fourteen existing warnings; existing lint rules were not disabled. Full buil
 generated types and the actual delayed-default/confirmation browser scenarios
 pass again on the corrected source, including the two-material EN/RU/UZ cases.
 
+A later hosted browser step exposed a partial-section fixture missing the new
+`printAttemptActive` state. The fixture now supplies that dependency and reports
+initial render errors promptly instead of hiding them behind a selector timeout.
+All existing batch/size/print/delete assertions and EN/RU/UZ cases remain. The
+exact repaired test and all seventeen existing CI browser commands pass locally;
+no quarantine, test skip or timeout increase was introduced.
+
 Detailed local evidence is retained in the workspace under
 `outputs/milana-fe-fixes-20261117/REPORT-FINAL.md`, its JSON manifests/results,
 screenshots and private runtime logs. Credentials and copied business rows are
