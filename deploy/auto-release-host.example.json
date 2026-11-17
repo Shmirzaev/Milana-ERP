@@ -8,5 +8,6 @@
   "probe_sha256": "REPLACE_WITH_REVIEWED_READ_ONLY_PROBE_SHA256",
   "stage_adapter": "/opt/milana-erp/shared/deploy/auto_release_stage.py",
   "stage_adapter_sha256": "REPLACE_WITH_REVIEWED_STAGING_ADAPTER_SHA256",
+  "backup_client_image": "postgres@sha256:REPLACE_WITH_MATCHING_REVIEWED_POSTGRESQL_CLIENT_DIGEST",
   "max_ready_seconds": 3600
 }

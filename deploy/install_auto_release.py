@@ -55,6 +55,10 @@ def main():
             trusted(Path(config["stage_adapter"]), config["stage_adapter_sha256"])
         if args.role == "backend":
             trusted(Path(config["probe"]), config["probe_sha256"])
+            from auto_release_host import backup_command, command
+            client = config["backup_client_image"]
+            backup_command(client, "installation-validation", [])
+            command(["docker", "image", "inspect", client], stdout=subprocess.PIPE)
         target = Path("/opt/milana-erp/shared/deploy")
         files = {name: source / name for name in ("auto_release_host.py", "release_manifest.py")}
         config_target = Path("/etc/milana-auto-release/host.json")

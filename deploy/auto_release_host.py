@@ -12,6 +12,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 from pathlib import Path, PurePosixPath
 import shlex
 import shutil
@@ -21,6 +22,7 @@ import tarfile
 import tempfile
 import time
 import urllib.request
+import uuid
 from urllib.parse import unquote, urlsplit
 
 from release_manifest import fingerprint, identity, validate
@@ -67,6 +69,14 @@ def command(args, **kwargs):
 
 def inspect(kind, name):
     return json.loads(command(["docker", kind, "inspect", name], stdout=subprocess.PIPE))[0]
+
+
+def backup_command(image, name, args):
+    if not isinstance(image, str) or not re.fullmatch(r"postgres@sha256:[0-9a-f]{64}", image):
+        raise ValueError("Backup requires the reviewed digest-pinned PostgreSQL client image")
+    return ["docker", "run", "--name", name, "--rm", "--network", "host", "--read-only",
+            "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--memory", "256m",
+            "-e", "PGPASSWORD", "--entrypoint", "pg_dump", image, *args]
 
 
 def verify_manifest(root, expected):
@@ -240,14 +250,21 @@ class Host:
                     settings[key.strip()] = words[0]
         url = urlsplit(settings["DATABASE_URL"].replace("postgresql+psycopg2:", "postgresql:"))
         env = {**os.environ, "PGPASSWORD": unquote(url.password or "")}
-        args = ["pg_dump", "--format=custom", "--no-password", "--host", url.hostname,
+        args = ["--format=custom", "--no-password", "--host", url.hostname,
                 "--port", str(url.port or 5432), "--username", unquote(url.username or ""),
                 "--dbname", unquote(url.path.lstrip("/"))]
+        client = self.config.get("backup_client_image")
+        name = "milana-auto-backup-" + uuid.uuid4().hex
+        args = backup_command(client, name, args)
         fd = os.open(dump, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(fd, "wb") as stream:
-            command(args, env=env, stdout=stream)
-            stream.flush()
-            os.fsync(stream.fileno())
+        try:
+            with os.fdopen(fd, "wb") as stream:
+                command(args, env=env, stdout=stream, timeout=600)
+                stream.flush()
+                os.fsync(stream.fileno())
+        finally:
+            subprocess.run(["docker", "rm", "-f", name], stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL, timeout=30, check=False)
         listing = command(["pg_restore", "--list", str(dump)], stdout=subprocess.PIPE)
         objects = sum(bool(line.strip()) and not line.startswith(b";") for line in listing.splitlines())
         if not dump.stat().st_size or objects <= 100:
@@ -257,7 +274,7 @@ class Host:
             os.chmod(listing_path, 0o600)
             stream.write(listing)
         return {"path": str(dump), "bytes": dump.stat().st_size, "sha256": sha(dump),
-                "restore_objects": objects, "restore_list_sha256": sha(listing_path)}
+                "restore_objects": objects, "restore_list_sha256": sha(listing_path), "client_image": client}
 
     def record(self, plan):
         return STATE / f"{plan['release']}.json"

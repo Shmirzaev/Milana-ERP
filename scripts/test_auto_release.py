@@ -44,6 +44,15 @@ def before(role="backend"):
 
 
 class ManifestTests(unittest.TestCase):
+    def test_backup_requires_pinned_client_and_password_stays_out_of_arguments(self):
+        for image in (None, "postgres:16", "other@sha256:" + "a" * 64):
+            with self.assertRaises(ValueError):
+                host.backup_command(image, "owned-backup", [])
+        args = host.backup_command("postgres@sha256:" + "a" * 64, "owned-backup", ["--format=custom"])
+        self.assertEqual(args[args.index("-e") + 1], "PGPASSWORD")
+        self.assertIn("--read-only", args)
+        self.assertEqual(args[-1], "--format=custom")
+
     def test_pinned_plan_and_every_identity_field(self):
         p = plan()
         self.assertEqual(validate(p), p)
