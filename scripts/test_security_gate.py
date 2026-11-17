@@ -161,7 +161,8 @@ class SecurityGateTests(unittest.TestCase):
             self.assertTrue(requires_scan(event, 'refs/heads/clone_main', []))
         for ref in ('main', 'clone_main'):
             self.assertTrue(requires_scan('push', 'refs/heads/'+ref, []))
-        self.assertFalse(requires_scan('push', 'refs/heads/codex/ordinary', ['backend/Dockerfile']))
+        self.assertTrue(requires_scan('push', 'refs/heads/codex/ordinary', ['backend/Dockerfile']))
+        self.assertFalse(requires_scan('push', 'refs/heads/untrusted', []))
         for path in ('backend/Dockerfile', 'scripts/rf013_frontend.Dockerfile', 'backend/requirements-dev.txt',
                      'frontend/package-lock.json', 'frontend/pnpm-lock.yaml', 'poetry.lock'):
             self.assertTrue(requires_scan('pull_request', '', [path]), path)
@@ -188,7 +189,7 @@ class SecurityGateTests(unittest.TestCase):
         self.assertEqual(ci['concurrency']['cancel-in-progress'], "${{ github.event_name == 'pull_request' }}")
         self.assertIn('github.run_id', ci['concurrency']['group'])
         branches = ci['on']['push']['branches']
-        self.assertNotIn('codex/**', branches)
+        self.assertIn('codex/**', branches)
         self.assertIn('codex/ismail-finance-pilot-20261025', branches)
         text = (ROOT/'.github/workflows/security-scan.yml').read_text()
         self.assertIn('actions/cache/restore@v4', text)

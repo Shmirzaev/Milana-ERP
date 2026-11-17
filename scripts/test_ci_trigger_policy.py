@@ -19,8 +19,8 @@ def workflow(name):
 
 
 class CITriggerPolicyTests(unittest.TestCase):
-    def test_validation_pushes_are_only_integration_and_exact_qa_refs(self):
-        self.assertEqual(set(workflow("ci.yml")["on"]["push"]["branches"]), {"main", "clone_main"} | QA_BRANCHES)
+    def test_worktree_pushes_validate_on_hosted_runners_and_qa_refs_stay_authorized(self):
+        self.assertEqual(set(workflow("ci.yml")["on"]["push"]["branches"]), {"main", "clone_main", "codex/**"} | QA_BRANCHES)
 
     def test_qa_push_exceptions_match_the_existing_artifact_authorization(self):
         tree = ast.parse((ROOT / "frontend/scripts/stage_qa_runtime.py").read_text())
@@ -51,8 +51,8 @@ class CITriggerPolicyTests(unittest.TestCase):
             commands = [step.get("run", "") for job in workflow(name)["jobs"].values() for step in job.get("steps", [])]
             self.assertIn("python scripts/test_ci_trigger_policy.py", commands)
 
-    def test_release_images_remain_manual_and_rollback_qa_keeps_its_separate_push(self):
-        self.assertEqual(workflow("ci.yml")["jobs"]["release"]["if"], "github.event_name == 'workflow_dispatch' && !inputs.security_scan_only")
+    def test_candidate_publication_is_opt_in_and_rollback_qa_keeps_its_separate_push(self):
+        self.assertEqual(workflow("ci.yml")["jobs"]["release"]["if"], "needs.release-plan.outputs.enabled == 'true' && !inputs.security_scan_only")
         rollback = workflow("rollback-image-qa.yml")
         self.assertEqual(rollback["on"]["push"]["branches"], ["codex/pack-customer-fg-rollback-20261103"])
         self.assertNotIn("concurrency", rollback)

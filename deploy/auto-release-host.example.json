@@ -1,0 +1,8 @@
+{
+  "role": "backend",
+  "controller": "/opt/milana-erp/shared/deploy/slotctl.py",
+  "controller_sha256": "REPLACE_WITH_REVIEWED_INSTALLED_CONTROLLER_SHA256",
+  "gate": "/opt/milana-erp/shared/deploy/auto-release-site-gate",
+  "gate_sha256": "REPLACE_WITH_REVIEWED_SITE_QA_GATE_SHA256",
+  "max_ready_seconds": 3600
+}

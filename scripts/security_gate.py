@@ -15,7 +15,7 @@ def requires_scan(event, ref, paths):
     if event in {'schedule', 'workflow_dispatch'}:
         return True
     if event == 'push':
-        return ref in {'refs/heads/main', 'refs/heads/clone_main'}
+        return ref in {'refs/heads/main', 'refs/heads/clone_main'} or ref.startswith('refs/heads/codex/')
     if event == 'pull_request':
         return any(Path(path).name.startswith('Dockerfile')
                    or (Path(path).name.startswith('requirements') and Path(path).suffix in {'.txt', '.in'})

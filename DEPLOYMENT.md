@@ -2,6 +2,20 @@
 
 This is the only supported production deployment process. Production changes are promoted from a clean Git commit as immutable source plus backend/frontend images. Production VMs do not install dependencies or build the application.
 
+## Automated preparation and merge promotion (17 November 2026)
+
+The owner authorized a fixed lightweight deployment worker on the backend VM.
+[Automatic deployment](docs/AUTO_DEPLOYMENT.md) documents the daily flow, exact-source
+trust checks, installation, QA adapter and recovery. This tooling is not installed
+or enabled by its source merge. After administrator setup and rehearsal, eligible
+worktree pushes can build and prepare immutable candidates in the background;
+merging the identical complete tree into `clone_main` promotes the prepared images.
+All existing validation, backup, site QA/performance and closing gates remain.
+Schema-changing releases continue through the reviewed procedure below. This
+separates preparation time from the short traffic switch; it does not guarantee
+seconds from a fresh push. Never overlap manual deployment with the automatic
+worker's reservation or observation.
+
 ## Production topology
 
 - Public domain: `https://erp.milanapremium.uz`
