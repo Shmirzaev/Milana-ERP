@@ -59,6 +59,22 @@ class InstalledStageTests(unittest.TestCase):
         self.assertIs(self.ctl.run, self.original)
 
 
+class RuntimeGateTests(unittest.TestCase):
+    def test_real_docker_process_contract_and_stderr_errors_are_enforced(self):
+        def processes(args, **kwargs):
+            if "pid" not in args[-1].split(","):
+                raise RuntimeError("Docker requires the PID column")
+            return b"PID ARGS\n1 multiprocessing.spawn spawn_main\n2 multiprocessing.spawn spawn_main\n"
+        logs = Mock(returncode=0, stdout=b"", stderr=b"")
+        with patch.object(gate, "inspect", return_value={}), patch.object(gate, "assert_runtime"), \
+                patch.object(gate, "command", side_effect=processes), \
+                patch.object(gate.subprocess, "run", return_value=logs):
+            gate.runtime_check({"Image": "image", "Id": "owned"}, backend=True)
+            logs.stderr = b"Traceback: failed application operation"
+            with self.assertRaisesRegex(ValueError, "error logs"):
+                gate.runtime_check({"Image": "image", "Id": "owned"}, backend=True)
+
+
 class CompleteFactsTests(unittest.TestCase):
     def read(self, payloads):
         with patch.object(probe, "get", side_effect=[(p, 1, 20) for p in payloads]):

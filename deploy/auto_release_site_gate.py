@@ -127,7 +127,7 @@ def runtime_check(container, *, backend):
     if result.returncode or re.search(rb"Traceback|\bCRITICAL\b|\bException\b|\" 5\d\d\b", result.stdout + result.stderr):
         raise ValueError("Recent application error logs require inspection")
     if backend:
-        processes = command(["docker", "top", container["Id"], "-eo", "args"], stdout=subprocess.PIPE)
+        processes = command(["docker", "top", container["Id"], "-eo", "pid,args"], stdout=subprocess.PIPE)
         workers = sum(b"multiprocessing.spawn" in line and b"spawn_main" in line for line in processes.splitlines())
         if workers != 2:
             raise ValueError("Backend must have exactly two application workers")
