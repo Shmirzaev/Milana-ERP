@@ -52,8 +52,8 @@ def observe(
     *, release: str, commit: str, output: Path, risk: str = "high", reason: str = "",
     probe=probe_endpoint, clock=time.monotonic, sleep=time.sleep, emit=emit_event,
 ) -> dict:
-    if not re.fullmatch(r"[0-9]{8}_[0-9]{6}", release):
-        raise ValueError("Release must be a UTC YYYYMMDD_HHMMSS identifier")
+    if not re.fullmatch(r"[0-9]{8}_[0-9]{6}(?:_[1-9][0-9]{0,19}_[1-9][0-9]{0,5})?", release):
+        raise ValueError("Release must be a UTC YYYYMMDD_HHMMSS identifier, optionally with run/attempt")
     if not re.fullmatch(r"[0-9a-f]{40}", commit):
         raise ValueError("Commit must be the complete reviewed Git SHA")
     if risk not in WINDOW_SECONDS:

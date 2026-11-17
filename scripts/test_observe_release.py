@@ -111,6 +111,10 @@ class ObservationTests(unittest.TestCase):
                 self.run_observer(**override)
         self.assertEqual(self.calls, [])
 
+    def test_run_unique_automatic_release_identity(self):
+        result = self.run_observer(release="20261117_120000_43872462960_1")
+        self.assertEqual(result["status"], "health_checks_passed")
+
     def test_network_and_redirect_errors_are_failures(self):
         for error, expected in (
             (HTTPError("https://example.test", 302, "redirect", {}, None), 302),

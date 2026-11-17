@@ -17,16 +17,35 @@ not appended here. This summary does not replace live release verification.
 
 ## Deployment automation baseline (17 November; source reconciliation)
 
+The automatic deployment source is implemented and independently reviewed in the
+dedicated worktree. Its 40 Linux deployment fault tests, CI/security policy tests
+and observer tests pass. The owner selected a lightweight fixed worker on backend;
+its fixed files, dedicated Linux accounts/SSH key, backend configuration and
+systemd service are now installed from reviewed commit `c0fc78660cd2d77409b23608fa841180e9fa4355`.
+The service is **disabled/inactive**. The GitHub credential is now provisioned
+under the owner's explicit authorization, readable only by the worker account;
+server-side Actions/branch/collaborator reads and installed CI policy checks pass.
+Write permissions were not exercised; credential rotation remains a follow-up.
+The site QA adapter, restricted host configuration/sudo rule and real server/recovery
+rehearsal remain incomplete; activation timing is unmeasured. The installed
+controller also needs a reviewed `RELEASE_ID` staging update before enablement.
+See [daily use/install](AUTO_DEPLOYMENT.md) and
+[verification/limitations](archive/AUTO_DEPLOYMENT_IMPLEMENTATION_20261117.md).
+
 Both source pointers name `20261116_130518`, manifest
 `bc2e0d4bdbb38f6c06b9f3d5c75f3fdaa1fb5087240ca8f7b49d01318908ce40`.
 All 2,559 declared files match raw Git blobs at
 `4d7cf17e55b165b1edc05407065f92597cebdbe5`; both manifest checks pass.
 Backend health/readiness report that release. Migration source head remains
-`0157_package_allocation_items`; protected slot/database readback requires sudo
-and was not performed by this task. This supersedes earlier current-release
+`0157_package_allocation_items`; protected installed-helper snapshots now pass on
+both VMs, including actual routing/container identities and the real backend
+database-head check. Both active slots are green; retained rollback is
+`20261116_092917` in blue. This supersedes earlier current-release
 pointers below; previous failure/waiver evidence remains historical and unchanged.
 The owner authorized reconciling this verified live lineage with `clone_main`,
-then preparing automatic deployment. No production state or business data changed.
+then preparing and installing automatic deployment. Installation used the existing
+SSH account's Docker administrator access; application releases, routing, schema
+and business data were unchanged.
 
 ## Model-file pool fix candidate (16 November; not deployed)
 
