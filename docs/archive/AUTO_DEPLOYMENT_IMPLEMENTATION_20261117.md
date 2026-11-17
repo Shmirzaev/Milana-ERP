@@ -5,7 +5,8 @@
 The owner requested push -> background validation/preparation -> merge -> a
 seconds-scale production switch. He authorized using verified `clone_main`
 lineage, reconciling it with the live release first, and selected the backend VM
-for the lightweight worker. No application deployment was requested in this task.
+for the lightweight worker, then explicitly requested installation. No application
+deployment was requested in this task.
 Human infrastructure ownership remains Dilmurod/Mirshoir; Codex implements, with
 independent source review by `/root/review_auto_deploy`. Neither human approval
 nor production acceptance is invented here.
@@ -19,7 +20,9 @@ passed backend, frontend, security and publication. Source-only reconciliation
 commit `88b3e8455f83e6f98a9b36b5c15d7a1ac84b70ab` fast-forwarded `clone_main`
 under the owner's authorization, independent review and expected-head CAS.
 No application file was changed relative to verified live source in that step.
-Protected slots/DB inspection requires sudo and remains unverified by this task.
+Protected slots/DB inspection was initially blocked on sudo. Subsequent authorized
+installation used the existing SSH account's Docker administrator access and
+completed both installed-helper snapshots, including real database-head readback.
 
 ## Implemented source
 
@@ -44,9 +47,9 @@ Protected slots/DB inspection requires sudo and remains unverified by this task.
   back after its Git baseline has advanced. Partial activation requires operator
   recovery and can temporarily leave mixed application versions; rehearse it.
 
-No production worker/controller/site gate was installed or changed. No registry
-build/scan dependency was installed on a serving VM. No schema, business row,
-stock, payroll, role, user, source pointer, slot or router changed.
+The installation follow-up below supersedes the initial source-only status. No
+registry build/scan dependency was installed on a serving VM. No schema, business
+row, stock, payroll, ERP role/user, source pointer, slot or router changed.
 
 ## Actual local validation
 
@@ -58,18 +61,70 @@ stock, payroll, role, user, source pointer, slot or router changed.
   corrections to subprocess receipts, untouched-host recovery, reservation
   idempotence, post-publication phases, merge ancestry/deleted branches, explicit
   known-hosts, release-ID uniqueness and ready-time runtime checks.
+- Exact installed-code push CI [44014036422](https://github.com/Shmirzaev/Milana-ERP/actions/runs/44014036422)
+  completed successfully, including backend, frontend and image/security scans.
+  Release publication was skipped because automatic builds remain disabled.
 - An additional unchanged router/container test failed on Windows because its
   existing harness generates `/cfg\\frontend-503.http` and `/cfg\\api-503.http`
   paths inside Linux HAProxy. Neither that test nor `deploy/slotctl.py` changed.
   This is not recorded as a pass; exact live-source Linux CI above is separate
   evidence, not a replacement candidate test result.
 
-## Remaining gate: BLOCKED for installation/production E2E
+## Authorized installation follow-up
 
-Source approval is not installation or production-readiness approval. The current
-SSH account cannot invoke the protected controller without administrator
-authentication. The required site-specific signed-in workflow/full-fact/performance
-QA adapter, scoped token/new SSH key, protected slot/DB checks and real owned
-two-host recovery rehearsal must be installed/proven before enabling automation.
+Raw Git bytes from reviewed tooling commit
+`c0fc78660cd2d77409b23608fa841180e9fa4355` were installed using temporary
+utility containers through the existing Docker administrator access. Container
+entrypoints were explicitly overridden; no application startup/migration ran.
+Static file installation used no network and narrowly scoped writable mounts;
+account/configuration setup used host tools with explicit filesystem scopes.
+The service-manager reload required host PID visibility; it started no service.
+
+- Both VMs: root-owned helper and manifest module in
+  `/opt/milana-erp/shared/deploy/`, plus an installation receipt naming the commit.
+- Backend: fixed worker, manifest module, observer and installer under
+  `/opt/milana-auto-release/`; systemd unit under `/etc/systemd/system/`;
+  root-owned/group-readable worker configuration with CI policy hashes calculated
+  from raw reviewed Git blobs. The flat installer copy is archival tooling: its
+  worker-install command still requires the reviewed checkout's CI policy files.
+- Both VMs: locked-password `milana-deploy` Linux account, SSH login shell,
+  protected home/inbox and `restrict` public-key authorization. The accounts have
+  only their own group, no Docker membership and no general sudo privilege.
+  Backend has account-owned mode-0700 state/credentials directories and a new
+  mode-0600 Ed25519 private key; only its public key went to frontend. Host keys
+  were copied from the already verified local known-hosts entries.
+
+Installed hashes/root ownership/write permissions and host Python compilation
+pass. Worker configuration parses and matches the reviewed CI policy pins.
+Backend-to-backend/frontend SSH passes with strict host checking as the new
+account. Systemd reload and unit validation pass; `is-enabled` reports `disabled`
+and `is-active` reports `inactive`. No worker run or candidate staging occurred.
+All four required internal/public health/login endpoints return HTTP 200.
+An independent review found no additional blocker to this limited installation
+handoff. An attempted transient check with the service's namespace restrictions
+was refused by systemd with `Access denied`; it never ran and is not a pass.
+Account SSH success does not prove access under the full service sandbox.
+
+Both installed-helper `snapshot()` calls pass: complete source-manifest checks,
+active green release `20261116_130518`, actual container/default-command identity,
+source pointers, stable router state/configuration, and backend strict startup/
+seeding settings and the real Alembic-head check. Blue rollback remains
+`20261116_092917`. Installed controller SHA-256 is
+`13a9e19d5b266c87d138cb2866a185fedf45a089b85534d26fb28667eb95c3f3` on both
+hosts. Its backend staging command lacks `RELEASE_ID`; upgrade that exact command
+under review before enablement, preserving installed routing. The archived
+candidate controller was not copied over the installed one.
+
+## Remaining gate: BLOCKED for enablement/production E2E
+
+Source approval and static installation are not production-readiness approval.
+The scoped GitHub credential is absent; the user confirmed no dedicated token
+exists. Browser credential setup could not open because the connected browser
+API failed before navigation; no GitHub credential/access change occurred.
+Request a protected file path rather than a token in chat. The real signed-in workflow/full-fact/performance
+QA adapter is absent. Consequently host configuration and the restricted sudo rule
+were deliberately not installed. Connect the real QA suite, review the controller
+staging update, provision the scoped credential and complete an owned two-host
+recovery rehearsal before enabling automation. No pass-through gate was created.
 The activation latency target has not been measured on production. No tests,
 checks or observations are waived. Follow [the installation/runbook](../AUTO_DEPLOYMENT.md).

@@ -4,6 +4,18 @@ Owner-authorized design, 17 November 2026. Operational coordinator Dilmurod;
 human reviewer Mirshoir per TEAM_OWNERSHIP.md. Codex implements the tooling;
 independent AI review does not represent either person's approval.
 
+## Installation status, 17 November
+
+Reviewed tooling commit `c0fc78660cd2d77409b23608fa841180e9fa4355` is installed:
+host helper/module on both VMs; fixed worker, observer, policy-pinned configuration
+and systemd service on backend. Dedicated Linux accounts and a new protected SSH
+key are provisioned; strict host-key SSH from backend to both accounts passes.
+The service is disabled/inactive. No host gate/configuration/sudo rule or GitHub
+token is provisioned. The installed controller still needs its reviewed backend
+`RELEASE_ID` staging update. Complete the site QA adapter, credential provisioning
+and real two-host recovery rehearsal below before enabling. No application
+release or traffic switch occurred. See [installation evidence](archive/AUTO_DEPLOYMENT_IMPLEMENTATION_20261117.md).
+
 ## Daily use after installation
 
 1. Start an isolated worktree from current `clone_main`, preserving the recorded
@@ -64,10 +76,11 @@ duplicates, secrets, extra files and hash mismatches. Images are pulled by diges
 
 ## One-time administrator installation
 
-**Not installed or enabled by this change.** Current SSH can read source but
-cannot execute the protected controller. These steps require an administrator
-and the exact reviewed tooling commit; the installer defaults to a dry-run and
-neither starts the worker nor activates a release.
+**Partially installed; disabled.** See the current status above before repeating
+completed steps. Administrator access and the exact reviewed tooling commit are
+required; the existing SSH account's Docker administrator access was used for
+the recorded installation. The installer defaults to a dry-run and neither
+starts the worker nor activates a release.
 
 1. On both application VMs create a dedicated `milana-deploy` system account
    with an SSH login shell. On the backend also create its protected state and
@@ -173,9 +186,13 @@ sources and backups through observation and use protected retention afterward.
 The 17 November implementation uses verified live source `4d7cf17e55b165b1edc05407065f92597cebdbe5`
 (`20261116_130518`, manifest `bc2e0d4bdbb38f6c06b9f3d5c75f3fdaa1fb5087240ca8f7b49d01318908ce40`).
 Both live source manifests pass; all 2,559 declared files match raw Git blobs.
-Health/readiness reported the same release. Protected slot/database details could
-not be independently read with current privileges. No production migration,
-business write, installation, staging, activation or rollback occurred here.
+Health/readiness reported the same release. Installed-helper snapshots now pass
+both protected slot/router/container checks and the real backend database-head
+check. Static worker components/accounts were installed; the worker remains
+disabled/inactive. No production migration, business write, candidate staging,
+activation or rollback occurred here.
 See the task verification record for actual test/review results. The seconds-scale
 activation target and real server/site-gate rehearsal remain unmeasured pending
-administrator installation; local simulations are not production E2E evidence.
+the scoped credential, site gate, reviewed controller update and remaining host
+setup. A service-sandbox verification attempt was denied before execution; it is
+not a pass. Local simulations are not production E2E evidence.
