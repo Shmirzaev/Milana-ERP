@@ -11,9 +11,22 @@ this checkout, a new combined candidate or deployed production. Inspect current
 code and the operation ledger before advancing a gate. Schema-owned writers,
 system-wide enum/type adoption and human acceptance remain incomplete.
 
-Last updated 2026-11-16. Keep this file short: current decisions, release pointers and
+Last updated 2026-11-17. Keep this file short: current decisions, release pointers and
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
+
+## Deployment automation baseline (17 November; source reconciliation)
+
+Both source pointers name `20261116_130518`, manifest
+`bc2e0d4bdbb38f6c06b9f3d5c75f3fdaa1fb5087240ca8f7b49d01318908ce40`.
+All 2,559 declared files match raw Git blobs at
+`4d7cf17e55b165b1edc05407065f92597cebdbe5`; both manifest checks pass.
+Backend health/readiness report that release. Migration source head remains
+`0157_package_allocation_items`; protected slot/database readback requires sudo
+and was not performed by this task. This supersedes earlier current-release
+pointers below; previous failure/waiver evidence remains historical and unchanged.
+The owner authorized reconciling this verified live lineage with `clone_main`,
+then preparing automatic deployment. No production state or business data changed.
 
 ## Model-file pool fix candidate (16 November; not deployed)
 
