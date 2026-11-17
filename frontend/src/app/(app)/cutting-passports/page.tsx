@@ -1,6 +1,6 @@
 "use client";
 import { formatModelVariantCode, formatVariantNumber } from "@/lib/variantDisplay";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import useSWR, { useSWRConfig } from "swr";
@@ -346,10 +346,10 @@ export default function CuttingPassportsPage() {
   const [editing, setEditing] = useState<Passport | null>(null);
   const [form, setForm] = useState({ ...EMPTY_FORM });
   const formRef = useRef(form);
-  formRef.current = form;
+  useLayoutEffect(() => { formRef.current = form; }, [form]);
   const [materialForms, setMaterialForms] = useState<MaterialForm[]>([]);
   const materialFormsRef = useRef(materialForms);
-  materialFormsRef.current = materialForms;
+  useLayoutEffect(() => { materialFormsRef.current = materialForms; }, [materialForms]);
   const pendingApply = useRef<null | (() => void)>(null);
   const [materialDefaultsPending, setMaterialDefaultsPending] = useState(false);
   const [batchInfos, setBatchInfos] = useState<Record<number, PassportBatchInfo>>({});

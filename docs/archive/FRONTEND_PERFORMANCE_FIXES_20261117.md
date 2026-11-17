@@ -81,10 +81,21 @@ mounted-handler checks do not certify the OS dialog or a physical printer.
 Some source images are missing in the local runtime, so full thumbnail/workbook
 image parity is unverified. Full `AI_VERIFIED_AWAITING_HUMAN` is not claimed.
 
-This source commit does not approve deployment. The installed automatic worker
-can prepare production candidates from pushes and requires pinned CI policy and
-both exact-plan QA approvals for activation. This task makes a **local commit
-only**; no push, production access, activation or approval fabrication is included.
+The owner subsequently authorized normal remote `clone_main` pushes. A direct
+`clone_main` push runs CI; `scripts/release_ci_identity.py` selects automatic
+release builds only for `codex/**` pushes when the repository flag is enabled.
+An already prepared exact tree can be promoted after integration only after both
+host approvals pass. Source publication does not approve deployment. No direct
+production access, activation or approval-file creation is included here.
+
+Hosted CI on the initial `81f3654` commit caught two Cutting ref assignments during
+render that the earlier local build/type checks did not cover. The follow-up
+synchronizes those refs in layout effects after committed state changes, as
+required by [React's ref rules](https://react.dev/reference/react/useRef).
+Full frontend lint then passed with zero errors
+and fourteen existing warnings; existing lint rules were not disabled. Full build,
+generated types and the actual delayed-default/confirmation browser scenarios
+pass again on the corrected source, including the two-material EN/RU/UZ cases.
 
 Detailed local evidence is retained in the workspace under
 `outputs/milana-fe-fixes-20261117/REPORT-FINAL.md`, its JSON manifests/results,
