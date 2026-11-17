@@ -22,8 +22,11 @@ dedicated worktree. Its 40 Linux deployment fault tests, CI/security policy test
 and observer tests pass. The owner selected a lightweight fixed worker on backend;
 its fixed files, dedicated Linux accounts/SSH key, backend configuration and
 systemd service are now installed from reviewed commit `c0fc78660cd2d77409b23608fa841180e9fa4355`.
-The service is **disabled/inactive**. The scoped GitHub credential, site QA
-adapter, restricted host configuration/sudo rule and real server/recovery
+The service is **disabled/inactive**. The GitHub credential is now provisioned
+under the owner's explicit authorization, readable only by the worker account;
+server-side Actions/branch/collaborator reads and installed CI policy checks pass.
+Write permissions were not exercised; credential rotation remains a follow-up.
+The site QA adapter, restricted host configuration/sudo rule and real server/recovery
 rehearsal remain incomplete; activation timing is unmeasured. The installed
 controller also needs a reviewed `RELEASE_ID` staging update before enablement.
 See [daily use/install](AUTO_DEPLOYMENT.md) and

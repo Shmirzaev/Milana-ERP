@@ -115,16 +115,38 @@ hosts. Its backend staging command lacks `RELEASE_ID`; upgrade that exact comman
 under review before enablement, preserving installed routing. The archived
 candidate controller was not copied over the installed one.
 
+## Credential provisioning follow-up
+
+The owner supplied a credential and explicitly authorized its use after being
+advised to replace it. That authorization supersedes the earlier absent-token
+status; rotation remains recorded as a follow-up. No credential value or
+credential fingerprint is retained in source or this record.
+
+The credential was transferred over the verified SSH connection directly to
+`/var/lib/milana-auto-release/credentials/github.token` on backend, owned by
+`milana-deploy` with mode `0600` inside its mode-`0700` credentials directory.
+It was not written into a shell command, repository file or local token file.
+The terminal reader disabled input echo; credential validation reported only
+sanitized results.
+
+GitHub accepted repository, Actions and integration-branch read requests. A
+second server-side check as `milana-deploy`, using the installed worker's GitHub
+client and actual credential file, passed Actions, branch and collaborator
+permission reads and verification of every installed CI recipe pin. This did
+not exercise Contents/status write permissions or the full systemd sandbox.
+An initial diagnostic used an unused trailing-slash repository URL and returned
+404; the corrected check used the worker's actual endpoints and passed.
+The worker remains inactive; active release is still `20261116_130518`.
+
 ## Remaining gate: BLOCKED for enablement/production E2E
 
 Source approval and static installation are not production-readiness approval.
-The scoped GitHub credential is absent; the user confirmed no dedicated token
-exists. Browser credential setup could not open because the connected browser
-API failed before navigation; no GitHub credential/access change occurred.
-Request a protected file path rather than a token in chat. The real signed-in workflow/full-fact/performance
+The GitHub credential is now provisioned as recorded above. The earlier browser
+credential-creation attempt failed before navigation and created no token.
+The real signed-in workflow/full-fact/performance
 QA adapter is absent. Consequently host configuration and the restricted sudo rule
 were deliberately not installed. Connect the real QA suite, review the controller
-staging update, provision the scoped credential and complete an owned two-host
+staging update and complete an owned two-host
 recovery rehearsal before enabling automation. No pass-through gate was created.
 The activation latency target has not been measured on production. No tests,
 checks or observations are waived. Follow [the installation/runbook](../AUTO_DEPLOYMENT.md).

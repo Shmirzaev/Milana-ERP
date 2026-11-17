@@ -10,9 +10,11 @@ Reviewed tooling commit `c0fc78660cd2d77409b23608fa841180e9fa4355` is installed:
 host helper/module on both VMs; fixed worker, observer, policy-pinned configuration
 and systemd service on backend. Dedicated Linux accounts and a new protected SSH
 key are provisioned; strict host-key SSH from backend to both accounts passes.
-The service is disabled/inactive. No host gate/configuration/sudo rule or GitHub
-token is provisioned. The installed controller still needs its reviewed backend
-`RELEASE_ID` staging update. Complete the site QA adapter, credential provisioning
+The service is disabled/inactive. Its GitHub credential is provisioned with
+worker-account-only access; server-side read/policy checks pass, while write
+permissions remain unexercised. No host gate/configuration/sudo rule is provisioned.
+The installed controller still needs its reviewed backend
+`RELEASE_ID` staging update. Complete the site QA adapter, remaining host setup
 and real two-host recovery rehearsal below before enabling. No application
 release or traffic switch occurred. See [installation evidence](archive/AUTO_DEPLOYMENT_IMPLEMENTATION_20261117.md).
 
@@ -193,6 +195,6 @@ disabled/inactive. No production migration, business write, candidate staging,
 activation or rollback occurred here.
 See the task verification record for actual test/review results. The seconds-scale
 activation target and real server/site-gate rehearsal remain unmeasured pending
-the scoped credential, site gate, reviewed controller update and remaining host
+the site gate, reviewed controller update and remaining host
 setup. A service-sandbox verification attempt was denied before execution; it is
 not a pass. Local simulations are not production E2E evidence.
