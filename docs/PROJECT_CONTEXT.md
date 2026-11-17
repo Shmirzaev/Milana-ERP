@@ -18,17 +18,28 @@ not appended here. This summary does not replace live release verification.
 ## Deployment automation baseline (17 November; source reconciliation)
 
 The automatic deployment source is implemented and independently reviewed in the
-dedicated worktree. Its 40 Linux deployment fault tests, CI/security policy tests
+dedicated worktree. Its 55 Linux deployment fault tests, CI/security policy tests
 and observer tests pass. The owner selected a lightweight fixed worker on backend;
 its fixed files, dedicated Linux accounts/SSH key, backend configuration and
-systemd service are now installed from reviewed commit `c0fc78660cd2d77409b23608fa841180e9fa4355`.
-The service is **disabled/inactive**. The GitHub credential is now provisioned
+systemd service, site gates, restricted host configurations/sudo rules and separately
+pinned `RELEASE_ID` adapter are installed from reviewed commit
+`76c49093d5fc1466399fc2654a03660480d0ff5f`; installed routing controllers are unchanged.
+The service is **enabled/active** on backend, with `AUTO_RELEASE_BUILDS=true`;
+its first polling checkpoint is idle. The GitHub credential is provisioned
 under the owner's explicit authorization, readable only by the worker account;
-server-side Actions/branch/collaborator reads and installed CI policy checks pass.
-Write permissions were not exercised; credential rotation remains a follow-up.
-The site QA adapter, restricted host configuration/sudo rule and real server/recovery
-rehearsal remain incomplete; activation timing is unmeasured. The installed
-controller also needs a reviewed `RELEASE_ID` staging update before enablement.
+server-side Actions/branch/collaborator/policy reads, Contents/status writes and
+both restricted SSH helpers pass in the real hardened service sandbox. Credential
+rotation remains a follow-up. A pinned PostgreSQL 16 backup client replaces the
+incompatible native version 18 dump path; the private PostgreSQL 16 restore passes.
+The owned two-host preparation/approval/partial-cutover recovery rehearsal passed;
+both exact baselines were restored and temporary services/containers removed.
+Production activation timing remains unmeasured; bounded laboratory timings are
+in the task record. PR #558 is source-merged; broader backend CI is still running,
+while 55 focused Linux deployment tests, frontend/security checks and actual
+server verification pass. Future application candidates still require all CI jobs.
+Application changes require real, exact-plan QA evidence; missing evidence stops
+activation before either traffic switch. An initial live package-GET probe may have repaired QR cache/metadata;
+the effect was not fingerprinted. Later probes enforce read-only DB/storage.
 See [daily use/install](AUTO_DEPLOYMENT.md) and
 [verification/limitations](archive/AUTO_DEPLOYMENT_IMPLEMENTATION_20261117.md).
 
@@ -44,8 +55,9 @@ database-head check. Both active slots are green; retained rollback is
 pointers below; previous failure/waiver evidence remains historical and unchanged.
 The owner authorized reconciling this verified live lineage with `clone_main`,
 then preparing and installing automatic deployment. Installation used the existing
-SSH account's Docker administrator access; application releases, routing, schema
-and business data were unchanged.
+SSH account's Docker administrator access; application releases, routing and schema
+were unchanged. No intentional business writes occurred; the early QR-repair
+uncertainty is recorded above.
 
 ## Model-file pool fix candidate (16 November; not deployed)
 

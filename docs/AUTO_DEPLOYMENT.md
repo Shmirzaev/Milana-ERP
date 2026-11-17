@@ -6,17 +6,17 @@ independent AI review does not represent either person's approval.
 
 ## Installation status, 17 November
 
-Reviewed tooling commit `c0fc78660cd2d77409b23608fa841180e9fa4355` is installed:
-host helper/module on both VMs; fixed worker, observer, policy-pinned configuration
-and systemd service on backend. Dedicated Linux accounts and a new protected SSH
-key are provisioned; strict host-key SSH from backend to both accounts passes.
-The service is disabled/inactive. Its GitHub credential is provisioned with
-worker-account-only access; server-side read/policy checks pass, while write
-permissions remain unexercised. No host gate/configuration/sudo rule is provisioned.
-The installed controller still needs its reviewed backend
-`RELEASE_ID` staging update. Complete the site QA adapter, remaining host setup
-and real two-host recovery rehearsal below before enabling. No application
-release or traffic switch occurred. See [installation evidence](archive/AUTO_DEPLOYMENT_IMPLEMENTATION_20261117.md).
+Reviewed tooling commit `76c49093d5fc1466399fc2654a03660480d0ff5f` is installed:
+host helpers, QA gate, read-only probe, configurations and restricted sudo rules
+on both VMs; fixed worker, observer and systemd service on backend. The installed
+router/controller remains unchanged. A separately pinned adapter adds only the
+backend `RELEASE_ID` argument after validating its complete Docker command.
+The real service sandbox passed policy/token reads, both restricted SSH helpers,
+Contents writes and commit-status writes. The isolated two-host preparation and
+partial-cutover recovery rehearsal passed; its temporary services were removed.
+The backend worker is enabled/active and the repository variable
+`AUTO_RELEASE_BUILDS=true`. Production application remains `20261116_130518`.
+See [installation evidence](archive/AUTO_DEPLOYMENT_IMPLEMENTATION_20261117.md).
 
 ## Daily use after installation
 
@@ -37,7 +37,7 @@ release or traffic switch occurred. See [installation evidence](archive/AUTO_DEP
 4. It transfers source, validates a fresh PostgreSQL backup, stages inactive
    containers, warms them and runs the installed site QA/performance gates.
    Production keeps serving the current application.
-5. Wait for **Milana / production: Ready to deploy**. Perform the normal review
+5. Wait for **Milana / production: Technical candidate ready**. Perform the normal review
    and required QA-master acceptance, then merge into `clone_main`.
 6. The worker checks the **entire merged Git tree** against the prepared tree,
    rechecks both live identities, activates backend then frontend and checks all
@@ -78,7 +78,7 @@ duplicates, secrets, extra files and hash mismatches. Images are pulled by diges
 
 ## One-time administrator installation
 
-**Partially installed; disabled.** See the current status above before repeating
+**Installed and enabled.** See the current status above before repeating
 completed steps. Administrator access and the exact reviewed tooling commit are
 required; the existing SSH account's Docker administrator access was used for
 the recorded installation. The installer defaults to a dry-run and neither
@@ -93,18 +93,21 @@ starts the worker nor activates a release.
    path). The hardened service hides `/home`; it does not use a home SSH directory.
    The backend worker must be able to SSH to its own backend host as well as the
    frontend. Do not give this account Docker-group membership or general sudo.
-2. Install the PostgreSQL client tools on the backend (compatible with the
-   PostgreSQL server), plus the existing Docker/HAProxy/controller prerequisites.
-   Review the installed controller; pin its SHA-256. It must pass `RELEASE_ID`
-   when staging backend containers and preserve the required current routing.
-   Do not replace it with the candidate's archived copy automatically.
+2. Install the existing Docker/HAProxy/controller prerequisites and PostgreSQL
+   inspection tools. Pin a PostgreSQL client image matching the server major
+   version in `backup_client_image`; the installed PostgreSQL 18 tools produced
+   a backup that failed the PostgreSQL 16 restore rehearsal. Backups now run the
+   pinned PostgreSQL 16 client without a host filesystem mount; its password is
+   inherited by environment name. The native newer `pg_restore --list` only
+   checks archive structure. Review and pin the installed controller and the
+   narrow `auto_release_stage.py` adapter separately; preserve current routing.
 3. Install each host's root-owned **site gate** executable and pin its SHA-256.
    This is the adapter for the existing site-specific signed-in read-only
    workflow QA, complete ordered business facts, performance budgets, two-worker
    checks, clean logs and database capacity/index checks. It is intentionally
    required: a green health endpoint must not silently replace these checks.
 
-   Contract: `auto-release-site-gate prepare|postflight|closing` receives one JSON
+   Contract: `auto_release_site_gate.py prepare|approval|postflight|closing` receives one JSON
    object on stdin containing `plan` and `host`; it returns only
    `{"passed":true,"identity":"<release_manifest.identity(plan)>"}` on stdout,
    with a nonzero exit on any missing/failed check. `prepare` receives
@@ -112,9 +115,30 @@ starts the worker nor activates a release.
    and closing receive the actual new slot. Store detailed evidence mode-0600
    outside stdout; never print cookies, tokens, environment values or business
    payloads. The adapter must be read-only and bound to this exact plan. Review
-   every changed-workflow selection before returning success. An administrator
-   must connect this adapter to the site's agreed QA suite; no stub/pass-through
-   gate is supplied or permitted. Missing gates prevent installation/preparation.
+   every changed-workflow selection before returning success. The supplied
+   `auto_release_site_gate.py` and separately pinned `auto_release_probe.py`
+   implement the infrastructure/API checks. Both image versions read the same
+   exported PostgreSQL snapshot with read-only transactions, plus a real API
+   dependency write-refusal challenge. Complete ordered response hashes cover
+   seven workflows within the existing reader's authorization. Cutting IDs are
+   enumerated within its scope because the normal list has a 500-row limit.
+   Live performance probes omit the package list: that GET can repair QR files.
+   Probe storage is mounted read-only, runtime is bounded and its named container
+   is removed on timeout. Missing QR assets fail verification.
+
+   Application changes additionally require current root-owned QA evidence in
+   `/opt/milana-erp/shared/qa-approvals/<commit>.json` on both hosts. Bind the exact
+   `identity(plan)`, sorted changed application paths, reviewer and `checked_at`
+   (within three hours). Its `evidence` references exactly `browser`, `permissions`,
+   `persisted_results` and `adjacent_workflows`, each by protected absolute path
+   and SHA-256. Artifacts bind the same identity/kind and contain observed
+   `checks` with `name`, `actual` and `expected`; failed or Boolean-only stubs
+   are refused. Browser evidence also requires zero console errors and protected
+   PNG screenshots. Record actual QA-master results; installation does not supply
+   or fabricate application acceptance. Preparation records technical readiness while acceptance is pending. Complete the
+   evidence on both hosts before merging. The worker validates both approvals
+   before either switch; each host rechecks its own approval on activation.
+   Missing evidence stops activation without switching either host.
 4. Create root-owned configuration files from the examples. Change frontend
    `role` to `frontend`; fill actual reviewed controller/site-gate hashes. On
    each host run from the reviewed checkout:
@@ -190,11 +214,12 @@ The 17 November implementation uses verified live source `4d7cf17e55b165b1edc054
 Both live source manifests pass; all 2,559 declared files match raw Git blobs.
 Health/readiness reported the same release. Installed-helper snapshots now pass
 both protected slot/router/container checks and the real backend database-head
-check. Static worker components/accounts were installed; the worker remains
-disabled/inactive. No production migration, business write, candidate staging,
-activation or rollback occurred here.
-See the task verification record for actual test/review results. The seconds-scale
-activation target and real server/site-gate rehearsal remain unmeasured pending
-the site gate, reviewed controller update and remaining host
-setup. A service-sandbox verification attempt was denied before execution; it is
-not a pass. Local simulations are not production E2E evidence.
+check. The worker is enabled after the owned rehearsal. All 55 Linux
+deployment tests and independent source review pass. The actual hardened service
+sandbox now passes; the earlier denied attempt remains historical failed evidence.
+The PostgreSQL 16 dump restored successfully to a private PostgreSQL 16 database.
+Production application slots/source/router/schema remain unchanged. An early
+live package-GET diagnostic may have regenerated missing QR cache/metadata;
+its exact effect was not fingerprinted. Later package verification is protected
+by read-only transactions and storage. See the task record for actual rehearsal
+results and remaining limits; laboratory timing is not a production latency guarantee.
