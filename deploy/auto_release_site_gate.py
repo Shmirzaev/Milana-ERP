@@ -135,7 +135,7 @@ def runtime_check(container, *, backend):
 
 def main():
     phase = sys.argv[1]
-    if phase not in {"prepare", "postflight", "closing"}:
+    if phase not in {"prepare", "approval", "postflight", "closing"}:
         raise ValueError("Unknown site QA phase")
     request = json.loads(sys.stdin.buffer.read(65537))
     plan, host = validate(request["plan"]), request["host"]
@@ -146,10 +146,17 @@ def main():
     before_root = BASE / "releases" / plan["base"]["release"]
     candidate_root = BASE / "releases" / plan["release"]
     changes = changed_application_paths(source_files(before_root), source_files(candidate_root))
-    approval = application_approval(plan, changes, BASE / "shared/qa-approvals")
+    # Stage both applications and finish technical QA before the human reviews
+    # their exact prepared build. Acceptance is mandatory before either switch.
+    approval = ({"application_changed": bool(changes), "acceptance": "required_before_activation"}
+                if phase == "prepare" else
+                application_approval(plan, changes, BASE / "shared/qa-approvals"))
     journal = json.loads((STATE / (plan["release"] + ".json")).read_text())
     if journal["identity"] != identity(plan):
         raise ValueError("Site gate journal identity mismatch")
+    if phase == "approval":
+        print(json.dumps({"passed": True, "identity": identity(plan), "approval": approval}))
+        return
     role = config["role"]
     slot = host["candidate_slot"] if phase == "prepare" else host["slot"]
     before_slot = journal["before"]["slot"]

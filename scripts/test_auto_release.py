@@ -309,9 +309,9 @@ class HostTests(unittest.TestCase):
         with patch.object(host, "reported_release") as health:
             self.assertEqual(self.h.activate(plan()), actual)
             health.assert_called_once()
-            self.h.gate.assert_not_called()
+            self.h.gate.assert_called_once_with("approval", plan(), before())
             self.assertEqual(self.h.postflight(plan()), actual)
-        self.h.gate.assert_called_once_with("postflight", plan(), actual)
+        self.h.gate.assert_any_call("postflight", plan(), actual)
 
     def test_wrong_candidate_release_refused_before_switch(self):
         response = Mock()
@@ -464,6 +464,7 @@ class WorkerTests(unittest.TestCase):
         self.assertLess(events.index(("backend", "activate")), events.index(("frontend", "activate")))
         for role in ("backend", "frontend"):
             self.assertGreater(events.index((role, "postflight")), events.index(("frontend", "activate")))
+            self.assertLess(events.index((role, "approval")), events.index(("backend", "activate")))
         self.assertEqual(self.w.state["phase"], "live")
 
     def test_backend_failure_never_switches_frontend_and_both_recover(self):
@@ -478,6 +479,17 @@ class WorkerTests(unittest.TestCase):
         self.w.recover()
         self.assertIn(("backend", "recover"), self.remote.events)
         self.assertIn(("frontend", "recover"), self.remote.events)
+
+    def test_missing_approval_on_either_host_prevents_all_traffic_switches(self):
+        for role in ("backend", "frontend"):
+            self.ready()
+            self.remote.events.clear()
+            self.remote.fail = (role, "approval")
+            self.github.head.return_value = "merged"
+            self.github.tree.return_value = plan()["tree"]
+            with self.assertRaises(RuntimeError):
+                self.w.activate("merged")
+            self.assertFalse(any(action == "activate" for _, action in self.remote.events))
 
     def test_one_recovery_failure_does_not_skip_other_host(self):
         self.ready()

@@ -368,8 +368,13 @@ class Host:
         self.ctl.wait_for_health(self.role, journal["slot"])
         return journal
 
-    def activate(self, plan):
+    def approval(self, plan):
         journal = self.ready(plan)
+        self.gate("approval", plan, journal["before"])
+        return journal
+
+    def activate(self, plan):
+        journal = self.approval(plan)
         journal["phase"] = "activating"
         atomic(self.record(plan), journal)  # durable even if HAProxy reload or worker fails
         self.ctl.activate(self.role, journal["slot"], plan["release"])
@@ -475,7 +480,7 @@ def main():
     trusted(CONFIG)
     request = json.loads(sys.stdin.buffer.read(65537))
     action = request.get("action")
-    if action not in {"snapshot", "prepare", "ready", "activate", "postflight", "close", "complete", "recover"}:
+    if action not in {"snapshot", "prepare", "ready", "approval", "activate", "postflight", "close", "complete", "recover"}:
         raise ValueError("Unsupported host operation")
     host = Host(json.loads(CONFIG.read_text()))
     STATE.mkdir(mode=0o700, parents=True, exist_ok=True)

@@ -260,7 +260,7 @@ class Worker:
         self.remote.call("frontend", "prepare", plan)
         self.both("ready", plan)
         self.checkpoint("ready")
-        self.github.status(plan["commit"], "success", "Ready to deploy — merge this exact candidate into clone_main",
+        self.github.status(plan["commit"], "success", "Technical candidate ready — complete QA, then merge this exact tree",
                            plan["run_id"])
 
     def activate(self, merged_sha):
@@ -269,6 +269,7 @@ class Worker:
         if self.github.tree(merged_sha) != plan["tree"] or self.github.head(BRANCH) != merged_sha:
             raise ValueError("Integration source changed; prepare and validate the combined source")
         self.both("ready", plan)
+        self.both("approval", plan)
         if self.github.head(BRANCH) != merged_sha:
             raise ValueError("Integration changed immediately before cutover")
         self.checkpoint("activating", merged_sha=merged_sha)
