@@ -50,8 +50,8 @@ stock, payroll, role, user, source pointer, slot or router changed.
 
 ## Actual local validation
 
-- 39 deployment contract/fault tests passed in a local Linux Python 3.11 container.
-  Windows ran 38 passes plus one explicitly skipped Linux symlink test.
+- 40 deployment contract/fault tests passed in a local Linux Python 3.11 container.
+  Windows ran 39 passes plus one explicitly skipped Linux symlink test.
 - Seven CI trigger-policy tests, 16 security-gate tests and 12 observer tests pass.
 - Scoped Ruff, Python compilation, YAML policy parsing and `git diff --check` pass.
 - Independent AI source review reported no remaining blocking findings after

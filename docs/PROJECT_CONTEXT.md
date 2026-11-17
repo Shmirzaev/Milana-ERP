@@ -18,7 +18,7 @@ not appended here. This summary does not replace live release verification.
 ## Deployment automation baseline (17 November; source reconciliation)
 
 The automatic deployment source is implemented and independently reviewed in the
-dedicated worktree. Its 39 Linux deployment fault tests, CI/security policy tests
+dedicated worktree. Its 40 Linux deployment fault tests, CI/security policy tests
 and observer tests pass. The owner selected a lightweight fixed worker on backend;
 it is **not installed or enabled**. Administrator setup, the site QA adapter and
 real server/recovery rehearsal remain BLOCKED; activation timing is unmeasured.

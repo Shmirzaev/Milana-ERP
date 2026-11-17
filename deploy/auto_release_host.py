@@ -398,6 +398,14 @@ class Host:
         journal = json.loads(self.record(plan).read_text())
         if journal["identity"] != identity(plan):
             raise ValueError("Recovery identity mismatch")
+        if journal["phase"] == "preparing" and not (STATE / "reservation.json").exists():
+            # A crash can occur between the two initial atomic journal/reservation writes.
+            # With no reservation we may only acknowledge unchanged production, never reroute it.
+            if self.snapshot() != journal["before"]:
+                raise ValueError("Unreserved interrupted preparation has production drift")
+            journal["phase"] = "recovered"
+            atomic(self.record(plan), journal)
+            return journal["before"]
         if journal["phase"] == "recovered":
             self.release_reservation(plan)
             return journal["before"]  # Idempotent; never remove another reservation.

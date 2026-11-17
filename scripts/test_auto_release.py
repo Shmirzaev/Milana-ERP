@@ -252,6 +252,12 @@ class HostTests(unittest.TestCase):
         self.h.ctl.activate.assert_not_called()
         self.assertFalse((host.STATE / "reservation.json").exists())
 
+    def test_crash_between_initial_journal_and_reservation_recovers_as_noop(self):
+        self.journal("preparing")
+        (host.STATE / "reservation.json").unlink()
+        self.assertEqual(self.h.recover(plan()), before())
+        self.h.ctl.activate.assert_not_called()
+
     def test_recovered_retry_does_not_delete_new_reservation(self):
         self.journal("recovered")
         other = {"release": "20261117_130000", "identity": "other"}
