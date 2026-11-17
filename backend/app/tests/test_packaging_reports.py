@@ -266,3 +266,63 @@ def test_empty_invalid_and_oversized_reports(client, auth_headers, report_data, 
     assert empty.status_code == 200 and empty.json()["daily"] == []
     monkeypatch.setattr("app.models.packaging_reports_service.MAX_REPORT_PACKAGES", 1)
     assert client.get("/api/packaging/reports", params=PARAMS, headers=auth_headers).status_code == 413
+
+
+def test_page_validation_and_factory_authorization(client, auth_headers):
+    url = "/api/packaging/reports/page"
+    for extra in ({"kind": "invalid"}, {"kind": "daily", "limit": 101}, {"kind": "daily", "offset": -1}):
+        assert client.get(url, params={**PARAMS, **extra}, headers=auth_headers).status_code == 422
+    assert client.get(url, params={**PARAMS, "kind": "daily"}).status_code == 401
+    headers = {"Authorization": f"Bearer {create_access_token(1, extra={'factory_code': 'MIL'})}"}
+    assert client.get(url, params={**PARAMS, "kind": "daily", "packaging_department_code": "ECP"}, headers=headers).status_code == 403
+
+
+def test_page_authorization_boundary_does_not_call_report_for_denials(client, monkeypatch):
+    """Exercise actual auth and factory dependencies with only the report service stubbed."""
+    calls = []
+
+    def report_page(db, department, from_date, to_date, kind, offset, limit):
+        calls.append((department, from_date, to_date, kind, offset, limit))
+        return {"rows": [], "total": 0, "offset": offset, "limit": limit, "has_more": False, "summary": {}}
+
+    monkeypatch.setattr("app.api.routes.packaging_reports.build_packaging_report_page", report_page)
+    url = "/api/packaging/reports/page"
+    params = {**PARAMS, "kind": "daily"}
+    with TestSessionLocal() as db:
+        role = Role(name="Page report boundary", permissions=["packaging.records"])
+        db.add(role)
+        db.flush()
+        user = User(
+            name="Page report boundary", email="page-boundary@example.com", password_hash="unused",
+            role_id=role.id, department_id=db.query(Department.id).filter_by(code="PKG").scalar(), factory_code="MIL",
+        )
+        db.add(user)
+        db.commit()
+        headers = {"Authorization": f"Bearer {create_access_token(user.id, extra={'factory_code': 'MIL'})}"}
+        assert client.get(url, params=params, headers=headers).status_code == 200
+        assert len(calls) == 1
+        for department in ("ECP", "BPK"):
+            assert client.get(url, params={**params, "packaging_department_code": department}, headers=headers).status_code == 403
+            assert len(calls) == 1
+        role.permissions = ["sales.orders"]
+        db.commit()
+        assert client.get(url, params=params, headers=headers).status_code == 403
+        assert len(calls) == 1
+    assert client.get(url, params=params).status_code == 401
+    assert len(calls) == 1
+
+
+def test_page_response_omits_unset_fields_but_preserves_explicit_nulls(client, auth_headers, monkeypatch):
+    def report_page(db, department, from_date, to_date, kind, offset, limit):
+        return {
+            "rows": [{"row_key": "daily:2026-09-03", "date": "2026-09-03", "quantity": None}],
+            "total": 1, "offset": offset, "limit": limit, "has_more": False,
+            "summary": {"quantity": None},
+        }
+
+    monkeypatch.setattr("app.api.routes.packaging_reports.build_packaging_report_page", report_page)
+    response = client.get("/api/packaging/reports/page", params={**PARAMS, "kind": "daily"}, headers=auth_headers)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["rows"] == [{"row_key": "daily:2026-09-03", "date": "2026-09-03", "quantity": None}]
+    assert data["summary"] == {"quantity": None}

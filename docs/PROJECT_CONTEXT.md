@@ -15,6 +15,15 @@ Last updated 2026-11-17. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
+## Frontend performance fixes (17 November; local candidate)
+
+Scanner fallback, Cutting request/draft handling, Packaging pagination and QR
+print preparation have focused automated, restored-copy API, browser and
+independent review evidence. Native print-dialog cancellation and full local
+image parity remain unverified; production performance/release gates remain.
+The owner requested a local `clone_main` commit. No push/deployment is included.
+See [scope, evidence and remaining gates](archive/FRONTEND_PERFORMANCE_FIXES_20261117.md).
+
 ## Deployment automation baseline (17 November; source reconciliation)
 
 The automatic deployment source is implemented and independently reviewed in the

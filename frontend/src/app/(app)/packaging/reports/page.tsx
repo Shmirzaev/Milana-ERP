@@ -4,7 +4,7 @@ import { ApiError } from "@/lib/errorMessages";
 import { useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Download, RefreshCw } from "lucide-react";
-import useSWR from "swr";
+import useSWRInfinite from "swr/infinite";
 
 import PageHeader from "@/components/PageHeader";
 import PackagingReportTable from "@/components/PackagingReportTable";
@@ -12,7 +12,7 @@ import { fetcher, fetchResponse } from "@/lib/api";
 import { can, useMe } from "@/lib/auth";
 import { packagingDepartmentForSession } from "@/lib/access";
 import { useT } from "@/lib/i18n";
-import { packagingReportColumns, type PackagingReport } from "@/lib/packagingReport";
+import { packagingReportColumns, type PackagingReportPage } from "@/lib/packagingReport";
 
 function today() {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -34,11 +34,18 @@ export default function PackagingReportsPage() {
   const [downloadError, setDownloadError] = useState("");
   const validDates = Boolean(fromDate && toDate && fromDate <= toDate);
   const params = new URLSearchParams({ from_date: fromDate, to_date: toDate, packaging_department_code: department });
-  const reportUrl = `/api/packaging/reports?${params}`;
-  const { data, error, isLoading, mutate } = useSWR<PackagingReport>(
-    validDates && can(me, "packaging.records", "packaging.packages", "planning.production") ? reportUrl : null,
-    fetcher, { shouldRetryOnError: false },
+  const context = `${me?.id ?? "anonymous"}:${me?.factory_code ?? "unknown"}:${department}:${fromDate}:${toDate}:${tab}`;
+  const enabled = validDates && can(me, "packaging.records", "packaging.packages", "planning.production");
+  const { data, error, isLoading, isValidating, mutate, size, setSize } = useSWRInfinite<PackagingReportPage>(
+    (index, previous) => {
+      if (!enabled || (previous && !previous.has_more)) return null;
+      return [`/api/packaging/reports/page?${params}&kind=${tab}&offset=${index * 100}&limit=100`, context];
+    },
+    ([url]: [string, string]) => fetcher(url), { shouldRetryOnError: false },
   );
+  const rows = Array.from(new Map((data ?? []).flatMap((page) => page.rows).map((row) => [row.row_key, row])).values());
+  const firstPage = data?.[0];
+  const lastPage = data?.[data.length - 1];
 
   async function download() {
     setDownloadError("");
@@ -100,7 +107,10 @@ export default function PackagingReportsPage() {
         <div id="packaging-report-panel" role="tabpanel" aria-labelledby={`report-tab-${tab}`}>
           {isLoading && <p role="status" className="py-6 text-sm">{t("common.loading")}</p>}
           {!isLoading && validDates && !error && data && (
-            <PackagingReportTable key={`${reportUrl}:${tab}`} rows={data[tab]} columns={packagingReportColumns[tab]} pictures={tab === "entries"} />
+            <>
+              <PackagingReportTable rows={rows} columns={packagingReportColumns[tab]} pictures={tab === "entries"} summary={firstPage?.summary ?? {}} offset={0} />
+              {lastPage?.has_more && <button type="button" className="btn mt-3" disabled={isValidating} onClick={() => setSize(size + 1)}>{t("packagingReport.more")} ({rows.length}/{firstPage?.total ?? 0})</button>}
+            </>
           )}
         </div>
       </section>

@@ -1,4 +1,6 @@
 export type PackagingReportRow = Record<string, string | number | null>;
+export type PackagingReportPageRow = PackagingReportRow & { row_key: string };
+export type PackagingReportPage = { rows: PackagingReportPageRow[]; total: number; offset: number; limit: number; has_more: boolean; summary: Record<string, number | null> };
 export type PackagingReport = {
   from_date: string;
   to_date: string;

@@ -146,7 +146,7 @@ jobs:
         working-directory: backend
         env:
           PLANNING_CUTTING_POSTGRES_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/first_grade_qa_ci
-        run: python -m pytest -q app/tests/test_planning_cutting_factory_postgres.py
+        run: python -m pytest -q app/tests/test_planning_cutting_factory_postgres.py app/tests/test_packaging_report_page_postgres.py
       - name: BST handoff PostgreSQL preservation and recovery
         env:
           PYTHONPATH: ./backend

@@ -42,3 +42,8 @@ class ManualRecoveryStatus(str, Enum):
     CANCELLED = "cancelled"
     COMPLETED = "completed"
     UNAVAILABLE = "completed_unavailable"
+
+class PackagingReportKind(str, Enum):
+    DAILY = "daily"
+    ENTRIES = "entries"
+    COMPLETED = "completed"
