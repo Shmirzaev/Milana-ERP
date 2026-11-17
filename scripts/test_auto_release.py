@@ -387,10 +387,37 @@ class WorkerTests(unittest.TestCase):
                "conclusion": "success", "head_branch": "codex/deleted", "path": ".github/workflows/ci.yml",
                "head_repository": {"full_name": worker.REPOSITORY}}
         self.github.api.return_value = {"workflow_runs": [run]}
+        self.github.pages.return_value = [{"name": "milana-erp-candidate", "expired": False}]
         self.github.head.side_effect = HTTPError("url", 404, "deleted", {}, None)
         self.assertIsNone(self.w.find())
         self.github.head.side_effect = HTTPError("url", 403, "forbidden", {}, None)
         with self.assertRaises(HTTPError):
+            self.w.find()
+
+    def test_opt_out_run_cached_persistently_but_rerun_is_reconsidered(self):
+        run = {"id": 123, "run_attempt": 1, "head_sha": plan()["commit"], "event": "push",
+               "status": "completed", "conclusion": "success", "head_branch": "codex/task",
+               "path": ".github/workflows/ci.yml", "head_repository": {"full_name": worker.REPOSITORY}}
+        self.github.api.return_value = {"workflow_runs": [run]}
+        self.github.pages.return_value = []
+        self.assertIsNone(self.w.find())
+        self.github.head.assert_not_called()
+        reloaded = worker.Worker(self.github, self.remote, self.w.state_path)
+        self.assertIsNone(reloaded.find())
+        self.assertEqual(self.github.pages.call_count, 1)
+        run["run_attempt"] = 2
+        self.assertIsNone(reloaded.find())
+        self.assertEqual(self.github.pages.call_count, 2)
+
+    def test_published_bundle_still_requires_all_successful_jobs(self):
+        run = {"id": 123, "head_sha": plan()["commit"], "event": "push", "status": "completed",
+               "conclusion": "success", "head_branch": "codex/task", "actor": {"login": "maintainer"},
+               "path": ".github/workflows/ci.yml", "head_repository": {"full_name": worker.REPOSITORY}}
+        self.github.api.side_effect = [{"workflow_runs": [run]}, {"permission": "write"}]
+        self.github.head.return_value = run["head_sha"]
+        self.github.pages.side_effect = [[{"name": "milana-erp-candidate", "expired": False}],
+                                       [{"name": "release", "conclusion": "skipped"}]]
+        with self.assertRaisesRegex(ValueError, "required jobs"):
             self.w.find()
 
     def test_stale_baseline_refusal_never_starts_host_changes(self):

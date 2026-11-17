@@ -51,12 +51,16 @@ def main():
         from auto_release_host import trusted
         trusted(Path(config["controller"]), config["controller_sha256"])
         trusted(Path(config["gate"]), config["gate_sha256"])
+        if config.get("stage_adapter"):
+            trusted(Path(config["stage_adapter"]), config["stage_adapter_sha256"])
+        if args.role == "backend":
+            trusted(Path(config["probe"]), config["probe_sha256"])
         target = Path("/opt/milana-erp/shared/deploy")
         files = {name: source / name for name in ("auto_release_host.py", "release_manifest.py")}
         config_target = Path("/etc/milana-auto-release/host.json")
         executables = ["docker", "haproxy", "sudo", "visudo"]
         if args.role == "backend":
-            executables += ["pg_dump", "pg_restore"]
+            executables += ["pg_dump", "pg_restore", "psql"]
         for executable in executables:
             if not shutil.which(executable):
                 parser.error(f"Required installed executable is missing: {executable}")

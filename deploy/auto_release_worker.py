@@ -200,6 +200,20 @@ class Worker:
         for run in runs:
             if not eligible_run(run) or run["id"] in self.state["seen"]:
                 continue
+            attempt = run.get("run_attempt", 1)
+            ignored = self.state.get("ignored_runs", {})
+            if ignored.get(str(run["id"])) == attempt:
+                continue
+            artifacts = self.github.pages(f"actions/runs/{run['id']}/artifacts", "artifacts")
+            bundles = [item for item in artifacts if item["name"].startswith("milana-erp-") and not item["expired"]]
+            if not bundles:
+                # Completed opt-out runs cannot publish later within this attempt.
+                # Persist the bounded cache so idle polling does not exhaust API quota.
+                ignored = {**ignored, str(run["id"]): attempt}
+                self.checkpoint(self.state["phase"], ignored_runs=dict(list(ignored.items())[-200:]))
+                continue
+            if len(bundles) != 1:
+                raise ValueError("Candidate has ambiguous deployment artifacts")
             try:
                 head = self.github.head(run["head_branch"])
             except urllib.error.HTTPError as exc:
@@ -215,10 +229,6 @@ class Worker:
             for required in ("backend", "frontend", "security-scan / scan", "release"):
                 if not any(job["name"] == required and job["conclusion"] == "success" for job in jobs):
                     raise ValueError("Candidate has missing/skipped required jobs")
-            artifacts = self.github.pages(f"actions/runs/{run['id']}/artifacts", "artifacts")
-            bundles = [item for item in artifacts if item["name"].startswith("milana-erp-") and not item["expired"]]
-            if len(bundles) != 1:
-                continue
             plan, source = read_bundle(self.github.download(bundles[0]), run)
             if self.github.tree(plan["commit"]) != plan["tree"]:
                 raise ValueError("Artifact tree differs from GitHub source tree")

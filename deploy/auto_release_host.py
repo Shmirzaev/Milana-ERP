@@ -167,6 +167,16 @@ class Host:
             return output if capture else ""
         self.ctl.run = captured_run
 
+    def stage(self, slot, plan):
+        if self.role == "backend" and self.config.get("stage_adapter"):
+            path = Path(self.config["stage_adapter"])
+            trusted(path, self.config["stage_adapter_sha256"])
+            spec = importlib.util.spec_from_file_location("installed_stage_adapter", path)
+            adapter = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(adapter)
+            return adapter.stage(self.ctl, self.role, slot, plan["release"], plan["images"][self.role])
+        return self.ctl.stage(self.role, slot, plan["release"], plan["images"][self.role])
+
     def snapshot(self):
         state = self.ctl.read_state()
         if state.get("role") != self.role or state.get("active_slot") not in {"blue", "green"}:
@@ -308,7 +318,7 @@ class Host:
         slot = "green" if before["slot"] == "blue" else "blue"
         journal["slot"] = slot
         atomic(self.record(plan), journal)
-        self.ctl.stage(self.role, slot, plan["release"], plan["images"][self.role])
+        self.stage(slot, plan)
         candidate = inspect("container", self.ctl.container_name(self.role, slot))
         assert_container(candidate, image)
         if self.role == "backend":
