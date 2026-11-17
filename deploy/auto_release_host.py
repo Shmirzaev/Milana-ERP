@@ -377,9 +377,11 @@ class Host:
         journal["phase"] = "live"
         journal["activated_at"] = time.time()
         atomic(self.record(plan), journal)
-        return self.postflight(plan)
+        # Verify identity/health immediately so frontend can switch within seconds.
+        # The coordinator runs both complete postflight gates after both switches.
+        return self.live_identity(plan)
 
-    def postflight(self, plan):
+    def live_identity(self, plan):
         journal = json.loads(self.record(plan).read_text())
         if journal["identity"] != identity(plan):
             raise ValueError("Postflight identity mismatch")
@@ -390,6 +392,10 @@ class Host:
             raise ValueError("Live container changed")
         if self.role == "backend":
             reported_release("http://127.0.0.1:8000/health", plan["release"])
+        return actual
+
+    def postflight(self, plan):
+        actual = self.live_identity(plan)
         self.gate("postflight", plan, actual)
         return actual
 

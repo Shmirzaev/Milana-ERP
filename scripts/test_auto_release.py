@@ -299,6 +299,20 @@ class HostTests(unittest.TestCase):
             self.h.activate(plan())
         self.h.ctl.activate.assert_not_called()
 
+    def test_activation_checks_identity_then_full_postflight_runs_separately(self):
+        self.h.ready = Mock(return_value=self.journal())
+        actual = {**before(), "release": plan()["release"],
+                  "source_manifest_sha256": plan()["source_manifest_sha256"], "container": "new"}
+        self.h.snapshot.return_value = actual
+        self.h.point_current = Mock()
+        self.h.gate = Mock()
+        with patch.object(host, "reported_release") as health:
+            self.assertEqual(self.h.activate(plan()), actual)
+            health.assert_called_once()
+            self.h.gate.assert_not_called()
+            self.assertEqual(self.h.postflight(plan()), actual)
+        self.h.gate.assert_called_once_with("postflight", plan(), actual)
+
     def test_wrong_candidate_release_refused_before_switch(self):
         response = Mock()
         response.__enter__ = Mock(return_value=io.BytesIO(b'{"release":"unknown"}'))
@@ -448,6 +462,8 @@ class WorkerTests(unittest.TestCase):
         self.w.public_checks = Mock()
         self.w.activate("merged")
         self.assertLess(events.index(("backend", "activate")), events.index(("frontend", "activate")))
+        for role in ("backend", "frontend"):
+            self.assertGreater(events.index((role, "postflight")), events.index(("frontend", "activate")))
         self.assertEqual(self.w.state["phase"], "live")
 
     def test_backend_failure_never_switches_frontend_and_both_recover(self):
