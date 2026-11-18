@@ -9,7 +9,7 @@ from urllib.parse import urlsplit
 from alembic.config import Config as AlembicConfig
 from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
-from fastapi import Depends, FastAPI, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security.utils import get_authorization_scheme_param
 from starlette.middleware.gzip import GZipMiddleware
@@ -18,9 +18,10 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse, Response
 
 from app.core.config import settings
+from app.core.ceo_access import CEO_DASHBOARD_ONLY_DETAIL, is_ceo
 from app.core import readiness as readiness_checks
 from app.core.proxy_trust import client_ip, effective_request_scheme, validate_proxy_runtime_configuration
-from app.core.deps import DbSession, get_current_user, oauth2_scheme
+from app.core.deps import DbSession, get_current_user, oauth2_scheme, resolve_session_user
 from app.core.security import decode_token
 from app.core.shared_store import get_shared_counter_store
 from app.api.router import api_router
@@ -212,6 +213,26 @@ async def _csrf_origin_guard(request: Request, call_next):
     if request.method.upper() in _UNSAFE_METHODS and not _request_origin_allowed(request):
         return JSONResponse(status_code=403, content={"detail": "Untrusted request origin"})
     return await call_next(request)
+
+
+@app.middleware("http")
+async def _legacy_file_session_scope(request: Request, call_next):
+    # Signed sales attachments and generated barcodes have their own link
+    # semantics and do not depend on the operational ERP actor.
+    if request.url.path.startswith(("/storage/barcodes/", "/storage/sales-order-files/")):
+        token = await oauth2_scheme(request) or request.cookies.get(settings.AUTH_COOKIE_NAME)
+        if token and await run_in_threadpool(_legacy_file_session_is_ceo, token):
+            return JSONResponse(status_code=403, content={"detail": CEO_DASHBOARD_ONLY_DETAIL})
+    return await call_next(request)
+
+
+def _legacy_file_session_is_ceo(token: str) -> bool:
+    with db_session.SessionLocal() as db:
+        try:
+            user, _ = resolve_session_user(token, db)
+        except HTTPException:
+            return False
+        return is_ceo(user)
 
 
 @app.middleware("http")

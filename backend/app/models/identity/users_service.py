@@ -7,6 +7,7 @@ from fastapi import HTTPException
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.ceo_access import CEO_ROLE_NAME, is_ceo
 from app.core.deps import is_super_admin, normalize_permissions, require_permissions, user_permissions
 from app.core.security import hash_password, normalize_email, validate_password_strength
 from app.libs.dto.catalog.catalog import UserIn, UserUpdate
@@ -18,7 +19,7 @@ from app.models.identity.access_service import (
 )
 from app.models.password_reset_service import create_password_reset_token, password_reset_url
 from app.schemas import AuditLog, User
-from app.schemas.identity.user_persistence import add_user, set_user_credential_cutoff, apply_admin_user_changes, detach_user_references, remove_user
+from app.schemas.identity.user_persistence import add_user, set_user_credential_cutoff, apply_admin_user_changes, detach_user_references, remove_user, revoke_user_sessions_and_reset_tokens
 
 
 def require_strong_password(password: str) -> None:
@@ -113,6 +114,10 @@ def _lock_active_user_memberships(db: Session) -> None:
     ).populate_existing().all()
 
 
+def _lock_user_for_admin_update(db: Session, user_id: int) -> User | None:
+    return db.query(User).filter(User.id == user_id).with_for_update(
+        of=User, key_share=True,
+    ).populate_existing().first()
 
 
 def update_user(db: Session, user_id: int, payload: UserUpdate, current: User) -> User:
@@ -124,13 +129,16 @@ def update_user(db: Session, user_id: int, payload: UserUpdate, current: User) -
     u = (
         lock_user_for_credential_change(db, user_id, require_active=False)
         if credential_change
-        else db.get(User, user_id)
+        else _lock_user_for_admin_update(db, user_id)
     )
     if not u:
         raise HTTPException(404, "User not found")
     data = payload.model_dump(exclude_unset=True)
     old_access = _user_access_values(u)
     actor_is_super_admin = is_super_admin(current)
+    was_ceo = is_ceo(u)
+    if was_ceo and not actor_is_super_admin:
+        raise HTTPException(403, "Only a super admin can manage CEO accounts")
     if "factory_code" in data:
         data["factory_code"] = normalize_factory_code(data["factory_code"])
         if not actor_is_super_admin and data["factory_code"] != u.factory_code:
@@ -150,8 +158,10 @@ def update_user(db: Session, user_id: int, payload: UserUpdate, current: User) -
         if "access_policy" in data and (data["access_policy"] or {}) != (u.access_policy or {}):
             raise HTTPException(403, "You cannot change your own access")
     # A role change may only grant permissions the actor already holds.
+    ceo_role_changed = False
     if "role_id" in data and data["role_id"] != u.role_id:
-        _assert_can_grant_role(db, current, data["role_id"])
+        role = _assert_can_grant_role(db, current, data["role_id"])
+        ceo_role_changed = was_ceo or (role is not None and role.name == CEO_ROLE_NAME)
     if "extra_permissions" in data:
         _assert_can_grant_permissions(current, data["extra_permissions"], previous=u.extra_permissions)
     # Never let the last active administrator be demoted or deactivated.
@@ -182,10 +192,14 @@ def update_user(db: Session, user_id: int, payload: UserUpdate, current: User) -
         apply_password_credential_change(db, u, data.pop("password"))
     elif "password" in data:
         data.pop("password")
+    if ceo_role_changed and not credential_change:
+        revoke_user_sessions_and_reset_tokens(db, u, datetime.now(timezone.utc))
     apply_admin_user_changes(db, u, data)
     audit_new_value = dict(data)
     if credential_change:
         audit_new_value.update({"credential_changed": True, "reset_links_invalidated": True})
+    elif ceo_role_changed:
+        audit_new_value.update({"sessions_invalidated": True, "reset_links_invalidated": True})
     log_action(db, current, "update", "User", u.id, old_value=old_access, new_value=audit_new_value)
     db.commit()
     db.refresh(u)
@@ -201,11 +215,13 @@ def _assert_user_has_no_audit_history(db: Session, user_id: int) -> None:
 def delete_user(db: Session, user_id: int, current: User) -> None:
     _require_active_admin_actor(db, current)
     _lock_active_user_memberships(db)
-    u = db.get(User, user_id)
+    u = _lock_user_for_admin_update(db, user_id)
     if not u:
         raise HTTPException(404, "User not found")
     if u.id == current.id:
         raise HTTPException(400, "You cannot delete your own account")
+    if is_ceo(u) and not is_super_admin(current):
+        raise HTTPException(403, "Only a super admin can delete CEO accounts")
     if ("*" in user_permissions(u) or is_super_admin(u)) and not is_super_admin(current):
         raise HTTPException(403, "Only a super admin can delete administrator accounts")
     if is_super_admin(u) and _count_active_super_admins(db, exclude_user_id=u.id) == 0:

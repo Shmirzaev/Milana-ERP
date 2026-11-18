@@ -5,7 +5,9 @@ from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
+from app.core.ceo_access import CEO_DASHBOARD_ONLY_DETAIL, is_ceo
 from app.core.config import settings
+from app.core.dt import as_utc, utcnow
 from app.core.security import decode_token
 from app.db.session import get_db
 from app.schemas import User
@@ -26,6 +28,14 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token", auto_error=Fals
 
 SUPER_ADMIN_PERMISSION = "admin.super"
 SUPER_ADMIN_ROLE_NAME = "Super Admin"
+
+CEO_SESSION_ENDPOINTS = frozenset({
+    ("GET", "/api/dashboard/ceo"),
+    ("GET", "/api/auth/me"),
+    ("GET", "/api/session/me"),
+    ("POST", "/api/auth/change-password"),
+    ("POST", "/api/session/change-password"),
+})
 
 READ_PERMISSIONS = {
     "inventory": (
@@ -98,15 +108,7 @@ DASHBOARD_PLANNING_READ_PERMISSIONS = READ_PERMISSIONS["dashboard_planning"]
 DASHBOARD_WASTE_READ_PERMISSIONS = READ_PERMISSIONS["dashboard_waste"]
 
 
-def get_current_user(
-    request: Request,
-    token: Annotated[str | None, Depends(oauth2_scheme)],
-    db: Annotated[Session, Depends(get_db)],
-) -> User:
-    if not token:
-        token = request.cookies.get(settings.AUTH_COOKIE_NAME)
-    if not token:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+def resolve_session_user(token: str, db: Session) -> tuple[User, dict]:
     try:
         payload = decode_token(token)
         user_id = int(payload["sub"])
@@ -120,7 +122,6 @@ def get_current_user(
     valid_from = getattr(user, "tokens_valid_from", None)
     issued_at = payload.get("iat")
     if valid_from is not None:
-        from app.core.dt import as_utc
         # Keep subsecond precision: a token minted before rotation within the
         # same second must not remain valid. Legacy integer dates are supported,
         # but a rotated account requires a usable issue time.
@@ -131,16 +132,41 @@ def get_current_user(
         if (isinstance(issued_at, bool) or not math.isfinite(issued_timestamp)
                 or issued_timestamp < as_utc(valid_from).timestamp()):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token expired, please sign in again")
-    bind_session_factory(user, payload.get("factory_code"))
-    enforce_request_factory_scope(user, request)
-    from app.models.sewing_scope_service import enforce_band_request
-    enforce_band_request(user, request, db)
+    return user, payload
+
+
+def get_current_user(
+    request: Request,
+    token: Annotated[str | None, Depends(oauth2_scheme)],
+    db: Annotated[Session, Depends(get_db)],
+) -> User:
+    token = token or request.cookies.get(settings.AUTH_COOKIE_NAME)
+    if not token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+    authentication_started_at = utcnow().timestamp()
+    user, payload = resolve_session_user(token, db)
+    request.state.authentication_started_at = authentication_started_at
+    if is_ceo(user):
+        if (request.method, request.url.path) not in CEO_SESSION_ENDPOINTS:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=CEO_DASHBOARD_ONLY_DETAIL)
+        bind_session_factory(user, None)
+    else:
+        bind_session_factory(user, payload.get("factory_code"))
+        enforce_request_factory_scope(user, request)
+        from app.models.sewing_scope_service import enforce_band_request
+        enforce_band_request(user, request, db)
     bind_idempotency_identity(db, user)
     return user
 
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
 DbSession = Annotated[Session, Depends(get_db)]
+
+
+def require_ceo(user: CurrentUser) -> User:
+    if not is_ceo(user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="CEO access required")
+    return user
 
 
 def normalize_permissions(values) -> list[str]:
@@ -158,6 +184,8 @@ def normalize_permissions(values) -> list[str]:
 
 
 def user_permissions(user: User) -> list[str]:
+    if is_ceo(user):
+        return []
     permissions: list[str] = []
     if not user_is_super_admin(user) and selected_factory_code(user) != assigned_factory_code(user):
         return normalize_permissions(factory_permissions_for(user, selected_factory_code(user)))

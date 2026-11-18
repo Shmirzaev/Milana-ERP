@@ -3,6 +3,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
+from app.core.ceo_access import CEO_ROLE_NAME
 from app.core.deps import SUPER_ADMIN_ROLE_NAME, is_super_admin, normalize_permissions, require_permissions
 from app.libs.dto.catalog.catalog import RoleIn
 from app.core.permission_catalog import PERMISSION_KEYS
@@ -23,6 +24,8 @@ def create_role(db: Session, payload: RoleIn, current: User) -> Role:
     """Check grants, insert the role and its audit row, then commit once."""
     require_permissions("*")(current)
     permissions = normalize_permissions(payload.permissions)
+    if payload.name.strip().casefold() == CEO_ROLE_NAME.casefold():
+        raise HTTPException(403, "The CEO role is reserved")
     if payload.name.strip().lower() == SUPER_ADMIN_ROLE_NAME.lower() and not is_super_admin(current):
         raise HTTPException(403, "Only a super admin can create the super admin role")
     _assert_can_grant_permissions(current, permissions)

@@ -24,6 +24,10 @@ def set_user_profile(db: Session, user: User, *, name: str) -> None:
 
 def set_password_and_invalidate_reset_tokens(db: Session, user: User, password_hash: str, now: datetime) -> None:
     user.password_hash = password_hash
+    revoke_user_sessions_and_reset_tokens(db, user, now)
+
+
+def revoke_user_sessions_and_reset_tokens(db: Session, user: User, now: datetime) -> None:
     user.tokens_valid_from = now
     db.query(PasswordResetToken).filter(
         PasswordResetToken.user_id == user.id,
