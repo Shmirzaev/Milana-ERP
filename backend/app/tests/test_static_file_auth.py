@@ -279,6 +279,27 @@ def test_model_image_burst_releases_authentication_pool(
         responses = [None] * 80
         durations = [0.0] * 80
         try:
+            # Thread creation is outside the pool checkout budget. Start every
+            # worker without a database connection before the measured burst;
+            # BurstSession still holds checkouts until all 40 auth calls start.
+            warm_workers = 0
+            warm_lock = Lock()
+            warm_started = Event()
+
+            def warm_worker():
+                nonlocal warm_workers
+                with warm_lock:
+                    warm_workers += 1
+                    if warm_workers == 40:
+                        warm_started.set()
+                assert warm_started.wait(5), "The worker prewarm did not fill the 40 slots"
+
+            with anyio.fail_after(10):
+                async with anyio.create_task_group() as group:
+                    for _ in range(40):
+                        group.start_soon(anyio.to_thread.run_sync, warm_worker)
+            assert warm_workers == 40
+
             async with httpx.AsyncClient(transport=transport, base_url="http://test", headers=headers) as http:
                 async def read_image(index):
                     started = perf_counter()

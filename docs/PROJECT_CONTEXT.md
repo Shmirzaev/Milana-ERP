@@ -34,10 +34,15 @@ stock quantities and all122 payroll labels/122 payroll records are unchanged.
 Full backup, rollback rehearsal, independent review and persisted/domain readback
 passed. Audit275685 records the correction. Original package print evidence is
 retained; replacement runPRN-2026-001187 requires three package labels to be reprinted.
-Authenticated visual QA was blocked by the signed-out browser.
+Old/reference and new/print PDFs are rendered and QR-verified. Authenticated
+baseline browser readback passes; exact prepared-candidate QA remains pending.
 Both hosts remain on verified green20261116_130518/schema0157; rollback
 20261116_092917 remains. All four health checks pass. No application deployment,
-schema/permission change, push or merge occurred.
+schema/permission change or merge occurred. PR559 is pushed; its original push
+CI failed twice on the same image-burst test. A reviewed worker-prewarm test change
+retains all original concurrency/pool/recovery budgets; fresh CI is required.
+The idle automatic worker's ci.yml policy pin was refreshed through the documented
+reviewed-checkout installer; application source/routing were unchanged.
 
 ## Deployment automation baseline (17 November; source reconciliation)
 
