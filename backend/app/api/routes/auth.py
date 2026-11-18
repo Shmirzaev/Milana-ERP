@@ -6,6 +6,7 @@ from fastapi import Depends
 from pydantic import BaseModel
 
 from app.core.config import settings
+from app.core.dt import utcnow
 from app.core.proxy_trust import client_ip, effective_request_scheme
 from app.core.deps import DbSession, CurrentUser
 from app.core.shared_store import get_shared_counter_store
@@ -65,8 +66,9 @@ def login_oauth(
     db: DbSession,
 ):
     """Browser login: set the HttpOnly auth cookie and do not expose the JWT to JavaScript."""
+    issued_at = utcnow().timestamp()
     user, _ = login_user(db, form_data.username, form_data.password, _client_ip(request), None, get_shared_counter_store)
-    token = create_access_token(user.id)
+    token = create_access_token(user.id, extra={"iat": issued_at})
     _set_auth_cookie(request, response, token)
     return LoginOk()
 
@@ -74,8 +76,9 @@ def login_oauth(
 @session_router.post("/login-json", response_model=LoginOk)
 @router.post("/login-json", response_model=LoginOk)
 def login_json(request: Request, response: Response, payload: LoginIn, db: DbSession):
+    issued_at = utcnow().timestamp()
     user, factory_code = login_user(db, str(payload.email), payload.password, _client_ip(request), payload.factory_code, get_shared_counter_store)
-    token = create_access_token(user.id, extra={"factory_code": factory_code})
+    token = create_access_token(user.id, extra={"factory_code": factory_code, "iat": issued_at})
     _set_auth_cookie(request, response, token)
     return LoginOk()
 
@@ -84,7 +87,12 @@ def login_json(request: Request, response: Response, payload: LoginIn, db: DbSes
 @router.post("/switch-factory", response_model=LoginOk)
 def switch_factory(request: Request, response: Response, payload: FactorySwitchIn, db: DbSession, user: CurrentUser):
     factory_code = select_session_factory(db, user, payload.factory_code)
-    token = create_access_token(user.id, extra={"factory_code": factory_code})
+    # A concurrent credential or role change must still revoke this session
+    # if it commits between request authentication and token issuance.
+    token = create_access_token(user.id, extra={
+        "factory_code": factory_code,
+        "iat": request.state.authentication_started_at,
+    })
     _set_auth_cookie(request, response, token)
     return LoginOk()
 
@@ -96,8 +104,9 @@ def token_oauth(
     db: DbSession,
 ):
     """Machine/API-client login: return a bearer token without setting browser cookies."""
+    issued_at = utcnow().timestamp()
     user, _ = login_user(db, form_data.username, form_data.password, _client_ip(request), None, get_shared_counter_store)
-    return TokenOut(access_token=create_access_token(user.id))
+    return TokenOut(access_token=create_access_token(user.id, extra={"iat": issued_at}))
 
 
 @session_router.post("/logout")
@@ -126,7 +135,8 @@ def reset_password(payload: ResetPasswordIn, db: DbSession):
 
 @session_router.get("/me", response_model=UserMe)
 @router.get("/me", response_model=UserMe)
-def me(user: CurrentUser, db: DbSession):
+def me(user: CurrentUser, db: DbSession, response: Response):
+    response.headers["Cache-Control"] = "private, no-store"
     return read_current_user(db, user)
 
 

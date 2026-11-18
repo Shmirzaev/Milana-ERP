@@ -1,7 +1,7 @@
 from datetime import date, datetime, timezone, timedelta, time
 from zoneinfo import ZoneInfo
 from typing import Annotated, Literal
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import func
 
 from app.core.deps import (
@@ -10,6 +10,7 @@ from app.core.deps import (
     DbSession,
     INVENTORY_READ_PERMISSIONS,
     PRODUCTION_READ_PERMISSIONS,
+    require_ceo,
     require_permissions,
 )
 from app.core.dt import as_utc
@@ -20,8 +21,31 @@ from app.schemas import (
 )
 from app.models.finance_service import dashboard_summary, branded_stock_value
 from app.models.inventory_service import stock_summary
+from app.libs.dto.ceo_dashboard.report import DashboardReport
+from app.libs.enums.ceo_dashboard import FactoryFilter, ReportGrouping
+from app.models.ceo_dashboard_service import read_dashboard_for_range
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
+
+
+@router.get("/ceo")
+def ceo_dashboard(
+    db: DbSession,
+    response: Response,
+    _: Annotated[User, Depends(require_ceo)],
+    start: date,
+    end: date,
+    grouping: ReportGrouping = ReportGrouping.DAILY,
+    factory: FactoryFilter = FactoryFilter.ALL,
+) -> DashboardReport:
+    try:
+        report = read_dashboard_for_range(db, start, end, grouping, factory)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except OverflowError as exc:
+        raise HTTPException(status_code=422, detail="Date is outside the supported calendar.") from exc
+    response.headers["Cache-Control"] = "private, no-store"
+    return report
 
 
 @router.get("/cutting")

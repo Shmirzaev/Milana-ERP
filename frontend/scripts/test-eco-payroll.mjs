@@ -85,7 +85,7 @@ for (const factory of ["ECO", "MIL", "BST"]) {
       if (name === "swr") return { SWRConfig: "SWRConfig" };
       if (name === "next/navigation") return { usePathname: () => pathname, useSearchParams: () => new URLSearchParams(), useRouter: () => ({ replace() {} }) };
       if (name === "@/lib/access") return access;
-      if (name === "@/lib/auth") return { useMe: () => ({ me, hasToken: true }), can: () => true };
+      if (name === "@/lib/auth") return { useMe: () => ({ me, hasToken: true }), can: () => true, isCeo: () => false, CEO_DASHBOARD_PATH: "/ceo-dashboard" };
       if (name === "@/lib/api" || name === "@/lib/priceCalculationRequests") return {};
       if (name === "@/lib/i18n") return { useT: () => ({ t: x => x }) };
       if (name === "@/components/sewing/BandWorkspace") return { default: "BandWorkspace" };

@@ -2,6 +2,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from fastapi import HTTPException
+from app.core.ceo_access import is_ceo
 from app.libs.enums.identity import FactoryCode
 from app.libs.enums.production import WorkOrderStatus
 from app.models.identity.access_policy_service import apply_policy, denied_for, policy_for
@@ -31,6 +32,8 @@ def normalize_factory_code(value: str | None, *, default: str | None = None) -> 
 
 
 def user_is_super_admin(user) -> bool:
+    if is_ceo(user):
+        return False
     role = getattr(user, "role", None)
     role_name = str(getattr(role, "name", "") or "").strip().lower()
     permissions = set(getattr(role, "permissions", None) or []) | set(getattr(user, "extra_permissions", None) or [])
@@ -67,6 +70,8 @@ def assigned_factory_code(user) -> FactoryCode:
 
 
 def available_factory_codes(user) -> list[str]:
+    if is_ceo(user):
+        return [assigned_factory_code(user)]
     if user_is_super_admin(user):
         return list(FACTORY_CODES)
     assigned = assigned_factory_code(user)
@@ -78,6 +83,8 @@ def available_factory_codes(user) -> list[str]:
 
 
 def authorize_login_factory(user, requested: str | None) -> FactoryCode:
+    if is_ceo(user):
+        return assigned_factory_code(user)
     selected = normalize_factory_code(requested, default="MIL" if user_is_super_admin(user) else assigned_factory_code(user))
     if selected not in available_factory_codes(user):
         raise HTTPException(403, "This account is not assigned to the selected factory")

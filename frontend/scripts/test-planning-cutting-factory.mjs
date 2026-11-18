@@ -24,8 +24,9 @@ const contract = compile(read("../src/lib/cuttingFactory.ts"));
 const authSource = read("../src/lib/auth.ts");
 const authTree = ts.createSourceFile("auth.ts", authSource, ts.ScriptTarget.Latest, true);
 const canNode = authTree.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === "can");
-assert.ok(canNode);
-const { can } = compile(canNode.getText(authTree));
+const ceoNode = authTree.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === "isCeo");
+assert.ok(canNode && ceoNode);
+const { can } = compile([ceoNode, canNode].map(node => node.getText(authTree)).join("\n"));
 
 function walk(tree) {
   if (!tree || typeof tree !== "object") return [];
