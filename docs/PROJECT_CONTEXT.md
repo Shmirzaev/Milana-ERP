@@ -11,9 +11,14 @@ this checkout, a new combined candidate or deployed production. Inspect current
 code and the operation ledger before advancing a gate. Schema-owned writers,
 system-wide enum/type adoption and human acceptance remain incomplete.
 
-Last updated 2026-11-17. Keep this file short: current decisions, release pointers and
+Last updated 2026-11-18. Keep this file short: current decisions, release pointers and
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
+
+CI latency candidate: four isolated regression shards plus the stable backend
+aggregate gate; release trust pins include the test selector. Focused Docker
+checks pass; hosted timings and deployment policy review remain. See
+[scope and evidence](archive/CI_SPEED_20261118.md).
 
 ## Frontend performance fixes (17 November; local candidate)
 

@@ -19,6 +19,18 @@ def workflow(name):
 
 
 class CITriggerPolicyTests(unittest.TestCase):
+    def test_backend_gate_requires_every_isolated_regression_shard(self):
+        jobs = workflow("ci.yml")["jobs"]
+        self.assertEqual(jobs["backend"]["needs"], ["backend-checks", "backend-regression"])
+        self.assertIn("always()", jobs["backend"]["if"])
+        self.assertEqual(jobs["backend-regression"]["strategy"]["matrix"]["shard"], ["0", "1", "2", "3"])
+        self.assertEqual(jobs["backend-regression"]["strategy"]["fail-fast"], "false")
+        commands = [step.get("run", "") for step in jobs["backend-regression"]["steps"]]
+        self.assertTrue(any("--ci-shards=4" in command for command in commands))
+        self.assertTrue(any("--ignore=app/tests/test_readiness_operation_characterization.py" in command
+                            for command in commands))
+        self.assertIn("backend", jobs["release"]["needs"])
+
     def test_worktree_pushes_validate_on_hosted_runners_and_qa_refs_stay_authorized(self):
         self.assertEqual(set(workflow("ci.yml")["on"]["push"]["branches"]), {"main", "clone_main", "codex/**"} | QA_BRANCHES)
 

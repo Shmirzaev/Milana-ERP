@@ -154,6 +154,22 @@ class GitHubTrustTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             worker.GitHub("secret").verify_recipe("a" * 40)
 
+    def test_changed_shard_selector_cannot_forge_green_evidence(self):
+        selector = "scripts/ci_pytest_shard.py"
+        self.assertIn(selector, worker.CI_POLICY_PATHS)
+        body = b"reviewed policy"
+        github = worker.GitHub("secret", {
+            path: hashlib.sha256(body).hexdigest() for path in worker.CI_POLICY_PATHS
+        })
+
+        def content(path):
+            value = b"drop all tests" if selector in path else body
+            return {"encoding": "base64", "content": base64.b64encode(value).decode()}
+
+        github.api = Mock(side_effect=content)
+        with self.assertRaises(ValueError):
+            github.verify_recipe("a" * 40)
+
 
 class ArchiveTests(unittest.TestCase):
     def setUp(self):
