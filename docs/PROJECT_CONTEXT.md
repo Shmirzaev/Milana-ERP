@@ -11,9 +11,24 @@ this checkout, a new combined candidate or deployed production. Inspect current
 code and the operation ledger before advancing a gate. Schema-owned writers,
 system-wide enum/type adoption and human acceptance remain incomplete.
 
-Last updated 2026-11-16. Keep this file short: current decisions, release pointers and
+Last updated 2026-11-18. Keep this file short: current decisions, release pointers and
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
+
+## PO-0640 / PO-0641 Nastil exchange (18 November; applied)
+
+Owner-authorized [production correction](archive/PO0640_PO0641_SWAP_20261118.md)
+exchanged only their Nastil 1 execution entries. PO-0641 Nastil 1 now has495 pieces
+in Besttex; its Nastil2 remains310 in Milana. PO-0640 now has the405-piece Milana
+entry, including405 sewn and270 in warehouse. Existing PO identities/plans remain;
+stock quantities and all122 payroll labels/122 payroll records are unchanged.
+Full backup, rollback rehearsal, independent review and persisted/domain readback
+passed. Audit275685 records the correction. Original package print evidence is
+retained; replacement runPRN-2026-001187 requires three package labels to be reprinted.
+Authenticated visual QA was blocked by the signed-out browser.
+Both hosts remain on verified green20261116_130518/schema0157; rollback
+20261116_092917 remains. All four health checks pass. No application deployment,
+schema/permission change, push or merge occurred.
 
 ## Model-file pool fix candidate (16 November; not deployed)
 

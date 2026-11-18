@@ -8,7 +8,7 @@ import unittest
 ROOT=Path(__file__).resolve().parents[1]
 source=ast.parse((ROOT/'ops/swap_po0640_po0641.py').read_text())
 namespace={'PACKAGES':(21328,21329,21330)}
-selected=[node for node in source.body if isinstance(node,ast.FunctionDef) and node.name=='verify_delta']
+selected=[node for node in source.body if isinstance(node,ast.FunctionDef) and node.name in ('verify_delta','preconditions')]
 exec(compile(ast.Module(body=selected,type_ignores=[]),'<reviewed-preservation-guard>','exec'),namespace)
 evidence_available=all((ROOT/f'outputs/po0640-swap/{name}.json').exists() for name in ('inspect','rehearse'))
 before=json.loads((ROOT/'outputs/po0640-swap/inspect.json').read_text())['snapshot'] if evidence_available else None
@@ -47,6 +47,9 @@ class PreservationGuards(unittest.TestCase):
 
     def test_original_po_plan_change_rejected(self):
         self.rejected('production_orders','planned_quantity',999)
+
+    def test_duplicate_exchange_is_rejected_before_mutations(self):
+        with self.assertRaises(AssertionError):namespace['preconditions'](after)
 
 
 if __name__=='__main__':unittest.main()
