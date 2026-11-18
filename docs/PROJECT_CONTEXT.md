@@ -11,9 +11,22 @@ this checkout, a new combined candidate or deployed production. Inspect current
 code and the operation ledger before advancing a gate. Schema-owned writers,
 system-wide enum/type adoption and human acceptance remain incomplete.
 
-Last updated 2026-11-17. Keep this file short: current decisions, release pointers and
+Last updated 2026-11-18. Keep this file short: current decisions, release pointers and
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
+
+## Shipment quantity factory restriction (18 November; candidate)
+
+The quantity editor now uses the existing selected-factory `storage.shipment`
+permission for shared warehouse stock. Selecting pieces from a Besttex package
+while logged into Milana no longer invokes the manufacturing package-factory
+guard. Physical contents, receipts, stock and manufacturing access remain unchanged.
+The source change has 84 focused automated passes, including five real PostgreSQL
+checks; actual local browser Save/reload, independent SQL readback, bounded
+repeat/rejection/recovery and independent code review pass. Full visual acceptance
+and release gates remain pending; no merge or deployment occurred. Both production
+hosts were verified on `20261116_130518` with the recorded manifest digest.
+See [scope and evidence](archive/SHIPMENT_QUANTITY_FACTORY_20261118.md).
 
 ## Frontend performance fixes (17 November; local candidate)
 

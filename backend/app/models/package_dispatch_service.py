@@ -43,8 +43,8 @@ def select_dispatch_quantity(db, shipment, pid, payload, user):
     total = sum(quantities.values())
     if total <= 0:
         raise HTTPException(409, "Remove the whole package instead of selecting zero pieces")
-    from app.models.packaging_scope_service import require_package_access
-    require_package_access(user, package)
+    # Warehouse shipments share received stock across factories. The route checks
+    # storage.shipment; selecting a dispatch claim does not edit package contents.
     validate_claim(db, shipment, package, quantities, items)
     before = link.quantity
     save_package_claim(db, shipment, pid, quantities, link)

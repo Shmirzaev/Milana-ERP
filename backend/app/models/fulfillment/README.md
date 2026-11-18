@@ -44,6 +44,10 @@ other undeleted draft/created claims from physical remaining contents. Dispatch
 prefetches claims/items/reservations after package locks, and standalone package
 dispatch refuses open shipment claims. Existing Sales/customer reservations are
 still enforced; shared claims do not authorize taking another order's stock.
+Shipment quantity selection uses the route's selected-factory `storage.shipment`
+permission against shared received stock; it must not require access to the
+package's manufacturing department. Manufacturing package edits keep their own
+factory guard. See [the scoped regression record](../../../../docs/archive/SHIPMENT_QUANTITY_FACTORY_20261118.md).
 See [verification and limits](../../../../docs/archive/OPEN_SHIPMENT_PACKAGE_SPLIT_2026-10-29.md).
 
 - Routes: [finished_goods.py](../../api/routes/finished_goods.py), [warehouse_reservations.py](../../api/routes/warehouse_reservations.py), [shipments.py](../../api/routes/shipments.py), [packages.py](../../api/routes/packages.py), [package_workflows.py](../../api/routes/package_workflows.py).
