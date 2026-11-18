@@ -19,6 +19,7 @@ from app.schemas import (
 from app.libs.dto.fulfillment.shipment_review import ShipmentAmountReview, ShipmentQuantityReview
 from app.libs.enums.finance import InvoiceStatus
 from app.schemas.fulfillment.shipment_review import PackageQuantityAdjustment
+from app.schemas.finance.shipment_invoice_persistence import set_shipment_invoice_amount
 from app.core.deps import user_permissions
 from app.models.package_dispatch_service import selected_items
 from app.models.audit_service import log_action
@@ -485,7 +486,7 @@ def invoice_for_frozen_delivery(db: Session, shipment: Shipment, user: User) -> 
             raise HTTPException(409, "Finance reconciliation required: invoice is paid, partially paid or has payment records")
     invoice = existing or ensure_invoice_for_delivered_shipment(db, sales_order_id=shipment.sales_order_id)
     previous_amount = str(invoice.amount)
-    invoice.amount = amount.quantize(Decimal("0.01"))
+    set_shipment_invoice_amount(db, invoice, amount.quantize(Decimal("0.01")))
     db.flush()
     log_action(db, user, "reconcile_frozen_shipment_invoice", "Invoice", invoice.id,
                old_value={"amount": previous_amount, "existing_invoice": bool(existing)},
