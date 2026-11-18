@@ -44,6 +44,7 @@ const nextConfig = {
   output: "standalone",
   reactStrictMode: true,
   experimental: {
+    agentUpgrade: "security",
     // The API accepts files up to 20 MB. Leave room for multipart framing so
     // oversized requests reach the API and receive a proper validation error.
     proxyClientMaxBodySize: "25mb",

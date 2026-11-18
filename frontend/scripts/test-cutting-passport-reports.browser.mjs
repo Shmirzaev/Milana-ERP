@@ -14,7 +14,8 @@ fs.mkdirSync(out, { recursive: true });
 const dictionaries = Object.fromEntries(["en", "ru", "uz"].map(lang => [lang, Object.fromEntries(runtimeMessages(lang))]));
 const mocks = {
   "@/lib/i18n": `const dict=${JSON.stringify(dictionaries)};const params=new URLSearchParams(location.search);export const useT=()=>({lang:params.get('lang')||'en',setLang:lang=>{params.set('lang',lang);location.search=params.toString()},t:(key,args={})=>{let text=dict[params.get('lang')||'en'][key]||key;for(const[k,v]of Object.entries(args))text=text.replaceAll('{'+k+'}',String(v));return text;}});`,
-  "@/lib/auth": `const me={id:1,name:'Preview operator',department:'Cutting',department_code:'CUT',role:'Cutting',factory_code:'MIL',available_factories:['MIL'],permissions:new URLSearchParams(location.search).has('denied')?[]:['cutting.records','cutting.bundles']};export const useMe=()=>({me});export const can=(me,...permissions)=>!!me&&permissions.some(p=>me.permissions.includes(p));export const logout=()=>{};`,
+  "@/lib/auth": `const me={id:1,name:'Preview operator',department:'Cutting',department_code:'CUT',role:'Cutting',factory_code:'MIL',available_factories:['MIL'],permissions:new URLSearchParams(location.search).has('denied')?[]:['cutting.records','cutting.bundles']};export const useMe=()=>({me});export const can=(me,...permissions)=>!!me&&permissions.some(p=>me.permissions.includes(p));export const logout=()=>{};
+    export const CEO_DASHBOARD_PATH='/ceo-dashboard';`,
   "@/lib/theme": `export const useTheme=()=>({isNight:false,toggleTheme:()=>{}});`,
   "@/components/DialogProvider": `export const useDialogs=()=>({confirm:async()=>false,alert:async()=>{}});`,
   "next/link": `import React from 'react';export default function Link({children,...props}){return React.createElement('a',props,children)}`,

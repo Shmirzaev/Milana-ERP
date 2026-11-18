@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 from fastapi import HTTPException
 
+from app.core.ceo_access import CEO_ROLE_NAME
 from app.core.deps import (
     SUPER_ADMIN_PERMISSION, SUPER_ADMIN_ROLE_NAME, DbSession, is_super_admin,
     normalize_permissions, user_permissions, require_permissions,
@@ -94,7 +95,7 @@ def _future_is_super_admin(db: DbSession, role_id: int | None, extra_permissions
     return SUPER_ADMIN_PERMISSION in normalize_permissions(extra_permissions)
 
 
-def _assert_can_grant_role(db: DbSession, actor: User, role_id: int | None) -> None:
+def _assert_can_grant_role(db: DbSession, actor: User, role_id: int | None) -> Role | None:
     """Prevent privilege escalation: a user-manager may only assign a role whose
     permissions are a subset of their own. Administrator roles require the
     explicit Super Admin tier, even if the actor already holds '*'."""
@@ -103,11 +104,16 @@ def _assert_can_grant_role(db: DbSession, actor: User, role_id: int | None) -> N
     role = db.get(Role, role_id)
     if not role:
         raise HTTPException(404, "Role not found")
+    if role.name == CEO_ROLE_NAME:
+        if not is_super_admin(actor):
+            raise HTTPException(403, "Only a super admin can assign the CEO role")
+        return role
     if _role_grants_admin_control(role):
         if not is_super_admin(actor):
             raise HTTPException(403, "Only a super admin can assign administrator roles")
-        return
-    _assert_can_grant_permissions(actor, role.permissions)
+    else:
+        _assert_can_grant_permissions(actor, role.permissions)
+    return role
 
 
 def _assert_can_grant_permissions(

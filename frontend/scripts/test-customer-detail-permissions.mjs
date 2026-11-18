@@ -16,9 +16,10 @@ function compile(source) {
 }
 const authTree = ts.createSourceFile("auth.ts", authSource, ts.ScriptTarget.Latest, true);
 const canDeclaration = authTree.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === "can");
-assert.ok(canDeclaration, "Use the real permission predicate");
+const ceoDeclaration = authTree.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === "isCeo");
+assert.ok(canDeclaration && ceoDeclaration, "Use the real permission and role predicates");
 const authExports = {};
-new Function("exports", compile(canDeclaration.getText(authTree)))(authExports);
+new Function("exports", compile([ceoDeclaration, canDeclaration].map(node => node.getText(authTree)).join("\n")))(authExports);
 const customer = { name: "Permission fixture", phone: "123", email: "qa@example.test", address: "Fixture street", notes: "Keep visible" };
 const order = { id: 7, order_no: "SO-0007", status: "confirmed", total: 20, invoice_total: 0, paid_total: 0, balance_due: 20, payment_status: "no_invoice", invoices: [] };
 const payment = { id: 8, row_key: "payment-8", amount: 25, payment_method: "bank_transfer", paid_at: "2026-10-26T00:00:00.000Z", is_advance: true };

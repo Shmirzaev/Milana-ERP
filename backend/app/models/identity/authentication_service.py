@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.core.ceo_access import is_ceo
 from app.core.config import settings
 from app.core.deps import user_permissions
 from app.core.dt import as_utc, utcnow
@@ -96,7 +97,8 @@ def request_password_reset(
                     "Too many password reset requests. Try again later.",
                     headers={"Retry-After": str(retry_after)},
                 )
-    user = db.query(User).filter(User.email == email_norm).first()
+    # Serialize issuance with account-role, email, and credential changes.
+    user = db.query(User).filter(User.email == email_norm).with_for_update(of=User, key_share=True).first()
     if not user or not user.is_active:
         return None
     raw_token = create_password_reset_token(db, user)
@@ -211,7 +213,7 @@ def _user_me(user: User) -> UserMe:
         role=user.role.name if user.role else None,
         department=user.department.name if user.department else None,
         department_code=user.department.code if user.department else None,
-        extra_permissions=user.extra_permissions or [],
+        extra_permissions=[] if is_ceo(user) else user.extra_permissions or [],
         permissions=user_permissions(user),
         access_configured=selected_factory_code(user) in (user.access_policy or {}),
         factory_code=selected_factory_code(user),

@@ -89,7 +89,7 @@ for (const [factory, oldHome, packingHome] of [["BST", "/departments/BST", "/dep
         if (name === "react") return { useEffect: (fn) => effects.push(fn), useState: (initial) => [initial, () => {}] };
         if (name === "next/navigation") return { usePathname: () => pathname, useSearchParams: () => new URLSearchParams(query), useRouter: () => ({ replace: (path) => redirects.push(path) }) };
         if (name === "@/lib/access") return access;
-        if (name === "@/lib/auth") return { useMe: () => ({ me, loading: false, hasToken: true }), can: (user, ...perms) => user.permissions.some(p => p === "*" || perms.includes(p)) };
+        if (name === "@/lib/auth") return { useMe: () => ({ me, loading: false, hasToken: true }), can: (user, ...perms) => user.permissions.some(p => p === "*" || perms.includes(p)), isCeo: () => false, CEO_DASHBOARD_PATH: "/ceo-dashboard" };
         if (name === "@/lib/api") return { api: { post: () => { throw new Error("Unexpected factory switch"); } } };
         if (name === "@/lib/i18n") return { useT: () => ({ t: (key) => key }) };
         if (name === "@/lib/priceCalculationRequests") return {};
