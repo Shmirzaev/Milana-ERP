@@ -6,9 +6,11 @@ holds, and the material role is the canonical enum member or nothing at all.
 """
 
 from dataclasses import dataclass
-from typing import NotRequired, TypedDict
+from datetime import datetime
+from decimal import Decimal
+from typing import Any, Literal, NotRequired, TypedDict
 
-from app.libs.enums.catalog import BomMaterialRole, CollectionStatus
+from app.libs.enums.catalog import BomMaterialRole, CatalogScope, CollectionStatus
 
 
 class BrandUpdateCommand(TypedDict):
@@ -82,9 +84,9 @@ class NormalizedBomCreate:
     size: str | None
     color: str | None
     photo_url: str | None
-    quantity_per_piece: float
+    quantity_per_piece: Decimal | float
     unit: str
-    waste_percent: float
+    waste_percent: Decimal | float
 
 
 class NormalizedBomUpdate(TypedDict, total=False):
@@ -130,3 +132,39 @@ class ModelColorCreateCommand:
 
 class ModelColorCreateResult(TypedDict):
     id: int
+
+
+# Variant creation retains legacy status strings and BOM roles pending vocabulary audit.
+class VariantCreateValues(TypedDict):
+    code: str
+    name: str
+    category: str | None
+    description: str | None
+    brand_id: int | None
+    collection_id: int | None
+    product_type: str | None
+    season: str | None
+    constructor_employee_id: int | None
+    designer_employee_id: int | None
+    details_json: dict[str, Any]
+    status: Literal["approved", "draft"]
+    created_by: int
+    approved_by: int | None
+    approved_at: datetime | None
+    sam_minutes: Decimal | float | int
+    catalog_scope: CatalogScope
+    factory_code: str | None
+
+
+class VariantBomValues(TypedDict):
+    model_id: int
+    item_id: int | None
+    material_name: str | None
+    material_role: str | None
+    stock_batch_id: int | None
+    size: str | None
+    color: str | None
+    photo_url: str | None
+    quantity_per_piece: Decimal | float
+    unit: str
+    waste_percent: Decimal | float
