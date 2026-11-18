@@ -29,6 +29,7 @@ from app.models.inventory_service import (
 from app.models.inventory.stock_service import _locked_stock_batch_statement
 from app.models.workflow_service import archive_depleted_material_batch
 from app.schemas.inventory import stock_movement_persistence
+from app.schemas.inventory.eco_fabric_return_persistence import apply_eco_fabric_return
 from app.schemas import (
     EcoFabricDispatch,
     EcoFabricRoll,
@@ -324,16 +325,11 @@ def eco_return_fabric(db, payload: ReturnIn, user: User) -> dict:
     if batch.unit != row.unit or not batch.item.is_active:
         raise HTTPException(409, "ecoTransfers.batchChanged")
     before = eco_roll_data(row)
-    row.returned_at = datetime.now(timezone.utc)
-    row.returned_by = user.id
-    row.return_operator_name = user.name
-    row.return_key = str(payload.request_key)
-    batch.quantity = Decimal(batch.quantity) + Decimal(row.quantity)
-    batch.archived_at = None
-    batch.archived_by = None
-    db.add(StockMovement(movement_type="return", item_id=batch.item_id, batch_id=bid,
-            to_warehouse_id=batch.warehouse_id, quantity=row.quantity, unit=row.unit,
-            reference_type="EcoFabricReturn", reference_id=row.id, created_by=user.id))
+    apply_eco_fabric_return(
+        db, row=row, batch=batch, returned_at=datetime.now(timezone.utc),
+        returned_by=user.id, operator_name=user.name, return_key=str(payload.request_key),
+        quantity=Decimal(batch.quantity) + Decimal(row.quantity),
+    )
     log_action(db, user, "return", "EcoFabricRoll", row.id, old_value=before, new_value=eco_roll_data(row))
     db.commit()
     return eco_roll_data(row)
