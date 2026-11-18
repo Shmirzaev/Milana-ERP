@@ -125,3 +125,26 @@ class ReservationPlan(TypedDict):
     warning: str | None
     summary: ReservationPlanSummary
     rows: list[ReservationPlanRow]
+
+
+class StockBatchEditValues(TypedDict, total=False):
+    length_m: float | None
+    item_id: int | None
+    batch_no: str | None
+    supplier_id: int | None
+    color: str | None
+    old_code: str | None
+    color_code: str | None
+    color_status: str | None
+    order_no: str | None
+    width: float | None
+    gsm: float | None
+    quantity: float | None
+    piece_count: int | None
+    processes: str | None
+    unit: str | None
+    cost_per_unit: Decimal | None
+    image_url: str | None
+    received_date: datetime | None
+    warehouse_id: int | None
+    qc_status: str | None

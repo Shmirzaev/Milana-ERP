@@ -7,6 +7,7 @@ never recomputes it.
 
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
+from typing import cast
 
 from fastapi import HTTPException
 from sqlalchemy import func, or_, select
@@ -38,7 +39,7 @@ from app.libs.dto.inventory.stock_quantity_adjustment_input import StockQuantity
 from app.libs.dto.inventory.stock_quantity_adjustment_output import StockQuantityAdjustmentOut
 from app.libs.dto.inventory.warehouse_input import WarehouseIn
 from app.libs.enums.inventory import StockBatchQcStatus, StockMovementType
-from app.libs.types.inventory import ItemInsertCommand
+from app.libs.types.inventory import ItemInsertCommand, StockBatchEditValues
 from app.models import inventory_access_service as inventory_access
 from app.models.audit_service import log_action
 from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response
@@ -74,6 +75,9 @@ from app.schemas import (
     Warehouse,
     WasteRecord,
 )
+from app.schemas.catalog import batch_item_relink_persistence as catalog_batch_relink
+from app.schemas.inventory import stock_batch_edit_persistence as batch_edit_persistence
+from app.schemas.inventory import waste_batch_item_relink_persistence as waste_batch_relink
 from app.schemas.inventory import item_persistence
 from app.schemas.inventory import stock_movement_persistence
 from app.schemas.inventory import batch_restore_persistence
@@ -149,28 +153,6 @@ def _delete_stock_batch_receipt_movements(db, movements: list[StockMovement]) ->
     # StockBatch has no ORM relationship to StockMovement, so SQLAlchemy cannot
     # infer the FK delete order. Flush child deletions before deleting the batch.
     db.flush()
-
-
-def _relink_stock_batch_item_references(
-    db,
-    batch_id: int,
-    target_item_id: int,
-    movements: list[StockMovement],
-) -> dict[str, int]:
-    for movement in movements:
-        movement.item_id = target_item_id
-    return {
-        "stock_movements": len(movements),
-        "material_reservations": db.query(MaterialReservation).filter(
-            MaterialReservation.stock_batch_id == batch_id,
-        ).update({MaterialReservation.item_id: target_item_id}, synchronize_session=False),
-        "model_bom": db.query(ModelBOM).filter(
-            ModelBOM.stock_batch_id == batch_id,
-        ).update({ModelBOM.item_id: target_item_id}, synchronize_session=False),
-        "waste_records": db.query(WasteRecord).filter(
-            WasteRecord.batch_id == batch_id,
-        ).update({WasteRecord.item_id: target_item_id}, synchronize_session=False),
-    }
 
 
 def _validate_item_image_url(image_url: str | None) -> str | None:
@@ -1191,21 +1173,20 @@ def update_batch(db, batch_id: int, payload: StockBatchUpdate, current: User, fo
 
     if batch.roll_lengths_m and "piece_count" in values and values["piece_count"] != batch.piece_count:
         raise HTTPException(409, "Cannot change roll count after individual roll lengths have been recorded")
-    for key, value in values.items():
-        setattr(batch, key, value)
+    batch_edit_persistence.apply_values(db, batch, cast(StockBatchEditValues, values))
     relinked_item_references: dict[str, int] | None = None
     if target_item.id != item.id:
-        relinked_item_references = _relink_stock_batch_item_references(
-            db,
-            batch_id,
-            target_item.id,
-            item_movements,
-        )
+        relinked_item_references = {
+            "stock_movements": batch_edit_persistence.relink_movements(db, item_movements, target_item.id),
+            "material_reservations": batch_edit_persistence.relink_reservations(db, batch_id, target_item.id),
+            "model_bom": catalog_batch_relink.relink_batch_item(db, batch_id, target_item.id),
+            "waste_records": waste_batch_relink.relink_batch_item(db, batch_id, target_item.id),
+        }
         item = target_item
 
     if abs(delta) > EPSILON:
-        db.add(StockMovement(
-            movement_type="adjustment" if delta > 0 else "issue",
+        batch_edit_persistence.add_movement(db,
+            movement_type=StockMovementType.ADJUSTMENT if delta > 0 else StockMovementType.ISSUE,
             item_id=batch.item_id,
             batch_id=batch.id,
             from_warehouse_id=old_warehouse_id if delta < 0 else None,
@@ -1215,10 +1196,10 @@ def update_batch(db, batch_id: int, payload: StockBatchUpdate, current: User, fo
             reference_type="StockBatchAdjustment",
             reference_id=batch.id,
             created_by=current.id,
-        ))
+        )
     if target_warehouse_id != old_warehouse_id and target_quantity > EPSILON:
-        db.add(StockMovement(
-            movement_type="transfer",
+        batch_edit_persistence.add_movement(db,
+            movement_type=StockMovementType.TRANSFER,
             item_id=batch.item_id,
             batch_id=batch.id,
             from_warehouse_id=old_warehouse_id,
@@ -1228,7 +1209,7 @@ def update_batch(db, batch_id: int, payload: StockBatchUpdate, current: User, fo
             reference_type="StockBatchEdit",
             reference_id=batch.id,
             created_by=current.id,
-        ))
+        )
 
     archive_depleted_material_batch(db, batch, user_id=current.id)
 
