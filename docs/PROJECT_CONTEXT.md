@@ -15,7 +15,7 @@ Last updated 2026-11-18. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
-## Accessories opening inventory preparation (18 November)
+## Accessories opening inventory imported (18 November)
 
 The owner authorized entering eleven accessory workbooks and using the verified
 current runtime baseline for the isolated task. Both hosts and full manifests
@@ -23,12 +23,17 @@ were verified on `20261116_130518`, manifest `bc2e0d4bdbb38f6c06b9f3d5c75f3fdaa1
 schema `0157_package_allocation_items`. Milana warehouse2/STR is the only target;
 ECO warehouse12 is excluded. Confirmed: 2026 cards include older carryover,
 packed tapes count rolls/bundles, ambiguous lace pairs stay pending and button
-sizes24/44/48/54 are ligne. Plan:792 item masters,759 positive receipt batches,
-45 pending source rows and20 historical card rows excluded. Eight source tests,
+sizes24/44/48/54 are ligne. The owner approved provisional zero pricing. Applied:
+792 new item masters,759 positive receipt batches and759 receive movements;
+1552 linked audit rows, completion audit281388. Existing accessories were preserved.
+45 source rows remain pending and20 historical card rows were excluded. Eight source tests,
 independent source review and isolated restored-copy PostgreSQL QA pass, including
 rollback, refusal, exact quantities/ledger/audit and duplicate retry controls.
-The owner valuation decision is pending. No production stock has been written,
-and no application deployment is included. See [task and evidence](archive/ACCESSORIES_OPENING_20261118.md).
+Fresh backup, production persisted readback, actual connected-browser stock
+verification and all four HTTP200 health checks passed. The existing page's
+item-count badge caps at500; persisted product counts were checked independently.
+Active release remains20261116_130518; no application deployment occurred.
+See [task and evidence](archive/ACCESSORIES_OPENING_20261118.md).
 
 ## Model-file pool fix candidate (16 November; not deployed)
 
