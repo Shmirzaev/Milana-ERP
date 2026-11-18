@@ -11,9 +11,24 @@ this checkout, a new combined candidate or deployed production. Inspect current
 code and the operation ledger before advancing a gate. Schema-owned writers,
 system-wide enum/type adoption and human acceptance remain incomplete.
 
-Last updated 2026-11-16. Keep this file short: current decisions, release pointers and
+Last updated 2026-11-18. Keep this file short: current decisions, release pointers and
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
+
+## Accessories opening inventory preparation (18 November)
+
+The owner authorized entering eleven accessory workbooks and using the verified
+current runtime baseline for the isolated task. Both hosts and full manifests
+were verified on `20261116_130518`, manifest `bc2e0d4bdbb38f6c06b9f3d5c75f3fdaa1fb5087240ca8f7b49d01318908ce40`,
+schema `0157_package_allocation_items`. Milana warehouse2/STR is the only target;
+ECO warehouse12 is excluded. Confirmed: 2026 cards include older carryover,
+packed tapes count rolls/bundles, ambiguous lace pairs stay pending and button
+sizes24/44/48/54 are ligne. Plan:792 item masters,759 positive receipt batches,
+45 pending source rows and20 historical card rows excluded. Eight source tests,
+independent source review and isolated restored-copy PostgreSQL QA pass, including
+rollback, refusal, exact quantities/ledger/audit and duplicate retry controls.
+The owner valuation decision is pending. No production stock has been written,
+and no application deployment is included. See [task and evidence](archive/ACCESSORIES_OPENING_20261118.md).
 
 ## Model-file pool fix candidate (16 November; not deployed)
 
