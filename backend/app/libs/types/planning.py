@@ -61,3 +61,25 @@ class ForecastSuggestion(TypedDict, total=False):
     reorder_level: float
     planned_bom_demand: float
     recent_usage_90d: float
+
+
+class MaterialComposition(TypedDict):
+    name: str
+    percentage: float
+
+
+class MaterialRequirementRow(TypedDict):
+    """Unvalidated shared calculation result for Planning and Purchasing.
+
+    A BOM can have no item; the HTTP DTO may reject that legacy row.
+    Units are stored text, not a reconciled closed vocabulary.
+    """
+
+    item_id: int | None
+    sku: str
+    name: str
+    composition: list[MaterialComposition]
+    unit: str
+    required_quantity: float
+    available_quantity: float
+    shortage: float

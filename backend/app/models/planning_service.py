@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
+from app.libs.types.planning import MaterialComposition, MaterialRequirementRow
 from app.schemas import (
     Item,
     MaterialReservation,
@@ -141,13 +142,13 @@ def _available_stock_for_items(db: Session, item_ids) -> dict[int | None, float]
     return result
 
 
-def _item_composition(item: Item | None) -> list[dict]:
+def _item_composition(item: Item | None) -> list[MaterialComposition]:
     if not item:
         return []
     rows = item.composition_json or []
     if not isinstance(rows, list):
         return []
-    out: list[dict] = []
+    out: list[MaterialComposition] = []
     for row in rows:
         if not isinstance(row, dict):
             continue
@@ -162,7 +163,7 @@ def _item_composition(item: Item | None) -> list[dict]:
     return out
 
 
-def _requirements_from_lines(db: Session, lines) -> list[dict]:
+def _requirements_from_lines(db: Session, lines) -> list[MaterialRequirementRow]:
     """Expand the BOM of each line and price the aggregate against stock.
 
     `lines` only need `model_id`, `size`, `color` and `quantity` attributes.
@@ -170,7 +171,7 @@ def _requirements_from_lines(db: Session, lines) -> list[dict]:
     for the distinct materials, so the statement count does not depend on how
     many lines were passed in.
     """
-    agg: dict[int, dict] = {}
+    agg: dict[int | None, MaterialRequirementRow] = {}
     bom_by_model = _bom_by_model(db, (line.model_id for line in lines))
     for line in lines:
         for b in bom_by_model.get(_int_or_none(line.model_id), ()):
@@ -205,7 +206,7 @@ def _requirements_from_lines(db: Session, lines) -> list[dict]:
     return list(agg.values())
 
 
-def material_requirements_for_sales_order(db: Session, sales_order_id: int) -> list[dict]:
+def material_requirements_for_sales_order(db: Session, sales_order_id: int) -> list[MaterialRequirementRow]:
     """For each SO line, expand BOM and compute required = qty * usage per piece.
 
     Returns aggregated list per item with required vs available and shortage.
@@ -218,7 +219,7 @@ def material_requirements_for_sales_order(db: Session, sales_order_id: int) -> l
     return _requirements_from_lines(db, lines)
 
 
-def material_requirements_for_quantity(db: Session, model_id: int, items: list[dict]) -> list[dict]:
+def material_requirements_for_quantity(db: Session, model_id: int, items: list[dict]) -> list[MaterialRequirementRow]:
     """items: [{color, size, quantity}, ...]"""
     lines = [
         SimpleNamespace(
@@ -241,7 +242,7 @@ def planning_estimate_for_sales_order(db: Session, sales_order_id: int) -> dict 
     if not so:
         return None
 
-    material_rows = material_requirements_for_sales_order(db, sales_order_id)
+    material_rows: list[MaterialRequirementRow] = material_requirements_for_sales_order(db, sales_order_id)
     estimated_material_cost = 0.0
     enriched_materials: list[dict] = []
     items_by_id = _rows_by_id(db, Item, (row["item_id"] for row in material_rows))

@@ -12,6 +12,7 @@ from app.libs.dto.planning.branded_planning_order_output import BrandedPlanningO
 from app.libs.dto.production.production import ProductionOrderIn, ProductionOrderOut
 from app.libs.dto.planning.fabric_source_output import PlanningFabricSourceOut
 from app.libs.enums.planning import BrandedPlanningOrderStatus
+from app.libs.types.planning import MaterialRequirementRow
 from app.models.planning import branded_orders_service, production_planning_service
 from app.models.planning_service import material_requirements_for_sales_order
 from app.models.production.eco_fabric_source_service import list_planning_eco_fabrics
@@ -74,7 +75,7 @@ def get_material_requirements(
     db: DbSession,
     _: User = Depends(require_permissions("planning.requirements", "sales.orders", "*")),
 ):
-    rows = material_requirements_for_sales_order(db, sales_order_id)
+    rows: list[MaterialRequirementRow] = material_requirements_for_sales_order(db, sales_order_id)
     return [MaterialRequirement(**r) for r in rows]
 
 
