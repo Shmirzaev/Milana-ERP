@@ -1,17 +1,18 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { CalendarDays, Clock3, RefreshCw, SlidersHorizontal } from "lucide-react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { Clock3, RefreshCw, SlidersHorizontal } from "lucide-react";
 import { fetchResponse } from "@/lib/api";
 import { isCeo, useMe } from "@/lib/auth";
 import { ApiError } from "@/lib/errorMessages";
 import { useT } from "@/lib/i18n";
 import { messages } from "./messages";
 import {
-  businessDate, factories, groupings, presetRange, presets, timezone,
+  businessDate, factories, groupings, presetRange, timezone,
   type CeoReport, type DateRange, type Factory, type Grouping, type Preset,
 } from "./report";
 import { Activity, Balances, HandoffSummary, type ReportFormatting } from "./ReportSections";
+import { ReportDatePicker } from "./ReportDatePicker";
 import styles from "./dashboard.module.css";
 
 const refreshInterval = 30_000;
@@ -148,11 +149,9 @@ function DashboardView({ refreshIdentity }: { refreshIdentity: () => Promise<unk
   const [factory, setFactory] = useState<Factory>("ALL");
   const [grouping, setGrouping] = useState<Grouping>("daily");
   const [customRange, setCustomRange] = useState<DateRange>({ start: today, end: today });
-  const [draft, setDraft] = useState(customRange);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [balanceSelection, setBalanceSelection] = useState<{ reportKey: string; end: string }>();
   const range = preset === "custom" ? customRange : presetRange(preset, today);
-  const rangeTooLong = (Date.parse(draft.end) - Date.parse(draft.start)) / 86_400_000 > 365;
   const url = `/api/dashboard/ceo?${new URLSearchParams({ ...range, grouping, factory })}`;
   const { data, error, pending, refresh, content } = useCeoReport(url, refreshIdentity);
   const denied = error instanceof ApiError && (error.status === 401 || error.status === 403);
@@ -198,25 +197,9 @@ function DashboardView({ refreshIdentity }: { refreshIdentity: () => Promise<unk
     },
   };
 
-  function selectPreset(next: Preset) {
-    if (next === "custom") {
-      setDraft(range);
-      setCustomRange(range);
-    }
-    setPreset(next);
-  }
-
-  function applyDates(event: FormEvent) {
-    event.preventDefault();
-    if (!rangeTooLong && draft.start && draft.end && draft.start <= draft.end && draft.end <= today) setCustomRange(draft);
-  }
-
   return <div className={styles.dashboard}>
     <header className={styles.pageHeader}>
-      <div>
-        <h1>{copy.title}</h1>
-        <p className={styles.reportDates}><CalendarDays size={16} aria-hidden="true" />{format.range(range)}</p>
-      </div>
+      <h1>{copy.title}</h1>
       <div className={styles.refreshStatus}>
         <div className={styles.refreshText}>
           <span><Clock3 size={14} aria-hidden="true" />{copy.businessTime} <span className={styles.utc}>(UTC+5)</span></span>
@@ -229,23 +212,22 @@ function DashboardView({ refreshIdentity }: { refreshIdentity: () => Promise<unk
       </div>
     </header>
 
-    <div className={styles.filterSummary}>
-      <div><strong>{format.range(range)}</strong><span>{copy[factory]} · {copy[grouping]}</span></div>
-      <button type="button" className={styles.filterButton} aria-expanded={filtersOpen} aria-controls="ceo-report-filters"
-        onClick={() => setFiltersOpen(open => !open)}>
-        <SlidersHorizontal size={16} aria-hidden="true" />{copy.filters}
-      </button>
-    </div>
-    <div id="ceo-report-filters" className={styles.controls} data-open={filtersOpen}>
-      <Segmented<Preset> label={copy.period} options={presets} chosen={preset} onChange={selectPreset}>{option => copy[option]}</Segmented>
-      <Segmented<Grouping> label={copy.grouping} options={groupings} chosen={grouping} onChange={setGrouping}>{option => copy[option]}</Segmented>
-      <Segmented<Factory> label={copy.factory} options={factories} chosen={factory} onChange={setFactory}>{option => copy[option]}</Segmented>
-      {preset === "custom" && <form className={styles.dateInputs} onSubmit={applyDates}>
-        <label>{copy.from}<input type="date" required max={draft.end || today} value={draft.start} onChange={event => setDraft({ ...draft, start: event.target.value })} /></label>
-        <label>{copy.to}<input type="date" required min={draft.start || undefined} max={today} value={draft.end} onChange={event => setDraft({ ...draft, end: event.target.value })} /></label>
-        <button type="submit" className={styles.applyButton} disabled={rangeTooLong || (draft.start === range.start && draft.end === range.end)}>{copy.apply}</button>
-        {rangeTooLong && <p className={styles.dateLimit} role="status">{copy.dateLimit}</p>}
-      </form>}
+    <div className={styles.controlBar}>
+      <div className={styles.dateControl}>
+        <ReportDatePicker range={range} preset={preset} today={today} lang={lang} copy={copy} formatRange={format.range}
+          onApply={(next, nextPreset) => { setCustomRange(next); setPreset(nextPreset); }} />
+      </div>
+      <div className={styles.filterSummary}>
+        <span>{copy[factory]} · {copy[grouping]}</span>
+        <button type="button" className={styles.filterButton} aria-expanded={filtersOpen} aria-controls="ceo-report-filters"
+          onClick={() => setFiltersOpen(open => !open)}>
+          <SlidersHorizontal size={16} aria-hidden="true" />{copy.filters}
+        </button>
+      </div>
+      <div id="ceo-report-filters" className={styles.controls} data-open={filtersOpen}>
+        <Segmented<Grouping> label={copy.grouping} options={groupings} chosen={grouping} onChange={setGrouping}>{option => copy[option]}</Segmented>
+        <Segmented<Factory> label={copy.factory} options={factories} chosen={factory} onChange={setFactory}>{option => copy[option]}</Segmented>
+      </div>
     </div>
 
     <div ref={content} className={styles.report}>

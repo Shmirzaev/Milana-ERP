@@ -3,7 +3,7 @@ import { Archive, ArrowRight, Boxes, ChevronDown, GitPullRequest, PackageCheck, 
 import { type DashboardCopy } from "./messages";
 import {
   countTotals, factoryCodes, stageKeys, stageTotals, type ActivityBucket, type BalanceBucket,
-  type CeoReport, type DateRange, type Factory, type Output, type PieceCounts, type Stage,
+  type CeoReport, type DateRange, type Factory, type Output, type PieceCounts,
 } from "./report";
 import { ProductionChart } from "./ProductionChart";
 import styles from "./dashboard.module.css";
@@ -59,8 +59,8 @@ function Panel({ title, description, icon, children, className, anchor }: {
   </section>;
 }
 
-function Details({ label, children }: { label: string; children: ReactNode }) {
-  return <details className={styles.details}>
+function Details({ label, children, initiallyOpen }: { label: string; children: ReactNode; initiallyOpen?: boolean }) {
+  return <details className={styles.details} open={initiallyOpen}>
     <summary>{label}<ChevronDown size={16} aria-hidden="true" /></summary>
     {children}
   </details>;
@@ -79,38 +79,23 @@ function DataTable({ label, headings, rows }: { label: string; headings: string[
 }
 
 function FactoryComparison({ output, factory, copy, format }: CopyAndFormat & { output: Output[]; factory: Factory }) {
-  const [stage, setStage] = useState<Stage>("sewing");
   const totals = factoryCodes.map(code => ({ code, pieces: stageTotals(output.filter(row => row.factory === code)) }));
   const unattributed = stageTotals(output.filter(row => row.factory === "UNASSIGNED" || row.factory === "SHARED"));
-  const maximum = Math.max(1, ...totals.map(item => item.pieces[stage]));
-  return <Panel title={copy.comparison} description={copy.comparisonHint}>
-    <div className={styles.comparisonBody}>
-      <label className={styles.inlineSelect}>
-        <span>{copy.stage}</span>
-        <select value={stage} onChange={event => setStage(event.target.value as Stage)}>
-          {stageKeys.map(key => <option key={key} value={key}>{copy[key]}</option>)}
-        </select>
-      </label>
-      <ul className={styles.comparisonRows}>
-        {totals.map(({ code, pieces }) => <li key={code}>
-          <div className={styles.comparisonLabel}>
-            <span>{copy[code]} <small>{code}</small>{factory === code && <span className={styles.selectedFactory} title={copy.selected} aria-label={copy.selected} />}</span>
-            <strong>{format.count(pieces[stage])} <small>{copy.piecesShort}</small></strong>
-          </div>
+  return <Panel title={copy.comparison} description={copy.comparisonHint} className={styles.factoryPanel}>
+    <DataTable label={copy.comparison} headings={[copy.stage, ...totals.map(({ code }) => copy[code])]}
+      rows={stageKeys.map(stage => {
+        const max = Math.max(1, ...totals.map(({ pieces }) => pieces[stage]));
+        return [copy[stage], ...totals.map(({ code, pieces }) => <div key={code} className={styles.factoryCell} data-selected={code === factory}>
+          {format.count(pieces[stage])}
           <div className={`${styles.bar} ${stageStyle[stage]}`} aria-hidden="true">
-            <span style={{ width: `${pieces[stage] / maximum * 100}%` }} />
+            <span style={{ width: `${pieces[stage] / max * 100}%` }} />
           </div>
-        </li>)}
-      </ul>
-      {unattributed[stage] > 0 && <p className={styles.note}>{copy.unattributed} · {format.count(unattributed[stage])} {copy.piecesShort}</p>}
-    </div>
-    <Details label={copy.allStages}>
-      <DataTable label={copy.comparison} headings={[copy.factory, ...stageKeys.map(key => copy[key])]}
-        rows={[
-          ...totals.map(({ code, pieces }) => [copy[code], ...stageKeys.map(key => format.count(pieces[key]))]),
-          ...(stageKeys.some(key => unattributed[key] > 0) ? [[copy.unattributed, ...stageKeys.map(key => format.count(unattributed[key]))]] : []),
-        ]} />
-    </Details>
+        </div>)];
+      })} />
+    {stageKeys.some(stage => unattributed[stage] > 0) && <p className={styles.panelNote}>
+      {copy.unattributed} · {stageKeys.filter(stage => unattributed[stage] > 0)
+        .map(stage => `${copy[stage]} ${format.count(unattributed[stage])} ${copy.piecesShort}`).join(" · ")}
+    </p>}
   </Panel>;
 }
 
@@ -126,6 +111,8 @@ function FlowCard({ kind, buckets, factory, copy, format }: CopyAndFormat & {
 }) {
   const receipt = kind === "finished_receipts";
   const title = receipt ? copy.receipts : copy.shipped;
+  const chartUnit = receipt ? "pieces" : "packs";
+  const max = Math.max(1, ...buckets.map(bucket => bucket[kind][chartUnit]));
   const unassigned = countTotals(buckets, receipt ? "receipts_unassigned" : "shipments_unassigned");
   const legacy = receipt ? countTotals(buckets, "legacy_imports") : undefined;
   const unassignedLabel = factory === "ALL" ? copy.unassignedIncluded : copy.unassignedExcluded;
@@ -134,6 +121,17 @@ function FlowCard({ kind, buckets, factory, copy, format }: CopyAndFormat & {
   return <Panel title={title} description={receipt ? copy.receiptsHint : copy.shippedHint}
     icon={receipt ? <PackageCheck size={19} aria-hidden="true" /> : <Truck size={19} aria-hidden="true" />}>
     <PieceMetrics totals={countTotals(buckets, kind)} copy={copy} format={format} />
+    {buckets.length > 1 && <figure className={styles.flowFigure}>
+      <figcaption className={styles.flowCaption}>{copy[chartUnit]} · {copy.breakdown.toLocaleLowerCase()}</figcaption>
+      <div className={styles.flowPlot} aria-hidden="true">
+        <div className={styles.flowScale}><span>{format.count(max)}</span><span>0</span></div>
+        <div className={styles.flowBars} style={{ gridTemplateColumns: `repeat(${buckets.length}, minmax(0, 1fr))` }}>
+          {buckets.map(bucket => <span key={bucket.end} title={`${format.range(bucket)} · ${format.count(bucket[kind][chartUnit])}`}
+            style={{ height: `${bucket[kind][chartUnit] / max * 100}%` }} />)}
+        </div>
+      </div>
+      <div className={styles.flowDates} aria-hidden="true"><span>{format.axis(buckets[0].start)}</span><span>{format.axis(buckets.at(-1)!.end)}</span></div>
+    </figure>}
     {showUnassigned || (legacy && legacy.packs > 0) ? <ul className={styles.notes}>
       {showUnassigned && <li>{unassignedLabel} · {counts(unassigned)}</li>}
       {legacy && legacy.packs > 0 && <li>{copy.legacyExcluded} · {counts(legacy)}</li>}
@@ -166,7 +164,7 @@ export function Activity({ report, copy, format }: CopyAndFormat & { report: Ceo
       <Metric label={<><Scissors size={17} aria-hidden="true" />{copy.cutting}</>} value={format.count(stages.cutting)} unit={copy.piecesShort} />
       <Metric label={<><Shirt size={17} aria-hidden="true" />{copy.sewing}</>} value={format.count(stages.sewing)} unit={copy.piecesShort} />
       <Metric label={<><PackageCheck size={17} aria-hidden="true" />{copy.receipts}</>} value={format.count(receipts.pieces)} unit={copy.piecesShort} />
-      <Metric label={<><Truck size={17} aria-hidden="true" />{copy.shipped}</>} value={format.count(shipments.pieces)} unit={copy.piecesShort} />
+      <Metric label={<><Truck size={17} aria-hidden="true" />{copy.shipped}</>} value={format.count(shipments.packs)} unit={copy.packs} />
     </dl>
 
     <div className={styles.activityGrid}>
@@ -186,7 +184,7 @@ export function Activity({ report, copy, format }: CopyAndFormat & { report: Ceo
             {stageKeys.map(stage => <Metric key={stage} label={copy[stage]} value={format.count(points[activeIndex].values[stage])} />)}
           </dl>
         </div>}
-        <Details label={copy.byDepartment}>
+        <Details label={copy.byDepartment} initiallyOpen>
           {breakdown.length ? <DataTable label={copy.byDepartment} headings={[copy.department, copy.stage, copy.factory, copy.pieces]}
             rows={breakdown.map(row => [departmentName(row.department, copy), copy[row.stage], copy[row.factory], format.count(row.pieces)])} /> :
             <p className={styles.empty}>{copy.noOutput}</p>}
@@ -238,6 +236,11 @@ export function Balances({ balances, chosen, onDateChange, factory, copy, format
   const { values, as_of: asOf, status } = chosen;
   const unitLabel = (unit: string) => unit.toLowerCase() === "kg" ? copy.kg : unit;
   const warehouse = values?.warehouse;
+  const waiting = [...(values?.waiting ?? [])].sort((a, b) =>
+    (a.oldest_since ? Date.parse(a.oldest_since) : Infinity) - (b.oldest_since ? Date.parse(b.oldest_since) : Infinity));
+  const materialVarieties = values?.material_varieties ?? [];
+  const topMaterials = materialVarieties.filter(row => row.unit.toLowerCase() === "kg" && Number(row.quantity) > 0)
+    .sort((a, b) => Number(b.quantity) - Number(a.quantity)).slice(0, 5);
 
   return <section className={styles.reportSection} aria-labelledby={id}>
     <div className={styles.sectionHeader}>
@@ -255,21 +258,28 @@ export function Balances({ balances, chosen, onDateChange, factory, copy, format
 
     <div className={styles.balanceGrid}>
       <Panel title={copy.handoffs} anchor={handoffsId} description={copy.handoffHint} icon={<GitPullRequest size={19} aria-hidden="true" />}>
-        {values?.waiting.length ? <DataTable label={copy.handoffs} headings={[copy.transfer, copy.pieces, copy.bundles, copy.packs, copy.oldest]}
-          rows={values.waiting.map(row => [<div key="route" className={styles.handoffRoute}>
+        {waiting.length ? <DataTable label={copy.handoffs} headings={[copy.transfer, copy.pieces, copy.bundles, copy.packs, copy.longestAge]}
+          rows={waiting.map(row => [<div key="route" className={styles.handoffRoute}>
             <span>{departmentName(row.source, copy)}<ArrowRight size={13} aria-hidden="true" /><span className="sr-only"> {copy.to} </span>{departmentName(row.destination, copy)}</span>
             <small>{copy[row.factory]}</small>
           </div>, format.count(row.pieces), format.count(row.bundles), format.count(row.packs),
-          row.oldest_since ? <time key="oldest" dateTime={row.oldest_since}>{format.timestamp(row.oldest_since)}</time> : "—"])} /> :
+          row.oldest_since && asOf && Date.parse(row.oldest_since) <= Date.parse(asOf)
+            ? <time key="oldest" dateTime={row.oldest_since} title={format.timestamp(row.oldest_since)}>
+              {format.duration(Math.floor((Date.parse(asOf) - Date.parse(row.oldest_since)) / 60_000))}
+            </time> : "—"])} /> :
           <p className={styles.empty}>{values ? copy.noHandoff : copy.unavailable}</p>}
       </Panel>
 
       <Panel title={copy.stock} description={copy.stockHint} icon={<Archive size={19} aria-hidden="true" />}>
         {warehouse ? <>
           <PieceMetrics totals={warehouse} copy={copy} format={format} />
+          {warehouse.available_pieces + warehouse.reserved_pieces > 0 && <div className={styles.stockBar} aria-hidden="true">
+            <span style={{ flexGrow: warehouse.available_pieces }} />
+            <span style={{ flexGrow: warehouse.reserved_pieces }} />
+          </div>}
           <dl className={styles.stockMetrics}>
-            <Metric label={copy.available} value={format.count(warehouse.available_pieces)} />
-            <Metric label={copy.reserved} value={format.count(warehouse.reserved_pieces)} />
+            <Metric label={<><span className={`${styles.swatch} ${styles.sewing}`} />{copy.available}</>} value={format.count(warehouse.available_pieces)} />
+            <Metric label={<><span className={`${styles.swatch} ${styles.packaging}`} />{copy.reserved}</>} value={format.count(warehouse.reserved_pieces)} />
           </dl>
           {warehouse.by_factory.length > 0 && factory === "ALL" && <Details label={copy.byLocation}>
             <DataTable label={copy.stock} headings={[copy.factory, copy.packs, copy.pieces, copy.available, copy.reserved]}
@@ -290,15 +300,26 @@ export function Balances({ balances, chosen, onDateChange, factory, copy, format
             <Metric label={copy.varieties} value={format.count(row.varieties)} />
           </dl>)}
         </div>
+        {topMaterials.length > 0 && <div className={styles.materialPreview}>
+          <h4>{copy.topMaterials}</h4>
+          <ul>
+            {topMaterials.map((row, index) => <li key={`${row.sku}/${row.item}/${index}`}>
+              <div><span>{row.item}</span><strong>{format.count(row.quantity)} {copy.kg}</strong></div>
+              <div className={`${styles.bar} ${styles.sewing}`} aria-hidden="true">
+                <span style={{ width: `${Number(row.quantity) / Number(topMaterials[0].quantity) * 100}%` }} />
+              </div>
+            </li>)}
+          </ul>
+        </div>}
         <Details label={copy.materialBreakdown}>
           <DataTable label={copy.materialBreakdown} headings={[copy.warehouse, copy.factory, copy.quantity, copy.batches, copy.varieties]}
             rows={values.materials.map(row => [row.warehouse === "ECO_LEDGER" ? copy.ecoLedger : row.warehouse === "UNASSIGNED" ? copy.UNASSIGNED : row.warehouse,
               copy[row.factory], `${format.count(row.quantity)} ${unitLabel(row.unit)}`,
               format.count(row.active_batches), format.count(row.varieties)])} />
         </Details>
-        {values.material_varieties && values.material_varieties.length > 0 && <Details label={copy.byVariety}>
+        {materialVarieties.length > 0 && <Details label={copy.byVariety}>
           <DataTable label={copy.byVariety} headings={[copy.material, "SKU", copy.quantity, copy.batches]}
-            rows={values.material_varieties.map(row => [row.item, row.sku || "—", `${format.count(row.quantity)} ${unitLabel(row.unit)}`, format.count(row.active_batches)])} />
+            rows={materialVarieties.map(row => [row.item, row.sku || "—", `${format.count(row.quantity)} ${unitLabel(row.unit)}`, format.count(row.active_batches)])} />
         </Details>}
       </> : <p className={styles.empty}>{values ? copy.noMaterials : copy.unavailable}</p>}
       {factory !== "ALL" && <p className={styles.panelNote}>{copy.sharedOnly}</p>}

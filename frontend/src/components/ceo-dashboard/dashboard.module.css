@@ -47,15 +47,13 @@
   text-wrap: balance;
 }
 
-.reportDates, .refreshText > span { display: flex; align-items: center; gap: 7px; }
-.reportDates { margin-top: 8px; font-size: 14px; color: var(--ceo-subtle); }
-.reportDates svg { color: var(--ceo-accent); }
+.refreshText > span { display: flex; align-items: center; gap: 7px; }
 .refreshStatus { display: flex; align-items: center; gap: 12px; }
 .refreshText { display: grid; justify-items: end; gap: 3px; color: var(--ceo-subtle); font-size: 12px; line-height: 1.45; }
 .refreshText time { color: var(--erp-text); font-variant-numeric: tabular-nums; font-weight: 600; }
 .utc { white-space: nowrap; }
 
-.refreshButton, .applyButton, .filterButton {
+.refreshButton, .applyButton, .filterButton, .dateTrigger {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -76,17 +74,24 @@
 .spinning { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-.controls {
+.controlBar, .controls {
   display: flex;
   align-items: end;
   flex-wrap: wrap;
   gap: 13px 21px;
+}
+
+.controlBar {
   border: 1px solid var(--ceo-line);
   border-radius: 12px;
   background: var(--erp-surface);
-  padding: 14px 16px;
+  padding: 12px 15px;
 }
 
+.dateControl { min-width: 0; }
+.dateTrigger { min-height: 44px; gap: 9px; justify-content: space-between; text-align: start; cursor: pointer; }
+.dateTrigger svg { color: var(--ceo-accent); flex-shrink: 0; }
+.dateTrigger:hover { background: var(--ceo-accent-soft); }
 .filterSummary { display: none; }
 .filterButton { gap: 7px; min-height: 44px; cursor: pointer; }
 .filterButton[aria-expanded="true"] { background: var(--ceo-accent-soft); }
@@ -120,7 +125,7 @@
 .handoffLink:hover, .handoffLink:focus-visible { text-decoration: underline; }
 
 .field { min-inline-size: 0; }
-.field legend, .dateInputs label, .inlineSelect > span { font-size: 12px; font-weight: 650; line-height: 1.35; color: var(--ceo-subtle); }
+.field legend, .inlineSelect > span { font-size: 12px; font-weight: 650; line-height: 1.35; color: var(--ceo-subtle); }
 .field legend { margin-bottom: 5px; }
 
 .segments {
@@ -150,18 +155,7 @@
 .segments input:checked + span { color: var(--ceo-accent); background: var(--erp-surface); box-shadow: 0 0 0 1px var(--ceo-line); font-weight: 670; }
 .segments input:focus-visible + span { outline: 2px solid var(--ceo-accent); outline-offset: 2px; }
 
-.dateInputs {
-  flex: 1 0 100%;
-  display: flex;
-  align-items: end;
-  flex-wrap: wrap;
-  gap: 9px 12px;
-  padding-top: 11px;
-  border-top: 1px solid var(--ceo-line);
-}
-
-.dateInputs label { display: grid; gap: 5px; }
-.dateInputs input, .inlineSelect select {
+.inlineSelect select {
   min-height: 38px;
   min-width: 0;
   border: 1px solid var(--ceo-line);
@@ -173,7 +167,72 @@
   font-size: 14px;
 }
 
-.dateLimit { align-self: center; color: var(--ceo-subtle); font-size: 13px; }
+.calendarDialog {
+  width: min(500px, calc(100% - 12px));
+  max-width: none;
+  max-height: calc(100dvh - 12px);
+  margin: auto;
+  padding: 0;
+  overflow: auto;
+  background: var(--erp-surface);
+  color: var(--erp-text);
+  border: 1px solid var(--ceo-line);
+  border-radius: 14px;
+  box-shadow: 0 16px 50px #112c2433;
+}
+.calendarDialog::backdrop { background: #10221e70; }
+.calendarHeader, .calendarFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 14px;
+}
+.calendarHeader { border-bottom: 1px solid var(--ceo-line); }
+.calendarHeader h2 { font-size: 19px; font-weight: 670; }
+.closeCalendar { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 7px; cursor: pointer; }
+.closeCalendar:hover { background: var(--erp-surface-muted); }
+.calendarBody { display: grid; justify-items: center; gap: 14px; padding: 12px 8px; }
+.calendarPresets { display: flex; justify-content: center; flex-wrap: wrap; gap: 6px; }
+.calendarPresets button {
+  min-height: 44px;
+  padding: 4px 9px;
+  border: 1px solid var(--ceo-line);
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.calendarPresets button:hover, .calendarPresets button[aria-pressed="true"] { color: var(--ceo-accent); background: var(--ceo-accent-soft); }
+.calendarDialog :global(.rdp-root) {
+  --rdp-accent-color: var(--ceo-accent);
+  --rdp-accent-background-color: var(--ceo-accent-soft);
+  --rdp-range_start-date-background-color: var(--ceo-accent);
+  --rdp-range_end-date-background-color: var(--ceo-accent);
+  --rdp-range_start-color: var(--erp-surface);
+  --rdp-range_end-color: var(--erp-surface);
+  --rdp-day-width: 44px;
+  --rdp-day-height: 44px;
+  --rdp-day_button-width: 44px;
+  --rdp-day_button-height: 44px;
+  --rdp-nav_button-width: 44px;
+  --rdp-nav_button-height: 44px;
+  --rdp-selected-font: inherit;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+.calendarDialog :global(.rdp-dropdowns) { gap: 6px; }
+.calendarDialog :global(.rdp-dropdown_root) { padding: 5px 6px; border: 1px solid var(--ceo-line); border-radius: 6px; }
+.calendarDialog :global(.rdp-dropdown_root:focus-within) { outline: 2px solid var(--ceo-accent); }
+.calendarDialog :global(.rdp-day_button):hover:enabled,
+.calendarDialog :global(.rdp-button_previous):hover:enabled,
+.calendarDialog :global(.rdp-button_next):hover:enabled { box-shadow: inset 0 0 0 1px var(--ceo-accent); }
+.calendarFooter { border-top: 1px solid var(--ceo-line); }
+.calendarFooter p { font-size: 13px; color: var(--ceo-subtle); }
+.calendarFooter > div { display: flex; margin-inline-start: auto; gap: 7px; }
+.primaryButton, .primaryButton:hover:enabled { color: var(--erp-surface); background: var(--ceo-accent); border-color: var(--ceo-accent); }
+.primaryButton:hover:enabled { filter: brightness(.9); }
 .report { display: grid; gap: 28px; margin-top: 24px; }
 .reportSection { display: grid; gap: 14px; min-width: 0; }
 .sectionHeader h2 { margin: 0; font-size: 19px; line-height: 1.25; font-weight: 680; letter-spacing: -.028em; }
@@ -196,7 +255,7 @@
 .highlights dd { font-size: clamp(24px, 2.4vw, 35px); }
 
 .activityGrid, .balanceGrid, .paired { display: grid; gap: 14px; }
-.activityGrid { grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr); }
+.activityGrid { grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); align-items: start; }
 .balanceGrid { grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); }
 .paired { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 
@@ -248,17 +307,35 @@
 .intervalTotals dd { font-size: 16px; }
 .intervalTotals dt { font-size: 12px; }
 
-.comparisonBody { padding: 1px var(--ceo-inset) 15px; }
-.comparisonRows { display: grid; gap: 15px; margin-top: 15px; list-style: none; }
-.comparisonLabel { display: flex; justify-content: space-between; align-items: center; gap: 5px 10px; font-size: 14px; line-height: 1.4; font-weight: 600; }
-.comparisonLabel > span { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; }
-.comparisonLabel > strong { font-variant-numeric: tabular-nums; font-weight: 650; text-align: end; }
-.comparisonLabel small { font-size: 12px; color: var(--ceo-subtle); font-weight: 450; }
-.selectedFactory, .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--ceo-accent); }
-.dot { vertical-align: 1px; margin-right: 6px; background: var(--erp-text-muted); }
+.factoryPanel .table th, .factoryPanel .table td { padding-top: 10px; padding-bottom: 10px; }
+.factoryCell { min-width: 37px; font-weight: 600; }
+.factoryCell[data-selected="true"] { color: var(--ceo-accent); font-weight: 750; }
+.dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; vertical-align: 1px; margin-right: 6px; background: var(--erp-text-muted); }
 .liveDot { background: var(--ceo-sewing); }
 .bar { height: 7px; border-radius: 100px; background: var(--erp-surface-muted); overflow: hidden; margin-top: 6px; }
 .bar span { display: block; height: 100%; border-radius: inherit; background: var(--ceo-series); }
+
+.flowFigure { display: grid; gap: 5px; margin: 0 var(--ceo-inset) 16px; }
+.flowCaption { font-size: 13px; font-weight: 600; color: var(--ceo-subtle); }
+.flowPlot { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: stretch; gap: 9px; }
+.flowScale { display: flex; flex-direction: column; align-items: end; justify-content: space-between; }
+.flowScale, .flowDates { color: var(--ceo-subtle); font-size: 11px; font-variant-numeric: tabular-nums; }
+.flowBars { display: grid; align-items: end; height: 104px; border-block: 1px solid var(--ceo-line); }
+.flowBars span { width: 83%; max-width: 36px; justify-self: center; border-radius: 3px 3px 0 0; background: var(--ceo-series, var(--ceo-sewing)); }
+.flowBars span:hover { opacity: .76; }
+.paired > section:nth-child(2) .flowBars { --ceo-series: var(--ceo-packaging); }
+.flowDates { display: flex; justify-content: space-between; }
+
+.stockBar { display: flex; height: 8px; margin: 0 var(--ceo-inset) 10px; border-radius: 999px; overflow: hidden; }
+.stockBar span { flex-basis: 0; background: var(--ceo-sewing); }
+.stockBar span + span { background: var(--ceo-packaging); }
+.stockBar + .stockMetrics { border-top: 0; padding-top: 1px; }
+.materialPreview { margin: 0 var(--ceo-inset) 16px; border-top: 1px solid var(--ceo-line); padding-top: 10px; }
+.materialPreview h4 { color: var(--ceo-subtle); font-size: 13px; font-weight: 650; }
+.materialPreview ul { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 14px; margin-top: 10px; list-style: none; }
+.materialPreview li { font-size: 13px; }
+.materialPreview li > div:first-child { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 3px 7px; }
+.materialPreview strong { font-variant-numeric: tabular-nums; }
 
 .details { border-top: 1px solid var(--ceo-line); }
 .details:first-of-type { margin-top: auto; }
@@ -281,10 +358,9 @@
 .handoffRoute svg { display: inline; margin: 0 4px; vertical-align: -2px; color: var(--ceo-accent); }
 .handoffRoute small { display: block; color: var(--ceo-subtle); font-size: 12px; font-weight: 450; margin-top: 2px; }
 
-.empty, .note, .notes, .panelNote { color: var(--ceo-subtle); font-size: 13px; line-height: 1.5; }
+.empty, .notes, .panelNote { color: var(--ceo-subtle); font-size: 13px; line-height: 1.5; }
 .empty { margin: 0 var(--ceo-inset) 17px; padding: 12px; background: var(--erp-surface-muted); border-radius: 7px; }
 .notes { display: grid; gap: 3px; margin: 0 var(--ceo-inset) 14px; list-style: none; }
-.note { margin-top: 11px; }
 .panelNote { margin: 0 var(--ceo-inset) 14px; }
 .materialTotals { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 350px), 1fr)); }
 
@@ -297,26 +373,23 @@
 @media (max-width: 600px) {
   .dashboard { padding: 20px 13px 40px; }
   .pageHeader { margin-bottom: 12px; gap: 6px 12px; }
-  .reportDates { display: none; }
   .refreshStatus { align-items: center; justify-content: space-between; width: 100%; }
   .refreshText { justify-items: start; }
-  .refreshButton, .applyButton, .inlineSelect select, .dateInputs input { min-height: 44px; }
+  .refreshButton, .applyButton, .inlineSelect select { min-height: 44px; }
   .refreshButton { width: 44px; }
   .filterSummary {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 10px;
-    padding: 7px 9px 7px 12px;
-    border: 1px solid var(--ceo-line);
-    border-radius: 9px;
-    background: var(--erp-surface);
+    flex: 1 0 100%;
   }
-  .filterSummary > div { display: grid; gap: 2px; min-width: 0; }
-  .filterSummary strong { font-size: 14px; }
   .filterSummary span { color: var(--ceo-subtle); font-size: 13px; }
   .filterButton { flex-shrink: 0; }
-  .controls { margin-top: 8px; padding: 12px; gap: 11px; }
+  .controlBar { padding: 9px; gap: 7px; }
+  .dateControl, .dateTrigger { width: 100%; }
+  .dateTrigger span { flex: 1; }
+  .controls { padding-top: 7px; gap: 11px; }
   .controls[data-open="false"] { display: none; }
   .field { flex: 1 0 100%; }
   .segments { width: fit-content; gap: 8px; }
@@ -328,7 +401,7 @@
   .waitDuration { grid-column: 2; grid-row: 2; font-size: 14px; }
   .handoffLink { grid-column: 3; grid-row: 2; justify-self: end; }
   .details summary { min-height: 44px; }
-  .dateInputs input, .inlineSelect select { font-size: 16px; }
+  .inlineSelect select { font-size: 16px; }
   .highlights { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .highlights .metric { padding: 11px 12px; }
   .highlights dt { min-height: 27px; }
@@ -339,6 +412,10 @@
   .axis { font-size: 10px; }
   .intervalDetail { align-items: flex-start; }
   .intervalTotals { gap: 5px 11px; }
+}
+
+@media (max-width: 350px) {
+  .calendarDialog :global(.rdp-root) { --rdp-day-width: 40px; --rdp-day_button-width: 40px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
