@@ -6,7 +6,8 @@ import { chromium } from 'playwright';
 import { compileAppCss } from './lib/compile-app-css.mjs';
 const root=process.cwd();
 const stubs={
-  '@/lib/auth': `import {useEffect,useState} from 'react'; export const logout=()=>{}; export const useMe=()=>{const [ready,setReady]=useState(false);useEffect(()=>{const id=setTimeout(()=>setReady(true),25);return()=>clearTimeout(id)},[]);return {me:ready?window.me:undefined,loading:!ready,hasToken:ready?true:undefined,refresh:async()=>{}}}; export const can=(me,...perms)=>!!me?.permissions.some(p=>p==='*'||perms.includes(p));`,
+  '@/lib/auth': `import {useEffect,useState} from 'react'; export const logout=()=>{}; export const useMe=()=>{const [ready,setReady]=useState(false);useEffect(()=>{const id=setTimeout(()=>setReady(true),25);return()=>clearTimeout(id)},[]);return {me:ready?window.me:undefined,loading:!ready,hasToken:ready?true:undefined,refresh:async()=>{}}}; export const can=(me,...perms)=>!!me?.permissions.some(p=>p==='*'||perms.includes(p));
+    export const CEO_DASHBOARD_PATH='/ceo-dashboard'; export const isCeo=me=>me?.role==='CEO';`,
   'next/navigation': `const router={push:p=>window.navigations.push(p),replace:p=>window.navigations.push(p)}; const params=new URLSearchParams(window.testPath.split('?')[1]||''); export const usePathname=()=>window.testPath.split('?')[0]; export const useSearchParams=()=>params; export const useParams=()=>({id:'81',code:'ECO'}); export const useRouter=()=>router;`,
   'next/link': `export default function Link({children,...props}) {return <a {...props}>{children}</a>}`,
   '@/lib/api': `export const API_TIMEOUT_EVENT='milana:api-timeout';export async function fetcher(url){window.reads.push(url);
