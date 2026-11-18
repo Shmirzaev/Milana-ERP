@@ -12,11 +12,13 @@ from app.schemas import (FinishedGoodsStock, IdempotencyRecord, Invoice, Package
                         StockReservation, User)
 from app.libs.dto.fulfillment.shipment_review import ShipmentReopen
 from app.libs.enums.finance import InvoiceStatus
+from app.libs.enums.sales import SalesOrderStatus
 from app.models.audit_service import log_action
 from app.models.finance.invoices_service import void_invoices_for_shipment_reopen
 from app.models.packages_service import _sync_package_production
 from app.models.shipment_review_service import locked_shipment
 from app.schemas.core_idempotency_record_persistence import set_idempotency_request_hash
+from app.schemas.sales.sales_order_persistence import set_sales_order_status, set_sales_order_total
 
 
 def _conflict(code: str):
@@ -127,11 +129,11 @@ def reopen_shipment(db: Session, sid: int, payload: ShipmentReopen, user: User) 
     void_invoices_for_shipment_reopen(db, invoices)
     if order:
         if manual:
-            order.status = "cancelled"
-            order.total_amount = 0
+            set_sales_order_status(db, order, SalesOrderStatus.CANCELLED)
+            set_sales_order_total(db, order, 0)
             shipment.sales_order_id = None
         else:
-            order.status = "ready_to_ship"
+            set_sales_order_status(db, order, SalesOrderStatus.READY_TO_SHIP)
     shipment.status = "created"
     shipment.shipped_at = None
     shipment.delivered_at = None
