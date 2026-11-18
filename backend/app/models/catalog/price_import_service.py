@@ -41,7 +41,12 @@ def import_reviewed_prices(db, manifest: PriceImportManifest, actor, *, apply=Fa
         db.execute(text("SET LOCAL lock_timeout = '5s'"))
         db.execute(text("SET LOCAL statement_timeout = '60s'"))
         revision = db.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-        if revision not in {"0156_variant_price_workflow", "0157_package_allocation_items"}:
+        if revision not in {
+            "0156_variant_price_workflow",
+            "0157_package_allocation_items",
+            "0158_ceo_role",
+            "0159_ceo_balance_snapshots",
+        }:
             raise HTTPException(409, "Catalogue import requires the reviewed pricing schema0156")
     ids = sorted(row.model_id for row in manifest.prices)
     query = db.query(Model).options(lazyload("*")).filter(Model.id.in_(ids)).order_by(Model.id)

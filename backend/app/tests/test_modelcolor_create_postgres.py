@@ -76,13 +76,16 @@ def pg_sessions():
             expected_departments={('ECO','Eco Cotton Sewing Factory'),('ECP','Eco Cotton Packaging'),('ECT','Eco Cotton Cutting')}
             expected_warehouses={('Eco Cotton Packaging Floor','eco_cotton_packaging','ECP'),('Eco Cotton Cutting Floor','eco_cotton_cutting','ECT')}
             expected_permissions={'usluga.view','usluga.manage','usluga.handover','planning.production','usluga.cutting.approve'}
-            expected_counts={'alembic_version':1,'sewing_flows':len(expected_flows),'departments':len(expected_departments),'warehouses':len(expected_warehouses),'roles':1}
+            expected_counts={'alembic_version':1,'sewing_flows':len(expected_flows),'departments':len(expected_departments),'warehouses':len(expected_warehouses),'roles':2}
             record('migration_census',counts=counts,flows=sorted(flows),departments=sorted(departments),warehouses=sorted(warehouses),roles=roles,heads=heads,candidate_head=head)
             assert heads==[head]
             assert {key:value for key,value in counts.items() if value}==expected_counts
             assert flows==expected_flows and departments==expected_departments and warehouses==expected_warehouses
-            assert len(roles)==1 and roles[0][0]=='Eco Cotton Usluga'
-            assert len(roles[0][1])==len(expected_permissions) and set(roles[0][1])==expected_permissions
+            permissions_by_role=dict(roles)
+            assert permissions_by_role.keys()=={'CEO','Eco Cotton Usluga'}
+            assert permissions_by_role['CEO']==[]
+            usluga_permissions=permissions_by_role['Eco Cotton Usluga']
+            assert len(usluga_permissions)==len(expected_permissions) and set(usluga_permissions)==expected_permissions
         sessions=sessionmaker(bind=engine,autoflush=False,autocommit=False,expire_on_commit=False)
         yield sessions
     finally:
