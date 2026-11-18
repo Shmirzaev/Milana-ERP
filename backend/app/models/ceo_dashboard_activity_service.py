@@ -1,7 +1,7 @@
 """Period output, physical finished-goods receipts, and shipment dispatches."""
 from collections import defaultdict
 from collections.abc import Mapping
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import and_, case, func, or_, select
