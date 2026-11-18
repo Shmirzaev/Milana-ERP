@@ -91,7 +91,7 @@ jobs:
     with:
       source_ref: ${{ github.event_name == 'schedule' && 'clone_main' || github.event_name == 'workflow_dispatch' && inputs.security_scan_only && inputs.security_scan_ref || github.sha }}
       release_images: ${{ needs.release-plan.outputs.enabled == 'true' }}
-  backend:
+  backend-checks:
     if: github.event_name != 'schedule' && !(github.event_name == 'workflow_dispatch' && inputs.security_scan_only)
     runs-on: ubuntu-latest
     steps:
@@ -104,6 +104,8 @@ jobs:
             backend/requirements.txt
             backend/requirements-dev.txt
       - run: python -m pip install -r backend/requirements.txt -r backend/requirements-dev.txt
+      - name: Verify shard coverage and failure propagation
+        run: python -m unittest discover -s scripts -p test_ci_pytest_shard.py -v
       - name: Check CI trigger and cancellation policy
         run: python scripts/test_ci_trigger_policy.py
       - name: Start job-owned loopback PostgreSQL 16
@@ -171,10 +173,6 @@ jobs:
           app/tests/test_cutting_order_rejection_postgres.py
           app/tests/test_model_pattern_cad_postgres.py
           app/tests/test_passport_batch_allocations_postgres.py
-      - name: Backend regression suite
-        working-directory: backend
-        # This strict dual-engine suite runs in the approved-PG workflow instead.
-        run: python -m pytest -q --ignore=app/tests/test_readiness_operation_characterization.py --durations=25
       - name: Purchasing approval PostgreSQL write boundary
         env:
           PUR_APPROVAL_PG_ADMIN_URL: postgresql://postgres@127.0.0.1:5432/postgres
@@ -277,6 +275,74 @@ jobs:
           if [ -f "$RUNNER_TEMP/ci-postgres.cid" ]; then
             docker rm --force "$(cat "$RUNNER_TEMP/ci-postgres.cid")"
           fi
+
+  backend-regression:
+    if: github.event_name != 'schedule' && !(github.event_name == 'workflow_dispatch' && inputs.security_scan_only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
+      - run: python -m pip install -r backend/requirements.txt -r backend/requirements-dev.txt
+      - name: Check CI trigger and cancellation policy
+        run: python scripts/test_ci_trigger_policy.py
+      - name: Start job-owned loopback PostgreSQL 16
+        run: |
+          docker run --detach --cidfile "$RUNNER_TEMP/ci-postgres.cid" --name milana-ci-postgres \
+            --network host --env POSTGRES_HOST_AUTH_METHOD=trust \
+            --env POSTGRES_DB=first_grade_qa_ci postgres:16-alpine \
+            postgres -h 127.0.0.1 -p 5432
+          for attempt in $(seq 1 30); do
+            if docker exec milana-ci-postgres pg_isready -h 127.0.0.1 -p 5432 -U postgres; then
+              exit 0
+            fi
+            sleep 2
+          done
+          exit 1
+      - name: Backend regression suite
+        working-directory: backend
+        env:
+          PYTHONPATH: ../scripts
+        # Preserve the existing exclusion; the strict dual-engine gate owns it.
+        run: >-
+          python -m pytest -q -p ci_pytest_shard
+          --ci-shard=${{ matrix.shard }} --ci-shards=4
+          --ignore=app/tests/test_readiness_operation_characterization.py
+          --durations=25 --junitxml=${{ runner.temp }}/backend-regression.xml
+      - name: Preserve shard test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-regression-${{ matrix.shard }}
+          path: ${{ runner.temp }}/backend-regression.xml
+          if-no-files-found: error
+      - name: Remove only this job's owned PostgreSQL container
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/ci-postgres.cid" ]; then
+            docker rm --force "$(cat "$RUNNER_TEMP/ci-postgres.cid")"
+          fi
+
+  backend:
+    if: ${{ always() && github.event_name != 'schedule' && !(github.event_name == 'workflow_dispatch' && inputs.security_scan_only) }}
+    needs: [backend-checks, backend-regression]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every backend check and regression shard
+        env:
+          CHECKS: ${{ needs.backend-checks.result }}
+          REGRESSION: ${{ needs.backend-regression.result }}
+        run: test "$CHECKS" = success && test "$REGRESSION" = success
 
   frontend:
     if: github.event_name != 'schedule' && !(github.event_name == 'workflow_dispatch' && inputs.security_scan_only)

@@ -16,6 +16,7 @@ CI_POLICY_PATHS = (
     "scripts/security_gate.py", "security/accepted-findings.json",
     "scripts/package_release.py", "scripts/verify_release_source.py",
     "scripts/prepare_release_manifest.py", "scripts/release_ci_identity.py",
+    "scripts/ci_pytest_shard.py",
 )
 
 
