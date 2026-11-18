@@ -100,6 +100,7 @@ const fabricSources=compile(read("../src/lib/fabricSource.ts"));
 const context=vm.createContext({ ...lib, ...fabricSources, console, Number,Date, Map,Set,lang:"en",splitText:lib.passportBatchText("en"),
   businessDate:(now=factoryNow)=>businessDate(now),
   t:key=>key,editing:null,saving:false,splitTarget:1,selectedMaterial:{...batches[2],item_name:"Cotton"},materialAmount:"200",batchInfos:batches,
+  materialDefaultsPending:false,pendingApply:{current:null},
   mutate:async()=>{},refreshCache:async()=>{},resetMaterialPicker:()=>{},setShowForm:()=>{},setSelectedMaterial:()=>{},setMaterialAmount:()=>{},setMaterialPickerOpen:()=>{},setSplitTarget:()=>{},
 });
 const run=code=>vm.runInContext(ts.transpileModule(code,{compilerOptions:{target:ts.ScriptTarget.ES2020}}).outputText,context);
@@ -119,6 +120,10 @@ assert.equal(context.materialForms[0].planned_kg,300);
 assert.equal(context.materialForms[0].pieces,600);
 assert.deepEqual(Array.from(context.materialForms[0].batch_allocations,row=>Number(row.quantity)),[100,200]);
 context.materialForms[0].layer_weight_kg=6;context.materialForms[0].total_layers=50;sync();
+context.pendingApply.current=()=>{};
+await context.save({preventDefault(){}});
+assert.equal(requests.length,0,"unreviewed material defaults must block saving");
+context.pendingApply.current=null;
 await context.save({preventDefault(){}});
 assert.equal(requests.length,1);assert.equal(requests[0].payload.materials.length,1);
 assert.deepEqual(Array.from(requests[0].payload.materials[0].batch_allocations,row=>[row.stock_batch_id,row.quantity]),[[1,100],[2,200]]);

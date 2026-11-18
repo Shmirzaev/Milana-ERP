@@ -35,7 +35,7 @@ ${namedSizes}
 ${functions}
 const lang=new URLSearchParams(location.search).get("lang")||"en", dict={en,ru,uz}[lang];
 const t=(key,args={})=>Object.entries(args).reduce((v,[k,a])=>v.replaceAll("{"+k+"}",String(a)),dict[key]||key);
-const issuedLabelsSectionRef=null,issuedLabelsLoading=false,preparingPrint=false,deletingSize=null;
+const issuedLabelsSectionRef=null,issuedLabelsLoading=false,preparingPrint=false,printAttemptActive=false,deletingSize=null;
 const issuedSizeOrder=new Map([["122",0],["128",1]]),issuedOperationNumbers=new Map();
 const activeIssuedLabels=[2,1].flatMap(batch=>["128","122"].flatMap(size=>[2,1].map(op=>{
  const id=batch*100+Number(size)*10+op;issuedOperationNumbers.set(id,op);
@@ -60,9 +60,21 @@ try {
   await page.route("http://localhost:3198/**", route => route.fulfill({ contentType: "text/html",
     body: `<div id="root"></div><script>${built.outputFiles[0].text.replaceAll("</script>", "<\\/script>")}</script>` }));
   for (const lang of ["en", "ru", "uz"]) {
-    await page.goto(`http://localhost:3198/?lang=${lang}`);
     const batches = page.locator("[data-qr-batch]");
-    await batches.nth(1).waitFor();
+    let rejectRenderError;
+    const renderError = new Promise((_, reject) => { rejectRenderError = error => reject(error); });
+    page.on("pageerror", rejectRenderError);
+    try {
+      await Promise.race([
+        (async () => {
+          await page.goto(`http://localhost:3198/?lang=${lang}`);
+          await batches.nth(1).waitFor();
+        })(),
+        renderError,
+      ]);
+    } finally {
+      page.off("pageerror", rejectRenderError);
+    }
     assert.deepEqual(await batches.evaluateAll(nodes => nodes.map(n => n.dataset.qrBatch)), ["0420-01", "0420-02"]);
     const first = batches.first();
     const toggle=first.locator("button[aria-expanded]");

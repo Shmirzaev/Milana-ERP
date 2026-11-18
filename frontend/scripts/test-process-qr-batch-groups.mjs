@@ -38,10 +38,19 @@ const original = JSON.stringify(labels);
 const context = vm.createContext({
   Map, Set, String, Number, Math, JSON, console,
   issuedSizeOrder, issuedOperationNumbers, preparingPrint: false, deletingSize: null,
+  printAttemptBusy: { current: false }, employeePrintAttempt: { current: 0 },
+  setPrintAttemptActive() {},
   qrDataUrl: async token => { await new Promise(resolve => setTimeout(resolve, Number(token) % 3)); return `image:${token}`; },
   setPrintError: value => assert.equal(value, ""),
   setPreparingPrint() {}, setWorkLabelsToPrint: rows => { prepared = rows; },
-  printSelectedMode: mode => assert.equal(mode, "work"),
+  printSelectedMode: (mode, attempt) => {
+    assert.equal(mode, "work");
+    assert.equal(context.printAttemptBusy.current, true);
+    assert.equal(attempt, context.employeePrintAttempt.current);
+    // Simulate afterprint before the next independent print request.
+    context.employeePrintAttempt.current += 1;
+    context.printAttemptBusy.current = false;
+  },
   t: (key, args) => { if (key.endsWith("deleteSizeConfirm")) confirmation = args; return key; },
   dialogs: { ask: async () => true, notify: async () => assert.fail("unused labels must be deletable") },
   setDeletingSize() {}, setIssueNotice() {}, mutateIssuedLabels: async () => {},

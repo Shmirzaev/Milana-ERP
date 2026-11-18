@@ -1,6 +1,6 @@
 "use client";
 import { formatModelVariantCode, formatVariantNumber } from "@/lib/variantDisplay";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import useSWR, { useSWRConfig } from "swr";
@@ -312,6 +312,9 @@ export default function CuttingPassportsPage() {
   const cuttingDepartment = searchParams.get("cutting_department") === "ECT" ? "ECT" : "CUT";
   const factoryName = cuttingDepartment === "ECT" ? t("factory.ecoCotton") : t("factory.milana");
   const [q, setQ] = useState("");
+  const [appliedSearch, setAppliedSearch] = useState("");
+  useEffect(() => { const timer = setTimeout(() => setAppliedSearch(q.trim()), 300); return () => clearTimeout(timer); }, [q]);
+  const searchUnsettled = q.trim() !== appliedSearch;
   const [view, setView] = useState<"passports" | "dashboard">("passports");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -330,33 +333,45 @@ export default function CuttingPassportsPage() {
   const reportParams = new URLSearchParams({ cutting_department_code: cuttingDepartment });
   if (dateFrom) reportParams.set("date_from", dateFrom);
   if (dateTo) reportParams.set("date_to", dateTo);
-  if (q.trim()) reportParams.set("q", q.trim());
+  if (appliedSearch) reportParams.set("q", appliedSearch);
   const reportQuery = reportParams.toString();
-  const passportSearch = q.trim();
+  const passportSearch = appliedSearch;
   const passportUrl = `/api/cutting-passports?formula_version=20260706_ishlangan_kg&limit=500&cutting_department_code=${cuttingDepartment}${
     passportSearch ? `&q=${encodeURIComponent(passportSearch)}` : ""
   }${dateFrom ? `&date_from=${dateFrom}` : ""}${dateTo ? `&date_to=${dateTo}` : ""}`;
   const { data: passports = [], mutate, error: listError, isLoading: listLoading } = useSWR<Passport[]>(invalidPeriod ? null : passportUrl, fetcher);
-  const { data: prodOrders = [] } = useSWR<any[]>("/api/production-orders?page_size=500", fetcher);
-  const { data: users = [] } = useSWR<any[]>("/api/cutting-passports/operators", fetcher);
-
   const [showForm, setShowForm] = useState(false);
+  const { data: prodOrders, error: ordersError, mutate: retryOrders } = useSWR<any[]>(showForm ? "/api/production-orders?page_size=500" : null, fetcher);
+  const { data: users, error: usersError, mutate: retryUsers } = useSWR<any[]>(showForm ? "/api/cutting-passports/operators" : null, fetcher);
   const [editing, setEditing] = useState<Passport | null>(null);
   const [form, setForm] = useState({ ...EMPTY_FORM });
+  const formRef = useRef(form);
+  useLayoutEffect(() => { formRef.current = form; }, [form]);
   const [materialForms, setMaterialForms] = useState<MaterialForm[]>([]);
+  const materialFormsRef = useRef(materialForms);
+  useLayoutEffect(() => { materialFormsRef.current = materialForms; }, [materialForms]);
+  const pendingApply = useRef<null | (() => void)>(null);
+  const [materialDefaultsPending, setMaterialDefaultsPending] = useState(false);
   const [batchInfos, setBatchInfos] = useState<Record<number, PassportBatchInfo>>({});
   const [splitTarget, setSplitTarget] = useState<number | null>(null);
   const orderRequest = useRef(0);
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; pendingApply.current = null; }; }, []);
+  const draftRevision = useRef(0);
+  const pendingOrderInitial = useRef<typeof EMPTY_FORM | null>(null);
   const { mutate: refreshCache } = useSWRConfig();
   const [additionalMaterials, setAdditionalMaterials] = useState<Array<{ stock_batch_id: number; estimated_quantity: number; unit: string }>>([]);
   const [materialPickerOpen, setMaterialPickerOpen] = useState(false);
   const [materialSearch, setMaterialSearch] = useState("");
+  const [appliedMaterialSearch, setAppliedMaterialSearch] = useState("");
+  useEffect(() => { const timer = setTimeout(() => setAppliedMaterialSearch(materialSearch.trim()), 300); return () => clearTimeout(timer); }, [materialSearch]);
+  const materialSearchUnsettled = materialSearch.trim() !== appliedMaterialSearch;
   const [selectedMaterial, setSelectedMaterial] = useState<any>(null);
   const [materialAmount, setMaterialAmount] = useState("");
   const [materialPickerBusy, setMaterialPickerBusy] = useState(false);
   const [saving, setSaving] = useState(false);
   const { data: rawMaterialBatches = [], error: materialBatchError, isLoading: materialBatchLoading } = useSWR<any[]>(
-    materialPickerOpen && form.production_order_id ? `/api/cutting-passports/material-batches?production_order_id=${form.production_order_id}&q=${encodeURIComponent(materialSearch)}${splitTarget !== null && batchInfos[splitTarget]?.item_id ? `&item_id=${batchInfos[splitTarget].item_id}` : ""}` : null, fetcher,
+    materialPickerOpen && form.production_order_id ? `/api/cutting-passports/material-batches?production_order_id=${form.production_order_id}&q=${encodeURIComponent(appliedMaterialSearch)}${splitTarget !== null && batchInfos[splitTarget]?.item_id ? `&item_id=${batchInfos[splitTarget].item_id}` : ""}` : null, fetcher,
   );
   const materialBatches = fabricSelectionRows(rawMaterialBatches);
   const resetMaterialPicker = () => { setAdditionalMaterials([]); setMaterialPickerOpen(false); setSelectedMaterial(null); setMaterialAmount(""); setMaterialSearch(""); setSplitTarget(null); };
@@ -403,7 +418,21 @@ export default function CuttingPassportsPage() {
     return options;
   }
 
+  function clearPendingDefaults() { pendingApply.current = null; setMaterialDefaultsPending(false); }
+
+  async function reviewMaterialDefaults() {
+    const apply = pendingApply.current;
+    if (!apply) return;
+    const request = orderRequest.current;
+    const revision = draftRevision.current;
+    const confirmed = await dialogs.ask({ message: t("passportMaterial.replaceDraftConfirm") });
+    if (!confirmed || !mounted.current || request !== orderRequest.current || revision !== draftRevision.current || pendingApply.current !== apply) return;
+    clearPendingDefaults();
+    apply();
+  }
+
   function openCreate() {
+    clearPendingDefaults();
     orderRequest.current += 1;
     resetMaterialPicker();
     setMaterialForms([]);
@@ -416,6 +445,7 @@ export default function CuttingPassportsPage() {
   }
 
   function openEdit(p: Passport) {
+    clearPendingDefaults();
     const request = ++orderRequest.current;
     resetMaterialPicker();
     setBatchInfos({});
@@ -425,11 +455,11 @@ export default function CuttingPassportsPage() {
     if (p.production_order_id) {
       void api.get<MaterialDefault>(`/api/cutting-passports/material-defaults?production_order_id=${p.production_order_id}`)
         .then((defaults) => {
-          if (request !== orderRequest.current) return;
+          if (!mounted.current || request !== orderRequest.current) return;
           rememberBatches(defaults);
           setSizeChoices(defaults.sizes?.length ? defaults.sizes : defaults.available_sizes?.length ? defaults.available_sizes : expandSizeSelection(defaults.size_range || p.size_range));
         }).catch((error) => {
-          if (request === orderRequest.current) setErr(error.message);
+          if (mounted.current && request === orderRequest.current) setErr(error.message);
         });
     }
     setForm({
@@ -532,7 +562,7 @@ export default function CuttingPassportsPage() {
   }
 
   async function exportPassports() {
-    if (exporting || invalidPeriod) return;
+    if (exporting || invalidPeriod || searchUnsettled) return;
     setExporting(true);
     setExportError("");
     try {
@@ -553,7 +583,7 @@ export default function CuttingPassportsPage() {
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
-    if (saving) return;
+    if (saving || materialDefaultsPending || pendingApply.current) return;
     setErr("");
     setSaving(true);
     try {
@@ -572,6 +602,7 @@ export default function CuttingPassportsPage() {
       }
       await mutate();
       await refreshCache((key) => typeof key === "string" && (key.startsWith("/api/cutting-passports/dashboard") || key.startsWith("/api/inbox") || key.startsWith("/api/production-orders") || key.startsWith("/api/inventory/reservations") || key.startsWith("/api/inventory/batches")), undefined, { revalidate: true });
+      orderRequest.current += 1;
       resetMaterialPicker();
       setShowForm(false);
     } catch (e: any) {
@@ -594,14 +625,17 @@ export default function CuttingPassportsPage() {
   const sf = (k: keyof typeof EMPTY_FORM) => (e: React.ChangeEvent<any>) =>
     setForm((prev) => ({ ...prev, [k]: e.target.type === "checkbox" ? e.target.checked : e.target.value }));
 
-  async function selectProductionOrder(value: string) {
-    resetMaterialPicker();
+  async function selectProductionOrder(value: string, preserveDraft = false) {
+    clearPendingDefaults();
+    if (!preserveDraft) resetMaterialPicker();
     const request = ++orderRequest.current;
-    setMaterialForms([]);
-    setBatchInfos({});
-    setSizeChoices([]);
+    if (!preserveDraft) { setMaterialForms([]); setBatchInfos({}); setSizeChoices([]); }
     const po = prodOrdersArr.find((row: any) => String(row.id) === value);
-    setForm((prev) => ({
+    const initial = preserveDraft && pendingOrderInitial.current ? pendingOrderInitial.current : { ...form, production_order_id: value,
+      order_no: po ? rawOrderReference(po, po.production_no || form.order_no) : "",
+      model_code: po?.model_code || "", variant: "", mold_no: "",
+      pieces: po?.planned_quantity ?? form.pieces, planned_kg: po?.estimated_material_amount ?? form.planned_kg };
+    if (!preserveDraft) setForm((prev) => ({
       ...prev,
       production_order_id: value,
       order_no: po ? rawOrderReference(po, po.production_no || prev.order_no) : "",
@@ -617,19 +651,21 @@ export default function CuttingPassportsPage() {
         api.get<MaterialDefault>(`/api/cutting-passports/material-defaults?production_order_id=${value}`),
         po?.model_id ? api.get<any>(`/api/models/${po.model_id}`).catch(() => null) : Promise.resolve(null),
       ]);
-      if (request !== orderRequest.current) return;
+      if (!mounted.current || request !== orderRequest.current) return;
+      const apply = () => {
+      if (!mounted.current || request !== orderRequest.current) return;
       rememberBatches(defaults);
-      setMaterialForms((defaults.materials || []).map((row) => ({
+      const draft = formRef.current;
+      setMaterialForms((current) => current.length ? current : preserveSingleMaterialDraft((defaults.materials || []).map((row) => ({
         ...EMPTY_FORM, stock_batch_id: row.stock_batch_id, size_range: defaults.size_range || "", fabric_type: row.fabric_type || "", lot_no: row.lot_no || "",
         pieces: row.pieces ?? "", planned_kg: row.planned_kg ?? "", fabric_width_m: row.fabric_width_m ?? "", gramage: row.gramage ?? "",
-      })));
+      })), draft, initial));
       const parts = model ? modelCodeParts(model) : null;
       const qolipNo = modelQolipNo(model);
       setSizeChoices(defaults.sizes?.length ? defaults.sizes : defaults.available_sizes?.length ? defaults.available_sizes : expandSizeSelection(defaults.size_range));
       setForm((prev) => {
         if (String(prev.production_order_id) !== value) return prev;
-        return {
-          ...prev,
+        const next = {
           order_no: defaults.order_no || defaults.sales_order_no || defaults.production_order_no || prev.order_no,
           model_code: defaults.model_code || defaults.model_no || parts?.code || model?.code || prev.model_code,
           variant: defaults.variant || parts?.variantNo || prev.variant,
@@ -644,28 +680,55 @@ export default function CuttingPassportsPage() {
           gramage: defaults.gramage ?? prev.gramage,
           fabric_width_m: defaults.fabric_width_m ?? defaults.width ?? prev.fabric_width_m,
         };
+        const merged = { ...prev };
+        for (const key of Object.keys(next) as Array<keyof typeof next>) {
+          // Keep values changed since this order intent began.
+          if (prev[key] !== initial[key]) continue;
+          Object.assign(merged, { [key]: next[key] });
+        }
+        return merged;
       });
+      };
+      if ((defaults.materials || []).length > 1 && materialFormsRef.current.length === 0 && materialDraftChanged(formRef.current, initial)) {
+        pendingApply.current = apply;
+        setMaterialDefaultsPending(true);
+        await reviewMaterialDefaults();
+      } else {
+        apply();
+      }
     } catch {
       // Some older orders may not have a received material batch yet; keep manual entry available.
     }
   }
 
   const openedRequest = useRef("");
+  const pendingOrderRevision = useRef(0);
   const requestedOrder = searchParams.get("production_order_id");
   const requestedPassport = searchParams.get("passport_id");
   useEffect(() => {
     const key = `${cuttingDepartment}:${requestedOrder || ""}:${requestedPassport || ""}`;
     if (openedRequest.current === key || (!requestedOrder && !requestedPassport)) return;
-    openedRequest.current = key;
     if (requestedPassport && /^\d+$/.test(requestedPassport)) {
-      void api.get<Passport>(`/api/cutting-passports/${requestedPassport}`).then(openEdit).catch((error) => setErr(error.message));
+      openedRequest.current = key;
+      const request = ++orderRequest.current;
+      void api.get<Passport>(`/api/cutting-passports/${requestedPassport}`).then((passport) => {
+        if (mounted.current && request === orderRequest.current) openEdit(passport);
+      }).catch((error) => { if (mounted.current && request === orderRequest.current) setErr(error.message); });
     } else if (requestedOrder && /^\d+$/.test(requestedOrder)) {
-      openCreate();
-      void selectProductionOrder(requestedOrder);
+      if (!showForm) {
+        openCreate();
+        pendingOrderRevision.current = draftRevision.current;
+        pendingOrderInitial.current = { ...EMPTY_FORM, date: businessDate(), production_order_id: requestedOrder };
+        setForm((current) => ({ ...current, production_order_id: requestedOrder }));
+        return;
+      }
+      if (!prodOrders && !ordersError) return;
+      openedRequest.current = key;
+      void selectProductionOrder(requestedOrder, pendingOrderRevision.current !== draftRevision.current);
     }
-    // URL navigation initializes once; cache refreshes must not reset entered details.
+    // Initialize each URL intent once, after the directory settles.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cuttingDepartment, requestedOrder, requestedPassport]);
+  }, [cuttingDepartment, requestedOrder, requestedPassport, showForm, prodOrders, ordersError]);
 
   async function openMaterialPicker(target: number | null = null) {
     if (!form.production_order_id) return;
@@ -676,7 +739,7 @@ export default function CuttingPassportsPage() {
     setErr("");
     try {
       const defaults = await api.get<MaterialDefault>(`/api/cutting-passports/material-defaults?production_order_id=${form.production_order_id}`);
-      if (request !== orderRequest.current) return;
+      if (!mounted.current || request !== orderRequest.current) return;
       if (defaults.source_type === "usluga" || defaults.can_add_material === false) throw new Error(t("passportMaterial.openOrderOnly"));
       rememberBatches(defaults);
       setMaterialForms((current) => {
@@ -764,17 +827,17 @@ export default function CuttingPassportsPage() {
       {splitTarget !== null && <p className="text-sm text-[var(--erp-text-soft)]">{splitText.merge}</p>}
       <SearchableSelect<number> value={selectedMaterial?.id}
         inputId={`passport-source-picker-${splitTarget || "new"}`}
-        options={pickerOptions.map(row => ({ value: row.id, label: `${row.item_name} · ${row.batch_no || row.internal_batch_no || ""}`,
+        options={(materialSearchUnsettled ? [] : pickerOptions).map(row => ({ value: row.id, label: `${row.item_name} · ${row.batch_no || row.internal_batch_no || ""}`,
           metaText: `${row.available_quantity ?? row.quantity ?? "—"} ${row.unit} · ${row.warehouse_name || ""}` }))}
         onChange={value => { const selected = pickerBatches.find(row => row.id === value); setSelectedMaterial(selected || null);
           const prior = materialForms.find(row => row.stock_batch_id === value); setMaterialAmount(prior ? String(passportUsageQuantity(prior)) : ""); }}
         placeholder={splitTarget !== null ? splitText.choose : t("passportMaterial.search")} noResultsText={t("passportMaterial.noResults")}
-        serverFilter onSearchChange={setMaterialSearch} loading={materialBatchLoading} disabled={saving} />
+        serverFilter onSearchChange={setMaterialSearch} loading={materialBatchLoading || materialSearchUnsettled} disabled={saving} />
       {materialBatchError && <p className="text-sm text-red-600">{t("passportMaterial.loadError")}</p>}
       <label className="block text-xs text-[var(--erp-text-soft)]">{splitTarget !== null ? splitText.amount : t("page.cutting.plannedAmount")} ({selectedMaterial?.unit || "kg"})
         <input className="input mt-1" type="number" min="0.001" step="0.001" value={materialAmount} disabled={saving} onChange={event => setMaterialAmount(event.target.value)} />
       </label>
-      <div className="flex flex-wrap gap-2"><button type="button" className="btn" disabled={saving || materialPickerBusy} onClick={addMaterial}>{splitTarget !== null ? splitText.add : t("passportMaterial.add")}</button>
+      <div className="flex flex-wrap gap-2"><button type="button" className="btn" disabled={saving || materialPickerBusy || materialSearchUnsettled || materialBatchLoading} onClick={addMaterial}>{splitTarget !== null ? splitText.add : t("passportMaterial.add")}</button>
         <button type="button" className="btn" onClick={() => { setMaterialPickerOpen(false); setSplitTarget(null); }}>{t("common.cancel")}</button></div>
     </div>;
   }
@@ -802,7 +865,7 @@ export default function CuttingPassportsPage() {
         <label className="text-sm">{t("passportReport.to")}<input className="input mt-1" type="date" value={dateTo} min={dateFrom || undefined} onChange={(e) => setDateTo(e.target.value)} /></label>
         {(["today", "thisWeek", "thisMonth"] as const).map((period) => <button key={period} type="button" className="btn" onClick={() => selectPeriod(period)}>{t(`passportReport.${period}`)}</button>)}
         <button type="button" className="btn" onClick={() => { setDateFrom(""); setDateTo(""); }}>{t("passportReport.allTime")}</button>
-        {canReport && <button type="button" className="btn flex items-center gap-2" disabled={exporting || invalidPeriod} onClick={() => void exportPassports()}><Download className="h-4 w-4" />{t(exporting ? "passportReport.exporting" : "passportReport.export")}</button>}
+        {canReport && <button type="button" className="btn flex items-center gap-2" disabled={exporting || invalidPeriod || searchUnsettled} onClick={() => void exportPassports()}><Download className="h-4 w-4" />{t(exporting ? "passportReport.exporting" : "passportReport.export")}</button>}
       </div>
       {invalidPeriod && <p role="alert" className="mb-4 text-sm text-red-600">{t("passportReport.invalidPeriod")}</p>}
       {exportError && <p role="alert" className="mb-4 text-sm text-red-600">{exportError}</p>}
@@ -917,7 +980,7 @@ export default function CuttingPassportsPage() {
                   <td className="px-3 py-2">
                     {imageValue(p) ? (
                       looksLikeImage(imageValue(p)) ? (
-                        <img src={imageValue(p)} alt="" className="h-10 w-10 rounded object-cover" />
+                        <img loading="lazy" src={imageValue(p)} alt="" className="h-10 w-10 rounded object-cover" />
                       ) : (
                         <span className="whitespace-nowrap">{imageValue(p)}</span>
                       )
@@ -957,11 +1020,11 @@ export default function CuttingPassportsPage() {
                   <td className="bg-white group-hover:bg-stone-50 px-2 py-2 lg:sticky lg:right-0 lg:z-10 lg:shadow-[-2px_0_6px_-1px_rgba(0,0,0,0.08)]">
                     <div className="flex gap-1">
                       {p.cutting_work_order_id && <Link className="btn btn-ghost p-1 whitespace-nowrap" href={`/work-orders/${p.cutting_work_order_id}/cutting`} title={lang === "ru" ? "Открыть раскрой" : lang === "uz" ? "Bichishni ochish" : "Open Cutting"}><ExternalLink className="h-3.5 w-3.5" />{lang === "ru" ? "Открыть" : lang === "uz" ? "Ochish" : "Open"}</Link>}
-                      <button type="button" className="btn btn-ghost p-1 whitespace-nowrap" onClick={() => openNewBatch(p)}><Plus className="h-3.5 w-3.5" />{t("passportBatch.add")}</button>
-                      <button className="btn btn-ghost p-1" onClick={() => openEdit(passports.find((item) => item.id === p.id) || p)}>
+                      <button type="button" className="btn btn-ghost p-1 whitespace-nowrap" disabled={searchUnsettled} onClick={() => openNewBatch(p)}><Plus className="h-3.5 w-3.5" />{t("passportBatch.add")}</button>
+                      <button className="btn btn-ghost p-1" disabled={searchUnsettled} onClick={() => openEdit(passports.find((item) => item.id === p.id) || p)}>
                         <Pencil className="h-3.5 w-3.5" />
                       </button>
-                      <button className="btn btn-ghost p-1 text-red-500" onClick={() => del(p)}>
+                      <button className="btn btn-ghost p-1 text-red-500" disabled={searchUnsettled} onClick={() => del(p)}>
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
                     </div>
@@ -977,12 +1040,14 @@ export default function CuttingPassportsPage() {
       {/* Form modal */}
       <Modal
         open={showForm}
-        onClose={() => setShowForm(false)}
+        onClose={() => { orderRequest.current += 1; clearPendingDefaults(); openedRequest.current = `${cuttingDepartment}:${requestedOrder || ""}:${requestedPassport || ""}`; setShowForm(false); }}
         title={editing ? t("page.cuttingPassports.editTitle", { passport: editing.passport_no }) : t("page.cuttingPassports.createTitle")}
         wide
         closeOnOutsideClick={false}
       >
-        <form onSubmit={save} className="space-y-5">
+        <form onSubmit={save} onChangeCapture={() => { draftRevision.current += 1; }} className="space-y-5">
+          {(ordersError || usersError) && <div role="alert" className="text-sm text-red-600">{t("passportMaterial.loadError")} <button type="button" className="underline" onClick={() => { if (ordersError) void retryOrders(); if (usersError) void retryUsers(); }}>{t("common.retry")}</button></div>}
+          {materialDefaultsPending && <div role="alert" className="text-sm text-amber-700">{t("passportMaterial.unresolvedDraft")} <button type="button" className="underline" onClick={() => void reviewMaterialDefaults()}>{t("passportMaterial.reviewDefaults")}</button></div>}
           <p className="text-sm text-[#6f684f]">{t("passportBatch.help")}</p>
           <div className="border-b border-slate-200 pb-4">
             <label className="flex items-center gap-2 text-sm font-medium"><input type="checkbox" checked={form.tepa_pass} onChange={(event) => setForm((current) => ({ ...current, tepa_pass: event.target.checked }))} />Tepa pass</label>
@@ -993,7 +1058,7 @@ export default function CuttingPassportsPage() {
             <div className="flex items-center gap-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-700">
               <BookOpen className="h-3.5 w-3.5 shrink-0" />
               <span>{t("page.cuttingPassports.exampleLabel")}</span>
-              <button type="button" className="font-semibold underline" onClick={() => { orderRequest.current += 1; resetMaterialPicker(); setMaterialForms([]); setForm({ ...EXCEL_EXAMPLE }); }}>
+              <button type="button" className="font-semibold underline" onClick={() => { orderRequest.current += 1; clearPendingDefaults(); resetMaterialPicker(); setMaterialForms([]); setForm({ ...EXCEL_EXAMPLE }); }}>
                 {t("page.cuttingPassports.exampleLoad")}
               </button>
             </div>
@@ -1217,7 +1282,7 @@ export default function CuttingPassportsPage() {
 
           <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end">
             <button type="button" className="btn" onClick={() => setShowForm(false)}>{t("common.cancel")}</button>
-            <button type="submit" className="btn btn-primary" disabled={saving || materialPickerBusy || !!splitProblem}>
+            <button type="submit" className="btn btn-primary" disabled={saving || materialPickerBusy || !!splitProblem || materialDefaultsPending}>
               {editing ? t("common.save") : t("common.create")}
             </button>
           </div>
@@ -1228,6 +1293,21 @@ export default function CuttingPassportsPage() {
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+const MATERIAL_DRAFT_KEYS: Array<keyof typeof EMPTY_FORM> = ["operator_name_manual", "fabric_type", "lot_no", "meter_mode",
+  "rolls_count", "layer_weight_kg", "total_layers", "planned_kg", "pieces", "fabric_width_m", "lay_length_m",
+  "size_range", "gramage", "waste_pct", "beka_per_piece_kg", "other_beka_per_piece_kg", "scrap_kg", "ribana_per_piece_kg"];
+function materialDraftChanged(draft: typeof EMPTY_FORM, initial: typeof EMPTY_FORM): boolean {
+  return MATERIAL_DRAFT_KEYS.some(key => draft[key] !== initial[key]);
+}
+function preserveSingleMaterialDraft(rows: MaterialForm[], draft: typeof EMPTY_FORM, initial: typeof EMPTY_FORM): MaterialForm[] {
+  if (rows.length !== 1) return rows;
+  const row = { ...rows[0] };
+  for (const key of MATERIAL_DRAFT_KEYS) {
+    if (draft[key] !== initial[key]) Object.assign(row, { [key]: draft[key] });
+  }
+  return [row];
+}
 
 function Sec({ label, children }: { label: string; children: React.ReactNode }) {
   return (

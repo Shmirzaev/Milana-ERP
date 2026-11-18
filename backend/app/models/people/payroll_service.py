@@ -354,6 +354,7 @@ def _serialize_record(
     duplicate: bool = False,
     employees: dict[int, Employee] | None = None,
     departments: dict[int, Department] | None = None,
+    order_lookup=None,
 ) -> dict[str, Any]:
     employee = (employees or {}).get(int(record.employee_id))
     department = None
@@ -375,8 +376,8 @@ def _serialize_record(
         "work_order_id": record.work_order_id,
         "production_batch_id": record.production_batch_id,
         "model_id": record.model_id,
-        "production_no": _canonical_payroll_reference(object_session(record), "PO", record.production_no, entity_id=record.production_order_id),
-        "sales_order_no": _canonical_payroll_reference(object_session(record), "SO", record.sales_order_no, entity_id=record.sales_order_id, production_order_id=record.production_order_id),
+        "production_no": _canonical_payroll_reference(object_session(record), "PO", record.production_no, entity_id=record.production_order_id, lookup=order_lookup),
+        "sales_order_no": _canonical_payroll_reference(object_session(record), "SO", record.sales_order_no, entity_id=record.sales_order_id, production_order_id=record.production_order_id, lookup=order_lookup),
         "batch_no": _normalize_production_batch_no(record.batch_no),
         "model_code": record.model_code,
         "operation_section": record.operation_section,
@@ -390,7 +391,7 @@ def _serialize_record(
         "scanned_at": record.scanned_at,
         "source": record.source,
         "raw_employee_json": record.raw_employee_json,
-        "raw_work_json": _canonical_payroll_snapshot(object_session(record), record.raw_work_json, production_order_id=record.production_order_id, sales_order_id=record.sales_order_id),
+        "raw_work_json": _canonical_payroll_snapshot(object_session(record), record.raw_work_json, production_order_id=record.production_order_id, sales_order_id=record.sales_order_id, lookup=order_lookup),
         "status": record.status,
         "notes": record.notes,
         "created_at": record.created_at,
@@ -483,7 +484,8 @@ def list_records(db: Session, current: User, period_id: int | None=None, employe
         qry = qry.offset((page - 1) * page_size).limit(page_size)
     rows = qry.all()
     employees, departments = _load_employee_maps(db, {int(r.employee_id) for r in rows})
-    payloads = [_serialize_record(r, employees=employees, departments=departments) for r in rows]
+    order_lookup = _record_order_lookup(db, rows)
+    payloads = [_serialize_record(r, employees=employees, departments=departments, order_lookup=order_lookup) for r in rows]
     if total is None:
         return payloads
     return {
@@ -1653,6 +1655,24 @@ def _work_label_id_from_token(token: str) -> int | None:
     return int(normalized[1:])
 
 
+def _record_order_lookup(db, records):
+    requests, snapshots = set(), set()
+
+    def collect(namespace, reference, *, entity_id=None, production_order_id=None):
+        if reference or entity_id is not None:
+            snapshots.add((namespace, reference, entity_id, production_order_id))
+        return reference
+
+    for record in records:
+        requests.add(("PO", record.production_no, record.production_order_id, None))
+        requests.add(("SO", record.sales_order_no, record.sales_order_id, record.production_order_id))
+        _map_payroll_snapshot_references(
+            record.raw_work_json, collect, production_order_id=record.production_order_id,
+            sales_order_id=record.sales_order_id,
+        )
+    return _PayrollOrderLookup(db, requests | snapshots, snapshots)
+
+
 def _qr_label_order_lookup(db, count_rows, labels):
     requests, snapshots = set(), set()
 
@@ -2312,10 +2332,18 @@ def print_split_record_labels(record_id: int, db: Session, current: User):
     labels = db.query(PayrollQrLabel).filter_by(split_from_label_id=original.id, factory_code=factory).order_by(PayrollQrLabel.id).all()
     if not labels or any(label.status == "superseded" for label in labels):
         raise HTTPException(409, "Split labels changed; reload the current allocations")
+    record_ids = {label.payroll_record_id for label in labels if label.payroll_record_id}
+    records = {}
+    for ids in _PayrollOrderLookup._chunks(record_ids):
+        records.update((record.id, record) for record in db.query(PayrollRecord).filter(PayrollRecord.id.in_(ids)).all())
+    employee_ids = {record.employee_id for record in records.values() if record.employee_id}
+    employees = {}
+    for ids in _PayrollOrderLookup._chunks(employee_ids):
+        employees.update((employee.id, employee) for employee in db.query(Employee).filter(Employee.id.in_(ids)).all())
     cards = []
     for label in labels:
-        record = db.get(PayrollRecord, label.payroll_record_id) if label.payroll_record_id else None
-        employee = db.get(Employee, record.employee_id) if record else None
+        record = records.get(label.payroll_record_id)
+        employee = employees.get(record.employee_id) if record else None
         if not record or record.status != "recorded" or not employee or employee.factory_code != factory:
             raise HTTPException(409, "Split allocations are no longer recorded")
         token = _work_qr_token(label.id)

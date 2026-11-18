@@ -1,0 +1,10 @@
+{
+  "hosts": {
+    "backend": "milana-deploy@172.16.10.4",
+    "frontend": "milana-deploy@172.16.10.5"
+  },
+  "ssh_key": "/var/lib/milana-auto-release/credentials/deploy_ed25519",
+  "known_hosts": "/var/lib/milana-auto-release/credentials/known_hosts",
+  "token_file": "/var/lib/milana-auto-release/credentials/github.token",
+  "state_directory": "/var/lib/milana-auto-release/state"
+}

@@ -15,6 +15,15 @@ Last updated 2026-11-18. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
+## Frontend performance fixes (17 November; local candidate)
+
+Scanner fallback, Cutting request/draft handling, Packaging pagination and QR
+print preparation have focused automated, restored-copy API, browser and
+independent review evidence. Native print-dialog cancellation and full local
+image parity remain unverified; production performance/release gates remain.
+The owner requested a local `clone_main` commit. No push/deployment is included.
+See [scope, evidence and remaining gates](archive/FRONTEND_PERFORMANCE_FIXES_20261117.md).
+
 ## PO-0640 / PO-0641 Nastil exchange (18 November; applied)
 
 Owner-authorized [production correction](archive/PO0640_PO0641_SWAP_20261118.md)
@@ -29,6 +38,50 @@ Authenticated visual QA was blocked by the signed-out browser.
 Both hosts remain on verified green20261116_130518/schema0157; rollback
 20261116_092917 remains. All four health checks pass. No application deployment,
 schema/permission change, push or merge occurred.
+
+## Deployment automation baseline (17 November; source reconciliation)
+
+The automatic deployment source is implemented and independently reviewed in the
+dedicated worktree. Its 55 Linux deployment fault tests, CI/security policy tests
+and observer tests pass. The owner selected a lightweight fixed worker on backend;
+its fixed files, dedicated Linux accounts/SSH key, backend configuration and
+systemd service, site gates, restricted host configurations/sudo rules and separately
+pinned `RELEASE_ID` adapter are installed from reviewed commit
+`76c49093d5fc1466399fc2654a03660480d0ff5f`; installed routing controllers are unchanged.
+The service is **enabled/active** on backend, with `AUTO_RELEASE_BUILDS=true`;
+its first polling checkpoint is idle. The GitHub credential is provisioned
+under the owner's explicit authorization, readable only by the worker account;
+server-side Actions/branch/collaborator/policy reads, Contents/status writes and
+both restricted SSH helpers pass in the real hardened service sandbox. Credential
+rotation remains a follow-up. A pinned PostgreSQL 16 backup client replaces the
+incompatible native version 18 dump path; the private PostgreSQL 16 restore passes.
+The owned two-host preparation/approval/partial-cutover recovery rehearsal passed;
+both exact baselines were restored and temporary services/containers removed.
+Production activation timing remains unmeasured; bounded laboratory timings are
+in the task record. PR #558 is source-merged; broader backend CI is still running,
+while 55 focused Linux deployment tests, frontend/security checks and actual
+server verification pass. Future application candidates still require all CI jobs.
+Application changes require real, exact-plan QA evidence; missing evidence stops
+activation before either traffic switch. An initial live package-GET probe may have repaired QR cache/metadata;
+the effect was not fingerprinted. Later probes enforce read-only DB/storage.
+See [daily use/install](AUTO_DEPLOYMENT.md) and
+[verification/limitations](archive/AUTO_DEPLOYMENT_IMPLEMENTATION_20261117.md).
+
+Both source pointers name `20261116_130518`, manifest
+`bc2e0d4bdbb38f6c06b9f3d5c75f3fdaa1fb5087240ca8f7b49d01318908ce40`.
+All 2,559 declared files match raw Git blobs at
+`4d7cf17e55b165b1edc05407065f92597cebdbe5`; both manifest checks pass.
+Backend health/readiness report that release. Migration source head remains
+`0157_package_allocation_items`; protected installed-helper snapshots now pass on
+both VMs, including actual routing/container identities and the real backend
+database-head check. Both active slots are green; retained rollback is
+`20261116_092917` in blue. This supersedes earlier current-release
+pointers below; previous failure/waiver evidence remains historical and unchanged.
+The owner authorized reconciling this verified live lineage with `clone_main`,
+then preparing and installing automatic deployment. Installation used the existing
+SSH account's Docker administrator access; application releases, routing and schema
+were unchanged. No intentional business writes occurred; the early QR-repair
+uncertainty is recorded above.
 
 ## Model-file pool fix candidate (16 November; not deployed)
 

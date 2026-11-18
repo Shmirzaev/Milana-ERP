@@ -17,7 +17,7 @@ import tarfile
 from pathlib import Path
 
 
-RELEASE_NAME = re.compile(r"^\d{8}_\d{6}$")
+RELEASE_NAME = re.compile(r"^[0-9]{8}_[0-9]{6}(?:_[1-9][0-9]{0,19}_[1-9][0-9]{0,5})?$")
 
 
 def sha256(path: Path) -> str:

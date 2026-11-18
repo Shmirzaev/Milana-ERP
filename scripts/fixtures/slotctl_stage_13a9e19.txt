@@ -1,0 +1,29 @@
+def stage(role: str, slot: str, release: str, image: str) -> None:
+    if role == "backend":
+        validate_backend_connection_budget()
+    inspect_image(image)
+    remove_inactive_container(role, slot)
+    name = container_name(role, slot)
+    port = str(slot_port(role, slot))
+    command = [
+        "docker", "run", "-d", "--name", name, "--restart", "unless-stopped",
+        "--label", f"milana.release={release}", "--label", f"milana.slot={slot}",
+        "--label", f"milana.role={role}", "-p", f"127.0.0.1:{port}:{10000 if role == 'backend' else 3000}",
+    ]
+    if role == "backend":
+        command.extend([
+            "--env-file", str(BASE / "shared/backend.env"),
+            "-e", f"DB_POOL_SIZE={DB_POOL_SIZE}",
+            "-e", f"DB_MAX_OVERFLOW={DB_MAX_OVERFLOW}",
+            "-e", f"WEB_CONCURRENCY={BACKEND_WORKERS}",
+            "-v", "/app/storage:/app/storage",
+        ])
+    command.append(image)
+    run(*command)
+    try:
+        wait_for_health(role, slot)
+        warm(role, slot)
+    except Exception:
+        run("docker", "logs", "--tail", "200", name)
+        raise
+    print(json.dumps({"staged": True, "role": role, "slot": slot, "release": release, "image": image}))

@@ -20,6 +20,7 @@ import {
   Search,
 } from "lucide-react";
 import { api, fetcher } from "@/lib/api";
+import { ApiError } from "@/lib/errorMessages";
 import { sewingBandText } from "@/lib/sewingBandText";
 import { sewingReceiptText } from "@/lib/sewingReceiptText";
 import PageHeader from "@/components/PageHeader";
@@ -324,7 +325,6 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
     }
     const candidates = bundleLookupCandidates(code);
     if (!candidates.length) return;
-    let lastError = "";
     setIsLookingUp(true);
     try {
       for (const candidate of candidates) {
@@ -336,22 +336,15 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
           rememberBundle(b);
           focusScanInput(true);
           return;
-        } catch (e: any) {
-          lastError = e.message;
-          // A conflicting QR must not become a different bundle through token fallback.
-          if (e?.status === 409 || /^409:/.test(String(e?.message || ""))) throw e;
+        } catch (e: unknown) {
+          // Only a missing candidate permits trying another legacy token.
+          if (!(e instanceof ApiError) || e.status !== 404) throw e;
+          if (candidate === candidates[candidates.length - 1]) throw e;
         }
       }
-
-      const b = await api.get(`/api/bundles/barcode/${encodeURIComponent(candidates[0])}`);
-      setBundle(b);
-      setSewingBatch(null);
-      setCode(candidates[0]);
-      rememberBundle(b);
-      focusScanInput(true);
     } catch (e: any) {
       setBundle(null);
-      setMsg(lastError || e.message);
+      setMsg(e.message);
       setMessageTone("error");
       focusScanInput(true);
     } finally {

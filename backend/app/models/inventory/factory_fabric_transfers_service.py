@@ -10,7 +10,7 @@ from io import BytesIO
 from fastapi import HTTPException
 from openpyxl import Workbook
 from openpyxl.styles import Font
-from sqlalchemy import or_, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session, lazyload
 
 from app.libs.dto.inventory.eco_inventory_input import FactoryFabricDispatchIn, FactoryFabricReceiptIn
@@ -22,8 +22,9 @@ from app.models.factory_scope_service import require_factory_access, selected_fa
 from app.core.dt import as_utc
 from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response
 from app.models.inventory.eco_inventory_service import require_permission
-from app.models.inventory_service import available_reservation_item_capacity, reserved_stock_for_batch
-from app.schemas import Department, EcoFabricRoll, Item, ProductionOrder, ProductionOrderMaterial, StockBatch, User, Warehouse
+from app.models.inventory.line_availability_service import line_availability
+from app.models.inventory_service import ACTIVE_RESERVATION_STATUSES
+from app.schemas import Department, EcoFabricRoll, Item, MaterialReservation, ProductionOrder, ProductionOrderMaterial, StockBatch, StockMovement, User, Warehouse
 from app.schemas.inventory.eco_inventory import FactoryFabricTransfer, FactoryFabricTransferLine
 from app.schemas.inventory import eco_inventory_persistence as persistence
 from app.schemas.inventory import stock_movement_persistence
@@ -50,7 +51,23 @@ def list_transfers(db: Session, current: User, status: FactoryFabricTransferStat
     query = db.query(FactoryFabricTransfer)
     if status:
         query = query.filter(FactoryFabricTransfer.status == status.value)
-    return [transfer_output(db, transfer) for transfer in query.order_by(FactoryFabricTransfer.id.desc()).offset(offset).limit(limit).all()]
+    transfers = query.order_by(FactoryFabricTransfer.id.desc()).offset(offset).limit(limit).all()
+    if not transfers:
+        return []
+    actor_ids = {transfer.dispatched_by for transfer in transfers}
+    actors = {actor.id: actor for actor in db.query(User).filter(User.id.in_(actor_ids)).all()}
+    lines_by_transfer = {transfer.id: [] for transfer in transfers}
+    lines = (db.query(FactoryFabricTransferLine)
+             .filter(FactoryFabricTransferLine.transfer_id.in_(lines_by_transfer))
+             .order_by(FactoryFabricTransferLine.id).all())
+    for line in lines:
+        lines_by_transfer[line.transfer_id].append(FactoryFabricTransferLineOut.model_validate(line))
+    return [FactoryFabricTransferOut(
+        id=transfer.id, number=f"MEC-{transfer.id:06d}",
+        status=FactoryFabricTransferStatus(transfer.status), dispatched_at=as_utc(transfer.dispatched_at),
+        operator_name=actors[transfer.dispatched_by].name, notes=transfer.notes,
+        lines=lines_by_transfer[transfer.id],
+    ) for transfer in transfers]
 
 
 def _source_is_milana(db: Session, batch: StockBatch) -> bool:
@@ -70,6 +87,62 @@ def _customer_owned(db: Session, batch_id: int) -> bool:
                     ProductionOrder.source_type == "usluga",
                     or_(ProductionOrder.fabric_batch_id == batch_id, ProductionOrderMaterial.stock_batch_id == batch_id),
                 ).first())
+
+
+def _source_availability(db: Session, batches: list[StockBatch]) -> dict[int, Decimal]:
+    """Load the same global and warehouse pools used by the reservation helpers."""
+    if not batches:
+        return {}
+    item_ids = {batch.item_id for batch in batches}
+    batch_ids = {batch.id for batch in batches}
+    active = MaterialReservation.status.in_(ACTIVE_RESERVATION_STATUSES)
+    remaining = (MaterialReservation.reserved_quantity - MaterialReservation.consumed_quantity
+                 - MaterialReservation.released_quantity)
+    batch_reserved = {key: max(0.0, float(value or 0)) for key, value in db.query(
+        MaterialReservation.stock_batch_id, func.sum(remaining)).filter(
+            active, MaterialReservation.stock_batch_id.in_(batch_ids)).group_by(MaterialReservation.stock_batch_id)}
+    global_reserved = {key: max(0.0, float(value or 0)) for key, value in db.query(
+        MaterialReservation.item_id, func.sum(remaining)).filter(
+            active, MaterialReservation.item_id.in_(item_ids)).group_by(MaterialReservation.item_id)}
+    warehouse_reserved = {(item, warehouse): max(0.0, float(value or 0)) for item, warehouse, value in db.query(
+        MaterialReservation.item_id, MaterialReservation.warehouse_id, func.sum(remaining)).filter(
+            active, MaterialReservation.item_id.in_(item_ids)).group_by(
+                MaterialReservation.item_id, MaterialReservation.warehouse_id)}
+    global_stock = {key: float(value or 0) for key, value in db.query(
+        StockBatch.item_id, func.sum(StockBatch.quantity)).filter(
+            StockBatch.item_id.in_(item_ids)).group_by(StockBatch.item_id)}
+    warehouse_stock = {(item, warehouse): float(value or 0) for item, warehouse, value in db.query(
+        StockBatch.item_id, StockBatch.warehouse_id, func.sum(StockBatch.quantity)).filter(
+            StockBatch.item_id.in_(item_ids)).group_by(StockBatch.item_id, StockBatch.warehouse_id)}
+    out_types = ("issue", "consume", "waste", "shipment")
+    in_types = ("produce", "return", "adjustment")
+    global_movement = {item: (float(incoming or 0), float(outgoing or 0)) for item, incoming, outgoing in db.query(
+        StockMovement.item_id,
+        func.sum(case((StockMovement.movement_type.in_(in_types), StockMovement.quantity), else_=0)),
+        func.sum(case((StockMovement.movement_type.in_(out_types), StockMovement.quantity), else_=0)),
+    ).filter(StockMovement.item_id.in_(item_ids), StockMovement.batch_id.is_(None)).group_by(StockMovement.item_id)}
+    incoming_by_warehouse = {(item, warehouse): float(value or 0) for item, warehouse, value in db.query(
+        StockMovement.item_id, StockMovement.to_warehouse_id, func.sum(StockMovement.quantity)).filter(
+            StockMovement.item_id.in_(item_ids), StockMovement.batch_id.is_(None),
+            StockMovement.movement_type.in_((*in_types, "transfer"))).group_by(
+                StockMovement.item_id, StockMovement.to_warehouse_id)}
+    outgoing_by_warehouse = {(item, warehouse): float(value or 0) for item, warehouse, value in db.query(
+        StockMovement.item_id, StockMovement.from_warehouse_id, func.sum(StockMovement.quantity)).filter(
+            StockMovement.item_id.in_(item_ids), StockMovement.batch_id.is_(None),
+            StockMovement.movement_type.in_((*out_types, "transfer"))).group_by(
+                StockMovement.item_id, StockMovement.from_warehouse_id)}
+    result = {}
+    for batch in batches:
+        item = batch.item_id
+        key = (item, batch.warehouse_id)
+        incoming, outgoing = global_movement.get(item, (0.0, 0.0))
+        global_available = global_stock.get(item, 0.0) + incoming - outgoing - global_reserved.get(item, 0.0)
+        warehouse_available = (warehouse_stock.get(key, 0.0) + incoming_by_warehouse.get(key, 0.0)
+                               - outgoing_by_warehouse.get(key, 0.0) - warehouse_reserved.get(key, 0.0))
+        capacity = min(global_available, warehouse_available) if batch.warehouse_id is not None else global_available
+        result[batch.id] = min(Decimal(batch.quantity) - Decimal(str(batch_reserved.get(batch.id, 0.0))),
+                               Decimal(str(capacity)).quantize(Decimal("0.0001")))
+    return result
 
 
 def source_batches(db: Session, current: User, offset: int = 0, limit: int = 200, q: str | None = None) -> list[FactoryFabricSourceBatchOut]:
@@ -99,9 +172,9 @@ def source_batches(db: Session, current: User, offset: int = 0, limit: int = 200
         query = query.filter(or_(Item.name.icontains(q.strip(), autoescape=True), StockBatch.batch_no.icontains(q.strip(), autoescape=True),
                                  StockBatch.color.icontains(q.strip(), autoescape=True)))
     batches = query.order_by(StockBatch.id.desc()).offset(offset).limit(limit).all()
+    availability = _source_availability(db, [batch for batch, _ in batches])
     for batch, item in batches:
-        available = min(Decimal(batch.quantity) - Decimal(str(reserved_stock_for_batch(db, batch.id))),
-                        Decimal(str(available_reservation_item_capacity(db, batch.item_id, batch.warehouse_id))).quantize(Decimal("0.0001")))
+        available = availability[batch.id]
         result.append(FactoryFabricSourceBatchOut(id=batch.id, item_name=item.name, batch_no=batch.batch_no,
                                                   color=batch.color, unit=batch.unit, quantity=batch.quantity,
                                                   available_quantity=max(Decimal(0), available)))
@@ -127,6 +200,9 @@ def dispatch(db: Session, payload: FactoryFabricDispatchIn, current: User) -> Fa
                                                   .with_for_update(of=Item, key_share=True)).scalars().all()}
     quantities = {line.source_batch_id: line.quantity for line in payload.lines}
     transfer = persistence.insert_transfer(db, created_by=current.id, notes=payload.notes)
+    # Eco send and return lock the same batch before changing outstanding custody.
+    custody_batch_ids = {batch_id for (batch_id,) in db.query(EcoFabricRoll.batch_id).filter(
+        EcoFabricRoll.batch_id.in_(source_ids), EcoFabricRoll.returned_at.is_(None)).distinct().all()}
     for batch in batches:
         item = items[batch.item_id]
         if batch.archived_at or item.category not in ("fabric", "semi_finished") or not _source_is_milana(db, batch):
@@ -135,11 +211,12 @@ def dispatch(db: Session, payload: FactoryFabricDispatchIn, current: User) -> Fa
             raise HTTPException(409, "Fabric must pass quality inspection before dispatch to ECO COTTON")
         if _customer_owned(db, batch.id):
             raise HTTPException(409, "Customer-owned Usluga fabric cannot be transferred into Eco Cotton stock")
-        if db.query(EcoFabricRoll.id).filter_by(batch_id=batch.id, returned_at=None).first():
+        if batch.id in custody_batch_ids:
             raise HTTPException(409, "Return outstanding fabric through the existing Eco custody register first")
         quantity = quantities[batch.id]
-        available = min(Decimal(batch.quantity) - Decimal(str(reserved_stock_for_batch(db, batch.id))),
-                        Decimal(str(available_reservation_item_capacity(db, batch.item_id, batch.warehouse_id))).quantize(Decimal("0.0001")))
+        reserved, capacity = line_availability(db, batch.id, batch.item_id, batch.warehouse_id, global_capacity=True)
+        available = min(Decimal(batch.quantity) - Decimal(str(reserved)),
+                        Decimal(str(capacity)).quantize(Decimal("0.0001")))
         if quantity > available:
             raise HTTPException(409, f"Transfer exceeds available stock for batch {batch.batch_no}")
         persistence.insert_transfer_line(db, transfer_id=transfer.id, source_batch_id=batch.id, item_id=item.id,

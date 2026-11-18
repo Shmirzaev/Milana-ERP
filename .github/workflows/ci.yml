@@ -6,7 +6,8 @@ on:
     branches:
       - main
       - clone_main
-      # These exact pushes produce the authorized QA runtime artifacts.
+      # Worktree pushes validate on hosted runners; QA runtime authorization stays exact.
+      - codex/**
       - codex/ismail-finance-pilot-20261025
       - codex/ismail-brand-feedback-20261028
       - codex/ismail-combined-review-20261028
@@ -45,6 +46,24 @@ permissions:
   packages: write
 
 jobs:
+  release-plan:
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.plan.outputs.enabled }}
+      release: ${{ steps.plan.outputs.release }}
+      base_release: ${{ steps.plan.outputs.base_release }}
+      base_manifest: ${{ steps.plan.outputs.base_manifest }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Select immutable candidate identity
+        id: plan
+        env:
+          AUTO_RELEASE_BUILDS: ${{ vars.AUTO_RELEASE_BUILDS }}
+          SECURITY_ONLY: ${{ inputs.security_scan_only }}
+          INPUT_RELEASE: ${{ inputs.release_id }}
+          INPUT_BASE_RELEASE: ${{ inputs.production_base_release }}
+          INPUT_BASE_MANIFEST: ${{ inputs.production_base_manifest }}
+        run: python scripts/release_ci_identity.py
   security-scope:
     permissions:
       contents: read
@@ -66,12 +85,12 @@ jobs:
           touch "$RUNNER_TEMP/security-changed.txt"
           python scripts/security_gate.py --scope --changed-files "$RUNNER_TEMP/security-changed.txt"
   security-scan:
-    needs: security-scope
+    needs: [security-scope, release-plan]
     if: needs.security-scope.outputs.required == 'true'
     uses: ./.github/workflows/security-scan.yml
     with:
       source_ref: ${{ github.event_name == 'schedule' && 'clone_main' || github.event_name == 'workflow_dispatch' && inputs.security_scan_only && inputs.security_scan_ref || github.sha }}
-      release_images: ${{ github.event_name == 'workflow_dispatch' && !inputs.security_scan_only }}
+      release_images: ${{ needs.release-plan.outputs.enabled == 'true' }}
   backend:
     if: github.event_name != 'schedule' && !(github.event_name == 'workflow_dispatch' && inputs.security_scan_only)
     runs-on: ubuntu-latest
@@ -127,7 +146,7 @@ jobs:
         working-directory: backend
         env:
           PLANNING_CUTTING_POSTGRES_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/first_grade_qa_ci
-        run: python -m pytest -q app/tests/test_planning_cutting_factory_postgres.py
+        run: python -m pytest -q app/tests/test_planning_cutting_factory_postgres.py app/tests/test_packaging_report_page_postgres.py
       - name: BST handoff PostgreSQL preservation and recovery
         env:
           PYTHONPATH: ./backend
@@ -195,6 +214,8 @@ jobs:
           backend/app/tests/test_manual_packaging_postgres.py
           backend/app/tests/test_payroll_qr_return_races.py
           backend/app/tests/test_payroll_period_races.py
+      - name: Automatic release trust, drift and recovery regressions
+        run: python -m unittest discover -s scripts -p 'test_auto_release*.py' -v
       - name: Deployment observation regression suite
         run: python -m unittest discover -s scripts -p 'test_observe_release.py' -v
       - name: Create disposable Sales list review database
@@ -377,21 +398,21 @@ jobs:
           printf 'QA artifact digest: %s\n' "$ARTIFACT_DIGEST" >> "$GITHUB_STEP_SUMMARY"
 
   release:
-    if: github.event_name == 'workflow_dispatch' && !inputs.security_scan_only
-    needs: [backend, frontend, security-scan]
+    if: needs.release-plan.outputs.enabled == 'true' && !inputs.security_scan_only
+    needs: [release-plan, backend, frontend, security-scan]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Validate release identity and production base
         env:
-          RELEASE_ID: ${{ inputs.release_id }}
+          RELEASE_ID: ${{ needs.release-plan.outputs.release }}
         run: |
-          [[ "$RELEASE_ID" =~ ^[0-9]{8}_[0-9]{6}$ ]]
+          [[ "$RELEASE_ID" =~ ^[0-9]{8}_[0-9]{6}(_[1-9][0-9]{0,19}_[1-9][0-9]{0,5})?$ ]]
           python scripts/verify_release_source.py . \
-            --expected-base-release '${{ inputs.production_base_release }}' \
-            --expected-base-manifest '${{ inputs.production_base_manifest }}'
+            --expected-base-release '${{ needs.release-plan.outputs.base_release }}' \
+            --expected-base-manifest '${{ needs.release-plan.outputs.base_manifest }}'
       - name: Package deterministic source archive
-        run: python scripts/package_release.py --release '${{ inputs.release_id }}' --output 'milana-erp-${{ inputs.release_id }}.tar.gz'
+        run: python scripts/package_release.py --release '${{ needs.release-plan.outputs.release }}' --output 'milana-erp-${{ needs.release-plan.outputs.release }}.tar.gz'
       - name: Authenticate to GHCR
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -425,7 +446,7 @@ jobs:
       - name: Publish scanned backend image
         id: backend_image
         env:
-          DESTINATION: ${{ steps.images.outputs.backend }}:${{ inputs.release_id }}
+          DESTINATION: ${{ steps.images.outputs.backend }}:${{ needs.release-plan.outputs.release }}
         run: |
           docker tag "milana-security-backend:$GITHUB_RUN_ID" "$DESTINATION"
           docker push "$DESTINATION"
@@ -441,23 +462,30 @@ jobs:
       - name: Publish scanned frontend image
         id: frontend_image
         env:
-          DESTINATION: ${{ steps.images.outputs.frontend }}:${{ inputs.release_id }}
+          DESTINATION: ${{ steps.images.outputs.frontend }}:${{ needs.release-plan.outputs.release }}
         run: |
           docker tag "milana-security-frontend:$GITHUB_RUN_ID" "$DESTINATION"
           docker push "$DESTINATION"
           digest=$(docker image inspect --format '{{index .RepoDigests 0}}' "$DESTINATION")
           echo "digest=${digest##*@}" >> "$GITHUB_OUTPUT"
+      - name: Pin deployment manifest to validated source and published digests
+        env:
+          RELEASE_ID: ${{ needs.release-plan.outputs.release }}
+          BACKEND_IMAGE: ${{ steps.images.outputs.backend }}@${{ steps.backend_image.outputs.digest }}
+          FRONTEND_IMAGE: ${{ steps.images.outputs.frontend }}@${{ steps.frontend_image.outputs.digest }}
+        run: python scripts/prepare_release_manifest.py
       - uses: actions/upload-artifact@v4
         with:
-          name: milana-erp-${{ inputs.release_id }}
+          name: milana-erp-${{ needs.release-plan.outputs.release }}
           path: |
-            milana-erp-${{ inputs.release_id }}.tar.gz
-            milana-erp-${{ inputs.release_id }}.tar.gz.json
+            milana-erp-${{ needs.release-plan.outputs.release }}.tar.gz
+            milana-erp-${{ needs.release-plan.outputs.release }}.tar.gz.json
+            deployment.json
           if-no-files-found: error
           retention-days: 90
       - name: Report artifacts ready
         env:
-          RELEASE_ID: ${{ inputs.release_id }}
+          RELEASE_ID: ${{ needs.release-plan.outputs.release }}
           BACKEND_IMAGE: ${{ steps.images.outputs.backend }}@${{ steps.backend_image.outputs.digest }}
           FRONTEND_IMAGE: ${{ steps.images.outputs.frontend }}@${{ steps.frontend_image.outputs.digest }}
         run: |
@@ -479,7 +507,8 @@ jobs:
               f"Frontend: `{os.environ['FRONTEND_IMAGE']}`",
               "",
               "Backend/frontend validation passed and immutable artifacts were published.",
-              "This workflow does not activate production.",
+              "This workflow does not activate production. The installed LAN worker prepares eligible branch candidates.",
+              "Wait for Milana / production: Ready to deploy before merging the exact candidate into clone_main.",
               "Follow DEPLOYMENT.md for source rechecks, backup, staging, QA and cutover.",
               "Report Live only after both roles and postflight pass; report Observation complete",
               "only after the reviewed 10-minute low-risk or 30-minute high-risk window",

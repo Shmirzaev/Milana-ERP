@@ -134,6 +134,11 @@ for (const page of ["packages", "packaging/queue", "packaging/reports"]) {
         useRef: initial => ({ current: initial }),
         useMemo: fn => fn(),
         useSWR: key => { if (key) keys.push(key); return {}; },
+        useSWRInfinite: getKey => {
+          const key = getKey(0, null);
+          if (key) keys.push(Array.isArray(key) ? key[0] : key);
+          return {};
+        },
         useLoadMore: key => { if (key) keys.push(key); return {}; },
         packagingDepartmentForSession: access.packagingDepartmentForSession,
         can: () => true, fetcher: () => {}, today: () => "2026-09-18",

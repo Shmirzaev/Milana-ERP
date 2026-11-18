@@ -21,6 +21,7 @@ from app.core.order_reference import order_reference_contains
 from app.core.signing import sign_path
 from app.models.model_images_service import model_variant_picture_url
 from app.models.sales.orders_service import _serialize_sales_order
+from app.models.sales.history_read_context import HistoryReadContext, load_history_read_context
 from app.schemas import (
     AuditLog, BrandedPlanningOrder, Bundle, CuttingRecord, Customer, FinishedGoodsStock, Invoice,
     Item, MaterialReservation, Model, Package, PackagingRecord, Payment, PrintingRecord,
@@ -80,13 +81,13 @@ def _model_refs(db: Session, model_ids: set[int]) -> dict[int, dict]:
     }
 
 
-def _history_products(db: Session, model_ids: set[int]) -> list[dict]:
-    if not model_ids:
+def _history_products(db: Session, model_ids: set[int], *, model_filter=None) -> list[dict]:
+    if not model_ids and model_filter is None:
         return []
     models = (
         db.query(Model)
         .options(joinedload(Model.images), joinedload(Model.bom))
-        .filter(Model.id.in_(model_ids))
+        .filter(Model.id.in_(model_filter if model_filter is not None else model_ids))
         .order_by(Model.code.asc())
         .all()
     )
@@ -281,148 +282,185 @@ def _production_step_records(db: Session, production_orders: list[ProductionOrde
     }
 
 
-def _sales_order_history(db: Session, so: SalesOrder, *, include_detail: bool = False) -> dict:
-    sales_items = (
-        db.query(SalesOrderItem)
-        .filter(SalesOrderItem.sales_order_id == so.id)
-        .order_by(SalesOrderItem.id.asc())
-        .all()
-    )
-    production_orders = (
-        db.query(ProductionOrder)
-        .options(
-            joinedload(ProductionOrder.items),
-            joinedload(ProductionOrder.batches),
-            joinedload(ProductionOrder.work_orders),
+def _sales_order_history(db: Session, so: SalesOrder, *, include_detail: bool = False, context: HistoryReadContext | None = None) -> dict:
+    if context is not None:
+        sales_items = context.items_by_sales.get(so.id, [])
+        production_orders = context.production_by_sales.get(so.id, [])
+        po_ids = [int(po.id) for po in production_orders]
+        work_orders = sorted(
+            [wo for po in production_orders for wo in (po.work_orders or [])],
+            key=lambda wo: (int(wo.production_batch_id or 0), str(wo.operation or ""), int(wo.id)),
         )
-        .filter(ProductionOrder.sales_order_id == so.id)
-        .order_by(ProductionOrder.id.asc())
-        .all()
-    )
-    po_ids = [int(po.id) for po in production_orders]
-    work_orders = sorted(
-        [wo for po in production_orders for wo in (po.work_orders or [])],
-        key=lambda wo: (int(wo.production_batch_id or 0), str(wo.operation or ""), int(wo.id)),
-    )
-    work_order_ids = [int(wo.id) for wo in work_orders]
-
-    if work_order_ids:
-        cutting_records = (
-            db.query(CuttingRecord)
-            .filter(CuttingRecord.work_order_id.in_(work_order_ids))
-            .order_by(CuttingRecord.id.asc())
-            .all()
-        )
-        printing_records = (
-            db.query(PrintingRecord)
-            .filter(PrintingRecord.work_order_id.in_(work_order_ids))
-            .order_by(PrintingRecord.id.asc())
-            .all()
-        )
-        sewing_records = (
-            db.query(SewingRecord)
-            .filter(SewingRecord.work_order_id.in_(work_order_ids))
-            .order_by(SewingRecord.id.asc())
-            .all()
-        )
-        packaging_records = (
-            db.query(PackagingRecord)
-            .filter(PackagingRecord.work_order_id.in_(work_order_ids))
-            .order_by(PackagingRecord.id.asc())
-            .all()
-        )
+        work_order_ids = {int(wo.id) for wo in work_orders}
+        cutting_records = context.stage_rows("cutting", work_order_ids)
+        printing_records = context.stage_rows("printing", work_order_ids)
+        sewing_records = context.stage_rows("sewing", work_order_ids)
+        packaging_records = context.stage_rows("packaging", work_order_ids)
+        package_map = {pkg.id: pkg for pkg in context.packages_by_sales.get(so.id, ())}
+        for po_id in po_ids:
+            package_map.update((pkg.id, pkg) for pkg in context.packages_by_production.get(po_id, ()))
+        packages = sorted(package_map.values(), key=lambda pkg: pkg.id)
+        package_ids = {int(pkg.id) for pkg in packages}
+        direct = context.shipments_by_sales.get(so.id, [])
+        linked_ids = {int(link.shipment_id) for pid in package_ids for link in context.links_by_package.get(pid, ())}
+        direct_ids = {int(sh.id) for sh in direct}
+        shipments = direct + [context.shipments_by_id[sid] for sid in sorted(linked_ids - direct_ids) if sid in context.shipments_by_id]
+        shipment_ids = {int(sh.id) for sh in shipments}
+        if package_ids:
+            shipment_package_rows = sorted((link for pid in package_ids for link in context.links_by_package.get(pid, ()) if link.shipment_id in shipment_ids), key=lambda link: link.id)
+        else:
+            shipment_package_rows = sorted((link for sid in shipment_ids for link in context.links_by_shipment.get(sid, ())), key=lambda link: link.id)
+        invoices = context.invoices_by_sales.get(so.id, [])
+        invoice_ids = {int(inv.id) for inv in invoices}
+        payments = sorted((payment for iid in invoice_ids for payment in context.payments_by_invoice.get(iid, ())), key=lambda payment: context.payment_rank[payment.id])
+        references = {
+            "SalesOrder": {int(so.id)}, "ProductionOrder": set(po_ids),
+            "CuttingRecord": {int(row.id) for row in cutting_records},
+            "PackagingRecord": {int(row.id) for row in packaging_records},
+        }
+        movement_rows = context.movement_rows(references)
     else:
-        cutting_records = []
-        printing_records = []
-        sewing_records = []
-        packaging_records = []
+        sales_items = (
+            db.query(SalesOrderItem)
+            .filter(SalesOrderItem.sales_order_id == so.id)
+            .order_by(SalesOrderItem.id.asc())
+            .all()
+        )
+        production_orders = (
+            db.query(ProductionOrder)
+            .options(
+                joinedload(ProductionOrder.items),
+                joinedload(ProductionOrder.batches),
+                joinedload(ProductionOrder.work_orders),
+            )
+            .filter(ProductionOrder.sales_order_id == so.id)
+            .order_by(ProductionOrder.id.asc())
+            .all()
+        )
+        po_ids = [int(po.id) for po in production_orders]
+        work_orders = sorted(
+            [wo for po in production_orders for wo in (po.work_orders or [])],
+            key=lambda wo: (int(wo.production_batch_id or 0), str(wo.operation or ""), int(wo.id)),
+        )
+        work_order_ids = [int(wo.id) for wo in work_orders]
 
-    package_filters = [Package.sales_order_id == so.id]
-    if po_ids:
-        package_filters.append(Package.production_order_id.in_(po_ids))
-    packages = (
-        db.query(Package)
-        .options(joinedload(Package.items))
-        .filter(or_(*package_filters))
-        .order_by(Package.id.asc())
-        .all()
-    )
-    package_ids = [int(pkg.id) for pkg in packages]
+        if work_order_ids:
+            cutting_records = (
+                db.query(CuttingRecord)
+                .filter(CuttingRecord.work_order_id.in_(work_order_ids))
+                .order_by(CuttingRecord.id.asc())
+                .all()
+            )
+            printing_records = (
+                db.query(PrintingRecord)
+                .filter(PrintingRecord.work_order_id.in_(work_order_ids))
+                .order_by(PrintingRecord.id.asc())
+                .all()
+            )
+            sewing_records = (
+                db.query(SewingRecord)
+                .filter(SewingRecord.work_order_id.in_(work_order_ids))
+                .order_by(SewingRecord.id.asc())
+                .all()
+            )
+            packaging_records = (
+                db.query(PackagingRecord)
+                .filter(PackagingRecord.work_order_id.in_(work_order_ids))
+                .order_by(PackagingRecord.id.asc())
+                .all()
+            )
+        else:
+            cutting_records = []
+            printing_records = []
+            sewing_records = []
+            packaging_records = []
 
-    shipments = (
-        db.query(Shipment)
-        .options(joinedload(Shipment.packages))
-        .filter(Shipment.sales_order_id == so.id)
-        .order_by(Shipment.id.asc())
-        .all()
-    )
-    shipment_ids = {int(sh.id) for sh in shipments}
-    package_shipment_rows = (
-        db.query(ShipmentPackage)
-        .filter(ShipmentPackage.package_id.in_(package_ids))
-        .order_by(ShipmentPackage.id.asc())
-        .all()
-        if package_ids
-        else []
-    )
-    shipment_ids.update(int(row.shipment_id) for row in package_shipment_rows)
-    missing_shipment_ids = shipment_ids - {int(sh.id) for sh in shipments}
-    if missing_shipment_ids:
-        shipments.extend(
+        package_filters = [Package.sales_order_id == so.id]
+        if po_ids:
+            package_filters.append(Package.production_order_id.in_(po_ids))
+        packages = (
+            db.query(Package)
+            .options(joinedload(Package.items))
+            .filter(or_(*package_filters))
+            .order_by(Package.id.asc())
+            .all()
+        )
+        package_ids = [int(pkg.id) for pkg in packages]
+
+        shipments = (
             db.query(Shipment)
             .options(joinedload(Shipment.packages))
-            .filter(Shipment.id.in_(missing_shipment_ids))
+            .filter(Shipment.sales_order_id == so.id)
             .order_by(Shipment.id.asc())
             .all()
         )
-    shipment_ids = {int(sh.id) for sh in shipments}
-    if shipment_ids:
-        shipment_package_rows = (
+        shipment_ids = {int(sh.id) for sh in shipments}
+        package_shipment_rows = (
             db.query(ShipmentPackage)
-            .filter(ShipmentPackage.shipment_id.in_(shipment_ids))
+            .filter(ShipmentPackage.package_id.in_(package_ids))
             .order_by(ShipmentPackage.id.asc())
             .all()
+            if package_ids
+            else []
         )
-    else:
-        shipment_package_rows = []
-    if package_ids:
-        order_package_ids = set(package_ids)
-        shipment_package_rows = [row for row in shipment_package_rows if int(row.package_id) in order_package_ids]
+        shipment_ids.update(int(row.shipment_id) for row in package_shipment_rows)
+        missing_shipment_ids = shipment_ids - {int(sh.id) for sh in shipments}
+        if missing_shipment_ids:
+            shipments.extend(
+                db.query(Shipment)
+                .options(joinedload(Shipment.packages))
+                .filter(Shipment.id.in_(missing_shipment_ids))
+                .order_by(Shipment.id.asc())
+                .all()
+            )
+        shipment_ids = {int(sh.id) for sh in shipments}
+        if shipment_ids:
+            shipment_package_rows = (
+                db.query(ShipmentPackage)
+                .filter(ShipmentPackage.shipment_id.in_(shipment_ids))
+                .order_by(ShipmentPackage.id.asc())
+                .all()
+            )
+        else:
+            shipment_package_rows = []
+        if package_ids:
+            order_package_ids = set(package_ids)
+            shipment_package_rows = [row for row in shipment_package_rows if int(row.package_id) in order_package_ids]
 
-    invoices = (
-        db.query(Invoice)
-        .filter(Invoice.sales_order_id == so.id)
-        .order_by(Invoice.id.asc())
-        .all()
-    )
-    invoice_ids = [int(inv.id) for inv in invoices]
-    payments = (
-        db.query(Payment)
-        .filter(Payment.invoice_id.in_(invoice_ids))
-        .order_by(Payment.paid_at.desc().nullslast(), Payment.id.desc())
-        .all()
-        if invoice_ids
-        else []
-    )
+        invoices = (
+            db.query(Invoice)
+            .filter(Invoice.sales_order_id == so.id)
+            .order_by(Invoice.id.asc())
+            .all()
+        )
+        invoice_ids = [int(inv.id) for inv in invoices]
+        payments = (
+            db.query(Payment)
+            .filter(Payment.invoice_id.in_(invoice_ids))
+            .order_by(Payment.paid_at.desc().nullslast(), Payment.id.desc())
+            .all()
+            if invoice_ids
+            else []
+        )
 
-    movement_filters = []
-    cutting_ids = [int(row.id) for row in cutting_records]
-    packaging_record_ids = [int(row.id) for row in packaging_records]
-    if cutting_ids:
-        movement_filters.append((StockMovement.reference_type == "CuttingRecord") & StockMovement.reference_id.in_(cutting_ids))
-    if packaging_record_ids:
-        movement_filters.append((StockMovement.reference_type == "PackagingRecord") & StockMovement.reference_id.in_(packaging_record_ids))
-    if po_ids:
-        movement_filters.append((StockMovement.reference_type == "ProductionOrder") & StockMovement.reference_id.in_(po_ids))
-    movement_filters.append((StockMovement.reference_type == "SalesOrder") & (StockMovement.reference_id == so.id))
-    movement_rows = (
-        db.query(StockMovement, Item, StockBatch)
-        .join(Item, Item.id == StockMovement.item_id)
-        .outerjoin(StockBatch, StockBatch.id == StockMovement.batch_id)
-        .filter(or_(*movement_filters))
-        .order_by(StockMovement.created_at.desc(), StockMovement.id.desc())
-        .all()
-    )
+        movement_filters = []
+        cutting_ids = [int(row.id) for row in cutting_records]
+        packaging_record_ids = [int(row.id) for row in packaging_records]
+        if cutting_ids:
+            movement_filters.append((StockMovement.reference_type == "CuttingRecord") & StockMovement.reference_id.in_(cutting_ids))
+        if packaging_record_ids:
+            movement_filters.append((StockMovement.reference_type == "PackagingRecord") & StockMovement.reference_id.in_(packaging_record_ids))
+        if po_ids:
+            movement_filters.append((StockMovement.reference_type == "ProductionOrder") & StockMovement.reference_id.in_(po_ids))
+        movement_filters.append((StockMovement.reference_type == "SalesOrder") & (StockMovement.reference_id == so.id))
+        movement_rows = (
+            db.query(StockMovement, Item, StockBatch)
+            .join(Item, Item.id == StockMovement.item_id)
+            .outerjoin(StockBatch, StockBatch.id == StockMovement.batch_id)
+            .filter(or_(*movement_filters))
+            .order_by(StockMovement.created_at.desc(), StockMovement.id.desc())
+            .all()
+        )
 
     ordered_qty = sum(_int_qty(item.quantity) for item in sales_items)
     planned_qty = sum(_int_qty(po.planned_quantity) for po in production_orders)
@@ -554,10 +592,10 @@ def _sales_order_history(db: Session, so: SalesOrder, *, include_detail: bool = 
         "completed_at": completed_at,
         "last_activity_at": last_activity_at,
         "total_amount": _num(so.total_amount),
-        "products": _history_products(db, product_model_ids),
+        "products": (context.products_for(product_model_ids) if context is not None else _history_products(db, product_model_ids)),
         "summary": summary,
     }
-    customer = db.get(Customer, so.customer_id) if so.customer_id else None
+    customer = (context.customers.get(int(so.customer_id)) if context is not None else db.get(Customer, so.customer_id)) if so.customer_id else None
     if customer:
         row["customer_name"] = customer.name
 
@@ -810,7 +848,7 @@ def _sales_order_history(db: Session, so: SalesOrder, *, include_detail: bool = 
     return detail
 
 
-def _stock_production_history(db: Session, po: ProductionOrder, *, include_detail: bool = False) -> dict:
+def _stock_production_history(db: Session, po: ProductionOrder, *, include_detail: bool = False, context: HistoryReadContext | None = None) -> dict:
     """Build the same ledger shape for a Planning-created stock production order."""
     production_orders = [po]
     work_orders = sorted(
@@ -818,34 +856,48 @@ def _stock_production_history(db: Session, po: ProductionOrder, *, include_detai
         key=lambda wo: (int(wo.production_batch_id or 0), str(wo.operation or ""), int(wo.id)),
     )
     work_order_ids = [int(wo.id) for wo in work_orders]
-    cutting = db.query(CuttingRecord).filter(CuttingRecord.work_order_id.in_(work_order_ids)).all() if work_order_ids else []
-    printing = db.query(PrintingRecord).filter(PrintingRecord.work_order_id.in_(work_order_ids)).all() if work_order_ids else []
-    sewing = db.query(SewingRecord).filter(SewingRecord.work_order_id.in_(work_order_ids)).all() if work_order_ids else []
-    packaging = db.query(PackagingRecord).filter(PackagingRecord.work_order_id.in_(work_order_ids)).all() if work_order_ids else []
-    packages = (
-        db.query(Package)
-        .options(joinedload(Package.items), joinedload(Package.scan_logs))
-        .filter(Package.production_order_id == po.id)
-        .order_by(Package.id.asc())
-        .all()
-    )
-    movement_filters = [
-        (StockMovement.reference_type == "ProductionOrder") & (StockMovement.reference_id == po.id),
-    ]
-    cutting_ids = [int(row.id) for row in cutting]
-    packaging_ids = [int(row.id) for row in packaging]
-    if cutting_ids:
-        movement_filters.append((StockMovement.reference_type == "CuttingRecord") & StockMovement.reference_id.in_(cutting_ids))
-    if packaging_ids:
-        movement_filters.append((StockMovement.reference_type == "PackagingRecord") & StockMovement.reference_id.in_(packaging_ids))
-    movement_rows = (
-        db.query(StockMovement, Item, StockBatch)
-        .join(Item, Item.id == StockMovement.item_id)
-        .outerjoin(StockBatch, StockBatch.id == StockMovement.batch_id)
-        .filter(or_(*movement_filters))
-        .order_by(StockMovement.created_at.desc(), StockMovement.id.desc())
-        .all()
-    )
+    if context is not None:
+        work_ids = set(work_order_ids)
+        cutting = context.stage_rows("cutting", work_ids)
+        printing = context.stage_rows("printing", work_ids)
+        sewing = context.stage_rows("sewing", work_ids)
+        packaging = context.stage_rows("packaging", work_ids)
+        packages = context.packages_by_production.get(po.id, [])
+        references = {
+            "ProductionOrder": {int(po.id)},
+            "CuttingRecord": {int(row.id) for row in cutting},
+            "PackagingRecord": {int(row.id) for row in packaging},
+        }
+        movement_rows = context.movement_rows(references)
+    else:
+        cutting = db.query(CuttingRecord).filter(CuttingRecord.work_order_id.in_(work_order_ids)).all() if work_order_ids else []
+        printing = db.query(PrintingRecord).filter(PrintingRecord.work_order_id.in_(work_order_ids)).all() if work_order_ids else []
+        sewing = db.query(SewingRecord).filter(SewingRecord.work_order_id.in_(work_order_ids)).all() if work_order_ids else []
+        packaging = db.query(PackagingRecord).filter(PackagingRecord.work_order_id.in_(work_order_ids)).all() if work_order_ids else []
+        packages = (
+            db.query(Package)
+            .options(joinedload(Package.items), joinedload(Package.scan_logs))
+            .filter(Package.production_order_id == po.id)
+            .order_by(Package.id.asc())
+            .all()
+        )
+        movement_filters = [
+            (StockMovement.reference_type == "ProductionOrder") & (StockMovement.reference_id == po.id),
+        ]
+        cutting_ids = [int(row.id) for row in cutting]
+        packaging_ids = [int(row.id) for row in packaging]
+        if cutting_ids:
+            movement_filters.append((StockMovement.reference_type == "CuttingRecord") & StockMovement.reference_id.in_(cutting_ids))
+        if packaging_ids:
+            movement_filters.append((StockMovement.reference_type == "PackagingRecord") & StockMovement.reference_id.in_(packaging_ids))
+        movement_rows = (
+            db.query(StockMovement, Item, StockBatch)
+            .join(Item, Item.id == StockMovement.item_id)
+            .outerjoin(StockBatch, StockBatch.id == StockMovement.batch_id)
+            .filter(or_(*movement_filters))
+            .order_by(StockMovement.created_at.desc(), StockMovement.id.desc())
+            .all()
+        )
 
     material_by_key: dict[tuple[int, str], dict] = {}
     material_movements: list[dict] = []
@@ -917,7 +969,7 @@ def _stock_production_history(db: Session, po: ProductionOrder, *, include_detai
         "order_type": po.production_type, "status": po.status, "deadline": po.deadline,
         "created_at": po.created_at, "updated_at": po.updated_at, "completed_at": completed_at,
         "last_activity_at": last_activity_at, "total_amount": 0.0,
-        "products": _history_products(db, product_model_ids), "summary": summary,
+        "products": (context.products_for(product_model_ids) if context is not None else _history_products(db, product_model_ids)), "summary": summary,
     }
     if not include_detail:
         return row
@@ -1165,9 +1217,10 @@ def list_sales_order_history(
             joinedload(ProductionOrder.work_orders),
         ).filter(ProductionOrder.id.in_(production_ids)).all()
     } if production_ids else {}
+    context = load_history_read_context(db, list(selected_sales.values()), list(selected_production.values()), _history_products)
     payload = [
-        _sales_order_history(db, entity, include_detail=False)
-        if kind == "sales" else _stock_production_history(db, entity, include_detail=False)
+        _sales_order_history(db, entity, include_detail=False, context=context)
+        if kind == "sales" else _stock_production_history(db, entity, include_detail=False, context=context)
         for _, kind, row_id in selected
         # A candidate deleted between the two statements leaves a short page
         # rather than a failed request.

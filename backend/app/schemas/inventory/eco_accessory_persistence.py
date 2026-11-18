@@ -56,6 +56,22 @@ def allocate(db: Session, requirement_id: int, batch_id: int, quantity: Decimal)
         db.add(EcoAccessoryAllocation(requirement_id=requirement_id, batch_id=batch_id, quantity=quantity, issued_quantity=0))
 
 
+def allocate_many(db: Session, assignments: list[tuple[int, int, Decimal]]) -> None:
+    if not assignments:
+        return
+    existing = {(row.requirement_id, row.batch_id): row for row in db.query(EcoAccessoryAllocation)
+        .filter(EcoAccessoryAllocation.requirement_id.in_({req_id for req_id, _, _ in assignments})).all()}
+    for requirement_id, batch_id, quantity in assignments:
+        key = (requirement_id, batch_id)
+        row = existing.get(key)
+        if row is None:
+            row = EcoAccessoryAllocation(requirement_id=requirement_id, batch_id=batch_id, quantity=quantity, issued_quantity=0)
+            db.add(row)
+            existing[key] = row
+        else:
+            row.quantity += quantity
+
+
 def issue_allocation(db: Session, allocation: EcoAccessoryAllocation, quantity: Decimal) -> None:
     allocation.issued_quantity += quantity
     db.flush()
