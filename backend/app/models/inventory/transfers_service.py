@@ -21,9 +21,9 @@ from app.models import inventory_access_service as inventory_access
 from app.models.audit_service import log_action
 from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response
 from app.models.inventory.fabric_scans_service import TASHKENT, parse_roll
+from app.models.inventory.line_availability_service import line_availability
 from app.models.inventory_service import (
     available_reservation_item_capacity,
-    available_stock_for_item,
     reserved_stock_for_batch,
 )
 from app.models.inventory.stock_service import _locked_stock_batch_statement
@@ -264,14 +264,20 @@ def eco_send_fabric(db, payload: SendIn, user: User) -> dict:
                                   sent_at=datetime.now(timezone.utc), remaining_inventory=[])
     db.add(dispatch)
     db.flush()
+    # Send and return both lock each batch before changing its custody rows.
+    # Once all those locks are held, one read covers the requested identities.
+    outstanding = set(db.query(EcoFabricRoll.batch_id, EcoFabricRoll.roll_number).filter(
+        EcoFabricRoll.batch_id.in_(batches), EcoFabricRoll.returned_at.is_(None),
+    ).all())
     for bid, roll in identities:
         batch = batches[bid]
-        if db.query(EcoFabricRoll.id).filter_by(batch_id=bid, roll_number=roll, returned_at=None).first():
+        if (bid, roll) in outstanding:
             raise HTTPException(409, "ecoTransfers.alreadySent")
         amount, weights = eco_roll_quantity(db, batch, roll)
-        if batch.archived_at or batch.quantity - Decimal(str(reserved_stock_for_batch(db, bid))) < amount:
+        if batch.archived_at:
             raise HTTPException(409, "ecoTransfers.unavailable")
-        if Decimal(str(available_stock_for_item(db, batch.item_id, batch.warehouse_id))) < amount:
+        reserved, capacity = line_availability(db, bid, batch.item_id, batch.warehouse_id, global_capacity=False)
+        if batch.quantity - Decimal(str(reserved)) < amount or Decimal(str(capacity)) < amount:
             raise HTTPException(409, "ecoTransfers.unavailable")
         batch.roll_weights_kg = weights
         batch.quantity = Decimal(batch.quantity) - amount

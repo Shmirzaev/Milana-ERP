@@ -189,6 +189,14 @@ def _requirements(db: Session, plan):
     return db.query(EcoAccessoryRequirement).filter_by(plan_id=plan.id).order_by(EcoAccessoryRequirement.id).all() if plan else []
 
 
+def _issued_by_requirement(db: Session, requirements):
+    if not requirements:
+        return {}
+    return dict(db.query(EcoAccessoryAllocation.requirement_id, func.sum(EcoAccessoryAllocation.issued_quantity))
+        .filter(EcoAccessoryAllocation.requirement_id.in_([r.id for r in requirements]))
+        .group_by(EcoAccessoryAllocation.requirement_id).all())
+
+
 def _snapshot_matches(plan, order) -> bool:
     return (plan.model_id, plan.planning_order_id, plan.planned_quantity) == (order.model_id, order.planning_order_id, order.planned_quantity)
 
@@ -277,14 +285,16 @@ def save_plan(db: Session, current, order_id: int, payload: EcoAccessoryPlanIn) 
     if plan and plan.status != Status.DRAFT:
         raise HTTPException(409, "ecoAccessories.draftOnly")
     lines = []
+    items = {item.id: item for item in db.query(Item).filter(Item.id.in_([line.item_id for line in payload.lines])).all()} if payload.lines else {}
     for line in payload.lines:
-        item = db.get(Item, line.item_id)
+        item = items.get(line.item_id)
         if not item or not item.is_active or item.category not in {"accessory", "packaging"}:
             raise HTTPException(400, "ecoAccessories.accessoryRequired")
         lines.append((item.id, line.quantity, item.unit))
     if plan:
-        issued_by_item = {r.item_id: sum(a.issued_quantity for a in db.query(EcoAccessoryAllocation).filter_by(requirement_id=r.id).all())
-            for r in _requirements(db, plan)}
+        requirements = _requirements(db, plan)
+        issued = _issued_by_requirement(db, requirements)
+        issued_by_item = {r.item_id: issued.get(r.id, 0) for r in requirements}
         requested = {item_id: quantity for item_id, quantity, _ in lines}
         if any(requested.get(item_id, 0) < issued for item_id, issued in issued_by_item.items()):
             raise HTTPException(409, "ecoAccessories.issueExceeded")
@@ -322,10 +332,12 @@ def approve_plan(db: Session, current, order_id: int, payload: EcoAccessoryDecis
     requirements = _requirements(db, plan)
     batches = db.query(EcoMaterialBatch).filter(EcoMaterialBatch.item_id.in_([r.item_id for r in requirements]),
         EcoMaterialBatch.kind == "accessory").order_by(EcoMaterialBatch.id).with_for_update().populate_existing().all() if requirements else []
+    issued = _issued_by_requirement(db, requirements)
+    items = {item.id: item for item in db.query(Item).filter(Item.id.in_([r.item_id for r in requirements])).all()} if requirements else {}
     assignments = []
     for req in requirements:
-        remaining = req.quantity - sum(a.issued_quantity for a in db.query(EcoAccessoryAllocation).filter_by(requirement_id=req.id).all())
-        item = db.get(Item, req.item_id)
+        remaining = req.quantity - issued.get(req.id, 0)
+        item = items.get(req.item_id)
         if not item or not item.is_active or item.unit != req.unit or item.category not in {"accessory", "packaging"}:
             raise HTTPException(409, "ecoAccessories.accessoryRequired")
         for batch in batches:
@@ -342,7 +354,7 @@ def approve_plan(db: Session, current, order_id: int, payload: EcoAccessoryDecis
             raise HTTPException(409, "ecoAccessories.shortage")
     for req, batch, quantity in assignments:
         set_batch_balance(db, batch, quantity=batch.quantity, reserved_quantity=batch.reserved_quantity + quantity)
-        writes.allocate(db, req.id, batch.id, quantity)
+    writes.allocate_many(db, [(req.id, batch.id, quantity) for req, batch, quantity in assignments])
     writes.set_status(db, plan, Status.APPROVED, actor_id=current.id, notes=payload.notes)
     log_action(db, current, "approve", "EcoAccessoryPlan", plan.id,
         new_value={"allocations": [{"batch_id": b.id, "quantity": str(q)} for _, b, q in assignments]})

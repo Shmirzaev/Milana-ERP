@@ -641,9 +641,11 @@ def test_selected_production_rows_keep_their_eager_loaded_children(seeded, monke
     captured = []
     original = history_service._stock_production_history
 
-    def recording(db, po, *, include_detail=False):
+    def recording(db, po, *, include_detail=False, context=None):
         captured.append(po)
-        return original(db, po, include_detail=include_detail)
+        if context is None:
+            return original(db, po, include_detail=include_detail)
+        return original(db, po, include_detail=include_detail, context=context)
 
     monkeypatch.setattr(history_service, "_stock_production_history", recording)
     with session_factory() as db:

@@ -15,7 +15,7 @@ from app.models.variant_display_service import format_model_variant_code
 from app.core.deps import DbSession, CurrentUser, require_permissions, is_admin
 from app.schemas import (
     WorkOrder, SewingFlow, SewingAssignment, ProductionOrder, Model, User,
-    Customer, SalesOrder, Bundle, ProductionBatch, SewingDailyReport, SewingRecord,
+    Customer, SalesOrder, Bundle, ProductionBatch, SewingDailyReport, SewingRecord, ModelImage,
 )
 from app.libs.dto.production.sewing_assignment import (
     SewingAssignmentIn, SewingAssignmentUpdate, SewingAssignmentOut,
@@ -24,6 +24,7 @@ from app.core.dt import as_utc
 from app.models.audit_service import log_action
 from app.api.routes.production import _authorize_work_order_command
 from app.models.model_images_service import model_display_image_url
+from app.models.model_family_images_service import family_images_for_models
 from app.models.notifications_service import notify
 from app.models.bundles_service import resolve_sewing_factory_code
 from app.models.factory_scope_service import require_factory_access, require_work_order_factory_access
@@ -578,11 +579,26 @@ def export_process_html(db: DbSession, current: CurrentUser, factory: str | None
         selectinload(ProductionOrder.work_orders),
     ).order_by(ProductionOrder.id.desc()).all()
 
+    def load_refs(entity, ids, *options):
+        ids = list(ids)
+        rows = []
+        for offset in range(0, len(ids), 400):
+            rows.extend(db.query(entity).options(*options).filter(entity.id.in_(ids[offset:offset + 400])).all())
+        return {row.id: row for row in rows}
+
+    models = load_refs(
+        Model, {po.model_id for po in pos if po.model_id is not None},
+        selectinload(Model.images).defer(ModelImage.file_data),
+    )
+    sales_orders = load_refs(SalesOrder, {po.sales_order_id for po in pos if po.sales_order_id})
+    customers = load_refs(Customer, {so.customer_id for so in sales_orders.values() if so.customer_id})
+    family_images_for_models(db, models.values())
+
     rows_html = ""
     for po in pos:
-        model = db.get(Model, po.model_id)
-        so = db.get(SalesOrder, po.sales_order_id) if po.sales_order_id else None
-        cust = db.get(Customer, so.customer_id) if so and so.customer_id else None
+        model = models.get(po.model_id)
+        so = sales_orders.get(po.sales_order_id)
+        cust = customers.get(so.customer_id) if so else None
         model_image_url = model_display_image_url(model)
         model_image = (
             f"<img class='model-img' src='{_h(model_image_url)}' alt='{_h(model.name if model else po.model_id)}'>"
