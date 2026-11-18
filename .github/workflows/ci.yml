@@ -24,19 +24,28 @@ permissions:
   packages: write
 
 jobs:
-  backend:
+  backend-bootstrap:
+    name: Backend / bootstrap and policy
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - &backend_checkout
+        uses: actions/checkout@v7
+      - &backend_python
+        uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           cache: pip
           cache-dependency-path: |
             backend/requirements.txt
             backend/requirements-dev.txt
-      - run: python -m pip install -r backend/requirements.txt -r backend/requirements-dev.txt
-      - name: Start job-owned loopback PostgreSQL 16
+      - &backend_install
+        run: python -m pip install -r backend/requirements.txt -r backend/requirements-dev.txt
+      - name: Check backend shard coverage verification
+        run: python scripts/test_backend_regression_shard.py
+      - &backend_start_pg
+        name: Start job-owned loopback PostgreSQL 16
         run: |
           docker run --detach --cidfile "$RUNNER_TEMP/ci-postgres.cid" --name milana-ci-postgres \
             --network host --env POSTGRES_HOST_AUTH_METHOD=trust \
@@ -57,35 +66,30 @@ jobs:
         run: |
           python -m ruff check app
           python -m compileall -q app scripts
-      - name: Backend regression suite
-        working-directory: backend
-        run: python -m pytest -q
+      - name: Deployment observation regression suite
+        run: python -m unittest discover -s scripts -p 'test_observe_release.py' -v
+      - &backend_stop_pg
+        name: Remove only this job's owned PostgreSQL container
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/ci-postgres.cid" ]; then
+            docker rm --force "$(cat "$RUNNER_TEMP/ci-postgres.cid")"
+          fi
+
+  backend-operations:
+    name: Backend / PostgreSQL operations
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - *backend_checkout
+      - *backend_python
+      - *backend_install
+      - *backend_start_pg
       - name: Purchasing approval PostgreSQL write boundary
         env:
           PUR_APPROVAL_PG_ADMIN_URL: postgresql://postgres@127.0.0.1:5432/postgres
         run: python backend/scripts/test_purchase_request_approval_postgres.py
-      - name: P2 PostgreSQL locking and query-plan regressions
-        env:
-          STABILIZATION_POSTGRES_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/first_grade_qa_ci
-        run: >-
-          python -m pytest -q
-          backend/app/tests/test_admin_membership_delete_race.py
-          backend/app/tests/test_numbering_postgres_concurrency.py
-          backend/app/tests/test_material_reservation_concurrency.py
-          backend/app/tests/test_package_write_postgres.py
-          backend/app/tests/test_package_batch_receive_concurrency.py
-          backend/app/tests/test_cutting_packaging_write_postgres.py
-          backend/app/tests/test_cutting_reconciliation_postgres.py
-          backend/app/tests/test_cutting_batch_lifecycle_postgres.py
-          backend/app/tests/test_traceability_postgres_plan.py
-          backend/app/tests/test_packaging_receive_options_query_growth.py
-          backend/app/tests/test_warehouse_pack_reservations_postgres.py
-          backend/app/tests/test_sewing_band_postgres.py
-          backend/app/tests/test_sewing_later_nastil_postgres.py
-          backend/app/tests/test_besttex_cutting_postgres.py
-          backend/app/tests/test_payroll_overlap_repair.py
-      - name: Deployment observation regression suite
-        run: python -m unittest discover -s scripts -p 'test_observe_release.py' -v
       - name: Create disposable Sales list review database
         id: sales-list-db
         run: >-
@@ -113,6 +117,50 @@ jobs:
         if: ${{ always() && steps.forecast-create-db.outcome == 'success' }}
         run: >-
           python -c "import psycopg2; db=psycopg2.connect(host='127.0.0.1',port=5432,user='postgres',dbname='postgres'); db.autocommit=True; db.cursor().execute('DROP DATABASE review_forecast_create_ci WITH (FORCE)'); db.close()"
+      - *backend_stop_pg
+
+  backend-locking:
+    name: Backend / PostgreSQL locking
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - *backend_checkout
+      - *backend_python
+      - *backend_install
+      - *backend_start_pg
+      - name: P2 PostgreSQL locking and query-plan regressions
+        env:
+          STABILIZATION_POSTGRES_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/first_grade_qa_ci
+        run: >-
+          python -m pytest -q
+          backend/app/tests/test_admin_membership_delete_race.py
+          backend/app/tests/test_numbering_postgres_concurrency.py
+          backend/app/tests/test_material_reservation_concurrency.py
+          backend/app/tests/test_package_write_postgres.py
+          backend/app/tests/test_package_batch_receive_concurrency.py
+          backend/app/tests/test_cutting_packaging_write_postgres.py
+          backend/app/tests/test_cutting_reconciliation_postgres.py
+          backend/app/tests/test_cutting_batch_lifecycle_postgres.py
+          backend/app/tests/test_traceability_postgres_plan.py
+          backend/app/tests/test_packaging_receive_options_query_growth.py
+          backend/app/tests/test_warehouse_pack_reservations_postgres.py
+          backend/app/tests/test_sewing_band_postgres.py
+          backend/app/tests/test_sewing_later_nastil_postgres.py
+          backend/app/tests/test_besttex_cutting_postgres.py
+          backend/app/tests/test_payroll_overlap_repair.py
+      - *backend_stop_pg
+
+  backend-schema:
+    name: Backend / schema and reservations
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - *backend_checkout
+      - *backend_python
+      - *backend_install
+      - *backend_start_pg
       - name: Ismail PostgreSQL schema and reservation regressions
         working-directory: backend
         env:
@@ -139,12 +187,71 @@ jobs:
         run: |
           python scripts/test_first_grade_postgres.py
           python scripts/test_model_numbering_postgres.py
-      - name: Remove only this job's owned PostgreSQL container
-        if: always()
+      - *backend_stop_pg
+
+  backend-regression:
+    name: Backend / regression ${{ matrix.shard }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+    steps:
+      - *backend_checkout
+      - *backend_python
+      - *backend_install
+      - *backend_start_pg
+      - name: Run backend regression shard
+        working-directory: backend
+        env:
+          SHARD_INDEX: ${{ matrix.shard }}
+        run: >
+          python ../scripts/run_backend_regression_shard.py run
+          --index "$SHARD_INDEX" --count 8 --manifest "$RUNNER_TEMP/backend-shard.json"
+      - name: Upload tested shard coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-regression-${{ matrix.shard }}
+          path: ${{ runner.temp }}/backend-shard.json
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 7
+      - *backend_stop_pg
+
+  backend:
+    needs: [backend-bootstrap, backend-operations, backend-locking, backend-schema, backend-regression]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Require every backend job to pass
+        env:
+          BOOTSTRAP_RESULT: ${{ needs.backend-bootstrap.result }}
+          OPERATIONS_RESULT: ${{ needs.backend-operations.result }}
+          LOCKING_RESULT: ${{ needs.backend-locking.result }}
+          SCHEMA_RESULT: ${{ needs.backend-schema.result }}
+          REGRESSION_RESULT: ${{ needs.backend-regression.result }}
         run: |
-          if [ -f "$RUNNER_TEMP/ci-postgres.cid" ]; then
-            docker rm --force "$(cat "$RUNNER_TEMP/ci-postgres.cid")"
-          fi
+          for result in "$BOOTSTRAP_RESULT" "$OPERATIONS_RESULT" "$LOCKING_RESULT" "$SCHEMA_RESULT" "$REGRESSION_RESULT"; do
+            if [ "$result" != success ]; then
+              printf 'Every backend job must succeed. Found %s.\n' "$result" >&2
+              exit 1
+            fi
+          done
+      - *backend_checkout
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Download coverage for all regression shards
+        uses: actions/download-artifact@v4
+        with:
+          pattern: backend-regression-*
+          path: ${{ runner.temp }}/backend-coverage
+      - name: Verify regression coverage
+        run: python scripts/run_backend_regression_shard.py verify --count 8 --directory "$RUNNER_TEMP/backend-coverage"
 
   frontend:
     runs-on: ubuntu-latest
