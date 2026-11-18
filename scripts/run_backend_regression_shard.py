@@ -77,6 +77,10 @@ def run_shard(index: int, count: int, manifest: Path) -> int:
             items[:] = [item for item in items if item.nodeid in selected]
 
         def pytest_runtest_logreport(self, report):
+            # Pytest reports each subtest under its parent's ID. Only the
+            # parent's result belongs in the collection receipt.
+            if type(report) is not pytest.TestReport:
+                return
             # An intentional setup skip has no call report. Pytest's own exit
             # code covers failed setup, teardown, collection and interrupted runs.
             if report.when == "call" or (report.when == "setup" and report.skipped):

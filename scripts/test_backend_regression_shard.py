@@ -161,6 +161,28 @@ class PytestRunTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 1, completed.stdout + completed.stderr)
         self.assertFalse(manifest.exists())
 
+    def test_pytest_subtests_count_once_and_fail_with_the_parent_suite(self):
+        case = self.tests / "test_a.py"
+        for passing in (True, False):
+            with self.subTest(passing=passing):
+                case.write_text(
+                    "from unittest import TestCase\n"
+                    "class Cases(TestCase):\n"
+                    "    def test_values(self):\n"
+                    "        with self.subTest(value=1):\n"
+                    "            self.assertTrue(True)\n"
+                    "        with self.subTest(value=2):\n"
+                    f"            self.assertTrue({passing!r})\n",
+                    encoding="utf-8",
+                )
+                manifest, completed = self.run_shard(1, 1)
+                self.assertEqual(completed.returncode, 0 if passing else 1, completed.stdout + completed.stderr)
+                if passing:
+                    self.assertEqual(len(json.loads(manifest.read_text(encoding="utf-8"))["results"]), 1)
+                    verify_shards(1, self.directory)
+                else:
+                    self.assertFalse(manifest.exists())
+
 
 if __name__ == "__main__":
     unittest.main()
