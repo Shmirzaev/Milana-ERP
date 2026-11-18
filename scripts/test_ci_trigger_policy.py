@@ -57,6 +57,32 @@ class CITriggerPolicyTests(unittest.TestCase):
         self.assertEqual(rollback["on"]["push"]["branches"], ["codex/pack-customer-fg-rollback-20261103"])
         self.assertNotIn("concurrency", rollback)
 
+    def test_release_waits_for_every_backend_job_and_all_shard_manifests(self):
+        jobs = workflow("ci.yml")["jobs"]
+        backend = jobs["backend"]
+        self.assertEqual(set(backend["needs"]), {
+            "backend-bootstrap", "backend-operations", "backend-locking", "backend-schema", "backend-regression",
+        })
+        self.assertEqual(jobs["release"]["needs"], ["release-plan", "backend", "frontend", "security-scan"])
+        self.assertTrue(backend["if"].startswith("always() && "))
+        required = backend["steps"][0]
+        self.assertEqual(set(required["env"].values()), {
+            f"${{{{ needs.{job}.result }}}}" for job in backend["needs"]
+        })
+        self.assertIn('if [ "$result" != success ]', required["run"])
+        self.assertIn("exit 1", required["run"])
+        self.assertTrue(all(jobs[key]["runs-on"] == "ubuntu-latest" for key in backend["needs"]))
+
+        regression = jobs["backend-regression"]
+        shards = regression["strategy"]["matrix"]["shard"]
+        self.assertEqual(shards, [str(index) for index in range(1, 9)])
+        shard_step = next(step for step in regression["steps"] if step.get("name") == "Run backend regression shard")
+        self.assertIn(f"--count {len(shards)}", shard_step["run"])
+        self.assertTrue(any(
+            step.get("name") == "Verify regression coverage"
+            and f"--count {len(shards)}" in step["run"] for step in backend["steps"]
+        ))
+
 
 if __name__ == "__main__":
     unittest.main()

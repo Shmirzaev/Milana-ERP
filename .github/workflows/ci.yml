@@ -91,22 +91,31 @@ jobs:
     with:
       source_ref: ${{ github.event_name == 'schedule' && 'clone_main' || github.event_name == 'workflow_dispatch' && inputs.security_scan_only && inputs.security_scan_ref || github.sha }}
       release_images: ${{ needs.release-plan.outputs.enabled == 'true' }}
-  backend:
-    if: github.event_name != 'schedule' && !(github.event_name == 'workflow_dispatch' && inputs.security_scan_only)
+  backend-bootstrap:
+    name: Backend / bootstrap and policy
+    if: &backend_validation github.event_name != 'schedule' && !(github.event_name == 'workflow_dispatch' && inputs.security_scan_only)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - &backend_checkout
+        uses: actions/checkout@v7
+      - &backend_python
+        uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           cache: pip
           cache-dependency-path: |
             backend/requirements.txt
             backend/requirements-dev.txt
-      - run: python -m pip install -r backend/requirements.txt -r backend/requirements-dev.txt
+      - &backend_install
+        run: python -m pip install -r backend/requirements.txt -r backend/requirements-dev.txt
       - name: Check CI trigger and cancellation policy
         run: python scripts/test_ci_trigger_policy.py
-      - name: Start job-owned loopback PostgreSQL 16
+      - name: Check backend shard coverage verification
+        run: python scripts/test_backend_regression_shard.py
+      - &backend_start_pg
+        name: Start job-owned loopback PostgreSQL 16
         run: |
           docker run --detach --cidfile "$RUNNER_TEMP/ci-postgres.cid" --name milana-ci-postgres \
             --network host --env POSTGRES_HOST_AUTH_METHOD=trust \
@@ -134,6 +143,29 @@ jobs:
         run: |
           python -m ruff check app
           python -m compileall -q app scripts
+      - name: Automatic release trust, drift and recovery regressions
+        run: python -m unittest discover -s scripts -p 'test_auto_release*.py' -v
+      - name: Deployment observation regression suite
+        run: python -m unittest discover -s scripts -p 'test_observe_release.py' -v
+      - &backend_stop_pg
+        name: Remove only this job's owned PostgreSQL container
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/ci-postgres.cid" ]; then
+            docker rm --force "$(cat "$RUNNER_TEMP/ci-postgres.cid")"
+          fi
+
+  backend-operations:
+    name: Backend / PostgreSQL operations
+    if: *backend_validation
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - *backend_checkout
+      - *backend_python
+      - *backend_install
+      - *backend_start_pg
       - name: Stabilization PostgreSQL auth and rate races
         working-directory: backend
         env:
@@ -171,10 +203,6 @@ jobs:
           app/tests/test_cutting_order_rejection_postgres.py
           app/tests/test_model_pattern_cad_postgres.py
           app/tests/test_passport_batch_allocations_postgres.py
-      - name: Backend regression suite
-        working-directory: backend
-        # This strict dual-engine suite runs in the approved-PG workflow instead.
-        run: python -m pytest -q --ignore=app/tests/test_readiness_operation_characterization.py --durations=25
       - name: Purchasing approval PostgreSQL write boundary
         env:
           PUR_APPROVAL_PG_ADMIN_URL: postgresql://postgres@127.0.0.1:5432/postgres
@@ -183,6 +211,46 @@ jobs:
         env:
           PUR_APPROVAL_PG_ADMIN_URL: postgresql://postgres@127.0.0.1:5432/postgres
         run: python backend/scripts/purchase_approval_cleanup_pg_control.py
+      - name: Create disposable Sales list review database
+        id: sales-list-db
+        run: >-
+          python -c "import psycopg2; db=psycopg2.connect(host='127.0.0.1',port=5432,user='postgres',dbname='postgres'); db.autocommit=True; db.cursor().execute('CREATE DATABASE review_sales_list_ci'); db.close()"
+      - name: Sales list quantities and bounded PostgreSQL queries
+        working-directory: backend
+        env:
+          SALES_LIST_REVIEW_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/review_sales_list_ci
+          STABILIZATION_POSTGRES_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/review_sales_list_ci
+        run: python -m pytest -q app/tests/test_sales_list_truth.py app/tests/test_sales_list_query_growth.py
+      - name: Drop owned Sales list review database
+        if: ${{ always() && steps.sales-list-db.outcome == 'success' }}
+        run: >-
+          python -c "import psycopg2; db=psycopg2.connect(host='127.0.0.1',port=5432,user='postgres',dbname='postgres'); db.autocommit=True; db.cursor().execute('DROP DATABASE review_sales_list_ci WITH (FORCE)'); db.close()"
+      - name: Create disposable Forecast creation review database
+        id: forecast-create-db
+        run: >-
+          python -c "import psycopg2; db=psycopg2.connect(host='127.0.0.1',port=5432,user='postgres',dbname='postgres'); db.autocommit=True; db.cursor().execute('CREATE DATABASE review_forecast_create_ci'); db.close()"
+      - name: Forecast creation PostgreSQL atomicity
+        working-directory: backend
+        env:
+          FORECAST_CREATE_REVIEW_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/review_forecast_create_ci
+        run: python -m pytest -q app/tests/test_forecast_create_postgres.py
+      - name: Drop owned Forecast creation review database
+        if: ${{ always() && steps.forecast-create-db.outcome == 'success' }}
+        run: >-
+          python -c "import psycopg2; db=psycopg2.connect(host='127.0.0.1',port=5432,user='postgres',dbname='postgres'); db.autocommit=True; db.cursor().execute('DROP DATABASE review_forecast_create_ci WITH (FORCE)'); db.close()"
+      - *backend_stop_pg
+
+  backend-locking:
+    name: Backend / PostgreSQL locking
+    if: *backend_validation
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - *backend_checkout
+      - *backend_python
+      - *backend_install
+      - *backend_start_pg
       - name: P2 PostgreSQL locking and query-plan regressions
         env:
           STABILIZATION_POSTGRES_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/first_grade_qa_ci
@@ -214,37 +282,19 @@ jobs:
           backend/app/tests/test_manual_packaging_postgres.py
           backend/app/tests/test_payroll_qr_return_races.py
           backend/app/tests/test_payroll_period_races.py
-      - name: Automatic release trust, drift and recovery regressions
-        run: python -m unittest discover -s scripts -p 'test_auto_release*.py' -v
-      - name: Deployment observation regression suite
-        run: python -m unittest discover -s scripts -p 'test_observe_release.py' -v
-      - name: Create disposable Sales list review database
-        id: sales-list-db
-        run: >-
-          python -c "import psycopg2; db=psycopg2.connect(host='127.0.0.1',port=5432,user='postgres',dbname='postgres'); db.autocommit=True; db.cursor().execute('CREATE DATABASE review_sales_list_ci'); db.close()"
-      - name: Sales list quantities and bounded PostgreSQL queries
-        working-directory: backend
-        env:
-          SALES_LIST_REVIEW_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/review_sales_list_ci
-          STABILIZATION_POSTGRES_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/review_sales_list_ci
-        run: python -m pytest -q app/tests/test_sales_list_truth.py app/tests/test_sales_list_query_growth.py
-      - name: Drop owned Sales list review database
-        if: ${{ always() && steps.sales-list-db.outcome == 'success' }}
-        run: >-
-          python -c "import psycopg2; db=psycopg2.connect(host='127.0.0.1',port=5432,user='postgres',dbname='postgres'); db.autocommit=True; db.cursor().execute('DROP DATABASE review_sales_list_ci WITH (FORCE)'); db.close()"
-      - name: Create disposable Forecast creation review database
-        id: forecast-create-db
-        run: >-
-          python -c "import psycopg2; db=psycopg2.connect(host='127.0.0.1',port=5432,user='postgres',dbname='postgres'); db.autocommit=True; db.cursor().execute('CREATE DATABASE review_forecast_create_ci'); db.close()"
-      - name: Forecast creation PostgreSQL atomicity
-        working-directory: backend
-        env:
-          FORECAST_CREATE_REVIEW_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/review_forecast_create_ci
-        run: python -m pytest -q app/tests/test_forecast_create_postgres.py
-      - name: Drop owned Forecast creation review database
-        if: ${{ always() && steps.forecast-create-db.outcome == 'success' }}
-        run: >-
-          python -c "import psycopg2; db=psycopg2.connect(host='127.0.0.1',port=5432,user='postgres',dbname='postgres'); db.autocommit=True; db.cursor().execute('DROP DATABASE review_forecast_create_ci WITH (FORCE)'); db.close()"
+      - *backend_stop_pg
+
+  backend-schema:
+    name: Backend / schema and reservations
+    if: *backend_validation
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - *backend_checkout
+      - *backend_python
+      - *backend_install
+      - *backend_start_pg
       - name: Ismail PostgreSQL schema and reservation regressions
         working-directory: backend
         env:
@@ -271,12 +321,72 @@ jobs:
         run: |
           python scripts/test_first_grade_postgres.py
           python scripts/test_model_numbering_postgres.py
-      - name: Remove only this job's owned PostgreSQL container
-        if: always()
+      - *backend_stop_pg
+
+  backend-regression:
+    name: Backend / regression ${{ matrix.shard }}
+    if: *backend_validation
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+    steps:
+      - *backend_checkout
+      - *backend_python
+      - *backend_install
+      - *backend_start_pg
+      - name: Run backend regression shard
+        working-directory: backend
+        env:
+          SHARD_INDEX: ${{ matrix.shard }}
+        run: >
+          python ../scripts/run_backend_regression_shard.py run
+          --index "$SHARD_INDEX" --count 8 --manifest "$RUNNER_TEMP/backend-shard.json"
+      - name: Upload tested shard coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-regression-${{ matrix.shard }}
+          path: ${{ runner.temp }}/backend-shard.json
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 7
+      - *backend_stop_pg
+
+  backend:
+    needs: [backend-bootstrap, backend-operations, backend-locking, backend-schema, backend-regression]
+    if: always() && github.event_name != 'schedule' && !(github.event_name == 'workflow_dispatch' && inputs.security_scan_only)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Require every backend job to pass
+        env:
+          BOOTSTRAP_RESULT: ${{ needs.backend-bootstrap.result }}
+          OPERATIONS_RESULT: ${{ needs.backend-operations.result }}
+          LOCKING_RESULT: ${{ needs.backend-locking.result }}
+          SCHEMA_RESULT: ${{ needs.backend-schema.result }}
+          REGRESSION_RESULT: ${{ needs.backend-regression.result }}
         run: |
-          if [ -f "$RUNNER_TEMP/ci-postgres.cid" ]; then
-            docker rm --force "$(cat "$RUNNER_TEMP/ci-postgres.cid")"
-          fi
+          for result in "$BOOTSTRAP_RESULT" "$OPERATIONS_RESULT" "$LOCKING_RESULT" "$SCHEMA_RESULT" "$REGRESSION_RESULT"; do
+            if [ "$result" != success ]; then
+              printf 'Every backend job must succeed. Found %s.\n' "$result" >&2
+              exit 1
+            fi
+          done
+      - *backend_checkout
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Download coverage for all regression shards
+        uses: actions/download-artifact@v4
+        with:
+          pattern: backend-regression-*
+          path: ${{ runner.temp }}/backend-coverage
+      - name: Verify regression coverage
+        run: python scripts/run_backend_regression_shard.py verify --count 8 --directory "$RUNNER_TEMP/backend-coverage"
 
   frontend:
     if: github.event_name != 'schedule' && !(github.event_name == 'workflow_dispatch' && inputs.security_scan_only)
