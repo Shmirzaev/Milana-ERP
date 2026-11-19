@@ -1,7 +1,7 @@
 import sqlite3
 import re
 
-from sqlalchemy import Numeric, event, func
+from sqlalchemy import Numeric, case, event, func
 from sqlalchemy.engine import Engine
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.sql.functions import FunctionElement
@@ -79,6 +79,24 @@ def _compile_normalized_model_code_default(element, compiler, **kwargs) -> str:
 def normalized_model_code_column(column):
     """Return a SQLite/PostgreSQL-compatible normalized model-code expression."""
     return _NormalizedModelCode(column)
+
+
+def normalized_model_code_match(column, pattern: str, *, dialect_name: str):
+    """Keep exact LIKE semantics while skipping impossible numeric PG codes.
+
+    Normalization never changes ASCII digits and removes only ASCII dashes.
+    Thus a literal digit run in the final LIKE pattern must occur in raw code
+    with zero or more dashes between digits. CASE avoids the expensive
+    normalization when that necessary condition fails. Keep names outside it.
+    """
+    match = normalized_model_code_column(column).ilike(pattern)
+    if dialect_name != "postgresql":
+        return match
+    runs = re.findall(r"[0-9]{3,}", pattern)
+    if not runs:
+        return match
+    raw_digits = "-*".join(max(runs, key=len))
+    return case((column.op("~")(raw_digits), match), else_=False)
 
 
 def normalized_model_code_pattern(value: object) -> str:

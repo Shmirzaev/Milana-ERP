@@ -655,3 +655,60 @@ Full OpenAPI parity passed:537paths/821003canonical bytes, both SHA
 56642ae267bf299a2f3549b5395349b1a561cbe2b11df6fca2ba6a096f954647.
 Ruff/diff checks and8CI-trigger/14shard-policy tests passed. The existing
 bootstrap regression step now explicitly runs JSON-thread tests as well.
+
+
+## Inventory candidate held before activation; numeric selector follow-up
+
+Exactsource b169bcdc4cbc38e3cd2c55d9ea22bfbacb14af88 passed sourceCI44518280094,
+integration44519283265 and refactorPG44519283245. Release
+20261119_114959_44518280094_1 manifest
+d3f637d419035b69b2942f2ff4a5be2221705321b314d5c17ac2088f9c1595b6;
+backend image3bdfae997150a5eaa76a55acd835df484bab1d8d9524a07d8064edd0f94b9a19,
+frontend image8a31ec5e785b3f2f03b622447b3b87e2a93dd12a2f4c472e36fe97dd517cb0c6.
+Backup132753764bytes/1403objects SHA
+58494d224a0ffe7f852bc3ff7ebabaca63d10cc1433290e2974b5b2a59efe9cd,
+restore-list c141b15f567e8d37aedd1816e6303691502b29b35b90c95988bd47da7ce135b3.
+All seven frozen workflow facts/25006 refusal and101 core pairs passed.
+
+Exact-image default2worker/nativeGC quiet315/heavy315+16 returned200/stable
+hashes; all252 inventory requests encoded/rendered on the same non-loop thread,
+without overlapping same-request SQL. Native replacement/fullrestart/5shutdowns
+thawed metadata and reclaimed all600/1200/600/600/600 weak cycles. Owned probe
+stopped gracefully. Independent ZIP verification recomputed all20 manifest
+hashes, raw request/thread/lifecycle facts and exact three CI runs.
+inventory-b169bcdc4-qualification.zip6328371bytes SHA
+c9ab91f4b9792943fde331c31efa42443edf85d3a0e9d7cb9f87891857c66db6.
+This qualification does not replace formal performance checks.
+
+Formal31search pairs FAILED options p95:47.146848→60.907198ms, limit54.218875.
+Median41.459→41.215; other paths and all rows/bytes passed. Backend raw
+manual-20261119_114959_44518280094_1-initial-search.json SHA
+6b4aeeff77b72c53eaef61023c0a20bf954680f7c3588d389c2364f074a2f551.
+Both hosts retain root0600 failed-preactivation-search.json and qualification
+ZIP. Both journals held_failed_gate/FAILED_PREACTIVATION_SEARCH_PERFORMANCE_HELD,
+no activation/observer, matching reservations retained. Blue030500/437523dbd2
+remains active on both. No retry, relabel or performance waiver.
+
+New predeclared SQL-only diagnostic: six balanced AB/BA EXPLAIN ANALYZE pairs
+for eight patterns in repeatable-read/read-only PG, no indexes/DDL/schema/data
+or runtime/GC changes. Numeric patterns KJ13065-V-6979,13065,V-6979,000,123,
+999999 retained exact ordered IDs while20–23ms typical execution became9–12ms.
+Text kj/shirt retained exact SQL and19–21ms execution.21 production implication
+cases and21×1015 transient adversarial values found no false negatives.
+Protocol SHA239954e00f24f9b04e28b5643e2fd49f2f2e2cd77d8b06a4f0effdea48789724;
+results SHA31623a42080c14aec86ff1529fd7b4b15e2b2094bd9da896fdd52153b7ac3ba5
+under backend failed-release evidence. The SQL cost is proven, but not the
+retrospective cause of the failed p95 tail.
+
+Follow-up changes only list_model_options' code search: for final normalized
+LIKE patterns containing an ASCII digit run>=3, bind longest run as unanchored
+digit/dash necessary regex, CASE THEN exact old normalized ILIKE ELSE false.
+Name OR stays outside; no query/scope/order/pagination/DTO changes. SQLite,
+short/text/Unicode-digit-only queries retain old SQL. No normalization semantics,
+indexes, migration or GC policy change.67 focused tests passed in owned isolated
+PG16 loopback namespace, including16 actual HTTP terms×3pages, scope/status,
+name-only/legacy/IDs/thumbnail and1013 transient adversarial codes×14patterns,
+NULL/wildcard/backslash/Unicode/dashes and repeated bound-cache queries.
+First local fixture correctly rejected non-loopback bridgeIP; corrected test
+transport shared only the owned DB network namespace, without fixture changes.
+Exact independent source review, CI/images/fresh gates still required.

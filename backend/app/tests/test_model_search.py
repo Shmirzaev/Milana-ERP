@@ -81,3 +81,51 @@ def test_displayed_variant_search_finds_plain_and_prefixed_catalog_codes(client,
     assert response.status_code == 200 and response.json()["items"][0]["code"] == codes[0]
     with session_module.SessionLocal() as db:
         assert {model.code for model in db.query(Model).filter(Model.id.in_(ids))} == set(codes)
+
+
+
+def test_numeric_pg_match_binds_guard_and_keeps_exact_normalizer():
+    from sqlalchemy import column
+    from sqlalchemy.dialects import postgresql
+    from app.core.model_search import normalized_model_code_match, normalized_model_code_pattern
+
+    expression = normalized_model_code_match(
+        column("code"), normalized_model_code_pattern("KJ13065-V-6979"),
+        dialect_name="postgresql",
+    )
+    compiled = expression.compile(dialect=postgresql.dialect())
+    assert "CASE WHEN" in str(compiled) and "~" in str(compiled)
+    assert "replace(" in str(compiled) and "ILIKE" in str(compiled)
+    assert "1-*3-*0-*6-*5" in compiled.params.values()
+    assert "%kj13065%6979%" in compiled.params.values()
+    assert compiled.params["param_2"] is False
+
+
+def test_match_fallback_preserves_sql_for_text_short_and_unicode_digits():
+    from sqlalchemy import column
+    from sqlalchemy.dialects import postgresql, sqlite
+    from app.core.model_search import normalized_model_code_column, normalized_model_code_match
+
+    for name, dialect in [("postgresql", postgresql.dialect()), ("sqlite", sqlite.dialect())]:
+        for pattern in ["%kj%", "%12%", "%１２３%", "%١٢٣%", "%123%"]:
+            old = normalized_model_code_column(column("code")).ilike(pattern)
+            new = normalized_model_code_match(column("code"), pattern, dialect_name=name)
+            if name == "postgresql" and pattern == "%123%":
+                continue
+            a, b = old.compile(dialect=dialect), new.compile(dialect=dialect)
+            assert str(a) == str(b) and a.params == b.params
+
+
+def test_numeric_match_cache_key_keeps_each_bound_pattern_and_regex():
+    from sqlalchemy import column, select
+    from app.core.model_search import normalized_model_code_match
+
+    statements = [
+        select(column("code")).where(normalized_model_code_match(
+            column("code"), pattern, dialect_name="postgresql",
+        ))
+        for pattern in ["%123%", "%456%"]
+    ]
+    first, second = [statement._generate_cache_key() for statement in statements]
+    assert first.key == second.key
+    assert [x.value for x in first.bindparams] != [x.value for x in second.bindparams]

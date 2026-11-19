@@ -15,7 +15,7 @@ Last updated 2026-11-19. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
-## Latency repair: candidate recovered; Inventory encoding follow-up (19 November)
+## Latency repair: search candidate held; numeric filter follow-up (19 November)
 
 Both hosts serve blue compatibility release `20261119_030500`, commit
 `437523dbd2d558a76f1308d8aa2215aee64b86bb`, manifest
@@ -33,7 +33,7 @@ p95285.928ms versus before164.597/177.991 (limits181.056/204.690). No observer
 started. Both hosts recovered blue at11:20–11:21UTC; four health checks passed.
 The failed raw result remains root-protected on both hosts; journal phase is
 rolled_back, overall FAILED_IMMEDIATE_PUBLIC_PERFORMANCE_RECOVERED. Do not retry
-or relabel it. The retained green slot now contains this exact failed candidate.
+or relabel it. The failed candidate remains archived; the retained green slot was superseded below.
 
 Three measured source defects were repaired: SQLite counter connection churn,
 large inbox/process responses encoded on the ASGI loop, and a repeated filtered
@@ -63,8 +63,37 @@ only these two unmodelled GETs with the existing thread-encoding helper, retaini
 pure service callers, fields, permissions and query behavior. Real-route HTTP byte/
 header parity and event-loop responsiveness pass; all537 OpenAPI paths/821003
 canonical bytes retain SHA56642ae267bf299a2f3549b5395349b1a561cbe2b11df6fca2ba6a096f954647. Full exact
-source/image review, CI, fresh production gates and successful observation remain
-required before completion. No UI or business operation is changed by this fix.
+source CI44518280094, integration44519283265 and refactor-PG44519283245 passed.
+Exact-image quiet315/heavy315+16 reads, 252 request-linked off-loop encodings and
+native worker replacement/restart/shutdown/cycle checks passed. Independent
+archive review verified all20 manifest hashes. This is qualification, not a
+formal performance pass.
+
+Candidate20261119_114959_44518280094_1, sourceb169bcdc4, FAILED preactivation
+model-options p95:47.147ms blue versus60.907ms green, limit54.219ms. Median and
+four other search paths passed; rows/bytes and frozen seven-workflow facts
+matched.101 core pairs passed. NO activation or observer occurred. Both journals
+are held_failed_gate/FAILED_PREACTIVATION_SEARCH_PERFORMANCE_HELD. Raw failure
+and exact-image qualification ZIP are root-protected on both hosts; do not retry
+or relabel this failed candidate. Blue030500 remains live.
+
+A separate fixed six-AB/BA-pair SQL profile across eight patterns identified a
+real model-options query cost: nested normalization on unrelated raw codes.
+For a final LIKE pattern with at least three consecutive ASCII digits, a bound
+raw digit/dash regex is a necessary condition; CASE skips normalization when it
+fails and retains the exact old ILIKE predicate otherwise. Names remain outside
+the CASE; SQLite, text and short queries retain their original SQL. Numeric
+execution fell roughly20–23ms to9–12ms; text fallback remained about19–21ms.
+Ordered production IDs,21 production implication cases and transient adversarial
+values matched. This is not retrospective proof of the failed p95's cause.
+
+The narrow model-options-only follow-up passed67 focused Linux tests with an
+owned loopback PostgreSQL16 instance, including actual HTTP body/header/paging,
+scope/status/name/legacy/IDs/thumbnail, NULL/wildcard/Unicode and bound-cache
+parity. Initial bridge-IP fixture configuration was correctly rejected; tests
+were rerun in the owned PG network namespace on loopback without weakening the
+fixture boundary. Independent exact-source review, fresh CI/images and all
+formal production gates/observation remain required. No business data changed.
 
 Earlier CEO025033/counter062017/e4070624/window083652 failures remain preserved.
 Window083652 completed61 healthy rounds/1800.27s but FAILED closing batches p95

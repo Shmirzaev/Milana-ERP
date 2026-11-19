@@ -302,7 +302,7 @@ jobs:
           assert host == '127.0.0.1' and port == 5432 and identifier == owned_identifier
           os.environ['MILANA_TEST_PG_INSTANCE'] = json.dumps({'admin_dsn': 'postgresql+psycopg2://postgres@127.0.0.1:5432/postgres', 'host': host, 'port': port, 'server_version': version, 'system_identifier': identifier, 'data_directory': directory, 'target_prefix': 'ci_group_page_'})
           os.environ['MILANA_REQUIRE_TEST_PG'] = '1'
-          raise SystemExit(pytest.main(['-q', '--junitxml=' + os.environ['RUNNER_TEMP'] + '/catalog-group-variant.xml', 'backend/app/tests/test_model_group_page_postgres.py', 'backend/app/tests/test_variant_create_postgres.py']))
+          raise SystemExit(pytest.main(['-q', '--junitxml=' + os.environ['RUNNER_TEMP'] + '/catalog-group-variant.xml', 'backend/app/tests/test_model_group_page_postgres.py', 'backend/app/tests/test_model_options_numeric_postgres.py', 'backend/app/tests/test_variant_create_postgres.py']))
           PY
       - *backend_stop_pg
 

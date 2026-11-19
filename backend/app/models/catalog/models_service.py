@@ -32,6 +32,7 @@ from app.core.deps import user_permissions
 from app.core.dt import date_filter_bounds
 from app.core.model_search import (
     normalized_model_code_column,
+    normalized_model_code_match,
     normalized_model_code_pattern,
     model_search_prefix,
     model_prefix_number,
@@ -1312,7 +1313,10 @@ def list_model_options(
         qry = qry.filter(
             or_(
                 Model.name.ilike(pattern),
-                normalized_model_code_column(Model.code).ilike(normalized_code_pattern),
+                normalized_model_code_match(
+                    Model.code, normalized_code_pattern,
+                    dialect_name=db.get_bind().dialect.name,
+                ),
             )
         )
 
