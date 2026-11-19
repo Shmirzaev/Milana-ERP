@@ -571,3 +571,87 @@ attribute particular closing requests: phase/GC/scheduler evidence is required.
 An owned prospective correlation experiment and independently reviewed lifecycle
 proof are required before any GC-freeze/source/runtime change. Previous weak
 freeze experiment remains rejected. No business data changed; auto disabled.
+
+
+## Metadata candidate FAILED immediate public checks; recovered11:21UTC
+
+Source cd618b0780ac7bc777c02c0c919c40e8153486b0 passed CI44505036008,
+integration44506598965 and refactor-PG44506598862. Its exact-source default-worker
+lifecycle and independent-arrival proof is archived on BOTH hosts as
+`gc-cd618b078-preactivation-evidence.zip`, 40,110,009bytes, SHA
+0074abc7934e12ea2b3539b7d8ee49c597f846a4a332fc5884fb6083bd53fb13.
+All prior supplemental p95 FAILs remain. Fixed-arrival V7 reduced >100ms foreground
+requests89→44 and GC median247.6→17.0ms, but four of six epochs retain p95 FAILs.
+The conservative cross-worker memory bound FAIL is nonattributing because same-image
+A/A exceeds it more; per-PID growth/lifecycle pass does not erase that bound.
+
+Release20261119_102227_44505036008_1 manifest
+6a14009ef0cb6086b4421f1e02fecd78cb5574991c2ecadc55ed1796f9d984bb;
+archive SHA95a7ea6040c956d9749bd33f053b311213043ad46a8d32028451c5e61901c003;
+backend image3d55bc04a6ba7922132be111d06309513cd71a87d1916468e9e79b72ddebd7d6;
+frontend imagee15bd1ac5e7c94c281553c2592100632d2f5f544fc70cba8373324b0c8d7b98f.
+Backup132,523,265bytes/1403objects SHA
+01717576c6a67f4869f8cb5408d2758590e5109e6182e79ecaf20d1ca437b4f7;
+restore-list SHA0969830ae44de1081383348c4d9df9ba786b38e6ca3e672e830844e56127a715.
+Seven frozen workflow facts and25006 write refusal passed;101core/31search pairs
+passed. Two native workers/defaultCMD, metadata freeze, counter1→2, zero OOM/
+restarts/invalid indexes and41/100PGconnections passed. CEO counts remain0.
+
+After11:17 activation, required public inventory batches FAILED median184.626ms
+andp95285.928ms vs before164.597/177.991 (limits181.056/204.690). Four other paths,
+rows and bytes passed. Raw7065bytes SHA
+b3d6d559333c697f2cb9e5d5bdbcb3074cf66d76e8549508e35d1ba8f38d641e,
+root0600 BOTH hosts `failed-immediate-public.json` under this release evidence.
+NO observer started. Backend recovered blue11:20:29UTC/readback11:20:38;
+frontend11:21:13. Four health checks pass, schema0159 and fingerprint unchanged.
+Both journals rolled_back/FAILED_IMMEDIATE_PUBLIC_PERFORMANCE_RECOVERED;
+matching reservations retained. Green remains failedcd, not a successful rollout.
+
+## Remaining Inventory loop encoding identified; narrow follow-up
+
+Client GC ABBA (auth-import/std-only/std-only/auth-import),21samples/path/arm,
+found no request GC overlap and no meaningful mode difference. Root backend
+`public-client-gc-results.json` SHA
+5e2baee71c1498d211ec6ffba9a7c4830d0eb9915cbe362cfdb237309e4ad4fd.
+Do not relabel a production FAIL based on client GC.
+
+Frontend fixed63-round same-backend comparison:5transports, three Inventory/model
+paths and health; all200/stable hashes. Same-round direct inventory batches977ms
+included974ms server time; new frontend976ms included972ms server time. Forwarding
+medians4–5ms, p95 generally7–14ms; no new-frontend cause established. Front root
+`frontend-forwarding-results.json` SHA
+f9aeeb3c2bcd5dc9825635fbc4ab27559ac352e1b02624186a1c58ca3fbf369c.
+This localizes sampled old-release spikes, not the earlier candidate failure.
+
+Owned backend-VM probe `vm-phase-v3`: exactcd/default2workers, read-onlyPG25006,
+storageRO/privateSQLite same filesystem, memory2.5GiB/CPU2, original700/10/10 and
+native frozen metadata. Initial v1 stopped on counter-filesystem precondition;
+v2 stopped before HTTP warm/timing because root with dropped capabilities could
+not open appuser0600 sockets. Both aborts preserved. v3 fixed only counter
+placement/control user; no timing/source/GC tuning. Fixed16warm/path, quiet315
+and heavy315+16 reads returned200 with one hash/path. Cgroup nr_throttled170→170
+and throttled_usec unchanged through measurement; no OOM/memory-limit events.
+
+Request-linked Inventory batch encoding remained on ASGI loop: quiet median22.667/
+p9528.463ms, heavy26.964/47.163ms. Stock5.989/7.754ms quiet. SQL/pool/counter/scheduler
+and GC contributions remain separate; inclusive spans must not be summed as
+independent cost. Some quiet SQL waits exceeded190ms; heavy GC CPU138/wall139ms
+also occurred, but the bounded event ring itself retains objects. Neither is
+retrospective proof of the production failed gate. Probe stopped gracefully;
+active/held IDs and source stayed unchanged. Quiet result SHA
+659189af28c996e51984b1d4852a7bfb8fec3b7089558a4505219a9fc4b07082;
+heavy909fb398db5dc215b73395507e156daf16fe1fa34bc54d36d16a024e9673398d;
+scheduler2d9de357a174d9379106d2082a42cacb2a57f0c0519a28943184dc86fc9110b6.
+
+The follow-up registers only Inventory GET stock/batches through existing
+json_response_endpoint. Pure callables, service/query/authorization and encoding
+rules remain intact. Local56 focused tests pass, including actual registrations,
+HTTP byte/header/OpenAPI parity, permission refusal and blocked-encoder health
+responsiveness. Full exact-source/image evidence and every fresh production gate
+are still required. No production success, human acceptance or complete causality
+claim is made. No business data changed.
+
+Full OpenAPI parity passed:537paths/821003canonical bytes, both SHA
+56642ae267bf299a2f3549b5395349b1a561cbe2b11df6fca2ba6a096f954647.
+Ruff/diff checks and8CI-trigger/14shard-policy tests passed. The existing
+bootstrap regression step now explicitly runs JSON-thread tests as well.

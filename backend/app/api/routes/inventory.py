@@ -4,6 +4,7 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, Header, UploadFile, File, Response, Query
 
 from app.core.dt import date_filter_bounds
+from app.core.json_response import json_response_endpoint
 from app.core.deps import (
     DbSession,
     INVENTORY_READ_PERMISSIONS,
@@ -229,7 +230,6 @@ def create_warehouse(payload: WarehouseIn, db: DbSession, current: User = Depend
 
 
 # ===== Stock view =====
-@router.get("/stock")
 def get_stock(
     db: DbSession,
     _: User = Depends(require_permissions(*INVENTORY_READ_PERMISSIONS)),
@@ -248,6 +248,11 @@ def get_stock(
         created_from=created_from, created_to=created_to, page=page,
         page_size=page_size, include_total=include_total,
     )
+
+
+router.add_api_route(
+    "/stock", json_response_endpoint(get_stock), methods=["GET"], response_model=None,
+)
 
 
 @router.patch("/stock/{item_id}", response_model=StockQuantityAdjustmentOut)
@@ -463,7 +468,6 @@ def restore_material_batch(
     return stock_service.restore_material_batch(db, batch_id, payload, current)
 
 
-@router.get("/batches")
 def list_batches(
     db: DbSession,
     _: User = Depends(require_permissions(*INVENTORY_READ_PERMISSIONS)),
@@ -487,3 +491,8 @@ def list_batches(
         page=page, page_size=page_size, include_total=include_total,
         hide_empty=hide_empty, archived=archived,
     )
+
+
+router.add_api_route(
+    "/batches", json_response_endpoint(list_batches), methods=["GET"], response_model=None,
+)
