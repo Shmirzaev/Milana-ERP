@@ -12,6 +12,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.deps import DbSession, CurrentUser
 from app.core.pagination import clamp_pagination
+from app.core.json_response import json_response_endpoint
 from app.core.model_search import normalized_model_code_column, normalized_model_code_pattern
 from app.schemas import (
     SalesOrder, ProductionOrder, ProductionBatch, WorkOrder, Customer, Item, Model, ModelImage, ModelBOM, SewingFlow, SewingAssignment,
@@ -822,7 +823,6 @@ def _qr_ready_batches(db, factory_code: str):
     )
 
 
-@router.get("")
 def list_processes(
     db: DbSession, current: CurrentUser,
     factory: str | None = None,
@@ -1316,6 +1316,11 @@ def list_processes(
     if include_total:
         return {"rows": out, "total": total, "page": safe_page, "page_size": safe_size}
     return out
+
+
+router.add_api_route(
+    "", json_response_endpoint(list_processes), methods=["GET"], response_model=None,
+)
 
 
 @router.get("/summary")

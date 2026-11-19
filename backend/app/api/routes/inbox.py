@@ -8,6 +8,7 @@ from sqlalchemy.orm import load_only, selectinload
 
 from app.core.deps import CurrentUser, DbSession, user_permissions
 from app.core.dt import as_utc
+from app.core.json_response import json_response_endpoint
 from app.schemas import (
     BrandedPlanningOrder,
     Bundle,
@@ -1209,7 +1210,6 @@ def _matching_production_ids(db: DbSession, q: str):
     return query
 
 
-@router.get("/department-orders")
 def department_order_page(
     db: DbSession,
     current: CurrentUser,
@@ -1277,6 +1277,12 @@ def department_order_page(
         "limit": limit,
         "has_more": offset + len(rows) < total,
     }
+
+
+router.add_api_route(
+    "/department-orders", json_response_endpoint(department_order_page),
+    methods=["GET"], response_model=None,
+)
 
 
 def _searched_cutting_work_order_ids(db: DbSession, query, words: list[str], *, offset: int, limit: int):
@@ -1838,7 +1844,6 @@ def _partially_packaged_rows(db: DbSession, department_id: int) -> list[dict]:
     return partially_packaged
 
 
-@router.get("")
 def department_inbox(
     db: DbSession,
     current: CurrentUser,
@@ -2376,3 +2381,8 @@ def department_inbox(
         "ready_to_ship": ready_to_ship,
         "ready_to_ship_total": ready_to_ship_total,
     }
+
+
+router.add_api_route(
+    "", json_response_endpoint(department_inbox), methods=["GET"], response_model=None,
+)

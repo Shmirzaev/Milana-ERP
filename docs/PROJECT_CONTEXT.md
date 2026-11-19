@@ -15,43 +15,57 @@ Last updated 2026-11-19. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
-## CEO rollout reverted after performance gate (19 November)
+## Shared-counter candidate recovered after live tails (19 November)
 
-Current backend/frontend serve `20261119_030500`, blue: the previous application
-with identical candidate migrations 0158/0159, from compatibility commit
-`437523dbd2d558a76f1308d8aa2215aee64b86bb`. Source manifest is
-`b09fc748df6e4da0d00dbabbdd6a38a6b8ce2c38a8c2815cd960eb9e63902fbd`;
-database remains `0159_ceo_balance_snapshots`. Do not downgrade/stamp it.
-No CEO accounts were assigned and no balance snapshots or schedule were created.
+Both hosts again serve blue compatibility `20261119_030500`, manifest
+`b09fc748df6e4da0d00dbabbdd6a38a6b8ce2c38a8c2815cd960eb9e63902fbd`, commit
+`437523dbd2d558a76f1308d8aa2215aee64b86bb`. Schema remains0159. Fixed candidate
+`20261119_062017_44471392308_1` / ac794fd37 is held in green after live postflight
+search tails failed: stock68.40ms versus45.28ms; model groups99.38ms versus84.24ms.
+All medians and public before/after budgets passed. The observer was interrupted
+before completion. User task remains finding/fixing the remaining slowdown and
+deploying; no performance waiver is assumed. Backend recovered06:46:59UTC and
+frontend followed. See the live journal for exact runtime readbacks.
 
-The owner approved rollout and said "Ignore and deploy" after disk/worker
-blockers were reported. Disk thresholds were explicitly overridden. Immutable
-CEO candidate `34727287848116f718a9f455a0484eafb32ed232`, release
-`20261119_025033`, was deployed to green. Exact-candidate CI, ordered read-only
-workflow parity, CEO service/authorization checks, initial API/search gates and
-all 61 rounds of the 30-minute health observer passed. Closing performance failed:
-production-list p95 was 238.264ms versus 45.633ms on recovery in one predefined
-101-pair diagnostic; sales and material-batch tails also exceeded 15%. Medians
-were within budget. These failures are preserved, not relabelled as passes.
+The owner requested finding/fixing the slowdown and deployment. A confirmed
+SQLite limiter connection leak/churn and write-taking TTL reads were repaired.
+One connection per worker is serialized by the existing lock; FULL durability,
+fixed windows, expiry and cross-process lockout counting remain intact. File
+replacement is detected; live SQLite rotation is not an atomic supported operation.
+CPU pressure from unrelated host services remains a separate observed contributor;
+the fix is not claimed as the exclusive source of all earlier tail spikes.
 
-Traffic was restored backend first and frontend second at 03:48 UTC. Both recovered
-identities and all four health checks passed. Green retains the rejected candidate;
-it must not be reactivated automatically. A new explicit override of the measured
-performance regression or a fixed, verified candidate is required. No source cause
-is established; actual serving load differs from the idle recovery benchmark.
+Exact CI44471392308, independent AI review, owned strict two-worker/replacement/
+restart/counter persistence, equal-load read-only cloned application replay,
+complete frozen parity across seven production workflows and initial API/search
+budgets passed. Backend switched06:40:11UTC, frontend06:40:39UTC. Postflight
+identities, proxies, two workers, zero restarts/OOM/counter warnings and database
+headroom pass. The30-minute observer started06:40:48UTC, then was interrupted for recovery;
+it did not complete. All failed evidence is preserved. No new activation until
+the remaining workload-dependent tails are explained and fixed.
 
-The failed automatic worker was recovered to idle and is stopped/disabled; review
-its pinned CI policy and new baseline before restoring unattended polling. Disk
-capacity and signed-in visual/console QA remain unresolved. Browser page controls
-failed; no visual pass or separate QA-master report is claimed. Compatibility 437523
-is recorded separately, not an ancestor of held candidate 347272. Its old pricing
-import allowlist safely returns 409 at 0159. Keep CEO unassigned when using this old
-application; assigned CEO accounts/sessions must be disabled/revoked before such
-recovery because it predates the CEO guard. New feature source remains on
-`clone_main`; the branch head is not the live application. Reconcile the separate
-compatibility lineage before future release work.
+A second confirmed issue is large unmodelled inbox/process responses encoding on
+the ASGI main loop (measured70–100ms). A narrow three-read-route wrapper moves the
+same encoder/renderer into existing request threads, preserving original payload
+callers. New thread/byte-parity tests and131broader cases pass; independent source
+review passes. It is not deployed and exact-image/production gates remain. The
+counter-only full-image heavy experiment failed batches tails; it remains FAIL.
+Sewing background option labels are nondeterministic even within the old app;
+this adjacent risk is documented, not normalized away. Independent review confirmed
+DEPLOYMENT.md requires preactivation slot and public postactivation comparisons;
+the extra active-versus-idle postflight diagnostic is not a new permanent gate.
 
-See [full attempted release, recovery and evidence](archive/CEO_RELEASE_20261119.md).
+The earlier CEO candidate025033 was rejected and recovered to030500; its failed
+measurements and logs remain protected. Compatibility437523dbd is now included
+in candidate ancestry; the prior reconciliation limitation has been resolved.
+`clone_main` is source-integrated at ac794fd37. Automatic deployment remains
+stopped/disabled pending separate pinned-policy reconciliation. Disk thresholds
+remain owner-overridden. Public login renders in the in-app browser; the existing
+signed-in Chrome tab still fails adapter binding. No signed-in visual or separate
+QA-master acceptance is fabricated. Owner deployment authorization is recorded.
+
+See [repair evidence and current gates](archive/RATE_LIMIT_LATENCY_20261119.md)
+and [previous attempted release and recovery](archive/CEO_RELEASE_20261119.md).
 
 ## Frontend performance fixes (17 November; local candidate)
 
