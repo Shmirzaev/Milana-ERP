@@ -11,9 +11,47 @@ this checkout, a new combined candidate or deployed production. Inspect current
 code and the operation ledger before advancing a gate. Schema-owned writers,
 system-wide enum/type adoption and human acceptance remain incomplete.
 
-Last updated 2026-11-17. Keep this file short: current decisions, release pointers and
+Last updated 2026-11-19. Keep this file short: current decisions, release pointers and
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
+
+## CEO rollout reverted after performance gate (19 November)
+
+Current backend/frontend serve `20261119_030500`, blue: the previous application
+with identical candidate migrations 0158/0159, from compatibility commit
+`437523dbd2d558a76f1308d8aa2215aee64b86bb`. Source manifest is
+`b09fc748df6e4da0d00dbabbdd6a38a6b8ce2c38a8c2815cd960eb9e63902fbd`;
+database remains `0159_ceo_balance_snapshots`. Do not downgrade/stamp it.
+No CEO accounts were assigned and no balance snapshots or schedule were created.
+
+The owner approved rollout and said "Ignore and deploy" after disk/worker
+blockers were reported. Disk thresholds were explicitly overridden. Immutable
+CEO candidate `34727287848116f718a9f455a0484eafb32ed232`, release
+`20261119_025033`, was deployed to green. Exact-candidate CI, ordered read-only
+workflow parity, CEO service/authorization checks, initial API/search gates and
+all 61 rounds of the 30-minute health observer passed. Closing performance failed:
+production-list p95 was 238.264ms versus 45.633ms on recovery in one predefined
+101-pair diagnostic; sales and material-batch tails also exceeded 15%. Medians
+were within budget. These failures are preserved, not relabelled as passes.
+
+Traffic was restored backend first and frontend second at 03:48 UTC. Both recovered
+identities and all four health checks passed. Green retains the rejected candidate;
+it must not be reactivated automatically. A new explicit override of the measured
+performance regression or a fixed, verified candidate is required. No source cause
+is established; actual serving load differs from the idle recovery benchmark.
+
+The failed automatic worker was recovered to idle and is stopped/disabled; review
+its pinned CI policy and new baseline before restoring unattended polling. Disk
+capacity and signed-in visual/console QA remain unresolved. Browser page controls
+failed; no visual pass or separate QA-master report is claimed. Compatibility 437523
+is recorded separately, not an ancestor of held candidate 347272. Its old pricing
+import allowlist safely returns 409 at 0159. Keep CEO unassigned when using this old
+application; assigned CEO accounts/sessions must be disabled/revoked before such
+recovery because it predates the CEO guard. New feature source remains on
+`clone_main`; the branch head is not the live application. Reconcile the separate
+compatibility lineage before future release work.
+
+See [full attempted release, recovery and evidence](archive/CEO_RELEASE_20261119.md).
 
 ## Frontend performance fixes (17 November; local candidate)
 
@@ -33,8 +71,10 @@ its fixed files, dedicated Linux accounts/SSH key, backend configuration and
 systemd service, site gates, restricted host configurations/sudo rules and separately
 pinned `RELEASE_ID` adapter are installed from reviewed commit
 `76c49093d5fc1466399fc2654a03660480d0ff5f`; installed routing controllers are unchanged.
-The service is **enabled/active** on backend, with `AUTO_RELEASE_BUILDS=true`;
-its first polling checkpoint is idle. The GitHub credential is provisioned
+At the 17 November installation the service was enabled/active on backend,
+with `AUTO_RELEASE_BUILDS=true` and an idle checkpoint. This is historical:
+the 19 November release recovered it to idle and stopped/disabled the service.
+The GitHub credential is provisioned
 under the owner's explicit authorization, readable only by the worker account;
 server-side Actions/branch/collaborator/policy reads, Contents/status writes and
 both restricted SSH helpers pass in the real hardened service sandbox. Credential
@@ -52,16 +92,16 @@ the effect was not fingerprinted. Later probes enforce read-only DB/storage.
 See [daily use/install](AUTO_DEPLOYMENT.md) and
 [verification/limitations](archive/AUTO_DEPLOYMENT_IMPLEMENTATION_20261117.md).
 
-Both source pointers name `20261116_130518`, manifest
+At that historical checkpoint both source pointers named `20261116_130518`, manifest
 `bc2e0d4bdbb38f6c06b9f3d5c75f3fdaa1fb5087240ca8f7b49d01318908ce40`.
 All 2,559 declared files match raw Git blobs at
 `4d7cf17e55b165b1edc05407065f92597cebdbe5`; both manifest checks pass.
 Backend health/readiness report that release. Migration source head remains
 `0157_package_allocation_items`; protected installed-helper snapshots now pass on
 both VMs, including actual routing/container identities and the real backend
-database-head check. Both active slots are green; retained rollback is
-`20261116_092917` in blue. This supersedes earlier current-release
-pointers below; previous failure/waiver evidence remains historical and unchanged.
+database-head check. Both active slots were green; retained rollback was
+`20261116_092917` in blue. The 19 November section above supersedes these release
+pointers; previous failure/waiver evidence remains historical and unchanged.
 The owner authorized reconciling this verified live lineage with `clone_main`,
 then preparing and installing automatic deployment. Installation used the existing
 SSH account's Docker administrator access; application releases, routing and schema

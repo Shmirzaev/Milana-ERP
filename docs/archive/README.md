@@ -4,6 +4,9 @@ These reports preserve what was observed at their recorded date. They are not
 current implementation instructions or proof of today's production state.
 Start with [current context](../PROJECT_CONTEXT.md) for active work.
 
+- [CEO dashboard release, 19 November 2026](CEO_RELEASE_20261119.md): immutable
+  application/rollback identities, migrations, owner override and actual QA limits.
+
 - [Owner rollback of factory workflows, 13 November 2026](FACTORY_WORKFLOWS_ROLLBACK_20261113.md): after reported bugs, blue115200 restored on both hosts; current data preserved, fresh backup and closing checks passed; green094409 withdrawn and not approved for reactivation.
 
 - [Factory workflows release, 13 November 2026](FACTORY_WORKFLOWS_RELEASE_20261113.md): all seven fixes deployed as green094409; owner accepted only the two paired Sales latency failures, strict public checks passed, healthy blue115200 retained, monitoring waived.
