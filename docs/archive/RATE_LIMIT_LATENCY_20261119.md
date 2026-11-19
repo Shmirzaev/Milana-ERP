@@ -1,10 +1,9 @@
 # ERP latency repair — 19 November 2026
 
 User scope: find the slowdown, fix it and deploy the latest ERP change.
-Status at 08:09 UTC: required closing public p95 failed after healthy30minute
-observation. Both hosts recovered to030500; corrected e4 candidate is held green.
-Further causal diagnosis and successful deployment remain required. Historical
-activation/observing checkpoints below are preserved; see final recovery section.
+Status09:26UTC: required closing batchp95failed despite healthy30minobserver.
+Both hosts recovered030500;089dheldgreen. Diagnosis/successful deployment remain
+pending. Prior activation checkpoints below are historical, not current success.
 
 ## Source and ownership
 
@@ -394,3 +393,100 @@ the approved-instance environment only inside its exact test invocation.
 Exact combined-commit CI and a new immutable production attempt are still pending.
 Inventory stock does not use this model-group query; no direct fix of its earlier
 tail spikes is claimed. Existing health/latency/observation/closing gates remain.
+
+## Window-count candidate live — 08:54 UTC; closing pending
+
+Exact runtime089d2f938e81d0294d0f5add3b8e452e106b6ec5 includes incoming
+Ismail variant merge#561. It is pushed and fast-forward integrated into clone_main.
+Candidate CI44489078112: all18jobs success, including new approved-instance PG
+group/variant tests,8backend shards, PostgreSQL/schema/ops, frontend browser/build
+contracts, security and immutable publication. Integration CI44490410050 and
+refactor PostgreSQL CI44490409772 also passed. Independent reviewer
+/root/review_ceo_rollout found no blocker for exact089d;86local tests had0skips.
+Owned validation containers were removed after logs and DB census=postgres only.
+
+Release20261119_083652_44489078112_1:
+manifest ed88f5ac8e12c38ae2beab52c0aee0fd1321d0f1317ae1f2b9da1d9aa1d54cd3;
+archive SHA ba9ff55889e933629ce487a74019c5ebb748ea5f3197287afc56d29f4e10aed7;
+backend ghcr.io/shmirzaev/milana-erp-backend@sha256:cacbdb6b08d272b3ff0facca784204e615a687fa0d5ae7f5944af0d613ea9c5d;
+frontend ghcr.io/shmirzaev/milana-erp-frontend@sha256:1cfdfb6969051f3960246917ca99a053ae078c179c60bcc57fd079b701e1c65a.
+Backend container6577c016c52b086824f13f735971f058728ca02976866253106eea8fc895df6b;
+frontend d2282cdf3f6df0f0a4f72471388ea95d70324e395e800798c5e82ca1311a676c.
+Backend switched08:52:53.471778UTC/readback08:53:02.925335;
+frontend08:53:11.313110/readback08:53:11.615671. Actual source/symlinks/
+slotstate/router/release and exact strict images/default commands verified.
+Blue030500 remains running rollback. Schema fingerprint unchanged c1830a0f72eddbcf82a76da559bf04da16477ffce29625574a9d28e6e450ca9f.
+
+Fresh backup /opt/milana-erp/shared/backups/auto_pre_20261119_083652_44489078112_1.dump:
+132,186,951bytes/1403restore objects/mode0600,
+SHA44a202e1b135b78630ffefcd376dea56e222dc1b21a2f312d0a8d8f96d8b7b79,
+restore-list SHAa764c23a829757c92c92c8c9e993dd98d78b187ff58f7f66b2ff76f62e50035d.
+PinnedPG16client unchanged; hash/list verified, not full restore.
+
+Fresh seven-workflow frozen facts identical:
+sales100/production747/material batches1615/packages10688/cutting884/
+workorders3044/shipments289; SQLSTATE25006 refusal. Core101paired p95:
+sales41.592→42.514, production45.076→40.088, batches65.216→64.254ms.
+Search31paired p95: global113.836→111.642/options54.687→49.020/
+groups83.344→54.060/batches54.631→59.887/stock43.307→37.878ms.
+Every prescribed median/p95/payload/exact-row gate passed.
+
+| Public query | Fresh before median/p95 ms | Immediate after median/p95 ms |
+| --- | ---: | ---: |
+| Global search | 244.856 / 280.867 | 236.229 / 278.731 |
+| Model options | 160.727 / 199.928 | 157.770 / 169.955 |
+| Model groups | 190.040 / 217.454 | 164.288 / 168.966 |
+| Inventory batches | 167.623 / 176.584 | 165.950 / 182.534 |
+| Stock | 151.544 / 159.416 | 151.082 / 160.206 |
+
+All5immediate public budgets passed;21samples/path,3warmups, fresh urllib
+connections, fixed same reader/search terms, identity encoding. Closing compares
+against THIS original before baseline, with unchanged10/15/15% and exact rows.
+No adaptive retry or threshold waiver. Prior070624 failure remains FAIL.
+
+Immediate postflight:32/100PGconnections,0invalid indexes, schema0159,
+CEOassignments0/snapshots0, SQLite write-proof1→2,2workers per slot,0OOM/restarts/
+counter warnings, valid HAProxy, both-readiness/stable and4health endpoints.
+New workers3SQLiteFDs each/~355–380MBRSS at08:54; snapshot is not long-term proof.
+IAB public login reloaded/rendered with0console errors; signed-in Chrome adapter
+remains inaccessible, no fabricated human visual acceptance.
+
+Observer tracked local session77473, started08:54:19.621854UTC,
+earliest finish09:24:19.621854UTC. Required1800s/61rounds plus fresh closing
+public, runtime/log/DB/release checks remain pending; no completion yet.
+Root journals /opt/milana-erp/runtime/manual-20261119_083652_44489078112_1.json
+and matching reservations held BOTH hosts. Fresh protocol/source-window evidence
+pinned before gates; earlier e4 logs preserved before inactive-slot replacement.
+Protected both-host window-diagnostics-before-cutover.zip273,298bytes,
+SHAb47bc2b039d0ae9b8cdae4b3c56192983912563a16ca7e2beb0e0012a65f0bf8.
+Old failed journal remains unchanged, source heavy/A-A failures retained.
+No business data/account/CEO assignments/snapshots changed by QA; only technical
+deployment counters. Auto service remains disabled/MainPID0, owner disk and
+Ignore-and-deploy overrides retained. Stock/GC/host contention unresolved.
+
+## Window candidate FAILED closing and recovered —09:26UTC
+
+Observer completed61rounds/1800.27s with0failures, ending09:24:19.889236UTC.
+Receipt14255bytesSHA34b30ebdf4aff52a5df61cd5caca54bc930f16951d7f71a48603951c8734b6e8.
+Required closingPUBLIC FAILED inventory_batchesp95277.185750ms against
+176.584256baseline, limit203.071894. Other closing median/p95:
+global235.293/279.472;stock151.215/162.057;groups170.008/189.078;
+options160.515/171.711; batchesmedian175.096. Allmedians/rows/bytes and the
+fourotherqueriespassed. Batches had several elevated samples in one short epoch
+(278.115,277.186,239.987,234.491ms), not just one extreme.
+Raw7022bytesSHA2cc589d61444cff5ff88c04ea7a2127f3af2a5c14329a023c5dda6a0d6526df3.
+No fresh closing-runtime check was run after public failed; no completion claim.
+
+Backend restoredblue03050009:25:31.496057UTC/readback09:25:40.929652;
+frontend09:25:56.505974/readback09:25:56.795825. Both exact before identities
+and4healthchecks pass, schema0159unchanged. Heldgreen089d preserved.
+Manual journalsphase=rolled_back,overall=FAILED_CLOSING_PERFORMANCE_RECOVERED;
+reservationsretained. Completed-health/failed-closing copies are root0600 BOTH
+hosts under the current release evidence folder. No retry/threshold waiver.
+
+At25minutes newworkers held3SQLiteFDs each,~494/447MBRSS,0OOM/restarts.
+HostCPU PSI reached94%some; ERP has no Docker CPU quota/cpuset. This does not
+attribute particular closing requests: phase/GC/scheduler evidence is required.
+An owned prospective correlation experiment and independently reviewed lifecycle
+proof are required before any GC-freeze/source/runtime change. Previous weak
+freeze experiment remains rejected. No business data changed; auto disabled.

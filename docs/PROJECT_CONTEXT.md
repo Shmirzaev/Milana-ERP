@@ -15,63 +15,74 @@ Last updated 2026-11-19. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
-## Latency repair recovered after closing tails (19 November)
+## Latency repair recovered after batch closing failure (19 November)
 
-Both hosts again serve blue compatibility release 20261119_030500, commit
+Both hosts again serve blue compatibility release20261119_030500, commit
 437523dbd2d558a76f1308d8aa2215aee64b86bb, manifest
 b09fc748df6e4da0d00dbabbdd6a38a6b8ce2c38a8c2815cd960eb9e63902fbd.
-Schema remains 0159_ceo_balance_snapshots. Candidate
-20261119_070624_44477044420_1 / e4d9b5a remains held in green. Backend recovered
-08:07:29 UTC (readback 08:07:38); frontend recovered 08:07:43 UTC. Both source,
-slot, proxy and served release identities and all four health endpoints pass.
-The old application lacks the CEO authorization guard: keep CEO unassigned;
-disable/revoke any future CEO accounts before rolling back. Assignments and
-snapshots were zero at candidate cutover; no business data was changed by QA.
+Candidate20261119_083652_44489078112_1 / runtime089d2f938e81d0294d0f5add3b8e452e106b6ec5
+is held green, manifest ed88f5ac8e12c38ae2beab52c0aee0fd1321d0f1317ae1f2b9da1d9aa1d54cd3.
+Backend recovered09:25:31UTC/readback09:25:40; frontend09:25:56.
+Fresh source/slot/proxy/release identities and four health checks pass.
 
-The candidate passed exact CI44477044420/integration CI44477906469, 131 broader
-local tests, Ruff, frozen read-only facts across seven workflows, prescribed
-initial slot comparisons and immediate public comparisons. It also completed
-1800.27 seconds / 61 healthy observer rounds, ending 08:05:41 UTC. REQUIRED closing
-public p95 FAILED: stock 210.544 ms versus 169.040 baseline (limit 194.396),
-model groups 255.732 versus 200.409 (limit 230.470). All medians, rows, bytes and
-other closing queries passed. Overall deployment did not complete successfully.
-No retry, threshold waiver or retrospective PASS was applied.
+The candidate passed exact CI44489078112/integration CI44490410050,
+independent source review,86local tests/zero skips, fresh frozen facts,
+initial101core/31search pair gates and all immediate public comparisons.
+Observer passed61rounds/1800.27s,08:54:19.621854–09:24:19.889236UTC.
+Required closing public p95 FAILED inventory_batches277.186ms against
+176.584ms baseline (203.072ms limit). Allmedians/rows/bytes and four other
+queries passed: closing groupsp95189.078ms versus217.454baseline;
+stock162.057versus159.416. This rollout failed and recovered; no adaptive retry,
+threshold waiver or relabeling. Latest incoming Ismail merge#561 is included.
+Further causal diagnosis and successful deployment remain the current task.
 
-Two confirmed source defects are repaired in candidate e4d9b5a: leaking/churning
-SQLite shared-counter connections and large inbox/process JSON encoding on the
-ASGI loop (70–100 ms). One locked connection per worker retains FULL durability,
-fixed windows, cross-process lockouts and replacement detection; TTL uses a pure
-read. Three sync routes encode/render the same response in existing request
-threads. At 25 minutes, new workers retained three SQLite FDs each. No GC tuning
-was deployed. Source e4 is pushed/integrated into clone_main; further causal diagnosis and a
-successful reviewed deployment remain the current task. Fresh Ismail merge#561
-(d9f905f02, variant writers) was reviewed and reconciled into this worktree.
+Three measured source defects are repaired: SQLite shared-counter connections
+leaked/churned until GC; large synchronous inbox/process responses encoded on the
+ASGI loop; and paginated model families repeated the same ~25ms filtered scan for
+count and page. One locked durable SQLite connection per worker, response encoding
+in existing request threads on three routes, and PostgreSQL COUNT OVER on the
+grouped page preserve API facts and permissions. Empty later pages retain exact
+totals through a fallback count; SQLite/no-total behavior remains unchanged.
+Six balanced frozen HTTP epochs cut group p9597.4→61.5ms with identical hashes
+and11semantic cases. Broad/prefix plans improve with zero spills.
 
-The supplemental 201-round source heavy comparison and prospectively pinned
-same-image A/A control BOTH remain FAIL. A/A produced large bidirectional tails
-with identical source and foreground facts, so that extra diagnostic is
-inconclusive for source attribution. Common heavy-report gen-2 GC pauses
-149–168 ms, host CPU contention and ambiguous sewing operation labels remain
-risks. The startup-freeze prototype was rejected. Transport tracing found a consistent97ms fresh-connection DNS floor, not a proven
-DNS fault. Exact HTTP/SQL profiling found duplicate filtered group scans costing
-~25ms each. A frozen count-window prototype cut group p9597.4→61.5ms;
-all hashes and11semantic cases match. Exact broad/prefix plans improve without
-spills. The narrow source edit and incoming variant writer passed86tests/zero
-skips on fresh owned PostgreSQL. Exact combined CI/release gates remain pending.
-Stock tails are not directly fixed; GC and DNS changes remain rejected/unproven.
-Earlier CEO025033, counter-only062017 and latest070624 failures are preserved.
+Fresh production gates passed: seven complete ordered workflow projections on
+one read-only snapshot and SQLSTATE25006 write refusal;101paired core and31paired
+search samples; all original10%median/15%p95/15%payload/exact-row limits.
+Public model-group p95 improved217.454→168.966ms; all five immediate public
+comparisons passed. Both strict two-worker slots, source/current/proxy/image
+identities, SQLite cross-process write persistence1→2, DB32/100connections/zero
+invalid indexes, readiness and four health endpoints passed. New workers each
+retained3SQLiteFDs at25minutes; no OOM/restarts. Public login rendered with zero console
+errors; signed-in Chrome adapter access remains blocked/unrecorded.
 
-Automatic deployment stays stopped/disabled pending pinned-policy reconciliation.
-Existing owner disk overrides and explicit "Ignore and deploy" authorization
-remain recorded; no separate QA-master acceptance is fabricated. Public login
-rendered in the in-app browser; signed-in Chrome adapter binding still fails,
-so signed-in visual acceptance is unrecorded. Legacy checkout remains untouched.
-The latest pre-cutover backup was hashed and restore-listed, not fully restored;
-the earlier original backup was fully restored into the owned diagnostic clone.
-That clone was removed after logs were saved and can be recreated for bounded QA.
+Active blue compatibility20261119_030500 remains running, commit
+437523dbd2d558a76f1308d8aa2215aee64b86bb, manifest
+b09fc748df6e4da0d00dbabbdd6a38a6b8ce2c38a8c2815cd960eb9e63902fbd.
+Schema stays0159_ceo_balance_snapshots; CEO assignments/snapshots remain0.
+Rollback lacks the CEO guard: keep CEO unassigned or disable/revoke future CEO
+accounts before rollback. No business records/users/assignments/snapshots were
+created by QA. Fresh pre-cutover dump132,186,951bytes/1403restore objects was
+hashed and restore-listed, not fully restored. Original diagnostic backup had a
+full owned-clone restore. Owned local diagnostic/test containers were removed
+after logs, exact labels/IDs and remaining-database census were verified.
 
-See [repair evidence and current gates](archive/RATE_LIMIT_LATENCY_20261119.md)
-and [previous attempted release and recovery](archive/CEO_RELEASE_20261119.md).
+Earlier CEO025033/counter062017/e4070624 and window083652 failures remain preserved.
+The e4 release completed61healthy rounds/1800.27s but FAILED closing public
+stock/model-group p95 and recovered08:07UTC. The new count-window correction
+does not retrospectively pass it or directly fix stock tails. Supplemental
+source heavy and same-image A/A comparisons also remain FAIL/inconclusive for
+source attribution. Isolated gen-2GC can cause long pauses, including one old
+profile request536.9ms containing440.6ms GC; production closing attribution and
+safe lifecycle tuning remain unproven. No GC/DNS tuning was deployed.
+The97ms fresh-connection DNS floor is not a proven ERP DNS fault. Unrelated
+host contention and legacy sewing option-label ambiguity remain risks.
+
+Automatic deployment remains stopped/disabled pending pinned-policy reconciliation.
+Existing owner disk override and explicit "Ignore and deploy" remain recorded;
+no separate QA-master acceptance is fabricated. Matching manual reservations
+remain held during further diagnosis. The legacy checkout is untouched.
+See [repair evidence/current gates](archive/RATE_LIMIT_LATENCY_20261119.md).
 
 ## Frontend performance fixes (17 November; local candidate)
 
