@@ -136,13 +136,47 @@ class SQLiteSharedCounterStore:
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         self._prefix = prefix.strip(":")
         self._lock = RLock()
+        self._connection: sqlite3.Connection | None = None
+        self._connection_identity: tuple[int, int] | None = None
         self._initialize()
 
     def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self._db_path, timeout=5, isolation_level=None)
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA busy_timeout=5000")
-        return conn
+        # Every caller holds _lock, including when threads share this connection.
+        # sqlite3.Connection's context manager commits/rolls back but does not
+        # close it. Opening one per request leaked handles until cyclic GC and
+        # repeatedly configured/checkpointed the WAL on the request path.
+        if self._connection is not None:
+            try:
+                current = self._db_path.stat()
+            except OSError:
+                self.close()
+                raise
+            if (current.st_dev, current.st_ino) != self._connection_identity:
+                # Do not keep accepting lockouts against a renamed/unlinked
+                # database that replacement workers can no longer see.
+                self.close()
+        if self._connection is None:
+            conn = sqlite3.connect(
+                self._db_path, timeout=5, isolation_level=None, check_same_thread=False,
+            )
+            try:
+                conn.execute("PRAGMA journal_mode=WAL")
+                conn.execute("PRAGMA busy_timeout=5000")
+                current = self._db_path.stat()
+            except BaseException:
+                conn.close()
+                raise
+            self._connection = conn
+            self._connection_identity = (current.st_dev, current.st_ino)
+        return self._connection
+
+    def close(self) -> None:
+        """Release a disposable store; production keeps one per worker process."""
+        with self._lock:
+            if self._connection is not None:
+                self._connection.close()
+                self._connection = None
+                self._connection_identity = None
 
     def _initialize(self) -> None:
         with self._lock, self._connect() as conn:
@@ -191,11 +225,16 @@ class SQLiteSharedCounterStore:
     def ttl(self, key: str) -> int | None:
         db_key = self._key(key)
         with self._lock, self._connect() as conn:
-            self._purge_expired(conn)
-            row = conn.execute("SELECT expires_at FROM shared_counters WHERE key = ?", (db_key,)).fetchone()
+            # Readiness and lockout reads must remain WAL readers even while a
+            # different process is writing. Mutating operations reclaim expiry.
+            now = time.time()
+            row = conn.execute(
+                "SELECT expires_at FROM shared_counters WHERE key = ? AND expires_at > ?",
+                (db_key, now),
+            ).fetchone()
             if not row:
                 return None
-            remaining = int(float(row[0]) - time.time())
+            remaining = int(float(row[0]) - now)
             return max(1, remaining)
 
     def set(self, key: str, value: str, ttl_seconds: int) -> None:
