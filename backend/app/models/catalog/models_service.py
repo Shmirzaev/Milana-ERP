@@ -1441,17 +1441,28 @@ def list_model_variant_groups(
             include_legacy_import=include_legacy_import,
             catalog_scope=catalog_scope,
         ).group_by(group_key_column)
-        total = filtered_keys_qry.count() if include_total else 0
+        total = 0
         group_order = [func.max(Model.id).desc()]
         if search_prefix:
             group_order.insert(0, model_group_prefix_number_column(group_key_column, search_prefix).desc())
+        page_keys_qry = (
+            filtered_keys_qry.add_columns(func.count().over().label("page_total"))
+            if include_total else filtered_keys_qry
+        )
         selected_groups = (
-            filtered_keys_qry
+            page_keys_qry
             .order_by(*group_order)
             .offset((safe_page - 1) * safe_size)
             .limit(safe_size)
             .all()
         )
+        if include_total:
+            # A window counts filtered families before pagination. An empty
+            # later page has no window row, so retain its exact total fallback.
+            total = (
+                int(selected_groups[0].page_total) if selected_groups
+                else filtered_keys_qry.count() if safe_page > 1 else 0
+            )
         selected_keys = [str(row.group_key) for row in selected_groups]
         grouped_ids_by_key: dict[str, list[int]] = {key: [] for key in selected_keys}
         if selected_keys:

@@ -15,54 +15,60 @@ Last updated 2026-11-19. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
-## Shared-counter candidate recovered after live tails (19 November)
+## Latency repair recovered after closing tails (19 November)
 
-Both hosts again serve blue compatibility `20261119_030500`, manifest
-`b09fc748df6e4da0d00dbabbdd6a38a6b8ce2c38a8c2815cd960eb9e63902fbd`, commit
-`437523dbd2d558a76f1308d8aa2215aee64b86bb`. Schema remains0159. Fixed candidate
-`20261119_062017_44471392308_1` / ac794fd37 is held in green after live postflight
-search tails failed: stock68.40ms versus45.28ms; model groups99.38ms versus84.24ms.
-All medians and public before/after budgets passed. The observer was interrupted
-before completion. User task remains finding/fixing the remaining slowdown and
-deploying; no performance waiver is assumed. Backend recovered06:46:59UTC and
-frontend followed. See the live journal for exact runtime readbacks.
+Both hosts again serve blue compatibility release 20261119_030500, commit
+437523dbd2d558a76f1308d8aa2215aee64b86bb, manifest
+b09fc748df6e4da0d00dbabbdd6a38a6b8ce2c38a8c2815cd960eb9e63902fbd.
+Schema remains 0159_ceo_balance_snapshots. Candidate
+20261119_070624_44477044420_1 / e4d9b5a remains held in green. Backend recovered
+08:07:29 UTC (readback 08:07:38); frontend recovered 08:07:43 UTC. Both source,
+slot, proxy and served release identities and all four health endpoints pass.
+The old application lacks the CEO authorization guard: keep CEO unassigned;
+disable/revoke any future CEO accounts before rolling back. Assignments and
+snapshots were zero at candidate cutover; no business data was changed by QA.
 
-The owner requested finding/fixing the slowdown and deployment. A confirmed
-SQLite limiter connection leak/churn and write-taking TTL reads were repaired.
-One connection per worker is serialized by the existing lock; FULL durability,
-fixed windows, expiry and cross-process lockout counting remain intact. File
-replacement is detected; live SQLite rotation is not an atomic supported operation.
-CPU pressure from unrelated host services remains a separate observed contributor;
-the fix is not claimed as the exclusive source of all earlier tail spikes.
+The candidate passed exact CI44477044420/integration CI44477906469, 131 broader
+local tests, Ruff, frozen read-only facts across seven workflows, prescribed
+initial slot comparisons and immediate public comparisons. It also completed
+1800.27 seconds / 61 healthy observer rounds, ending 08:05:41 UTC. REQUIRED closing
+public p95 FAILED: stock 210.544 ms versus 169.040 baseline (limit 194.396),
+model groups 255.732 versus 200.409 (limit 230.470). All medians, rows, bytes and
+other closing queries passed. Overall deployment did not complete successfully.
+No retry, threshold waiver or retrospective PASS was applied.
 
-Exact CI44471392308, independent AI review, owned strict two-worker/replacement/
-restart/counter persistence, equal-load read-only cloned application replay,
-complete frozen parity across seven production workflows and initial API/search
-budgets passed. Backend switched06:40:11UTC, frontend06:40:39UTC. Postflight
-identities, proxies, two workers, zero restarts/OOM/counter warnings and database
-headroom pass. The30-minute observer started06:40:48UTC, then was interrupted for recovery;
-it did not complete. All failed evidence is preserved. No new activation until
-the remaining workload-dependent tails are explained and fixed.
+Two confirmed source defects are repaired in candidate e4d9b5a: leaking/churning
+SQLite shared-counter connections and large inbox/process JSON encoding on the
+ASGI loop (70–100 ms). One locked connection per worker retains FULL durability,
+fixed windows, cross-process lockouts and replacement detection; TTL uses a pure
+read. Three sync routes encode/render the same response in existing request
+threads. At 25 minutes, new workers retained three SQLite FDs each. No GC tuning
+was deployed. Source e4 is pushed/integrated into clone_main; further causal diagnosis and a
+successful reviewed deployment remain the current task. Fresh Ismail merge#561
+(d9f905f02, variant writers) was reviewed and reconciled into this worktree.
 
-A second confirmed issue is large unmodelled inbox/process responses encoding on
-the ASGI main loop (measured70–100ms). A narrow three-read-route wrapper moves the
-same encoder/renderer into existing request threads, preserving original payload
-callers. New thread/byte-parity tests and131broader cases pass; independent source
-review passes. It is not deployed and exact-image/production gates remain. The
-counter-only full-image heavy experiment failed batches tails; it remains FAIL.
-Sewing background option labels are nondeterministic even within the old app;
-this adjacent risk is documented, not normalized away. Independent review confirmed
-DEPLOYMENT.md requires preactivation slot and public postactivation comparisons;
-the extra active-versus-idle postflight diagnostic is not a new permanent gate.
+The supplemental 201-round source heavy comparison and prospectively pinned
+same-image A/A control BOTH remain FAIL. A/A produced large bidirectional tails
+with identical source and foreground facts, so that extra diagnostic is
+inconclusive for source attribution. Common heavy-report gen-2 GC pauses
+149–168 ms, host CPU contention and ambiguous sewing operation labels remain
+risks. The startup-freeze prototype was rejected. Transport tracing found a consistent97ms fresh-connection DNS floor, not a proven
+DNS fault. Exact HTTP/SQL profiling found duplicate filtered group scans costing
+~25ms each. A frozen count-window prototype cut group p9597.4→61.5ms;
+all hashes and11semantic cases match. Exact broad/prefix plans improve without
+spills. The narrow source edit and incoming variant writer passed86tests/zero
+skips on fresh owned PostgreSQL. Exact combined CI/release gates remain pending.
+Stock tails are not directly fixed; GC and DNS changes remain rejected/unproven.
+Earlier CEO025033, counter-only062017 and latest070624 failures are preserved.
 
-The earlier CEO candidate025033 was rejected and recovered to030500; its failed
-measurements and logs remain protected. Compatibility437523dbd is now included
-in candidate ancestry; the prior reconciliation limitation has been resolved.
-`clone_main` is source-integrated at ac794fd37. Automatic deployment remains
-stopped/disabled pending separate pinned-policy reconciliation. Disk thresholds
-remain owner-overridden. Public login renders in the in-app browser; the existing
-signed-in Chrome tab still fails adapter binding. No signed-in visual or separate
-QA-master acceptance is fabricated. Owner deployment authorization is recorded.
+Automatic deployment stays stopped/disabled pending pinned-policy reconciliation.
+Existing owner disk overrides and explicit "Ignore and deploy" authorization
+remain recorded; no separate QA-master acceptance is fabricated. Public login
+rendered in the in-app browser; signed-in Chrome adapter binding still fails,
+so signed-in visual acceptance is unrecorded. Legacy checkout remains untouched.
+The latest pre-cutover backup was hashed and restore-listed, not fully restored;
+the earlier original backup was fully restored into the owned diagnostic clone.
+That clone was removed after logs were saved and can be recreated for bounded QA.
 
 See [repair evidence and current gates](archive/RATE_LIMIT_LATENCY_20261119.md)
 and [previous attempted release and recovery](archive/CEO_RELEASE_20261119.md).
