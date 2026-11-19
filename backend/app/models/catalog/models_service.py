@@ -26,7 +26,7 @@ from uuid import uuid4
 from fastapi import HTTPException, UploadFile
 from sqlalchemy import and_, func, literal_column, or_, select
 from sqlalchemy.orm import Session, defer, selectinload
-from app.schemas.catalog import variant_update_persistence
+from app.schemas.catalog import variant_create_persistence, variant_update_persistence
 from app.core.config import settings
 from app.core.deps import user_permissions
 from app.core.dt import date_filter_bounds
@@ -55,7 +55,7 @@ from app.libs.dto.catalog.model_size_input import ModelSizeIn
 from app.libs.dto.catalog.model_output import ModelDetail, ModelImageOut, ModelOut, ModelSummaryOut
 from app.libs.dto.catalog.process_qr_sizes_input import ProcessQrSizesIn
 from app.libs.enums.catalog import BomMaterialRole, CatalogScope
-from app.libs.types.catalog import ModelColorCreateCommand, ModelColorCreateResult, ModelSizeCreateCommand, ModelSizeCreateResult, NormalizedBomCreate, NormalizedBomUpdate
+from app.libs.types.catalog import ModelColorCreateCommand, ModelColorCreateResult, ModelSizeCreateCommand, ModelSizeCreateResult, NormalizedBomCreate, NormalizedBomUpdate, VariantBomValues, VariantCreateValues
 from app.models.audit_service import log_action
 from app.models.factory_scope_service import selected_factory_code
 from app.models.image_storage_service import (
@@ -512,23 +512,10 @@ def _set_variant_material_image(db: Session, model: Model, picture_url: str) -> 
     file_name = os.path.basename(picture_url.split("?", 1)[0]) or None
     extension = os.path.splitext(file_name or "")[1].lower()
     content_type = safe_content_type(extension) if extension in SAFE_IMAGE_EXTENSIONS else None
-    if material_images:
-        image = material_images[0]
-        image.file_url = picture_url
-        image.file_name = file_name
-        image.content_type = content_type
-        image.file_data = None
-        image.is_primary = False
-        return
-    db.add(
-        ModelImage(
-            model_id=model.id,
-            file_url=picture_url,
-            file_name=file_name,
-            content_type=content_type,
-            image_type="material",
-            is_primary=False,
-        )
+    variant_update_persistence.save_image(
+        db, model_id=model.id, image=material_images[0] if material_images else None,
+        image_type="material", picture_url=picture_url, file_name=file_name,
+        content_type=content_type,
     )
 
 
@@ -541,23 +528,10 @@ def _set_variant_print_image(db: Session, model: Model, picture_url: str) -> Non
     file_name = os.path.basename(picture_url.split("?", 1)[0]) or None
     extension = os.path.splitext(file_name or "")[1].lower()
     content_type = safe_content_type(extension) if extension in SAFE_IMAGE_EXTENSIONS else None
-    if print_images:
-        image = print_images[0]
-        image.file_url = picture_url
-        image.file_name = file_name
-        image.content_type = content_type
-        image.file_data = None
-        image.is_primary = False
-        return
-    db.add(
-        ModelImage(
-            model_id=model.id,
-            file_url=picture_url,
-            file_name=file_name,
-            content_type=content_type,
-            image_type="print",
-            is_primary=False,
-        )
+    variant_update_persistence.save_image(
+        db, model_id=model.id, image=print_images[0] if print_images else None,
+        image_type="print", picture_url=picture_url, file_name=file_name,
+        content_type=content_type,
     )
 
 
@@ -2022,33 +1996,22 @@ def create_model_variant(
     details["general"] = general
     _validate_model_details_json_bounds(details, existing_details=source.details_json)
 
-    cloned = Model(
-        code=new_code,
-        name=source.name,
-        category=source.category,
-        description=source.description,
-        brand_id=source.brand_id,
-        collection_id=source.collection_id,
-        product_type=source.product_type,
-        season=source.season,
-        constructor_employee_id=source.constructor_employee_id,
-        designer_employee_id=source.designer_employee_id,
-        details_json=details,
-        status="approved" if approval else "draft",
-        created_by=current.id,
+    clone_values = VariantCreateValues(
+        code=new_code, name=source.name, category=source.category, description=source.description,
+        brand_id=source.brand_id, collection_id=source.collection_id, product_type=source.product_type,
+        season=source.season, constructor_employee_id=source.constructor_employee_id,
+        designer_employee_id=source.designer_employee_id, details_json=details,
+        status="approved" if approval else "draft", created_by=current.id,
         approved_by=approval.approved_by if approval else None,
-        approved_at=approval.approved_at if approval else None,
-        sam_minutes=source.sam_minutes or 0,
-        catalog_scope=catalog_scope,
+        approved_at=approval.approved_at if approval else None, sam_minutes=source.sam_minutes or 0,
+        catalog_scope=CatalogScope(catalog_scope),
         factory_code="ECO" if catalog_scope == "usluga" else source.factory_code,
     )
-    db.add(cloned)
-    db.flush()
-
+    cloned = variant_create_persistence.insert_variant(db, clone_values)
     for row in source.sizes or []:
-        db.add(ModelSize(model_id=cloned.id, size=row.size, measurement_json=deepcopy(row.measurement_json)))
+        variant_create_persistence.copy_size(db, cloned.id, row.size, deepcopy(row.measurement_json))
     for row in source.colors or []:
-        db.add(ModelColor(model_id=cloned.id, color_name=row.color_name, color_code=row.color_code))
+        insert_model_color(db, ModelColorCreateCommand(model_id=cloned.id, color_name=row.color_name, color_code=row.color_code))
 
     variant_fabric_source = _primary_material_bom_row(source)
     for row in source.bom or []:
@@ -2056,37 +2019,32 @@ def create_model_variant(
             variant_fabric_source
             and int(row.id or 0) == int(variant_fabric_source.id or 0)
         )
-        db.add(
-            ModelBOM(
-                model_id=cloned.id,
-                item_id=parent_fabric_item.id if is_fabric_row and parent_fabric_item else row.item_id,
-                material_name=None if is_fabric_row and parent_fabric_item else row.material_name,
-                material_role=None if is_fabric_row and parent_fabric_item else row.material_role,
-                stock_batch_id=None if is_fabric_row else row.stock_batch_id,
-                size=row.size,
-                color=color if is_fabric_row else row.color,
-                photo_url=picture_url if is_fabric_row else row.photo_url,
-                quantity_per_piece=row.quantity_per_piece,
-                unit=(parent_fabric_item.unit or row.unit) if is_fabric_row and parent_fabric_item else row.unit,
-                waste_percent=row.waste_percent,
-            )
+        values = VariantBomValues(
+            model_id=cloned.id,
+            item_id=parent_fabric_item.id if is_fabric_row and parent_fabric_item else row.item_id,
+            material_name=None if is_fabric_row and parent_fabric_item else row.material_name,
+            material_role=None if is_fabric_row and parent_fabric_item else row.material_role,
+            stock_batch_id=None if is_fabric_row else row.stock_batch_id,
+            size=row.size, color=color if is_fabric_row else row.color,
+            photo_url=picture_url if is_fabric_row else row.photo_url,
+            quantity_per_piece=row.quantity_per_piece,
+            unit=(parent_fabric_item.unit or row.unit) if is_fabric_row and parent_fabric_item else row.unit,
+            waste_percent=row.waste_percent,
         )
+        variant_create_persistence.copy_bom(db, values)
 
     # Pattern documents are shared construction data, not identity pictures.
     for row in source.images or []:
         if row.image_type == "pattern":
-            db.add(ModelImage(
-                model_id=cloned.id, file_url=row.file_url, file_name=row.file_name,
-                content_type=row.content_type, file_data=row.file_data,
-                image_type="pattern", is_primary=False,
-            ))
+            variant_create_persistence.copy_pattern(db, cloned.id, row.file_url, row.file_name,
+                                                    row.content_type, row.file_data)
     # New variants start without inherited pictures. Only explicit uploads belong here.
     if picture_url:
         _set_variant_material_image(db, cloned, picture_url)
     if print_picture_url:
         _set_variant_print_image(db, cloned, print_picture_url)
     for row in db.query(CollectionModel).filter(CollectionModel.model_id == source.id).all():
-        db.add(CollectionModel(collection_id=row.collection_id, model_id=cloned.id))
+        variant_create_persistence.copy_collection_link(db, collection_id=row.collection_id, model_id=cloned.id)
 
     log_action(
         db,
