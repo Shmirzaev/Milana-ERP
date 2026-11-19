@@ -26,6 +26,7 @@ from app.models.inventory_service import (
     available_reservation_item_capacity,
     reserved_stock_for_batch,
 )
+from app.schemas.inventory import eco_fabric_send_persistence
 from app.models.inventory.stock_service import _locked_stock_batch_statement
 from app.models.workflow_service import archive_depleted_material_batch
 from app.schemas.inventory import stock_movement_persistence
@@ -260,9 +261,9 @@ def eco_send_fabric(db, payload: SendIn, user: User) -> dict:
         if sorted((r.batch_id, r.roll_number) for r in old) != identities:
             raise HTTPException(409, "ecoTransfers.changedRequest")
         return eco_dispatch_data(db, previous)
-    dispatch = EcoFabricDispatch(request_key=key, created_by=user.id, operator_name=user.name,
-                                  sent_at=datetime.now(timezone.utc), remaining_inventory=[])
-    db.add(dispatch)
+    dispatch = eco_fabric_send_persistence.add_dispatch(
+        db, request_key=key, user_id=user.id, operator_name=user.name, sent_at=datetime.now(timezone.utc),
+    )
     db.flush()
     # Send and return both lock each batch before changing its custody rows.
     # Once all those locks are held, one read covers the requested identities.
@@ -279,28 +280,24 @@ def eco_send_fabric(db, payload: SendIn, user: User) -> dict:
         reserved, capacity = line_availability(db, bid, batch.item_id, batch.warehouse_id, global_capacity=False)
         if batch.quantity - Decimal(str(reserved)) < amount or Decimal(str(capacity)) < amount:
             raise HTTPException(409, "ecoTransfers.unavailable")
-        batch.roll_weights_kg = weights
-        batch.quantity = Decimal(batch.quantity) - amount
+        eco_fabric_send_persistence.set_roll_weights(db, batch, weights=weights)
+        eco_fabric_send_persistence.set_batch_quantity(db, batch, quantity=Decimal(batch.quantity) - amount)
         if batch.quantity == 0:
-            batch.archived_at = dispatch.sent_at
-            batch.archived_by = user.id
-        row = EcoFabricRoll(dispatch_id=dispatch.id, batch_id=bid, roll_number=roll,
-                           fabric_name=batch.item.name, batch_no=batch.batch_no, color=batch.color,
-                           quantity=amount, unit=batch.unit)
-        db.add(row)
-        db.add(StockMovement(movement_type="issue", item_id=batch.item_id, batch_id=bid,
-                from_warehouse_id=batch.warehouse_id, quantity=amount, unit=batch.unit,
-                reference_type="EcoFabricDispatch", reference_id=dispatch.id, created_by=user.id))
+            eco_fabric_send_persistence.archive_sent_batch(db, batch, sent_at=dispatch.sent_at, user_id=user.id)
+        eco_fabric_send_persistence.add_sent_roll(
+            db, dispatch=dispatch, batch=batch, batch_id=bid, roll_number=roll, quantity=amount, user_id=user.id,
+        )
         db.flush()
     # Immutable snapshot: later returns/consumption never rewrite this dispatch's PDF.
     offsite_counts = dict(db.query(EcoFabricRoll.batch_id, func.count(EcoFabricRoll.id)).filter(
         EcoFabricRoll.returned_at.is_(None)).group_by(EcoFabricRoll.batch_id).all())
-    dispatch.remaining_inventory = [{"fabric_name": item.name, "batch_no": batch.batch_no,
+    snapshot = [{"fabric_name": item.name, "batch_no": batch.batch_no,
                 "color": batch.color, "quantity": str(batch.quantity), "unit": batch.unit,
                 "rolls": max(0, batch.piece_count - offsite_counts.get(batch.id, 0)) if batch.piece_count is not None else None}
         for batch, item in db.query(StockBatch, Item).join(Item, Item.id == StockBatch.item_id).filter(
             Item.category.in_(inventory_access.MATERIAL_CATEGORIES), StockBatch.archived_at.is_(None), StockBatch.quantity > 0,
         ).order_by(Item.name, StockBatch.batch_no, StockBatch.id).all()]
+    eco_fabric_send_persistence.set_remaining_inventory(db, dispatch, snapshot=snapshot)
     result = eco_dispatch_data(db, dispatch)
     log_action(db, user, "send", "EcoFabricDispatch", dispatch.id, new_value=result)
     db.commit()
