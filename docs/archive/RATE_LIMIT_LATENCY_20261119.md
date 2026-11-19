@@ -712,3 +712,57 @@ NULL/wildcard/backslash/Unicode/dashes and repeated bound-cache queries.
 First local fixture correctly rejected non-loopback bridgeIP; corrected test
 transport shared only the owned DB network namespace, without fixture changes.
 Exact independent source review, CI/images/fresh gates still required.
+
+
+## Numeric normalization candidate deployed; full observation and closing passed
+
+Source 65c861c8369d3f966bac69d1b9980aff796744c5 is pushed/merged into clone_main and deployed as
+20261119_122457_44523647780_1, manifestfd7428c089dba546e4b89db784614f9bf8ac44b80bc9a7b1491a7445ce7c8917.
+Backend imageghcr.io/shmirzaev/milana-erp-backend@sha256:67a4bd82d0a8fa7f9827a71208d0dde753906eb0c198a8c1a3fff71ee1e0ab25; frontendghcr.io/shmirzaev/milana-erp-frontend@sha256:9e592015e1990e2e671dad494d1f907330c77b8829ecad54944622067ec6169a.
+Both green slots serve this source. Backend activation12:51:32UTC/readback12:51:42,
+frontend12:51:52. Rollback030500/437523dbd2 stays running in blue, schema0159.
+Worktree C:\ERP\.codex-work\fix-latency-20261119; branch
+codex/fix-latency-20261119. Legacy checkout preserved.
+
+All67focused/owned-PG tests and exactsourceCI44523647780 attempt2/18jobs,
+integration44525776222/17success+release skipped and PG44525776323 passed.
+Attempt1 UbuntuAPT503/browser-install failure is preserved; retry used a fresh
+runner and ran the full failed job.32-file native qualification archive SHA
+283eddc93e2cd05c2d5ed5352278d5716a93b17ff41465fb9ed07449b2877f6d
+is independently verified/root-protected BOTH. First probe aborted before timing
+on file ownership; corrected separate V2 passed default-source/GC,252request-linked
+offloop encodings, RO25006, replacement/fullrestart, >=99%automatic-cycle and
+100%post-thaw-shutdown cycle checks. Two owned probe containers/counter files
+were archived and removed, without touching serving/rollback containers.
+Seven frozen ordered workflow projections matched; cutting894 at this fresh
+snapshot reflects live business activity, not QA-created business data.
+101core and31search pairs passed; no baseline or threshold was changed.
+Immediate public21/path passed before the full observer started.
+
+Observation completed 1800.17s/61 rounds (244 health checks),
+2026-11-19T12:53:48.516102+00:00 to 2026-11-19T13:23:48.688703+00:00, all200/no failures.
+Closing public21/path passed every unchanged median/p95/payload/row budget;
+closing runtime on both hosts passed, no restarts/OOM/application error matches,
+PG36/100connections and zero invalid indexes.
+Closing counter1->2 persisted; four health/readiness/source checks passed.
+Both journals are complete/DEPLOYED_OBSERVATION_AND_CLOSING_PASSED; reservations
+released. Observation SHA38ef1450bc0fbd72be7dfbb4fbf3a1bcc45c308fc961cd00a90a189005757bc6; closing raw
+SHA2364030ab89956f98fb923348d3e5f0508752fb784626c13f193a94901d7175b. Protected evidence remains on both hosts.
+
+Closing public results:
+global_search: median 225.458 -> 232.592ms; p95 272.514 -> 289.748ms; rows1/bytes125.
+inventory_batches: median 164.221 -> 167.869ms; p95 214.265 -> 181.658ms; rows50/bytes46708.
+inventory_stock: median 148.894 -> 149.042ms; p95 157.926 -> 161.147ms; rows50/bytes12295.
+model_groups: median 186.698 -> 163.706ms; p95 196.186 -> 174.776ms; rows1/bytes2483.
+model_options: median 157.441 -> 154.411ms; p95 165.539 -> 160.381ms; rows1/bytes234.
+
+Fresh backup132789711bytes/1403objects SHA
+884337e971257ca830d20958fc4012ab0783b4e0589863135f9ad74d2d26f2fa,
+restore-list96327ae224499be747d2c4578cd0f7d9c7b402755dcd2b44300667df05cb96e8.
+Hash/list verified, not a full restore. No migration or QA business/user/CEO
+assignment/snapshot creation in production; technical counters only.
+Earlier failures retain their original failed dispositions. Owner disk/QA
+overrides do not fabricate QA-master or signed-in browser acceptance.
+Automatic deploy remains disabled pending pinned-policy reconciliation; known
+unrelated host contention, Sewing-label ambiguity and broader security/audit
+debt remain outside this latency repair.
