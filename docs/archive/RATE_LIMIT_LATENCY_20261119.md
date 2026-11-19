@@ -5,6 +5,87 @@ Status09:26UTC: required closing batchp95failed despite healthy30minobserver.
 Both hosts recovered030500;089dheldgreen. Diagnosis/successful deployment remain
 pending. Prior activation checkpoints below are historical, not current success.
 
+## GC-stall candidate checkpoint,10:21UTC
+
+Production remains030500/437523dbd on both hosts, freshly reconciled with
+production-base.json and clone_main cb187ab80 before editing. The held089d
+candidate remains rolled_back; no source/GC/DNS/pool policy was activated.
+
+The latest132,186,951-byte backup was fully streamed through SSH into a private
+RAM-only PostgreSQL16 restore, without a local raw dump. Exact089d/cacbdb6b08d2
+default-command two-worker app containers use randomized secrets, read-only
+PGOPTIONS, disabled seeding/schema sync and an internal Docker network. Diagnostic
+operations create no business rows. Owner milana-gc-proof-20261119 resources are
+tracked by exact container IDs/labels; no unrelated service was stopped/pruned.
+
+Root-only transport/scheduler sampling found an old stable backend burst around
+950ms while held-green requests stayed below114ms; fresh public DNS had a~98ms
+floor, which is not proven ERP DNS failure. One extra app-import inspection
+overlapped that diagnostic, so it is not a pure production attribution. A separate
+owned exact-source request profile measured stock499ms containing458.5ms gen-2GC;
+normal batch SQL~23ms/encoding~8ms did not explain that pause. The actual earlier
+closing failure's exact cause remains unproven.
+
+The fixed v2 ordinary-startup-freeze experiment completed2A/A epochs and6A/B
+epochs plus20final automatic allocation pulses. GC median171→37ms, but per-epoch
+p95 failures remain; A/A inversions make aggregate attribution inconclusive.
+All four workers reclaimed3600/3600 tracked new cycles, retained default enabled
+GC and ended with one live pool/25–26FDs. No v2 source was deployed.
+
+Installed FastAPI is0.140.0. Public app.openapi() prepares its lazy effective
+route/dependency graph. Independent no-DB inspection of exact089d confirms537
+paths/821003canonical bytes/SHA56642ae267bf299a2f3549b5395349b1a561cbe2b11df6fca2ba6a096f954647,
+56cached included branches/633effective contexts, stable on a second call.
+The metadata-warm v3 protocol was pinned before timing at SHA
+ff72e97f1fd998cd09a832e2f42f14fbe1bb0927bfd33ebd2ebd476307a6debb.
+Both arms prepared metadata and collected; only B froze. Startup preparation
+took2.7–2.9seconds, zero SQL,~349MBUSS; schema matches unmodified089d.
+
+V3 completed its fixed2A/A and6A/B epochs. A/A first epoch failed material/global
+p95; second passed. A/B epochs0/2/4/5 retain their listed p95 failures. No body
+hash mismatches occurred. GC median190.14→14.52ms/max243.00→62.44ms;
+foreground requests>100ms25→9/max330.30→164.19ms; measured loop lags>100ms24→0,
+max247.26→65.72ms. These establish a narrower long-stall mechanism benefit,
+not universal p95 improvement or exact attribution of the production failure.
+Warmup's equal per-arm counts did not prepare both workers equally; future exact
+image comparisons require a prospective fixed concurrent warm volume and explicit
+per-PID/path coverage. A host-side v2 result analysis overlapped A/A second epoch,
+another limitation retained rather than silently discarding the run.
+
+Both B workers reclaimed3600/3600 cycles, default enabled700/10/10 GC, one live
+pool/two DBAPIs/26FDs each. FinalUSS446876/447756KB; growth20/96MB stayed within
+128MB/25% limits and last3epoch slope0.15/0.49MB per epoch stayed below8MB.
+Control A's late memory slopes exceeded8MB; no claim that the whole experiment
+passed lifecycle/performance gates. Worker replacement explicitly thawed to0.
+Full default-command restart thawed both exiting B workers, created two new B
+workers and passed B read-only/counter/dispose/new-cycle checks. The script's
+final global assertion FAILED because one untouched control-A cycle remained
+pending at the fixed20pulse deadline (4199/4200); B had600/600 each. The overall
+FAIL and later readback are preserved, without adaptive retries or relabeling.
+
+A separate guarded inspection disproved the proposed mapper warmup:112/112
+mappers already configured at import; public configure took~6microseconds and
+performed zero DB connections. No redundant mapper hook was added.
+
+The reviewed implementation scope is one strict-worker context after successful
+startup: preserve external disabled/pre-frozen ownership, public app.openapi(),
+collect/freeze, yield and always unfreeze. Thresholds/enabled state, pools,
+mappers, routes, permissions, business logic and DNS stay unchanged. Frozen cycles
+can retain a constant startup wrapper cost until worker exit; new request cycles
+must continue automatic collection, with no growing disposed-pool chain.
+Sixteen Linux3.11 focused tests pass, including real-GC subprocess cycle collection
+and frozen-cycle release, ownership/order/schema/failure/cancellation tests.
+Independent actual-source review, exact CI/image/fair-warmup verification, fresh
+production backup/facts/performance and30minute/closing gates remain required.
+The owner QA/disk override remains recorded; no performance/observation waiver
+exists. A source candidate is not an accepted release.
+
+Raw local records are under %TEMP%/milana-latency-20261119/gc-proof, with protocol,
+per-epoch requests/worker events/state, failure readbacks and SHA manifests.
+Completed v2 raw lifecycle JSONs are losslessly gzip-compressed, verified against
+their original SHA in v2-raw-compression-manifest.json. Protected production
+diagnostics remain under the failed083652 deployment-evidence directory.
+
 ## Source and ownership
 
 Worktree: `C:\ERP\.codex-work\fix-latency-20261119`.

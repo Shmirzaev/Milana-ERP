@@ -24,6 +24,7 @@ from app.core.proxy_trust import client_ip, effective_request_scheme, validate_p
 from app.core.deps import DbSession, get_current_user, oauth2_scheme, resolve_session_user
 from app.core.security import decode_token
 from app.core.shared_store import get_shared_counter_store
+from app.core.runtime_metadata import startup_metadata
 from app.api.router import api_router
 from app.db.session import SessionLocal, engine
 from app.db import session as db_session
@@ -111,7 +112,8 @@ def _run_startup() -> None:
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     _run_startup()
-    yield
+    with startup_metadata(_app, enabled=settings.strict_security_required):
+        yield
 
 
 app = FastAPI(title=settings.APP_NAME, version="0.1.0", lifespan=lifespan)

@@ -36,6 +36,22 @@ stock162.057versus159.416. This rollout failed and recovered; no adaptive retry,
 threshold waiver or relabeling. Latest incoming Ismail merge#561 is included.
 Further causal diagnosis and successful deployment remain the current task.
 
+The subsequent owned RAM-clone diagnosis measured CPU-heavy gen-2GC inside slow
+requests. A metadata-warm/freeze prototype reduced measured GC median190→14.5ms,
+loop stalls over100ms24→0 and foreground requests over100ms25→9. This is targeted
+mechanism evidence, not universal p95 improvement: fixed epochs retain p95
+failures, same-image A/A is inconclusive and warmup did not cover workers equally.
+A narrow strict-worker lifespan candidate now prepares public OpenAPI metadata,
+collects/freezes it and always thaws on exit, preserving enabled/default GC for
+new objects and skipping externally disabled/pre-frozen ownership. Sixteen Linux
+focused tests pass, including real automatic-cycle collection and shutdown release.
+Independent source review, exact CI/image evidence, corrected fixed concurrent
+per-worker warmup/comparison and every production gate remain pending. No GC
+policy change is deployed. Mapper laziness was disproved:112/112 configured at
+import, so no mapper hook was added. The v3 restart script's overall assertion
+FAIL is retained: restarted prototype workers passed their cycle checks, while
+one control-worker cycle remained pending at its fixed deadline.
+
 Three measured source defects are repaired: SQLite shared-counter connections
 leaked/churned until GC; large synchronous inbox/process responses encoded on the
 ASGI loop; and paginated model families repeated the same ~25ms filtered scan for
@@ -63,9 +79,11 @@ Schema stays0159_ceo_balance_snapshots; CEO assignments/snapshots remain0.
 Rollback lacks the CEO guard: keep CEO unassigned or disable/revoke future CEO
 accounts before rollback. No business records/users/assignments/snapshots were
 created by QA. Fresh pre-cutover dump132,186,951bytes/1403restore objects was
-hashed and restore-listed, not fully restored. Original diagnostic backup had a
-full owned-clone restore. Owned local diagnostic/test containers were removed
-after logs, exact labels/IDs and remaining-database census were verified.
+hashed, restore-listed and fully streamed/restored into an owned local RAM-only
+PostgreSQL clone. Its app containers use read-only transactions and an internal
+Docker network, with secrets replaced and no production storage mounted.
+Earlier diagnostic/test containers were removed after logs and owned identities
+were verified; this new owned clone remains during exact-candidate verification.
 
 Earlier CEO025033/counter062017/e4070624 and window083652 failures remain preserved.
 The e4 release completed61healthy rounds/1800.27s but FAILED closing public

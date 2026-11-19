@@ -143,6 +143,8 @@ jobs:
         run: |
           python -m ruff check app
           python -m compileall -q app scripts
+      - name: Worker metadata ownership and lifespan regressions
+        run: python -m pytest -q backend/app/tests/test_runtime_metadata.py backend/app/tests/test_startup_schema.py
       - name: Automatic release trust, drift and recovery regressions
         run: python -m unittest discover -s scripts -p 'test_auto_release*.py' -v
       - name: Deployment observation regression suite
