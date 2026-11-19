@@ -1,0 +1,54 @@
+name: CEO schema compatible recovery artifact
+on:
+  push:
+    branches: [codex/ceo-rollback-compat-20261119]
+permissions:
+  contents: read
+  packages: write
+jobs:
+  compatibility:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      RELEASE_ID: 20261119_030500
+      IMAGE: ghcr.io/shmirzaev/milana-erp-backend
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+      - name: Verify unchanged live application and exact candidate migrations
+        run: |
+          git diff --exit-code 4d7cf17e55b165b1edc05407065f92597cebdbe5 HEAD -- backend/app frontend
+          git diff --exit-code 34727287848116f718a9f455a0484eafb32ed232 HEAD -- backend/alembic/versions/0158_ceo_role.py backend/alembic/versions/0159_ceo_balance_snapshots.py
+          python scripts/test_ceo_rollback_0159.py --self-test
+          python -m compileall -q backend/alembic/versions/0158_ceo_role.py backend/alembic/versions/0159_ceo_balance_snapshots.py
+      - name: Authenticate registry
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$GH_TOKEN" | docker login ghcr.io -u '${{ github.actor }}' --password-stdin
+      - name: Build exact live image plus migration metadata
+        run: |
+          cat > "$RUNNER_TEMP/compat.Dockerfile" <<'EOF'
+          FROM ghcr.io/shmirzaev/milana-erp-backend@sha256:d8feec1bc12fbcac2d084c192a57f360593514e220b4bb9b23dc0acfc90e8c9b
+          COPY --chown=appuser:appuser backend/alembic/versions/0158_ceo_role.py backend/alembic/versions/0159_ceo_balance_snapshots.py /app/alembic/versions/
+          EOF
+          docker build --pull --label org.opencontainers.image.revision="$GITHUB_SHA" -f "$RUNNER_TEMP/compat.Dockerfile" -t "$IMAGE:$RELEASE_ID" .
+          docker push "$IMAGE:$RELEASE_ID"
+          docker image inspect "$IMAGE:$RELEASE_ID" --format '{{index .RepoDigests 0}}' > "$RUNNER_TEMP/compat-image.txt"
+      - name: Verify strict workers, replacement, restart and PostgreSQL 16
+        shell: bash
+        run: python scripts/test_ceo_rollback_0159.py --image "$(cat "$RUNNER_TEMP/compat-image.txt")" --revision "$GITHUB_SHA" | tee "$RUNNER_TEMP/compat-qa.json"
+      - name: Package immutable compatibility source
+        run: |
+          python scripts/package_release.py --release "$RELEASE_ID" --output "$RUNNER_TEMP/milana-erp-$RELEASE_ID.tar.gz"
+          cp "$RUNNER_TEMP/compat-image.txt" "$RUNNER_TEMP/compat-qa.json" .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ceo-rollback-compat-20261119
+          path: |
+            ${{ runner.temp }}/milana-erp-*.tar.gz*
+            ${{ runner.temp }}/compat-image.txt
+            ${{ runner.temp }}/compat-qa.json
