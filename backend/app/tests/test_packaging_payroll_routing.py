@@ -153,7 +153,7 @@ def test_cutting_can_change_factory_and_unused_assignment_before_output(client, 
 def test_factory_change_requires_cutting_permission_and_factory(client, auth_headers):
     _, _, works, _, _ = routed_order()
     url = f'/api/work-orders/{works["cutting"]}/sewing-factory'
-    for permissions, factory in [(["dashboard.view"], "MIL"), (["cutting.records"], "ECO")]:
+    for permissions, factory in [([], "MIL"), (["cutting.records"], "ECO")]:
         headers = _create_user_with_permissions(client, auth_headers, email=f"{uuid4().hex}@example.com",
                                                 permissions=permissions, factory_code=factory)
         assert client.patch(url, headers=headers, json={"sewing_factory_code": "BST"}).status_code == 403

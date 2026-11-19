@@ -27,7 +27,11 @@ def test_first_grade_bulk_reuses_size_evidence_and_decrements_budget(monkeypatch
         assert len(packages) == count
         assert all(package.stock_kind == "first_grade" for package in packages)
         assert db.query(FinishedGoodsStock).filter(FinishedGoodsStock.production_order_id == output["production_order_id"]).count() == count
-        assert len(statements) == 1
+        # Grade evidence is batch-scoped; exact-source conservation independently
+        # reads all active sources. Each is cached once, for one or five packs.
+        assert len(statements) == 2
+        assert "coalesce(sewing_records.production_batch_id" in statements[0]
+        assert "work_orders.status !=" in statements[1]
 
 
 def test_first_grade_bulk_size_overrun_rolls_back_all_packages(monkeypatch, output):

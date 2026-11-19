@@ -27,8 +27,13 @@ particular operation and every caller/write before choosing what belongs here.
 | --- | --- | --- |
 | [branded_orders_service.py](branded_orders_service.py) | Branded planning orders: list, parties, customer search, creation, workbook export. | `create_branded_order` |
 | [forecasting_recommendations_service.py](forecasting_recommendations_service.py) | Forecast recommendation lifecycle: reference checks, factory scope, payload, review. | `create_recommendation`, `update_recommendation` |
-| [costing_service.py](costing_service.py) | Price calculation request lifecycle and the cutting, finance, purchasing and accessories contributions. | every write operation |
+| [costing_service.py](costing_service.py) | Cutting, Finance, Purchasing and Accessories drafts; saving never submits or publishes. | each draft operation |
+| [variant_pricing_service.py](variant_pricing_service.py) | Exact-variant request lifecycle, scoped submission, explicit approval/correction/repricing, passport evidence. | public actions; passport hooks participate without commit |
+| [variant_pricing_policy.py](variant_pricing_policy.py) | Active requests require an unpriced standard variant created from 1 November 2026, midnight Tashkent; Usluga is excluded. History stays readable. | read-only |
+| [variant_pricing_reconciliation_service.py](variant_pricing_reconciliation_service.py) | Global Finance administrator previews and atomically retires an exact reviewed list of excluded active requests, preserving submitted costs/history. | `reconcile` |
+| [price_reports_service.py](price_reports_service.py) | Scoped Finance register/history and complete filtered Excel. | read-only |
 | [production_planning_service.py](production_planning_service.py) | Production orders planning opens for client sales orders and branded stock. | `create_client_order_production`, `create_branded_stock_production` |
+| [cutting_factory_service.py](cutting_factory_service.py) | Read eligible Cutting destinations and correct unrecorded CUT/ECT routing from Planning. | `change_cutting_factory` |
 
 ### branded_orders_service.py
 
@@ -52,9 +57,13 @@ the insertion command and the actual history frontend; derived cutting progress
 is distinct from stored Production/WorkOrder status. Optional frontend progress
 fields retain their not-started display fallback.
 
-This does not migrate the alternate writer in `create_branded_stock_production`,
-Production status, costing status, forecasting or every Planning table. Combined
-database/browser verification and independent AI/human acceptance remain separate.
+The alternate writer in `create_branded_stock_production` uses the same typed
+schema insertion when no planning order is supplied; its service keeps numbering,
+production coordination, audit and the outer transaction. This covers the Planning
+order row writer only: ProductionOrder, Item, Batch and WorkOrder writes remain in
+production_service.py and are not migrated by this slice. Production status, costing
+status, forecasting and other Planning tables remain separate work.
+Database/browser verification and independent review remain separate.
 
 ### forecasting_recommendations_service.py
 
@@ -85,13 +94,28 @@ excluded; both creation types require an attributed model.
 - input: the validated department payload, the request id, the acting user and
   the list bounds
 - output: the serialized price calculation request as a dict
-- refusals: 403 when the acting user may not use that department, 404 for a
-  missing request, 409 when a selling price is entered before cutting,
-  purchasing and accessories are complete
-- records: the request row, its audit row, the department notifications, and the
-  completed selling price attached to the model variant
-- transaction owner: every operation that writes; the department calculations in
-  [price_calculation_service.py](../price_calculation_service.py) never commit
+- refusals: 403 for department/factory/catalogue denial, 404 for a missing request,
+  409 for stale revisions or historical/submitted contributions
+- records: request draft and audit only; explicit submit/approve actions own the
+  handoff and publication. Finance drafts may be saved before costs are ready.
+- transaction owner: each draft operation. Managed calculations use
+  [price_workflow_calculation.py](price_workflow_calculation.py); retained legacy
+  helpers in [price_calculation_service.py](../price_calculation_service.py) do not
+  implement managed publication.
+
+### variant_pricing_service.py
+
+`create_request`, `submit_contribution`, `approve`, `return_for_correction`,
+`cancel_request` and `request_reprice` own their public transactions. Passport
+save/delete hooks participate in the existing passport transaction without
+committing or changing orders/stages/stock. Existing prices are reused; only an
+explicit, complete, current-revision Finance approval attaches an exact-variant
+price. `price_calculation.approve` plus Finance access is required; viewing alone
+does not authorize publication. Same-model locks and one nullable unique active
+slot serialize creation/publication. Approved evidence is immutable; source
+changes invalidate open submissions. Factory and catalogue scope is enforced in
+backend and UI. See the [feature packet](../../../../docs/archive/VARIANT_PRICING_WORKFLOW_20261110.md)
+for additive migration, legacy history, reconciliation and rollback limitations.
 
 ### production_planning_service.py
 
@@ -108,6 +132,22 @@ excluded; both creation types require an attributed model.
   machine
 
 ## When making a service file
+
+### cutting_factory_service.py
+
+`GET/PATCH /production-orders/{pid}/cutting-factory` use the narrow typed Planning
+action DTO and canonical CuttingDepartmentCode. Current-session Planning permission
+and effective Planning permission in both source and destination factories are
+required. GET is read-only; PATCH locks the production order then ordered work
+orders with NOWAIT, rereads evidence and changes only Cutting department IDs through
+schema-owned persistence plus one same-transaction audit. Quantities, dates,
+reservations and planned Sewing assignments remain unchanged. Recorded output,
+passports, bundles, material consumption, started downstream work, Cutting operator
+assignment, closed/service orders and ambiguous routes refuse. Automatically
+started Cutting alone remains eligible. Same-target retry is a no-op. Existing
+Cutting, Bundle and Cutting Quality writers refresh scope under compatible locks.
+See [the operation packet](../../../../docs/PLANNING_CUTTING_FACTORY_20261104.md)
+for exact tests and unresolved browser/acceptance gates.
 
 Use snake_case_service.py filenames and operation names such as `create_*`, `record_*`,
 `receive_*` or `approve_*`. A typed function is sufficient; a class is optional
@@ -135,10 +175,9 @@ three DTOs for every table or expose privileged fields through generic updates.
   suggestions) still call [forecasting_service.py](../forecasting_service.py)
   from the route. The calculations were already service-owned, so no forwarding
   service was added around them.
-- The costing department calculations stay in
-  [price_calculation_service.py](../price_calculation_service.py);
-  [costing_service.py](costing_service.py) owns the request lifecycle around
-  them, including the finance stage gate and the selling price propagation.
+- Legacy costing helpers remain in [price_calculation_service.py](../price_calculation_service.py)
+  for historical projection/participant tests. Managed publication uses the single
+  explicit approval path in [variant_pricing_service.py](variant_pricing_service.py).
 - `BrandedPlanningOrderIn` and `MaterialRequirement` moved out of
   [dto/production/production.py](../../libs/dto/production/production.py) into
   this group's DTO folder. `ProductionOrderIn` and `ProductionOrderOut` stay
@@ -158,3 +197,12 @@ old/new separately -> test the real UI on isolated data -> reviewed switch -> hu
 production verification -> remove old code. Keep one write path per request.
 Record the test result, visual evidence, approver and cleanup condition in the task.
 Visual success alone does not prove permissions, concurrency or data correctness.
+
+### Printing price ownership (16 November 2026)
+
+Purchasing drafts accept fabric/sewing costs; printing_cost is a Finance-only
+field. Both department submissions may complete while it is empty. A printed
+variant has no complete net cost and cannot be approved until Finance supplies a
+finite nonnegative print price (zero is valid). Omitted Finance fields preserve
+saved values; explicit null removes the price and restores the approval block.
+No storage or manufacturing changes are part of this ownership correction.

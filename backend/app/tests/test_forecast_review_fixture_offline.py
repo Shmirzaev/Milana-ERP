@@ -1,4 +1,6 @@
 """Offline lifecycle checks; no PostgreSQL engine or socket is created."""
+import sys
+
 import pytest
 
 from app.tests import pg_approved_instance as guard
@@ -56,13 +58,17 @@ def test_fixture_finalizes_only_an_owned_target(monkeypatch, failure):
         if failure == "schema":
             raise RuntimeError("schema failed")
 
-    def drop(value):
+    def finalize(value, supplied_engine):
         assert value is target
-        calls.append("drop")
+        assert supplied_engine is (None if failure == "engine" else engine)
+        active = sys.exception()
+        if failure in ("engine", "schema"):
+            assert isinstance(active, RuntimeError) and str(active) == f"{failure} failed"
+        calls.append("finalize")
 
     monkeypatch.setattr(guard, "create_target_database", create)
     monkeypatch.setattr(guard, "target_engine", make_engine)
-    monkeypatch.setattr(guard, "drop_target_database", drop)
+    monkeypatch.setattr(guard, "finalize_target", finalize)
     monkeypatch.setattr(review.Base.metadata, "create_all", create_all)
     generator = review.sessions.__wrapped__()
     if failure != "none":
@@ -74,35 +80,35 @@ def test_fixture_finalizes_only_an_owned_target(monkeypatch, failure):
         generator.close()
     expected = {
         "create": ["create"],
-        "engine": ["create", "engine", "drop"],
-        "schema": ["create", "engine", "schema", "dispose", "drop"],
-        "none": ["create", "engine", "schema", "dispose", "drop"],
+        "engine": ["create", "engine", "finalize"],
+        "schema": ["create", "engine", "schema", "finalize"],
+        "none": ["create", "engine", "schema", "finalize"],
     }
     assert calls == expected[failure]
 
 
-def test_setup_and_both_cleanup_failures_are_preserved(monkeypatch):
+def test_setup_failure_is_preserved_when_finalizer_fails(monkeypatch):
     target = object()
     calls = []
-    class Engine:
-        def dispose(self):
-            calls.append("dispose")
-            raise RuntimeError("dispose failed")
-    def drop(value):
+    engine = object()
+    def finalize(value, supplied_engine):
         assert value is target
-        calls.append("drop")
-        raise RuntimeError("drop failed")
+        assert supplied_engine is engine
+        assert str(sys.exception()) == "schema failed"
+        calls.append("finalize")
+        raise RuntimeError("finalizer failed")
     def schema(*args):
         raise RuntimeError("schema failed")
     monkeypatch.setattr(guard, "load_approved_instance", lambda: object())
     monkeypatch.setattr(guard, "create_target_database", lambda instance: target)
-    monkeypatch.setattr(guard, "target_engine", lambda *args, **kwargs: Engine())
-    monkeypatch.setattr(guard, "drop_target_database", drop)
+    monkeypatch.setattr(guard, "target_engine", lambda *args, **kwargs: engine)
+    monkeypatch.setattr(guard, "finalize_target", finalize)
     monkeypatch.setattr(review.Base.metadata, "create_all", schema)
-    with pytest.raises(BaseExceptionGroup) as errors:
+    with pytest.raises(RuntimeError, match="finalizer failed") as error:
         next(review.sessions.__wrapped__())
-    assert [str(error) for error in errors.value.exceptions] == ["schema failed", "dispose failed", "drop failed"]
-    assert calls == ["dispose", "drop"]
+    assert isinstance(error.value.__context__, RuntimeError)
+    assert str(error.value.__context__) == "schema failed"
+    assert calls == ["finalize"]
 
 
 def test_identity_mismatch_does_not_skip_or_mutate(monkeypatch):

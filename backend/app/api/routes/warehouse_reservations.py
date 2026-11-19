@@ -12,6 +12,8 @@ from app.models.audit_service import log_action
 from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response
 from app.models.numbering_service import next_shipment_no
 from app.models.packaging_scope_service import require_package_access
+from app.models.fulfillment.package_customer_service import package_customer_policies, customer_policy_error
+from app.schemas import PackageCustomerRelease
 
 router = APIRouter(prefix="/warehouse-reservations", tags=["warehouse"])
 ACCESS = ("storage.packages", "storage.shipment", "*")
@@ -39,16 +41,17 @@ def resolve_reservation_pack(payload: ScanPack, db: DbSession,
     if not package:
         raise HTTPException(404, "Package not found")
     require_package_access(current, package)
+    policy = package_customer_policies(db, [package])[package.id]
     # This read-only scan selects a pack. The reserve action locks and validates
     # its stock again so a concurrent sale/reservation cannot be overwritten.
     rows = db.query(FinishedGoodsStock).filter_by(package_id=package.id).all()
-    if (package.status != "received_in_storage" or package.sales_order_id or
+    if (package.status != "received_in_storage" or (package.sales_order_id and not policy.released) or
             package.stock_kind != "standard" or not rows or
             sum(row.quantity for row in rows) != package.total_quantity or
             sum(row.sold_qty for row in rows) != package.dispatched_quantity or
             remaining_quantity(package) <= 0 or
             any(row.quantity <= 0 or row.quantity != row.available_qty + row.sold_qty or row.reserved_qty
-                or row.status not in {"available", "sold"} or row.sales_order_id for row in rows) or
+                or row.status not in {"available", "sold"} or (row.sales_order_id and not policy.released) for row in rows) or
             _linked(db, [package.id]) or
             db.query(WarehousePackReservation.id).filter_by(package_id=package.id).first() or
             db.query(StockReservation.id).filter_by(package_id=package.id).first()):
@@ -150,7 +153,8 @@ def list_packs(db: DbSession, current: User = Depends(require_permissions(*ACCES
             query = query.filter(WarehousePackReservation.customer_id == customer_id)
     else:
         linked = db.query(ShipmentPackage.package_id).join(Shipment).filter(Shipment.status.in_(["draft", "created"]))
-        query = query.filter(Package.status == "received_in_storage", Package.sales_order_id.is_(None),
+        query = query.filter(Package.status == "received_in_storage", or_(Package.sales_order_id.is_(None),
+                             db.query(PackageCustomerRelease.package_id).filter(PackageCustomerRelease.package_id == Package.id).exists()),
                              Package.stock_kind == "standard", WarehousePackReservation.id.is_(None),
                              totals.c.available == Package.total_quantity - Package.dispatched_quantity, totals.c.reserved == 0,
                              totals.c.sold == Package.dispatched_quantity, Package.id.notin_(linked))
@@ -186,14 +190,18 @@ def reserve_packs(payload: ReservePacks, db: DbSession,
             db.query(StockReservation.id).filter(StockReservation.package_id.in_(payload.package_ids)).first()):
         raise HTTPException(409, "A pack is already reserved or assigned to a shipment")
     for package in packages:
+        policy = package_customer_policies(db, [package])[package.id]
+        error = customer_policy_error(package, policy, payload.customer_id)
+        if error:
+            raise HTTPException(409, error)
         rows = stocks[package.id]
-        if (package.status != "received_in_storage" or package.sales_order_id or
+        if (package.status != "received_in_storage" or (package.sales_order_id and not policy.released) or
                 package.stock_kind != "standard" or not rows or
                 sum(row.quantity for row in rows) != package.total_quantity or
             sum(row.sold_qty for row in rows) != package.dispatched_quantity or
             remaining_quantity(package) <= 0 or
                 any(row.quantity <= 0 or row.quantity != row.available_qty + row.sold_qty or row.reserved_qty
-                    or row.status not in {"available", "sold"} or row.sales_order_id for row in rows)):
+                    or row.status not in {"available", "sold"} or (row.sales_order_id and not policy.released) for row in rows)):
             raise HTTPException(409, "Only complete available warehouse packs can be reserved")
     for package in packages:
         for row in stocks[package.id]:
@@ -247,7 +255,8 @@ def prepare_shipment(payload: SelectedPacks, db: DbSession,
     db.add(shipment)
     db.flush()
     for package in packages:
-        db.add(ShipmentPackage(shipment_id=shipment.id, package_id=package.id, quantity=remaining_quantity(package)))
+        from app.models.fulfillment.shipment_allocation_service import attach_package_claim
+        attach_package_claim(db, shipment, package)
     log_action(db, current, "create_from_reservations", "Shipment", shipment.id,
                new_value={"package_ids": payload.package_ids, "customer_id": shipment.customer_id})
     response = {"id": shipment.id, "shipment_no": shipment.shipment_no}

@@ -5,7 +5,7 @@ import ts from "typescript";
 
 const source = fs.readFileSync("src/app/(app)/cutting-passports/page.tsx", "utf8");
 const ast = ts.createSourceFile("page.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-const names = new Set(["openEdit", "expandSizeSelection", "uniqueSizes", "cleanSize", "sizeCountForSelection", "compute"]);
+const names = new Set(["clearPendingDefaults", "openEdit", "expandSizeSelection", "uniqueSizes", "cleanSize", "sizeCountForSelection", "compute"]);
 const functions = [];
 function visit(node) {
   if (ts.isFunctionDeclaration(node) && names.has(node.name?.text)) functions.push(node.getText(ast));
@@ -16,14 +16,18 @@ const code = ts.transpileModule(functions.join("\n"), { compilerOptions: { targe
 const requests = [];
 const state = {};
 const context = vm.createContext({
-  orderRequest: { current: 0 }, EMPTY_FORM: {},
+  pendingApply: { current: () => {} }, setMaterialDefaultsPending(value) { state.pending = value; },
+  orderRequest: { current: 0 }, mounted: { current: true }, EMPTY_FORM: {},
   resetMaterialPicker() {}, setMaterialForms() {}, setEditing() {}, setShowForm() {},
+  setBatchInfos() {}, rememberBatches() {},
   setSizeChoices: sizes => { state.sizes = Array.from(sizes); },
   setForm: form => { state.form = form; }, setErr: error => { state.error = error; },
   api: { get: url => new Promise(resolve => requests.push({ url, resolve })) },
 });
 vm.runInContext(code, context);
 context.openEdit({ production_order_id: 297, size_range: "48", date: "2026-10-07" });
+assert.equal(context.pendingApply.current, null);
+assert.equal(state.pending, false);
 assert.deepEqual(state.sizes, ["48"]);
 assert.ok(requests[0].url.endsWith("production_order_id=297"));
 requests[0].resolve({ sizes: ["48"], available_sizes: ["48", "50", "52", "54"] });

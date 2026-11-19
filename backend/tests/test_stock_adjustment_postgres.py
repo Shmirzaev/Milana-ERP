@@ -33,6 +33,7 @@ def test_concurrent_stock_adjustments(operation):
     from app.api.routes.inventory import set_stock_quantity
     from app.models.inventory.stock_service import _apply_batch_tracked_stock_adjustment
     from app.libs.dto.inventory.stock_quantity_adjustment_input import StockQuantityAdjustmentIn
+    from app.libs.enums.inventory import StockMovementType
 
     first_read = Event()
     second_read = Event()
@@ -67,7 +68,7 @@ def test_concurrent_stock_adjustments(operation):
                 pids[name] = db.execute(text("SELECT pg_backend_pid()")).scalar_one()
                 if operation == "batch_delta":
                     result = _apply_batch_tracked_stock_adjustment(db, item=db.get(Item, item_id), delta=amount,
-                                                                 movement_type="adjustment", user_id=None)
+                                                                 movement_type=StockMovementType.ADJUSTMENT, user_id=None)
                     db.commit()
                     return float(result[0].quantity)
                 result = set_stock_quantity(item_id, StockQuantityAdjustmentIn(quantity=100 + amount, unit="kg"),

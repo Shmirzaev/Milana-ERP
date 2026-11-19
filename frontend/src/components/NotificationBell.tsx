@@ -584,7 +584,7 @@ export default function NotificationBell() {
                       id="notification-sound"
                       value={alertSound}
                       onChange={(event) => changeAlertSound(event.target.value)}
-                      className="h-9 rounded-md border border-[#e3dfd3] bg-[#fdfcf8] px-2 text-[12px] text-[#2c2920] focus:outline-none focus:ring-2 focus:ring-[#e7c9b7]"
+                      className="h-9 rounded-md border border-[#e3dfd3] bg-[#fdfcf8] px-2 text-[12px] text-[#2c2920] focus:outline-hidden focus:ring-2 focus:ring-[#e7c9b7]"
                     >
                       {SOUND_OPTIONS.map((option) => (
                         <option key={option.value} value={option.value}>

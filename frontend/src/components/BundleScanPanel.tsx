@@ -4,6 +4,7 @@ import { formatOrderReference } from "@/lib/orderRef";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import useSWR from "swr";
+import useSWRInfinite from "swr/infinite";
 import { useSearchParams } from "next/navigation";
 import {
   AlertCircle,
@@ -19,7 +20,9 @@ import {
   Search,
 } from "lucide-react";
 import { api, fetcher } from "@/lib/api";
+import { ApiError } from "@/lib/errorMessages";
 import { sewingBandText } from "@/lib/sewingBandText";
+import { sewingReceiptText } from "@/lib/sewingReceiptText";
 import PageHeader from "@/components/PageHeader";
 import FabricThumbnail from "@/components/FabricThumbnail";
 import Modal from "@/components/Modal";
@@ -76,6 +79,7 @@ type ScanHistoryItem = {
 };
 
 const SEWING_DEPARTMENT_CODES = new Set(["SEW", "MIL", "BST", "ECO"]);
+const MANUAL_RECEIVE_PAGE_SIZE = 20;
 
 function latestBundleScan(rawCode: string): string {
   const value = rawCode.trimStart();
@@ -119,6 +123,7 @@ function sewingBatchIdFromScan(rawCode: string): number | null {
 export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
   const { t, lang } = useT();
   const bandText = sewingBandText(lang);
+  const receiptText = sewingReceiptText(lang);
   const { me } = useMe();
   const bandOnly = Boolean(me?.sewing_band_id);
   const receiptBusy = useRef(false);
@@ -143,6 +148,7 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
   const [manualSearchDraft, setManualSearchDraft] = useState("");
   const [manualSearch, setManualSearch] = useState("");
   const [manualBusyKey, setManualBusyKey] = useState("");
+  const [manualFlowIds, setManualFlowIds] = useState<Record<string, number>>({});
   const [manualMsg, setManualMsg] = useState("");
   const canCuttingScan = can(me, "*", "cutting.bundles");
   const canPrintingScan = can(me, "*", "printing.bundles");
@@ -157,16 +163,39 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
     [departments],
   );
   const manualReceiveUrl = useMemo(() => {
-    const params = new URLSearchParams({ limit: "20" });
+    const params = new URLSearchParams({ limit: String(MANUAL_RECEIVE_PAGE_SIZE) });
     params.set("factory_code", factoryCode);
     if (manualSearch) params.set("q", manualSearch);
     return bandOnly ? `/api/sewing-bands/receive-options?q=${encodeURIComponent(manualSearch)}` : `/api/bundles/sewing-receive-options?${params.toString()}`;
   }, [manualSearch, factoryCode, bandOnly]);
   const {
-    data: manualOptions = [],
-    mutate: mutateManualOptions,
-    isLoading: manualLoading,
-  } = useSWR<ManualReceiveOption[]>(showManualReceive ? manualReceiveUrl : null, fetcher);
+    data: bandOptions,
+    mutate: mutateBandOptions,
+    isLoading: bandLoading,
+  } = useSWR<ManualReceiveOption[]>(showManualReceive && bandOnly ? manualReceiveUrl : null, fetcher);
+  const {
+    data: manualPages,
+    mutate: mutateManualPages,
+    isLoading: pagesLoading,
+    isValidating: pagesValidating,
+    error: manualError,
+    size: manualPageCount,
+    setSize: setManualPageCount,
+  } = useSWRInfinite<ManualReceiveOption[]>((index, previous: ManualReceiveOption[] | null) => {
+    if (!showManualReceive || bandOnly || (previous && previous.length < MANUAL_RECEIVE_PAGE_SIZE)) return null;
+    return `${manualReceiveUrl}&offset=${index * MANUAL_RECEIVE_PAGE_SIZE}`;
+  }, fetcher, { persistSize: false, keepPreviousData: false, revalidateAll: true });
+  useEffect(() => {
+    void setManualPageCount(1);
+  }, [manualReceiveUrl, setManualPageCount]);
+  const manualOptions = useMemo(
+    () => bandOnly ? bandOptions || [] : (manualPages || []).flat(),
+    [bandOnly, bandOptions, manualPages],
+  );
+  const manualLoading = bandOnly ? bandLoading : pagesLoading;
+  const manualMoreLoading = pagesValidating || (!manualError && Boolean(manualPages) && manualPageCount > (manualPages?.length ?? 0));
+  const manualHasMore = !bandOnly && manualPages?.at(-1)?.length === MANUAL_RECEIVE_PAGE_SIZE;
+  const mutateManualOptions = () => bandOnly ? mutateBandOptions() : mutateManualPages();
 
   const loadSewingBatch = useCallback(async (batchId: number) => {
     setMsg("");
@@ -296,7 +325,6 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
     }
     const candidates = bundleLookupCandidates(code);
     if (!candidates.length) return;
-    let lastError = "";
     setIsLookingUp(true);
     try {
       for (const candidate of candidates) {
@@ -308,22 +336,15 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
           rememberBundle(b);
           focusScanInput(true);
           return;
-        } catch (e: any) {
-          lastError = e.message;
-          // A conflicting QR must not become a different bundle through token fallback.
-          if (e?.status === 409 || /^409:/.test(String(e?.message || ""))) throw e;
+        } catch (e: unknown) {
+          // Only a missing candidate permits trying another legacy token.
+          if (!(e instanceof ApiError) || e.status !== 404) throw e;
+          if (candidate === candidates[candidates.length - 1]) throw e;
         }
       }
-
-      const b = await api.get(`/api/bundles/barcode/${encodeURIComponent(candidates[0])}`);
-      setBundle(b);
-      setSewingBatch(null);
-      setCode(candidates[0]);
-      rememberBundle(b);
-      focusScanInput(true);
     } catch (e: any) {
       setBundle(null);
-      setMsg(lastError || e.message);
+      setMsg(e.message);
       setMessageTone("error");
       focusScanInput(true);
     } finally {
@@ -368,6 +389,7 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
         production_batch_id: option.production_batch_id,
         model_id: option.model_id,
         factory_code: factoryCode,
+        sewing_flow_id: manualFlowIds[key] || null,
       });
       const order = option.order_no || option.production_no || `#${option.production_order_id}`;
       setManualMsg(t("page.bundleScan.manualReceived", {
@@ -697,18 +719,19 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
                   <th>{t("field.model")}</th>
                   <th>{t("nav.bundles")}</th>
                   <th>{t("field.qty")}</th>
+                  {!bandOnly && <th>{t("page.bundleScan.sewingLine")}</th>}
                   <th>{t("field.actions")}</th>
                 </tr>
               </thead>
               <tbody>
                 {manualLoading && manualOptions.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="text-slate-500">{t("common.loading")}</td>
+                    <td colSpan={bandOnly ? 6 : 7} className="text-slate-500">{t("common.loading")}</td>
                   </tr>
                 )}
-                {!manualLoading && manualOptions.length === 0 && (
+                {!manualLoading && !manualError && manualOptions.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="text-slate-500">{t("page.bundleScan.manualEmpty")}</td>
+                    <td colSpan={bandOnly ? 6 : 7} className="text-slate-500">{t("page.bundleScan.manualEmpty")}</td>
                   </tr>
                 )}
                 {manualOptions.map((option) => {
@@ -737,6 +760,23 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
                       </td>
                       <td>{option.bundle_count}</td>
                       <td>{option.quantity}</td>
+                      {!bandOnly && (
+                        <td className="min-w-[220px]">
+                          <select
+                            className="input"
+                            aria-label={`${t("page.bundleScan.sewingLine")} · ${option.batch_label || option.order_no || option.production_no || ""}`}
+                            value={manualFlowIds[key] || ""}
+                            disabled={Boolean(manualBusyKey) || option.production_batch_id === null}
+                            onChange={(event) => setManualFlowIds((previous) => ({ ...previous, [key]: Number(event.target.value || 0) }))}
+                          >
+                            <option value="">{receiptText.keepOrUnassigned}</option>
+                            {sewingFlows.filter((flow) => flow.is_active).map((flow) => (
+                              <option key={flow.id} value={flow.id}>{flow.code} - {flow.name}</option>
+                            ))}
+                          </select>
+                          {option.production_batch_id === null && <p className="mt-1 text-xs text-[var(--erp-text-muted)]">{receiptText.legacyReceipt}</p>}
+                        </td>
+                      )}
                       <td>
                         <button
                           type="button"
@@ -754,6 +794,27 @@ export default function BundleScanPanel({ scope = "all" }: { scope?: Scope }) {
               </tbody>
             </table>
           </div>
+          {!bandOnly && manualError && (
+            <div role="alert" className="mt-3 flex items-center gap-3 text-sm">
+              <span>{manualError.message}</span>
+              <button type="button" className="btn" disabled={manualMoreLoading} onClick={() => void mutateManualPages()}>
+                {t("common.retry")}
+              </button>
+            </div>
+          )}
+          {manualHasMore && !manualError && (
+            <div className="mt-3 flex justify-center">
+              <button
+                type="button"
+                className="btn"
+                disabled={manualMoreLoading || Boolean(manualBusyKey)}
+                onClick={() => void setManualPageCount(manualPageCount + 1)}
+              >
+                {manualMoreLoading && <Loader2 className="h-4 w-4 animate-spin" />}
+                {manualMoreLoading ? t("common.loading") : t("common.loadMore")}
+              </button>
+            </div>
+          )}
         </div>
       )}
 

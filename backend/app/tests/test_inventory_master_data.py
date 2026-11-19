@@ -248,6 +248,17 @@ def test_cannot_delete_item_linked_to_stock(client, auth_headers):
     delete = client.delete(f"/api/inventory/items/{item['id']}", headers=auth_headers)
     assert delete.status_code == 409, delete.text
 
+    archived = client.delete(f"/api/inventory/items/{item['id']}?force=true", headers=auth_headers)
+    assert archived.status_code == 204, archived.text
+    from app.schemas import AuditLog, Item, StockBatch
+    from app.tests.conftest import TestSessionLocal
+
+    with TestSessionLocal() as db:
+        assert db.get(Item, item['id']).is_active is False
+        assert db.query(StockBatch).filter_by(item_id=item['id']).count() == 1
+        audit = db.query(AuditLog).filter_by(entity_type='Item', entity_id=item['id'], action='force_archive').one()
+        assert audit.new_value_json == {'is_active': False, 'linked_records_preserved': True}
+
 
 def test_inventory_batches_can_filter_by_material_item_ids(client, auth_headers):
     fabric = client.post(
@@ -424,9 +435,9 @@ def test_material_inventory_batch_details_include_receive_fields_and_search(clie
         "archived_by",
         "archived_at",
         "archive_reason",
-        "received_quantity",
         "used_quantity",
     }.isdisjoint(batch)
+    assert batch["received_quantity"] == 123.45
     assert round(float(batch["quantity"]), 2) == 123.45
     assert batch["length_m"] == 234.567
     assert round(float(batch["gsm"]), 6) == 0.145678

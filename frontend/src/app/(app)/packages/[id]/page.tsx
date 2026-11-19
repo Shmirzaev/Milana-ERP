@@ -1,4 +1,5 @@
 "use client";
+import { packageIdentityText, sewingFactoryLabel } from "@/lib/packageIdentity";
 import { formatModelVariantCode } from "@/lib/variantDisplay";
 import Link from "next/link";
 import { firstGradeText } from "@/lib/firstGradeText";
@@ -7,12 +8,16 @@ import useSWR from "swr";
 import { api, fetcher } from "@/lib/api";
 import { can, useMe } from "@/lib/auth";
 import PageHeader from "@/components/PageHeader";
+import ReleasePackageCustomer from "@/components/ReleasePackageCustomer";
 import { statusLabel } from "@/components/StagePipeline";
 import { useT } from "@/lib/i18n";
+import { allocationBatchLabel, originalBatchTraceText, packageBatchTraceText, type SavedBatchAllocation } from "@/lib/packageBatchTrace";
 
 export default function PackageDetail() {
   const { t, lang } = useT();
   const { me } = useMe();
+  const identityText = packageIdentityText[lang];
+  const traceCopy = packageBatchTraceText[lang];
   const params = useParams<{ id: string }>();
   const id = params.id;
   const { data: p } = useSWR<any>(`/api/packages/${id}`, fetcher);
@@ -37,6 +42,7 @@ export default function PackageDetail() {
         )}
       />
       {p.stock_kind === "first_grade" && <p className="mb-4 font-medium">{firstGradeText[lang].title}</p>}
+      <div className="mb-4"><ReleasePackageCustomer packages={[{ id: p.id, package_no: p.package_no, status: p.status }]} showAccess /></div>
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <div className="card p-4">
           <h3 className="mb-2 font-medium">{t("page.packageDetail.details")}</h3>
@@ -44,6 +50,9 @@ export default function PackageDetail() {
             <div className="flex justify-between"><dt className="text-slate-500">{t("field.barcode")}</dt><dd><code>{p.barcode}</code></dd></div>
             <div className="flex justify-between"><dt className="text-slate-500">{t("page.packageDetail.productionOrder")}</dt><dd>{p.production_no || "—"}</dd></div>
             <div className="flex justify-between"><dt className="text-slate-500">{t("page.packageDetail.mc")}</dt><dd>{formatModelVariantCode(p.model_code) || "—"} / {p.color}</dd></div>
+            <div className="flex justify-between"><dt className="text-slate-500">{identityText.model}</dt><dd>{p.model_no || identityText.unknown}</dd></div>
+            <div className="flex justify-between"><dt className="text-slate-500">{identityText.variant}</dt><dd>{p.variant_no || identityText.unknown}</dd></div>
+            <div className="flex justify-between"><dt className="text-slate-500">{identityText.factory}</dt><dd>{sewingFactoryLabel(p, identityText.unknown)}</dd></div>
             <div className="flex justify-between"><dt className="text-slate-500">{t("field.totalQty")}</dt><dd>{p.total_quantity}</dd></div>
             <div className="flex justify-between"><dt className="text-slate-500">{t("field.capacity")}</dt><dd>{p.capacity}</dd></div>
             <div className="flex justify-between"><dt className="text-slate-500">{t("field.weightKg")}</dt><dd>{p.weight_kg != null ? `${p.weight_kg} kg` : "-"}</dd></div>
@@ -52,6 +61,19 @@ export default function PackageDetail() {
           </dl>
           <h4 className="mb-1 mt-3 font-medium">{t("page.packageDetail.sizes")}</h4>
           <ul className="text-sm">{p.items?.map((i: any) => <li key={i.id}>{i.size}: {i.quantity}</li>)}</ul>
+          {p.batch_allocations?.length > 0 && <section className="mt-4 overflow-x-auto" aria-label={originalBatchTraceText[lang].title}>
+            <h4 className="mb-2 font-medium">{originalBatchTraceText[lang].title}</h4>
+            <p className="mb-2 text-xs text-slate-600">{originalBatchTraceText[lang].hint}</p>
+            <table className="table text-sm">
+              <thead><tr><th>{traceCopy.batch}</th><th>{t("field.color")}</th><th>{t("field.size")}</th><th>{t("field.quantity")}</th></tr></thead>
+              <tbody>{p.batch_allocations.map((allocation: SavedBatchAllocation) => {
+                const label = allocationBatchLabel(allocation, traceCopy.missing);
+                return allocation.item_breakdown?.length ? allocation.item_breakdown.map((item, index) => <tr key={`${allocation.production_batch_id}:${index}`}>
+                  <th scope="row">{label}</th><td>{item.color}</td><td>{item.size}</td><td className="tabular-nums">{item.quantity}</td>
+                </tr>) : <tr key={allocation.production_batch_id}><th scope="row">{label}</th><td colSpan={2}>{traceCopy.unknown}</td><td className="tabular-nums">{allocation.quantity}</td></tr>;
+              })}</tbody>
+            </table>
+          </section>}
           {p.qr_code_url && <img className="mt-3 w-40" src={p.qr_code_url} alt="QR" />}
         </div>
         <div className="card overflow-x-auto p-4">

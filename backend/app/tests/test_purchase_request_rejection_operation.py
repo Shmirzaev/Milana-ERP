@@ -121,18 +121,19 @@ def test_invalid_transition_and_missing_request_refuse_without_writes(reject_cas
     assert state(reject_case) == ("converted", [])
 
 
-def test_unknown_locked_status_is_409_before_enum_parsing(monkeypatch, reject_case):
+@pytest.mark.parametrize("unknown_status", ["legacy_unknown", "", "PENDING_APPROVAL"])
+def test_unknown_locked_status_is_409_before_enum_parsing(monkeypatch, reject_case, unknown_status):
     class LockedRow:
         id = 91
         request_no = "LEGACY-UNKNOWN"
-        status = "legacy_unknown"
+        status = unknown_status
     monkeypatch.setattr(core, "_locked_purchase_request", lambda db, request_id: LockedRow())
     with reject_case["factory"]() as db:
         actor = db.get(User, reject_case["actor_id"])
         with pytest.raises(HTTPException) as error:
             core.reject_purchase_request(db, request_id=91, current=actor)
     assert error.value.status_code == 409
-    assert error.value.detail == "Cannot reject purchase request in status 'legacy_unknown'"
+    assert error.value.detail == f"Cannot reject purchase request in status '{unknown_status}'"
 
 
 def test_late_real_item_access_denial_rolls_back_audit_then_retry_succeeds(reject_case):

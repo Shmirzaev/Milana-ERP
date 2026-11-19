@@ -20,3 +20,5 @@ Thumbs.db
 .prod-current-*/
 local-backups/
 outputs/
+/.qa-ect-warehouse/
+/.qa-bso-fabric-copy/

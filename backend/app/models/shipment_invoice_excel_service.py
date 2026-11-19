@@ -4,6 +4,8 @@ from io import BytesIO
 from pathlib import Path
 from textwrap import wrap
 
+from PIL import ImageFont
+
 from app.models.variant_display_service import format_variant_number
 
 from openpyxl import Workbook
@@ -18,13 +20,35 @@ from app.models.shipment_invoice_service import (
 )
 
 
+def _description_column_width(rows: list[dict], header: str, size: int) -> float:
+    """Fit the longest displayed line, rather than borrowing unrelated space."""
+    paths = (Path("C:/Windows/Fonts/calibri.ttf"),
+             Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"))
+    font_path = next((path for path in paths if path.is_file()), None)
+    # Measure at 30 pt (40 px) for subpixel precision, then scale to the body type.
+    font = ImageFont.truetype(str(font_path), size=40) if font_path else None
+    texts = [header, *(str(row.get("description") or "") for row in rows)]
+    lines = [line for text in texts for line in text.splitlines()] or [""]
+    pixels = max(font.getlength(line) * size / 30 if font else len(line) * 7 * size / 11 for line in lines)
+    # Excel column units use the default font's seven-pixel digit width.
+    return min(255, max(14, (pixels + 10) / 7))
+
+
 def shipment_invoice_workbook(document: dict, language: str, *, show_prices: bool = True) -> bytes:
     lang = language if language in LABELS else "en"
     text = LABELS[lang]
     workbook = Workbook()
+    body_size = 10  # The Excel package table is explicitly specified in points.
     sheet = workbook.active
     sheet.title = "Invoice"
-    widths = invoice_column_widths()
+    packages = document.get("package_details")
+    if packages is None:
+        packages = list({line["package_no"]: {"package_no": line["package_no"], "weight_kg": None} for line in document.get("lines", [])}.values())
+    rows = document.get("invoice_rows") or build_invoice_rows(document.get("lines", []), packages)
+    widths = invoice_column_widths(rows)
+    # Description width follows this invoice's text, independently of size labels.
+    widths[5:] = [5, 8, 9, 9, 8, 12]
+    widths[3] = _description_column_width(rows, invoice_headers(lang)[3], body_size)
     last_column = len(widths)
     for column, width in enumerate(widths, 1):
         sheet.column_dimensions[get_column_letter(column)].width = width
@@ -72,14 +96,15 @@ def shipment_invoice_workbook(document: dict, language: str, *, show_prices: boo
     sheet.row_dimensions[8].height = 16
     headers = invoice_headers(lang)
     for column, title in enumerate(headers, 1):
-        put(9, column, title, bold=True, fill="1F3864" if column in (1, 11) else "2F5597", color="FFFFFF", align="center", size=9)
-    sheet.row_dimensions[9].height = max(30, *(text_height(title, width, 9) for title, width in zip(headers, widths)))
+        put(9, column, title, bold=True, fill="1F3864" if column in (1, 11) else "2F5597", color="FFFFFF", align="center", size=body_size)
+    sheet.row_dimensions[9].height = max(30, *(text_height(title, width, body_size) for title, width in zip(headers, widths)))
     packages = document.get("package_details")
     if packages is None:
         packages = list({line["package_no"]: {"package_no": line["package_no"], "weight_kg": None} for line in document.get("lines", [])}.values())
     rows = document.get("invoice_rows") or build_invoice_rows(document.get("lines", []), packages)
     line = Side(style="thin", color="8EA9DB")
     border = Border(left=line, right=line, top=line, bottom=line)
+    package_row_height = 24
     for index, item in enumerate(rows, 1):
         row = index + 9
         size_text = ", ".join(invoice_size_labels(item.get("sizes", [])))
@@ -97,33 +122,35 @@ def shipment_invoice_workbook(document: dict, language: str, *, show_prices: boo
         for column, value in enumerate(values, 1):
             cell = put(row, column, value, fill="FFFFFF",
                        align="right" if column >= 6 else "left" if column in (4, 5) else "center",
-                       bold=column in (1, 2, 11), size=9)
+                       bold=column in (1, 2, 11), size=body_size)
             cell.border = border
-            cell.alignment = Alignment(horizontal=cell.alignment.horizontal, vertical="center", wrap_text=True, shrink_to_fit=False)
+            cell.alignment = Alignment(horizontal=cell.alignment.horizontal, vertical="center", wrap_text=False, shrink_to_fit=False)
             if column >= 6:
                 cell.number_format = '#,##0.00' if column >= 8 else '#,##0'
         for column in (6, 8, 9):
             if span > 1:
                 sheet.merge_cells(start_row=row, end_row=row + span - 1, start_column=column, end_column=column)
-        sheet.row_dimensions[row].height = max(23.1, *(text_height(value, width, 9) for value, width in zip(values, widths)))
+    # Keep all exports compact without changing or shrinking the item font.
+    for row in range(10, 10 + len(rows)):
+        sheet.row_dimensions[row].height = package_row_height
     total_row = 10 + len(rows)
-    merged(total_row, 1, 5, text["total"], bold=True, fill="C6D9F1", color="1F3864")
+    merged(total_row, 1, 5, text["total"], bold=True, fill="C6D9F1", color="1F3864", size=body_size)
     for column, value in enumerate([document["packages_count"], document["quantity"], float(recorded_weight(document)), float(recorded_weight(document))], 6):
-        cell = put(total_row, column, value, bold=True, fill="C6D9F1", color="1F3864", align="right")
+        cell = put(total_row, column, value, bold=True, fill="C6D9F1", color="1F3864", align="right", size=body_size)
         cell.number_format = '#,##0.00' if column >= 8 else '#,##0'
-    put(total_row, 10, None, fill="C6D9F1")
+    put(total_row, 10, None, fill="C6D9F1", size=body_size)
     amount = (float(Decimal(str(document["amount"]))) if document.get("amount") is not None else "—") if show_prices else None
-    cell = put(total_row, 11, amount, bold=True, fill="1F3864", color="FFFFFF", align="right", size=9)
+    cell = put(total_row, 11, amount, bold=True, fill="1F3864", color="FFFFFF", align="right", size=body_size)
     cell.number_format = '#,##0.00'
     sheet.row_dimensions[total_row].height = max(22, text_height(text["total"], sum(widths[:5]), 9),
         *(text_height(sheet.cell(total_row, column).value, widths[column - 1], 9) for column in range(6, last_column + 1)))
     signature_row = total_row + 2
     officer = {"en": "Responsible warehouse officer", "ru": "Ответственный кладовщик", "uz": "Mas’ul omborchi"}[lang]
     signature = {"en": "Warehouse signature", "ru": "Подпись кладовщика", "uz": "Omborchi imzosi"}[lang]
-    merged(signature_row, 1, 5, officer, bold=True, fill="1F3864", color="FFFFFF", align="center", size=9)
-    merged(signature_row, 6, 11, signature, bold=True, fill="2F5597", color="FFFFFF", align="center", size=9)
+    merged(signature_row, 1, 5, officer, bold=True, fill="1F3864", color="FFFFFF", align="center", size=body_size)
+    merged(signature_row, 6, 11, signature, bold=True, fill="2F5597", color="FFFFFF", align="center", size=body_size)
     merged(signature_row + 1, 1, 5, None, bold=True, fill="F2F5FA", color="1F3864", align="center", size=11)
-    merged(signature_row + 1, 6, 11, "________________________________", color="1F3864", align="center")
+    merged(signature_row + 1, 6, 11, "________________________________", color="1F3864", align="center", size=body_size)
     sheet.row_dimensions[signature_row].height = 20
     sheet.row_dimensions[signature_row + 1].height = 36
     footer = signature_row + 3

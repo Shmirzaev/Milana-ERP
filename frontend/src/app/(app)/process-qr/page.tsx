@@ -2,6 +2,8 @@
 
 import { formatModelVariantCode } from "@/lib/variantDisplay";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
+import { prepareEmployeePrintRows } from "./employeePrint";
 import Link from "next/link";
 import useSWR, { useSWRConfig } from "swr";
 import QRCode from "qrcode";
@@ -26,7 +28,8 @@ import { formatBatchSerial } from "@/lib/batchSerial";
 import { orderReference, formatOrderReference } from "@/lib/orderRef";
 import { parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
 import { buildOperationLabelTokens, buildIssuedOperationNumbers, correctedOperationIdentityNeedsReview } from "@/lib/processQrLabelIdentity";
-import { useMe } from "@/lib/auth";
+import { can, useMe } from "@/lib/auth";
+import SplitAllocationEditor from "@/components/payroll/SplitAllocationEditor";
 import {
   clonePaidOperations,
   createPaidOperation,
@@ -789,6 +792,7 @@ export default function ProcessQrPage() {
   const [exportingOperations, setExportingOperations] = useState(false);
   const [operations, setOperations] = useState<PaidOperation[]>([]);
   const [loadedOperationsModelId, setLoadedOperationsModelId] = useState<number | null>(null);
+  const [loadedOperationsApiBase, setLoadedOperationsApiBase] = useState("");
   const [loadedOperationsSignature, setLoadedOperationsSignature] = useState("");
   const [operationModelDirty, setOperationModelDirty] = useState(false);
   const [savingModelOperations, setSavingModelOperations] = useState(false);
@@ -803,11 +807,17 @@ export default function ProcessQrPage() {
   const [issuingLabels, setIssuingLabels] = useState(false);
   const [deletingSize, setDeletingSize] = useState<string | null>(null);
   const [labelCorrection, setLabelCorrection] = useState<LabelCorrectionForm | null>(null);
+  const [splitCorrectionLabelId, setSplitCorrectionLabelId] = useState<number | null>(null);
   const [savingLabelCorrection, setSavingLabelCorrection] = useState(false);
   const [editedLabelIds, setEditedLabelIds] = useState<number[]>([]);
   const [printError, setPrintError] = useState("");
   const [issueNotice, setIssueNotice] = useState("");
   const [preparingPrint, setPreparingPrint] = useState(false);
+  const [employeePrintRows, setEmployeePrintRows] = useState<Array<EmployeeBadgeRow & { qrImage: string }>>([]);
+  const employeePrintRef = useRef<HTMLElement | null>(null);
+  const employeePrintAttempt = useRef(0);
+  const printAttemptBusy = useRef(false);
+  const [printAttemptActive, setPrintAttemptActive] = useState(false);
   const [workLabelsToPrint, setWorkLabelsToPrint] = useState<PreparedPrintLabel[]>([]);
   const issuedLabelsSectionRef = useRef<HTMLElement | null>(null);
   const [collapsedSections, setCollapsedSections] = useState<Record<CollapsibleSection, boolean>>({
@@ -857,12 +867,16 @@ export default function ProcessQrPage() {
     : me?.factory_code === "ECO" && selectedTrackedProcess?.source_type === "usluga" ? "/api/usluga" : "/api";
   const isUslugaModel = modelApiBase === "/api/usluga";
   const { data: selectedModel, mutate: mutateSelectedModel } = useSWR<ManualModel>(
-    selectedModelId ? `${modelApiBase}/models/${selectedModelId}` : null,
+    selectedModelId ? `${modelApiBase}/models/${selectedModelId}?paid_operations_from_model=true` : null,
     fetcher,
   );
   const { mutate: mutateModelCache } = useSWRConfig();
   const selectedModelIdRef = useRef(selectedModelId);
-  useEffect(() => { selectedModelIdRef.current = selectedModelId; }, [selectedModelId]);
+  const modelApiBaseRef = useRef(modelApiBase);
+  useEffect(() => {
+    selectedModelIdRef.current = selectedModelId;
+    modelApiBaseRef.current = modelApiBase;
+  }, [selectedModelId, modelApiBase]);
   const needsFamilySizes = selectedModel?.id === selectedModelId
     && !(selectedModel.sizes || []).some(row => String(row.size || "").trim());
   const { data: familySizes, error: familySizesError, mutate: mutateFamilySizes } = useSWR<{
@@ -955,7 +969,8 @@ export default function ProcessQrPage() {
     const ownSizes = selectedModel?.id === selectedModelId
       ? (selectedModel.sizes || []).map(row => row.size).filter(size => size?.trim() && size !== "-") : [];
     const orderSizes = (selectedProcess.sizes || []).map(row => row.size).filter(size => size?.trim() && size !== "-");
-    const modelSizes = [...(ownSizes.length ? ownSizes : orderSizes.length ? orderSizes : resolvedFamilySizes?.sizes || [])].sort(compareGarmentSizes);
+    // A model can offer sizes that were never included in this production order.
+    const modelSizes = [...(orderSizes.length ? orderSizes : ownSizes.length ? ownSizes : resolvedFamilySizes?.sizes || [])].sort(compareGarmentSizes);
     return new Map(batchOptions.map(batch => [batch.key, allocateLabelSizes(
       batch.sewingCompletedQuantity, batch.sewingSizes, modelSizes,
       batchSizeDrafts[`${allocationScope}:${batch.key}`],
@@ -1091,23 +1106,26 @@ export default function ProcessQrPage() {
       }
       return;
     }
-    if (!selectedModel) return;
+    if (!selectedModel || selectedModel.id !== selectedModelId) return;
 
     const nextOperations = materializeLegacyPaidOperations(paidOperationsFromDetails(selectedModel.details_json, !isUslugaModel), [accountPaidOperationFactory]);
     const nextSignature = JSON.stringify(serializePaidOperations(nextOperations));
-    const sameModel = loadedOperationsModelId === selectedModelId;
+    const sameModel = loadedOperationsModelId === selectedModelId && loadedOperationsApiBase === modelApiBase;
     if (sameModel && operationModelDirty) return;
     if (sameModel && loadedOperationsSignature === nextSignature) return;
 
     setOperations(nextOperations);
     setLoadedOperationsModelId(selectedModelId);
+    setLoadedOperationsApiBase(modelApiBase);
     setLoadedOperationsSignature(nextSignature);
     setOperationModelDirty(false);
-    setModelSaveMsg(t("page.processQr.loadedModel", { model: selectedModel.code || selectedProcess?.model_code || t("common.model") }));
+    setModelSaveMsg(t("page.processQr.loadedModel", { model: modelVariantOption(selectedModel).modelNo || selectedModel.code || t("common.model") }));
   }, [
     accountPaidOperationFactory,
     isUslugaModel,
     loadedOperationsModelId,
+    loadedOperationsApiBase,
+    modelApiBase,
     loadedOperationsSignature,
     operationModelDirty,
     selectedModel,
@@ -1131,9 +1149,15 @@ export default function ProcessQrPage() {
       document.body.classList.remove("process-qr-print-active");
       setPrintMode("work");
       setWorkLabelsToPrint([]);
+      employeePrintAttempt.current += 1;
+      printAttemptBusy.current = false;
+      setPrintAttemptActive(false);
+      setEmployeePrintRows([]);
     };
     window.addEventListener("afterprint", resetPrintMode);
     return () => {
+      employeePrintAttempt.current += 1;
+      printAttemptBusy.current = false;
       document.body.classList.remove("process-qr-print-active");
       window.removeEventListener("afterprint", resetPrintMode);
     };
@@ -1142,8 +1166,9 @@ export default function ProcessQrPage() {
 
 
   const factoryOperations = useMemo(
-    () => operations.filter((operation) => paidOperationMatchesFactory(operation, printPaidOperationFactory)),
-    [operations, printPaidOperationFactory],
+    () => selectedModel?.id === selectedModelId && loadedOperationsModelId === selectedModelId && loadedOperationsApiBase === modelApiBase
+      ? operations.filter((operation) => paidOperationMatchesFactory(operation, printPaidOperationFactory)) : [],
+    [operations, printPaidOperationFactory, selectedModel, selectedModelId, loadedOperationsModelId, loadedOperationsApiBase, modelApiBase],
   );
 
   const operationLabelTokens = useMemo(
@@ -1388,18 +1413,19 @@ export default function ProcessQrPage() {
   }
 
   function loadOperationsFromSelectedModel() {
-    if (!selectedModel || !selectedModelId) return;
+    if (!selectedModel || selectedModel.id !== selectedModelId || !selectedModelId) return;
     const nextOperations = materializeLegacyPaidOperations(paidOperationsFromDetails(selectedModel.details_json, !isUslugaModel), [accountPaidOperationFactory]);
     const nextSignature = JSON.stringify(serializePaidOperations(nextOperations));
     setOperations(nextOperations);
     setLoadedOperationsModelId(selectedModelId);
+    setLoadedOperationsApiBase(modelApiBase);
     setLoadedOperationsSignature(nextSignature);
     setOperationModelDirty(false);
-    setModelSaveMsg(t("page.processQr.loadedModel", { model: selectedModel.code || selectedProcess?.model_code || t("common.model") }));
+    setModelSaveMsg(t("page.processQr.loadedModel", { model: modelVariantOption(selectedModel).modelNo || selectedModel.code || t("common.model") }));
   }
 
   async function saveOperationsToModel() {
-    if (!selectedModel || selectedModel.id !== selectedModelId || !selectedModelId || loadedOperationsModelId !== selectedModelId) return;
+    if (!selectedModel || selectedModel.id !== selectedModelId || !selectedModelId || loadedOperationsModelId !== selectedModelId || loadedOperationsApiBase !== modelApiBase) return;
     setSavingModelOperations(true);
     setModelSaveMsg("");
     try {
@@ -1410,8 +1436,8 @@ export default function ProcessQrPage() {
       });
       // Sibling variants already visited in this session must not reload an
       // old template from SWR after a successful family save.
-      await mutateModelCache(key => typeof key === "string" && key.startsWith(`${modelApiBase}/models/`) && /\/models\/\d+$/.test(key), undefined, { revalidate: true });
-      if (selectedModelIdRef.current !== selectedModelId) return;
+      await mutateModelCache(key => typeof key === "string" && key.startsWith(`${modelApiBase}/models/`) && /\/models\/\d+(?:\?paid_operations_from_model=true)?$/.test(key), undefined, { revalidate: true });
+      if (selectedModelIdRef.current !== selectedModelId || modelApiBaseRef.current !== modelApiBase) return;
       const allOperations = serializePaidOperations(operations);
       setOperations(allOperations);
       setLoadedOperationsModelId(selectedModelId);
@@ -1419,18 +1445,20 @@ export default function ProcessQrPage() {
       setOperationModelDirty(false);
       setModelSaveMsg(t("page.processQr.savedModel", { model: modelVariantOption(selectedModel).modelNo || selectedModel.code || "" }));
     } catch (err: any) {
-      if (selectedModelIdRef.current !== selectedModelId) return;
+      if (selectedModelIdRef.current !== selectedModelId || modelApiBaseRef.current !== modelApiBase) return;
       setModelSaveMsg(err?.message ? t("page.processQr.saveModelErrorDetail", { error: err.message }) : t("page.processQr.saveModelError"));
     } finally {
       setSavingModelOperations(false);
     }
   }
 
-  function printSelectedMode(mode: "work" | "employees") {
+  function printSelectedMode(mode: "work" | "employees", attempt: number) {
     setPrintMode(mode);
     document.body.classList.add("process-qr-print-active");
     window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(() => window.print());
+      window.requestAnimationFrame(() => {
+        if (attempt === employeePrintAttempt.current) window.print();
+      });
     });
   }
 
@@ -1543,6 +1571,10 @@ export default function ProcessQrPage() {
   }
 
   function openLabelCorrection(label: IssuedLabelRow) {
+    if (label.split_from_label_id && (label.status === "scanned" || (label.status === "available" && Number(label.return_count || 0) > 0)) && can(me, "payroll.manage")) {
+      setSplitCorrectionLabelId(label.id);
+      return;
+    }
     if (!canCorrectIssuedLabel(label)) return;
     const initialSplit = equalSplitQuantities(Math.max(1, Number(label.quantity)), 2);
     setPrintError("");
@@ -1635,7 +1667,10 @@ export default function ProcessQrPage() {
   }
 
   async function printIssuedLabels(rows: IssuedLabelRow[]) {
-    if (rows.length === 0 || preparingPrint) return;
+    if (rows.length === 0 || printAttemptBusy.current) return;
+    printAttemptBusy.current = true;
+    const attempt = ++employeePrintAttempt.current;
+    setPrintAttemptActive(true);
     setPrintError("");
     setPreparingPrint(true);
     try {
@@ -1647,17 +1682,58 @@ export default function ProcessQrPage() {
         qrImage: await qrDataUrl(label.qr_token),
         operationNumber: operationNumberForLabel(label, issuedOperationNumbers),
       })));
+      if (attempt !== employeePrintAttempt.current) return;
       setWorkLabelsToPrint(prepared);
-      printSelectedMode("work");
+      printSelectedMode("work", attempt);
     } catch (err: any) {
+      if (attempt !== employeePrintAttempt.current) return;
       setPrintError(err?.message || t("page.processQr.printPreparationFailed"));
+      printAttemptBusy.current = false;
+      setPrintAttemptActive(false);
     } finally {
-      setPreparingPrint(false);
+      if (attempt === employeePrintAttempt.current) setPreparingPrint(false);
     }
   }
 
-  function printEmployeeBadges() {
-    printSelectedMode("employees");
+  async function printEmployeeBadges() {
+    if (!employeeBadgeRows.length || printAttemptBusy.current) return;
+    printAttemptBusy.current = true;
+    setPrintAttemptActive(true);
+    const attempt = ++employeePrintAttempt.current;
+    const snapshot = employeeBadgeRows.map((row) => ({ ...row, employee: { ...row.employee } }));
+    setPrintError("");
+    try {
+      const prepared = await prepareEmployeePrintRows(snapshot, qrDataUrl);
+      if (attempt !== employeePrintAttempt.current) return;
+      flushSync(() => {
+        setEmployeePrintRows(prepared);
+        setPrintMode("employees");
+      });
+      const elements = Array.from(employeePrintRef.current?.querySelectorAll("img") || []);
+      if (elements.length !== prepared.length) throw new Error("Incomplete print images");
+      await Promise.all(elements.map(async (image) => {
+        if (typeof image.decode === "function") {
+          await image.decode();
+        } else if (!image.complete) {
+          await new Promise<void>((resolve, reject) => {
+            image.addEventListener("load", () => resolve(), { once: true });
+            image.addEventListener("error", () => reject(new Error("Image load failed")), { once: true });
+          });
+        }
+        if (!image.naturalWidth) throw new Error("Image load failed");
+      }));
+      if (attempt !== employeePrintAttempt.current) return;
+      document.body.classList.add("process-qr-print-active");
+      window.print();
+    } catch {
+      if (attempt !== employeePrintAttempt.current) return;
+      setPrintError(t("page.processQr.printPreparationFailed"));
+      setEmployeePrintRows([]);
+      setPrintMode("work");
+      printAttemptBusy.current = false;
+      setPrintAttemptActive(false);
+      document.body.classList.remove("process-qr-print-active");
+    }
   }
 
   function toggleEmployee(employeeId: number, checked: boolean) {
@@ -1719,7 +1795,7 @@ export default function ProcessQrPage() {
                 <RefreshCw />
                 <span>{t("page.processQr.refresh")}</span>
               </button>
-              <button type="button" className="btn" onClick={printEmployeeBadges} disabled={employeeBadgeRows.length === 0}>
+              <button type="button" className="btn" onClick={printEmployeeBadges} disabled={employeeBadgeRows.length === 0 || printAttemptActive}>
                 <Users />
                 <span>{t("page.processQr.printEmployees")}</span>
               </button>
@@ -1797,7 +1873,7 @@ export default function ProcessQrPage() {
               <div className="mb-3 flex items-center gap-2 rounded-md border border-[#ded9ca] bg-[#fdfcf8] px-3 py-2 shadow-sm">
                 <Search className="h-4 w-4 text-[#8a8472]" />
                 <input
-                  className="w-full bg-transparent text-sm text-[#14110b] placeholder:text-[#8a8472] focus:outline-none"
+                  className="w-full bg-transparent text-sm text-[#14110b] placeholder:text-[#8a8472] focus:outline-hidden"
                   placeholder={t("page.processQr.orderSearchPlaceholder")}
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
@@ -1863,7 +1939,7 @@ export default function ProcessQrPage() {
               <div className="mb-3 flex items-center gap-2 rounded-md border border-[#ded9ca] bg-[#fdfcf8] px-3 py-2 shadow-sm">
                 <Search className="h-4 w-4 text-[#8a8472]" />
                 <input
-                  className="w-full bg-transparent text-sm text-[#14110b] placeholder:text-[#8a8472] focus:outline-none"
+                  className="w-full bg-transparent text-sm text-[#14110b] placeholder:text-[#8a8472] focus:outline-hidden"
                   placeholder={t("page.processQr.variantSearchPlaceholder")}
                   value={manualModelQuery}
                   onChange={(event) => setManualModelQuery(event.target.value)}
@@ -2427,7 +2503,7 @@ export default function ProcessQrPage() {
             <button type="button" className="btn" onClick={clearVisibleEmployees}>
               {t("page.processQr.clearVisible")}
             </button>
-            <button type="button" className="btn btn-primary" onClick={printEmployeeBadges} disabled={employeeBadgeRows.length === 0}>
+            <button type="button" className="btn btn-primary" onClick={printEmployeeBadges} disabled={employeeBadgeRows.length === 0 || printAttemptActive}>
               <Printer />
               <span>{t("page.processQr.printEmployees")}</span>
             </button>
@@ -2442,7 +2518,7 @@ export default function ProcessQrPage() {
             <div className="flex items-center gap-2 rounded-md border border-[#ded9ca] bg-[#fdfcf8] px-3 py-2 shadow-sm">
               <Search className="h-4 w-4 text-[#8a8472]" />
               <input
-                className="w-full bg-transparent text-sm text-[#14110b] placeholder:text-[#8a8472] focus:outline-none"
+                className="w-full bg-transparent text-sm text-[#14110b] placeholder:text-[#8a8472] focus:outline-hidden"
                 placeholder={t("page.processQr.employeeSearchPlaceholder")}
                 value={employeeQuery}
                 onChange={(event) => setEmployeeQuery(event.target.value)}
@@ -2552,7 +2628,7 @@ export default function ProcessQrPage() {
         </div>
       </section>
 
-      <section className="mt-5 print-sheet employee-print-section">
+      <section className="mt-5 no-print">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2 no-print">
           <div>
             <h2 className="app-card-title">{t("page.processQr.employeePreview")}</h2>
@@ -2568,7 +2644,7 @@ export default function ProcessQrPage() {
         </div>
 
         <div className={`process-qr-collapsible ${collapsedSections.employeePreview ? "is-collapsed" : ""}`}>
-        {employeeBadgeRows.length > 0 ? (
+        {!collapsedSections.employeePreview && (employeeBadgeRows.length > 0 ? (
           <div className="label-grid">
             {employeeBadgeRows.map((row) => (
               <EmployeeBadge key={row.key} row={row} />
@@ -2578,7 +2654,13 @@ export default function ProcessQrPage() {
           <div className="card p-6 text-sm text-[#8a8472] no-print">
             {t("page.processQr.selectEmployeeHint")}
           </div>
-        )}
+        ))}
+        </div>
+      </section>
+
+      <section ref={employeePrintRef} className="print-sheet employee-print-section employee-print-only">
+        <div className="label-grid">
+          {employeePrintRows.map((row) => <EmployeeBadge key={row.key} row={row} qrImage={row.qrImage} />)}
         </div>
       </section>
 
@@ -2637,7 +2719,7 @@ export default function ProcessQrPage() {
               type="button"
               className="btn"
               onClick={() => printIssuedLabels(editedIssuedLabels)}
-              disabled={editedIssuedLabels.length === 0 || preparingPrint}
+              disabled={editedIssuedLabels.length === 0 || printAttemptActive}
             >
               {preparingPrint ? <RefreshCw className="animate-spin" /> : <Printer />}
               <span>{t("page.processQr.printEdited", { count: editedIssuedLabels.length.toLocaleString() })}</span>
@@ -2646,7 +2728,7 @@ export default function ProcessQrPage() {
               type="button"
               className="btn"
               onClick={() => printIssuedLabels(orderedIssuedLabels)}
-              disabled={activeIssuedLabels.length === 0 || preparingPrint}
+              disabled={activeIssuedLabels.length === 0 || printAttemptActive}
             >
               {preparingPrint ? <RefreshCw className="animate-spin" /> : <Printer />}
               <span>{t("page.processQr.printAllIssued")}</span>
@@ -2685,7 +2767,7 @@ export default function ProcessQrPage() {
                       </span>
                     </button>
                   </h3>
-                  <button type="button" className="btn btn-primary" onClick={() => printIssuedLabels(batch.labels)} disabled={preparingPrint}>
+                  <button type="button" className="btn btn-primary" onClick={() => printIssuedLabels(batch.labels)} disabled={printAttemptActive}>
                     {preparingPrint ? <RefreshCw className="animate-spin" /> : <Printer />}
                     <span>{t("page.processQr.printThisBatch", { batch: batch.name || t("page.processQr.noBatch") })}</span>
                   </button>
@@ -2723,7 +2805,7 @@ export default function ProcessQrPage() {
                       {deletingSize === JSON.stringify([batch.key, size]) ? <RefreshCw className="animate-spin" /> : <Trash2 />}
                       <span>{t("page.processQr.deleteSize")}</span>
                     </button>
-                    <button type="button" className="btn btn-primary" onClick={() => printIssuedLabels(sizeLabels)} disabled={preparingPrint}>
+                    <button type="button" className="btn btn-primary" onClick={() => printIssuedLabels(sizeLabels)} disabled={printAttemptActive}>
                       {preparingPrint ? <RefreshCw className="animate-spin" /> : <Printer />}
                       <span>{t("page.processQr.printThisSize", { size })}</span>
                     </button>
@@ -2736,7 +2818,7 @@ export default function ProcessQrPage() {
                       label={label}
                       operationNumber={operationNumberForLabel(label, issuedOperationNumbers)}
                       onEdit={() => openLabelCorrection(label)}
-                      editable={canCorrectIssuedLabel(label)}
+                      editable={canCorrectIssuedLabel(label) || Boolean(label.split_from_label_id && (label.status === "scanned" || (label.status === "available" && Number(label.return_count || 0) > 0)) && can(me, "payroll.manage"))}
                       editDisabledReason={t("page.processQr.editLabelBlocked")}
                     />
                   ))}
@@ -2754,6 +2836,7 @@ export default function ProcessQrPage() {
         )}
       </section>
 
+      {splitCorrectionLabelId !== null && <SplitAllocationEditor labelId={splitCorrectionLabelId} onClose={() => setSplitCorrectionLabelId(null)} onSaved={() => { void mutateIssuedLabels(); }} />}
       <Modal
         open={Boolean(labelCorrection)}
         onClose={() => { if (!savingLabelCorrection) setLabelCorrection(null); }}
@@ -3258,12 +3341,13 @@ export default function ProcessQrPage() {
             display: none !important;
           }
         }
+        @media screen { .employee-print-only { display: none; } }
       `}</style>
     </div>
   );
 }
 
-function EmployeeBadge({ row }: { row: EmployeeBadgeRow }) {
+function EmployeeBadge({ row, qrImage }: { row: EmployeeBadgeRow; qrImage?: string }) {
   const { t } = useT();
   const { employee, departmentName, payload } = row;
   return (
@@ -3285,7 +3369,7 @@ function EmployeeBadge({ row }: { row: EmployeeBadgeRow }) {
           <LabelLine label={t("field.dept")} value={departmentName} wrap />
           <LabelLine label={t("field.role")} value={employee.position || "-"} wrap />
         </div>
-        <ProcessQrImage payload={payload} alt={t("page.processQr.employeeQrAlt")} />
+        {qrImage ? <img className="process-label__qr" src={qrImage} alt={t("page.processQr.employeeQrAlt")} /> : <ProcessQrImage payload={payload} alt={t("page.processQr.employeeQrAlt")} />}
       </div>
 
       <div className="process-label__footer mt-1 flex items-center justify-end gap-2 border-t border-[#e8e3d6] pt-1 text-[9px] font-semibold text-[#6b6251]">

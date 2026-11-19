@@ -60,3 +60,7 @@ internal input/result differs from the API DTO and ORM object. State its caller
 and consumer. Keep a private type beside its service when nothing else uses it.
 Do not duplicate Create/Update/Read schemas, add runtime queries, or build an
 interface for each service. Prove the contract through the consuming operation's tests.
+
+[turnstile_simulator.py](turnstile_simulator.py) contains the actual simulator readback
+evidence shared by its adapter, processing service, schema JSON mapping and persistence
+helper. It does not duplicate an HTTP DTO or contain a live device transport.

@@ -1,13 +1,17 @@
 from app.models.package_dispatch_service import remaining_quantity, remaining_item_quantity
 from fastapi import APIRouter, HTTPException, Depends, Header, Query
 from app.models.variant_display_service import format_variant_number
+from app.libs.enums.production import SewingFactoryCode
+from app.models.packaging.package_origin_service import (
+    filter_sewing_factory, package_number_fields, package_sewing_origins,
+)
 
 from fastapi.responses import HTMLResponse, Response
 from typing import Literal
 from app.models.print_response_service import warehouse_print_response
 from app.models.package_label_pages_service import label_document
 from sqlalchemy import func, or_
-from sqlalchemy.orm import joinedload, load_only, selectinload
+from sqlalchemy.orm import joinedload, lazyload, load_only, selectinload
 from sqlalchemy.orm.attributes import set_committed_value
 import base64
 from datetime import date
@@ -89,12 +93,36 @@ from app.models.model_family_images_service import model_family_image
 from app.models.audit_service import log_action
 from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response
 from app.models.packaging_scope_service import (
-    packaging_department_for_order,
     packaging_department_scope,
     require_package_access,
 )
+from app.libs.dto.fulfillment.package_customer_release import PackageCustomerAccessOut, PackageCustomerReleaseIn, PackageCustomerReleaseOut
+from app.libs.dto.packaging.package_source_output import PackageSourcesOut
+from app.models.fulfillment.package_customer_service import package_customer_access, release_packages_for_any_customer
 
 router = APIRouter(prefix="/packages", tags=["packages"])
+
+
+@router.get("/sources/{work_order_id}", response_model=PackageSourcesOut)
+def read_package_sources(
+    work_order_id: int, db: DbSession,
+    current: User = Depends(require_permissions("packaging.packages", "*")),
+):
+    from app.models.packaging.package_sources_service import package_sources
+    return package_sources(db, current, work_order_id)
+
+
+@router.post("/customer-release", response_model=PackageCustomerReleaseOut)
+def release_customer_packs(payload: PackageCustomerReleaseIn, db: DbSession, current: CurrentUser,
+                          idempotency_key: str | None = Header(default=None, alias="Idempotency-Key")):
+    return release_packages_for_any_customer(payload, db, current, idempotency_key)
+
+
+@router.get("/{pid}/customer-access", response_model=PackageCustomerAccessOut)
+def customer_access(pid: int, db: DbSession, current: CurrentUser):
+    return package_customer_access(db, current, pid)
+
+
 _LABEL_CONTEXT_CHUNK_SIZE = 400
 _RECEIVING_QUEUE_DEFAULT_PAGE_SIZE = 50
 _RECEIVING_QUEUE_MAX_PAGE_SIZE = 100
@@ -128,7 +156,11 @@ def _package_context(db: DbSession, pkg: Package) -> dict:
         if pkg.model_id
         else None
     )
-    return _package_context_values(po, so, customer, model)
+    return {
+        **_package_context_values(po, so, customer, model),
+        **package_number_fields(model, pkg.legacy_receipt),
+        **package_sewing_origins(db, [pkg.id])[pkg.id],
+    }
 
 
 def _package_context_values(
@@ -146,6 +178,7 @@ def _package_context_values(
         "model_code": model.code if model else None,
         "model_name": model.name if model else None,
         "model_image_url": model_display_image_url(model),
+        **package_number_fields(model),
     }
 
 
@@ -160,6 +193,12 @@ def _package_out_payload(db: DbSession, pkg: Package, *, context: dict | None = 
 def _package_detail_payload(db: DbSession, pkg: Package, *, context: dict | None = None) -> dict:
     from app.models.package_workflows_service import active_members
     data = PackageDetail.model_validate(pkg).model_dump(mode="json")
+    production_batches = (context["production_batches"] if context is not None else _load_reference_map(
+        db, ProductionBatch, (row.production_batch_id for row in pkg.batch_allocations)))
+    for row in data["batch_allocations"]:
+        batch = production_batches.get(row["production_batch_id"])
+        row["batch_no"] = batch.batch_no if batch else None
+        row["batch_name"] = batch.name if batch else None
     if pkg.dispatched_quantities and pkg.status in {"received_in_storage", "reserved"}:
         data["total_quantity"] = remaining_quantity(pkg)
         for item, value in zip(pkg.items, data["items"]):
@@ -174,6 +213,8 @@ def _package_detail_payload(db: DbSession, pkg: Package, *, context: dict | None
         customer = context["customers"].get(int(so.customer_id)) if so and so.customer_id else None
         model = context["models"].get(int(pkg.model_id)) if pkg.model_id else None
         data.update(_package_context_values(po, so, customer, model))
+        data.update(package_number_fields(model, pkg.legacy_receipt))
+        data.update(context["sewing_origins"][pkg.id])
         print_run_id = context["print_run_ids"].get(int(pkg.id))
     data["print_run_id"] = print_run_id
     if pkg.manual_receipt_id:
@@ -341,7 +382,10 @@ def _package_detail_reference_context(
         "customers": customers,
         "models": models,
         "manual_receipts": manual_receipts,
+        "production_batches": _load_reference_map(db, ProductionBatch,
+            (allocation.production_batch_id for package in packages for allocation in package.batch_allocations)),
         "print_run_ids": resolved_print_run_ids,
+        "sewing_origins": package_sewing_origins(db, (pkg.id for pkg in packages)),
     }
 
 
@@ -370,6 +414,7 @@ def _package_detail_relationship_options():
             PackageBatchAllocation.package_id,
             PackageBatchAllocation.production_batch_id,
             PackageBatchAllocation.quantity,
+            PackageBatchAllocation.item_breakdown,
         ),
         selectinload(Package.scan_logs).load_only(
             PackageScanLog.id,
@@ -890,16 +935,16 @@ def _batch_allocations_html(
     production_batches: dict[int, ProductionBatch] | None = None,
 ) -> str:
     rows = [
-        (int(alloc.production_batch_id), int(alloc.quantity or 0))
+        (int(alloc.production_batch_id), int(alloc.quantity or 0), alloc.item_breakdown)
         for alloc in (pkg.batch_allocations if allocations is None else allocations)
     ]
     if not rows and pkg.production_batch_id:
-        rows = [(int(pkg.production_batch_id), int(pkg.total_quantity or 0))]
+        rows = [(int(pkg.production_batch_id), int(pkg.total_quantity or 0), None)]
     if not rows:
         return ""
 
     parts = []
-    for batch_id, _quantity in rows:
+    for batch_id, quantity, breakdown in rows:
         batch = (
             production_batches.get(batch_id)
             if production_batches is not None
@@ -911,7 +956,10 @@ def _batch_allocations_html(
                 label = f"{label} - {batch.name}"
         else:
             label = f"Batch #{batch_id}"
-        parts.append(_h(label))
+        detail = ", ".join(f"{_h(row['color'])} {_h(row['size'])}: {row['quantity']}" for row in breakdown or [])
+        if len(rows) > 1 and breakdown is None:
+            detail = "Sizes by batch unknown / Размеры по настилу неизвестны / Nastil bo‘yicha o‘lchamlar noma’lum"
+        parts.append(f"{_h(label)} ({quantity})" + (f"<br>{detail}" if detail else ""))
     return "<br>".join(parts)
 
 
@@ -920,9 +968,11 @@ def list_packages(db: DbSession, current: CurrentUser,
                   status: str | None = None, production_order_id: int | None = None,
                   created_from: date | None = None, created_to: date | None = None,
                   page: int = 1, page_size: int = 50, include_total: bool = False,
-                  packaging_department_code: str | None = None):
+                  packaging_department_code: str | None = None,
+                  sewing_factory_code: SewingFactoryCode | None = None):
     department_code = packaging_department_scope(current, packaging_department_code)
-    qry = db.query(Package).filter(Package.packaging_department_code == department_code)
+    qry = db.query(Package).options(joinedload(Package.legacy_receipt)).filter(Package.packaging_department_code == department_code)
+    qry = filter_sewing_factory(qry, sewing_factory_code)
     if status: qry = qry.filter(Package.status == status)
     if production_order_id: qry = qry.filter(Package.production_order_id == production_order_id)
     start, end = date_filter_bounds(created_from, created_to)
@@ -938,7 +988,7 @@ def list_packages(db: DbSession, current: CurrentUser,
         int(po.id): po
         for po in (
             db.query(ProductionOrder)
-            .options(joinedload(ProductionOrder.sales_order))
+            .options(joinedload(ProductionOrder.sales_order), lazyload(ProductionOrder.materials))
             .filter(ProductionOrder.id.in_(po_ids))
             .all()
         )
@@ -962,6 +1012,9 @@ def list_packages(db: DbSession, current: CurrentUser,
         ).order_by(PackagePrintRun.id).all():
             return_reasons[member.package_id] = run.return_reason
     model_by_id = _load_reference_map(db, Model, (p.model_id for p in rows), options=_model_display_load_options())
+    from app.models.packaging.manual_packages_service import manual_package_list_context
+    manual_context = manual_package_list_context(db, rows)
+    sewing_origins = package_sewing_origins(db, (p.id for p in rows))
     out = []
     for p in rows:
         qr_url = _ensure_package_qr_url(db, p)
@@ -970,7 +1023,10 @@ def list_packages(db: DbSession, current: CurrentUser,
         so = sales_by_id.get(int(p.sales_order_id or 0))
         customer = customer_by_id.get(int(so.customer_id or 0)) if so else None
         row = _package_out_payload(db, p, context=_package_context_values(po, so, customer, model))
+        row.update(package_number_fields(model, p.legacy_receipt))
+        row.update(sewing_origins[p.id])
         row["qr_code_url"] = qr_url
+        row.update(manual_context.get(p.id, {}))
         po = production_by_id.get(int(p.production_order_id or 0))
         so = sales_by_id.get(int(p.sales_order_id or 0))
         customer = customer_by_id.get(int(so.customer_id or 0)) if so else None
@@ -994,10 +1050,8 @@ def create_pkg(
     current: User = Depends(require_permissions("packaging.packages", "*")),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
-    department_code = packaging_department_for_order(
-        db, payload.production_order_id, payload.production_batch_id
-    )
-    packaging_department_scope(current, department_code)
+    from app.models.packaging_scope_service import require_package_source_access
+    department_code = require_package_source_access(current, db, payload.production_order_id, [payload])[0].value
     fingerprint_payload = payload.model_dump(mode="json")
     replay = replay_idempotent_response(db, scope="packages.create", key=idempotency_key, payload=fingerprint_payload)
     if replay:
@@ -1046,10 +1100,8 @@ def create_pkg_bulk(
     current: User = Depends(require_permissions("packaging.packages", "*")),
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ):
-    department_code = packaging_department_for_order(
-        db, payload.production_order_id, payload.production_batch_id
-    )
-    packaging_department_scope(current, department_code)
+    from app.models.packaging_scope_service import require_package_source_access
+    department_code = require_package_source_access(current, db, payload.production_order_id, [payload])[0].value
     fingerprint_payload = payload.model_dump(mode="json")
     replay = replay_idempotent_response(db, scope="packages.bulk-create", key=idempotency_key, payload=fingerprint_payload)
     if replay:
@@ -1122,6 +1174,7 @@ def storage_map(
     created_to: date | None = None,
     include_unplaced: bool = False,
     stock_kind: str = "standard",
+    sewing_factory_code: SewingFactoryCode | None = None,
 ):
     if stock_kind not in {"standard", "first_grade", "second_grade"}:
         raise HTTPException(422, "Invalid stock classification")
@@ -1150,11 +1203,13 @@ def storage_map(
     if end:
         query = query.filter(Package.created_at <= end)
 
+    query = filter_sewing_factory(query, sewing_factory_code)
     q = (model_query or "").strip().lower()
     placements: list[dict] = []
     matches: list[dict] = []
     by_cell: dict[str, list[dict]] = {}
     package_rows = query.all()
+    sewing_origins = package_sewing_origins(db, (pkg.id for pkg, _, _, _ in package_rows))
     image_urls = warehouse_stock_image_urls(db, {model.id for _, model, _, _ in package_rows})
     for pkg, model, sales_order, production_order in package_rows:
         model_code = model.code if model else None
@@ -1196,6 +1251,7 @@ def storage_map(
             "storage_placed_at": pkg.storage_placed_at,
             "location": format_storage_location(pkg.storage_cell, pkg.storage_shelf),
             "matched": matched,
+            **sewing_origins[pkg.id],
         }
         placements.append(row)
         if matched:
@@ -1203,7 +1259,7 @@ def storage_map(
         if pkg.storage_cell:
             by_cell.setdefault(pkg.storage_cell, []).append(row)
 
-    if include_unplaced:
+    if include_unplaced and sewing_factory_code is None:
         aggregate_query = (
             db.query(
                 Package.model_id,
@@ -1302,6 +1358,8 @@ def storage_map(
                 "location": "",
                 "matched": matched,
                 "aggregated": True,
+                "sewing_factory_codes": [],
+                "sewing_factory_code": None,
             }
             placements.append(row)
             if matched:

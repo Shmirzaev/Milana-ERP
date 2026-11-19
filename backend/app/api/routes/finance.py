@@ -5,6 +5,7 @@ from app.core.deps import DbSession, require_permissions
 from app.schemas import Invoice, User
 from app.libs.dto.sales.invoice_input import InvoiceIn
 from app.libs.dto.sales.invoice_output import InvoiceOut
+from app.libs.dto.sales.invoice_list_output import InvoiceListPageOut
 from app.libs.dto.sales.payment_input import PaymentIn
 from app.libs.dto.sales.payment_output import PaymentOut
 from app.models.finance.invoices_service import create_order_invoice
@@ -37,7 +38,7 @@ def get_waste(db: DbSession, _: User = Depends(require_permissions("finance.view
     return {"cost": waste_cost(db), "income": waste_income(db)}
 
 
-@router.get("/invoices")
+@router.get("/invoices", response_model=InvoiceListPageOut)
 def list_invoices(
     db: DbSession,
     _: User = Depends(require_permissions("finance.view", "*")),

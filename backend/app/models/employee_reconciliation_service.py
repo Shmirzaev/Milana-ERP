@@ -29,16 +29,14 @@ def reconcile_employees(db, plan):
         before = {'source': snapshot(source), 'target': snapshot(target)}
         key = f'employee_merge_aliases:{source.factory_code}'
         setting = db.query(SystemSetting).filter(SystemSetting.key == key).with_for_update().first()
-        if not setting:
-            setting = SystemSetting(key=key, value_json={'ids': {}, 'numbers': {}})
-            db.add(setting)
+        setting = SystemSetting.ensure_employee_merge_alias_setting(db, key=key, setting=setting)
         aliases = deepcopy(setting.value_json)
         for group in ('ids', 'numbers'):
             aliases.setdefault(group, {})
             aliases[group] = {k: target.id if v == source.id else v for k, v in aliases[group].items()}
         aliases['ids'][str(source.id)] = target.id
         aliases['numbers'][source.employee_no or str(source.id)] = target.id
-        setting.value_json = aliases
+        SystemSetting.write_employee_merge_aliases(setting, aliases)
         moved = {}
         # Includes self-references, HR documents/events, model owners and the payroll ledger.
         for table in Base.metadata.tables.values():

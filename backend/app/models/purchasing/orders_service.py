@@ -26,6 +26,12 @@ from app.schemas import Item, PurchaseOrder, PurchaseOrderLine, User
 # Largest page the order directory will serve.
 PURCHASE_ORDER_LIST_MAX_LIMIT = 200
 
+RECEIVABLE_LIST_STATUSES: tuple[PurchaseOrderStatus, ...] = (
+    PurchaseOrderStatus.SENT,
+    PurchaseOrderStatus.APPROVED,
+    PurchaseOrderStatus.PARTIALLY_RECEIVED,
+)
+
 
 def _purchase_orders_query(db: Session, user: User):
     """Base query for the order directory, shared by the page and its count.
@@ -63,7 +69,7 @@ def list_purchase_orders(
         # Match the receiving queue without loading every order or counting
         # its outstanding lines more than once. The page and total share scope.
         query = query.filter(
-            PurchaseOrder.status.in_(("sent", "approved", "partially_received")),
+            PurchaseOrder.status.in_(tuple(status.value for status in RECEIVABLE_LIST_STATUSES)),
             PurchaseOrder.lines.any(PurchaseOrderLine.ordered_quantity > PurchaseOrderLine.received_quantity),
         )
 

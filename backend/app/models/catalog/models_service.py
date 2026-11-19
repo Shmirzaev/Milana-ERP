@@ -26,6 +26,7 @@ from uuid import uuid4
 from fastapi import HTTPException, UploadFile
 from sqlalchemy import and_, func, literal_column, or_, select
 from sqlalchemy.orm import Session, defer, selectinload
+from app.schemas.catalog import variant_update_persistence
 from app.core.config import settings
 from app.core.deps import user_permissions
 from app.core.dt import date_filter_bounds
@@ -37,11 +38,13 @@ from app.core.model_search import (
     model_group_prefix_number_column,
 )
 from app.core.uploads import (
+    MODEL_PATTERN_CAD_EXTENSIONS,
     SAFE_DOCUMENT_EXTENSIONS,
     SAFE_IMAGE_EXTENSIONS,
     extension_for_upload,
     safe_content_type,
     read_validated_upload_content,
+    read_validated_pattern_cad_upload,
 )
 from app.libs.dto.catalog.model_bom_input import ModelBOMIn
 from app.libs.dto.catalog.model_bom_update import ModelBOMUpdate
@@ -52,7 +55,7 @@ from app.libs.dto.catalog.model_size_input import ModelSizeIn
 from app.libs.dto.catalog.model_output import ModelDetail, ModelImageOut, ModelOut, ModelSummaryOut
 from app.libs.dto.catalog.process_qr_sizes_input import ProcessQrSizesIn
 from app.libs.enums.catalog import BomMaterialRole, CatalogScope
-from app.libs.types.catalog import NormalizedBomCreate, NormalizedBomUpdate
+from app.libs.types.catalog import ModelColorCreateCommand, ModelColorCreateResult, ModelSizeCreateCommand, ModelSizeCreateResult, NormalizedBomCreate, NormalizedBomUpdate
 from app.models.audit_service import log_action
 from app.models.factory_scope_service import selected_factory_code
 from app.models.image_storage_service import (
@@ -71,6 +74,7 @@ from app.models.model_family_images_service import (
     family_image_from_members,
     family_images_for_models,
     model_family_image,
+    model_family_identity_members,
     own_model_image,
 )
 from app.models.model_images_service import model_print_image_url, model_preview_image_url, model_variant_picture_url
@@ -83,6 +87,7 @@ from app.models.paid_operations_service import (
     replace_factory_paid_operations,
     sewing_master_factory_scope,
 )
+from app.schemas.catalog.model_image_upload_persistence import add_uploaded_model_image
 from app.schemas import (
     Bundle,
     CollectionModel,
@@ -102,7 +107,17 @@ from app.schemas import (
     StockBatch,
     User,
 )
+from app.schemas.catalog.variant_persistence import delete_variant_rows
 from app.schemas.catalog.bom_persistence import delete_model_bom, insert_model_bom, update_model_bom
+from app.schemas.catalog.model_delete_persistence import delete_checked_model
+from app.schemas.catalog.model_update_persistence import apply_model_update
+from app.schemas.catalog.model_approval_persistence import apply_model_approval
+from app.schemas.catalog.model_paid_operations_persistence import set_model_paid_operations_details
+from app.schemas.catalog.model_image_persistence import delete_model_image
+from app.schemas.catalog.model_size_persistence import add_initial_model_sizes, delete_model_size, insert_model_size
+from app.schemas.catalog.model_color_persistence import insert_model_color
+from app.schemas.catalog.model_create_persistence import build_model, insert_model
+from app.schemas.catalog.model_image_persistence import insert_url_image
 
 # A model's details_json is per-model modelling metadata: identity, costing and
 # paid operations. Sizes, measurements, BOM and images live in their own tables,
@@ -488,27 +503,6 @@ def _variant_fabric_item_id_for_model(model: Model) -> int | None:
     return value or None
 
 
-def _set_variant_general_details(
-    model: Model,
-    *,
-    model_no: str,
-    variant_no: str,
-    fabric_item: Item | None = None,
-) -> None:
-    details = deepcopy(model.details_json or {})
-    general = details.get("general")
-    if not isinstance(general, dict):
-        general = {}
-    general["model_no"] = model_no
-    general["variant_no"] = variant_no
-    if fabric_item is not None:
-        general["variant_fabric"] = _fabric_item_label(fabric_item)
-        general["variant_fabric_item_id"] = int(fabric_item.id)
-        general.pop("variant_stock_batch_id", None)
-    details["general"] = general
-    model.details_json = details
-
-
 def _set_variant_material_image(db: Session, model: Model, picture_url: str) -> None:
     material_images = sorted(
         [img for img in (model.images or []) if img.image_type == "material"],
@@ -565,26 +559,6 @@ def _set_variant_print_image(db: Session, model: Model, picture_url: str) -> Non
             is_primary=False,
         )
     )
-
-
-def _apply_variant_fabric_item(
-    model: Model,
-    selected_item: Item,
-    *,
-    color_provided: bool = False,
-    color: str | None = None,
-    picture_url: str | None = None,
-) -> None:
-    fabric_row = _primary_material_bom_row(model)
-    if not fabric_row:
-        raise HTTPException(400, "Add a fabric BOM row to this model before editing variants")
-    fabric_row.item_id = int(selected_item.id)
-    fabric_row.stock_batch_id = None
-    if color_provided:
-        fabric_row.color = _clean_text(color) or None
-    if picture_url is not None:
-        fabric_row.photo_url = picture_url
-    fabric_row.unit = selected_item.unit or fabric_row.unit
 
 
 def _fabric_label_for_model(model: Model) -> str:
@@ -889,11 +863,16 @@ def _summary_family_photos(db: Session, rows) -> dict[int, str | None]:
     return photos
 
 
-def _catalog_model(db: Session, model_id: int, catalog_scope: str = "standard") -> Model | None:
+def _catalog_model_for_scope(db: Session, model_id: int, catalog_scope: CatalogScope) -> Model | None:
     return db.query(Model).filter(
         Model.id == model_id,
-        Model.catalog_scope == _normalize_catalog_scope(catalog_scope),
+        Model.catalog_scope == catalog_scope.value,
     ).one_or_none()
+
+
+def _catalog_model(db: Session, model_id: int, catalog_scope: str = "standard") -> Model | None:
+    scope = CatalogScope(_normalize_catalog_scope(catalog_scope))
+    return _catalog_model_for_scope(db, model_id, scope)
 
 
 def _standard_model(db: Session, model_id: int) -> Model | None:
@@ -1173,11 +1152,13 @@ def _model_identity_details(details: object, *, model_no: str, variant_no: str) 
     return result
 
 
-def _set_model_identity(model: Model, *, model_no: str, variant_no: str) -> None:
-    model.code = _build_model_code(model_no, variant_no)
-    model.details_json = _model_identity_details(
-        model.details_json, model_no=model_no, variant_no=variant_no
-    )
+def _set_model_identity(db: Session, model: Model, *, model_no: str, variant_no: str) -> None:
+    apply_model_update(db, row=model, values={
+        "code": _build_model_code(model_no, variant_no),
+        "details_json": _model_identity_details(
+            model.details_json, model_no=model_no, variant_no=variant_no
+        ),
+    })
 
 
 def _rename_model_group(
@@ -1257,7 +1238,7 @@ def _rename_model_group(
     renamed: list[tuple[Model, str]] = []
     for model, variant_no, _ in planned:
         old_code = model.code
-        _set_model_identity(model, model_no=clean_new_model_no, variant_no=variant_no)
+        _set_model_identity(db, model, model_no=clean_new_model_no, variant_no=variant_no)
         renamed.append((model, old_code))
     return renamed
 
@@ -1654,9 +1635,10 @@ def create_model(
     current: User,
     db: Session,
     payload: ModelIn,
-    catalog_scope: str = "standard",
+    catalog_scope: CatalogScope = CatalogScope.STANDARD,
 ):
-    catalog_scope = _normalize_catalog_scope(catalog_scope)
+    raw_scope = catalog_scope.value if isinstance(catalog_scope, CatalogScope) else catalog_scope
+    catalog_scope = CatalogScope(_normalize_catalog_scope(raw_scope))
     model_data = payload.model_dump()
     automatic_prefix = model_data.pop("automatic_model_prefix", None)
     details = deepcopy(model_data.get("details_json")) if isinstance(model_data.get("details_json"), dict) else {}
@@ -1673,7 +1655,7 @@ def create_model(
     )
     if db.query(Model).filter(Model.code == model_data["code"]).first():
         raise HTTPException(400, "Model code already exists")
-    factory_scope = "eco_cotton" if catalog_scope == "usluga" else sewing_master_factory_scope(current)
+    factory_scope = "eco_cotton" if catalog_scope is CatalogScope.USLUGA else sewing_master_factory_scope(current)
     if factory_scope:
         details = merge_scoped_paid_operations({}, details, factory_scope)
     general = details.get("general")
@@ -1693,19 +1675,16 @@ def create_model(
     model_data["details_json"] = details
     _validate_model_details_json_bounds(model_data["details_json"])
 
-    m = Model(
-        **model_data,
+    m = build_model(
+        values=model_data,
         catalog_scope=catalog_scope,
-        factory_code="ECO" if catalog_scope == "usluga" else None,
+        factory_code="ECO" if catalog_scope is CatalogScope.USLUGA else None,
         created_by=current.id,
     )
+    approval = None
     if _model_code_parts(m)[1]:
         approval = next((row for row in _approval_family(db, m) if row.status == "approved"), None)
-        if approval:
-            m.status = "approved"
-            m.approved_by = approval.approved_by
-            m.approved_at = approval.approved_at
-    db.add(m); db.flush()
+    insert_model(db, m, approval=approval)
     log_action(db, current, "create", "Model", m.id, new_value={"code": m.code})
     db.commit(); db.refresh(m)
     return _model_out_payload(m, factory_scope)
@@ -1785,21 +1764,52 @@ def get_process_qr_model_sizes(
     return result(next(iter(populated_sets)), "inherited")
 
 
+def _process_qr_paid_operation_details(db: Session, model: Model) -> dict:
+    """Project the base template without changing the selected variant or storage."""
+    source_details = model.details_json
+    if _model_code_parts(model)[1] and (model.details_json or {}).get("legacy_import") is not True:
+        # Model detail has already resolved this exact scoped family for its
+        # garment picture. Reuse that metadata; never hydrate every sibling's
+        # technical document/operations just to find the base identity.
+        family = model_family_identity_members(model)
+        bases = [row for row in family if not _model_code_parts(row)[1]]
+        if bases:
+            source_id = max(bases, key=lambda row: row.id).id
+            row = db.query(Model.id, Model.code, Model.name, Model.details_json).filter(
+                Model.id == source_id,
+                Model.catalog_scope == model.catalog_scope,
+                Model.factory_code == model.factory_code,
+            ).first()
+            source = SimpleNamespace(**row._mapping) if row is not None else None
+            if (source is None or (source.details_json or {}).get("legacy_import") is True
+                    or _model_group_key(source) != _model_group_key(model)
+                    or _model_code_parts(source)[1]):
+                raise HTTPException(409, "Model family changed; reload the model")
+            source_details = source.details_json
+    details = dict(model.details_json or {})
+    details.pop("paidOperations", None)
+    # An absent/empty base template is authoritative: never revive variant or
+    # frontend default operations. Families without a base keep their own list.
+    details["paid_operations"] = paid_operations_from_details(source_details)
+    return details
+
+
 def get_model(
     current: User,
     db: Session,
     mid: int,
     catalog_scope: str = "standard",
+    paid_operations_from_model: bool = False,
 ):
     m = _models_query(db, catalog_scope).filter(Model.id == mid).first()
     if not m: raise HTTPException(404, "Model not found")
-    payload = ModelDetail.model_validate(m).model_dump()
+    payload = ModelDetail.model_validate(m).model_dump(exclude={"details_json"} if paid_operations_from_model else set())
     photo = model_family_image(m)
     payload["primary_image"] = _image_payload(photo) if photo else None
     payload["primary_image_url"] = photo.file_url if photo else None
     payload["variant_picture_url"] = model_variant_picture_url(m)
     payload["details_json"] = filter_paid_operations_for_factory(
-        payload.get("details_json"),
+        _process_qr_paid_operation_details(db, m) if paid_operations_from_model else payload.get("details_json"),
         _catalog_paid_operation_factory_scope(current, catalog_scope),
     )
     return payload
@@ -2100,6 +2110,21 @@ def create_model_variant(
     return _model_out_payload(cloned, _catalog_paid_operation_factory_scope(current, catalog_scope))
 
 
+def _save_variant_update_image(db: Session, model: Model, image_type: str, picture_url: str) -> None:
+    images = sorted(
+        [image for image in (model.images or []) if image.image_type == image_type],
+        key=lambda image: int(getattr(image, "id", 0) or 0),
+        reverse=True,
+    )
+    file_name = os.path.basename(picture_url.split("?", 1)[0]) or None
+    extension = os.path.splitext(file_name or "")[1].lower()
+    content_type = safe_content_type(extension) if extension in SAFE_IMAGE_EXTENSIONS else None
+    variant_update_persistence.save_image(
+        db, model_id=model.id, image=images[0] if images else None,
+        image_type=image_type, picture_url=picture_url, file_name=file_name, content_type=content_type,
+    )
+
+
 def update_model_variant(
     current: User,
     db: Session,
@@ -2157,13 +2182,19 @@ def update_model_variant(
     # and the bounds must be judged against what the variant actually had.
     _validate_model_details_json_bounds(target.details_json)
     original_details = deepcopy(target.details_json)
-    target.code = new_code
-    _set_variant_general_details(
-        target,
-        model_no=model_no,
-        variant_no=variant_no,
-        fabric_item=parent_fabric_item,
-    )
+    variant_update_persistence.set_variant_code(target, new_code)
+    details = deepcopy(target.details_json or {})
+    general = details.get("general")
+    if not isinstance(general, dict):
+        general = {}
+    general["model_no"] = model_no
+    general["variant_no"] = variant_no
+    if parent_fabric_item is not None:
+        general["variant_fabric"] = _fabric_item_label(parent_fabric_item)
+        general["variant_fabric_item_id"] = int(parent_fabric_item.id)
+        general.pop("variant_stock_batch_id", None)
+    details["general"] = general
+    variant_update_persistence.set_variant_details(target, details)
     if catalog_scope == "usluga":
         details = deepcopy(target.details_json or {})
         general = details.get("general") if isinstance(details.get("general"), dict) else {}
@@ -2172,22 +2203,23 @@ def update_model_variant(
         else:
             general.pop("variant_color", None)
         details["general"] = general
-        target.details_json = details
+        variant_update_persistence.set_variant_details(target, details)
     _validate_model_details_json_bounds(target.details_json, existing_details=original_details)
     fabric_row = _primary_material_bom_row(target)
     if fabric_row and parent_fabric_item:
-        _apply_variant_fabric_item(
-            target,
-            parent_fabric_item,
+        variant_update_persistence.set_fabric_item(
+            fabric_row,
+            item_id=int(parent_fabric_item.id),
+            unit=parent_fabric_item.unit or fabric_row.unit,
             color_provided=payload.color is not None,
             color=color,
             picture_url=picture_url,
         )
     elif parent_fabric_item and source_fabric_row:
-        fabric_row = ModelBOM(
+        fabric_row = variant_update_persistence.add_fabric_row(
+            db,
             model_id=target.id,
             item_id=parent_fabric_item.id,
-            stock_batch_id=None,
             size=source_fabric_row.size,
             color=color if payload.color is not None else source_fabric_row.color,
             photo_url=picture_url,
@@ -2195,21 +2227,19 @@ def update_model_variant(
             unit=parent_fabric_item.unit or source_fabric_row.unit,
             waste_percent=source_fabric_row.waste_percent,
         )
-        db.add(fabric_row)
     elif fabric_row:
-        if payload.color is not None:
-            fabric_row.color = color
-        if picture_url is not None:
-            fabric_row.photo_url = picture_url
+        variant_update_persistence.set_fabric_display(
+            fabric_row, color_provided=payload.color is not None, color=color, picture_url=picture_url
+        )
     if picture_url is not None:
-        _set_variant_material_image(db, target, picture_url)
+        _save_variant_update_image(db, target, "material", picture_url)
     if "print_picture_url" in payload.model_fields_set:
         if print_picture_url:
-            _set_variant_print_image(db, target, print_picture_url)
+            _save_variant_update_image(db, target, "print", print_picture_url)
         else:
-            for image in list(target.images or []):
-                if image.image_type == "print":
-                    db.delete(image)
+            variant_update_persistence.delete_print_images(
+                db, [image for image in list(target.images or []) if image.image_type == "print"]
+            )
     log_action(
         db,
         current,
@@ -2257,8 +2287,7 @@ def delete_model_variant(
         "name": target.name,
         "variant_no": _model_code_parts(target)[1],
     }
-    db.query(CollectionModel).filter(CollectionModel.model_id == variant_id).delete(synchronize_session=False)
-    db.delete(target)
+    delete_variant_rows(db, target=target, variant_id=variant_id)
     log_action(db, current, "delete_variant", "Model", variant_id, new_value=old_value)
     db.commit()
 
@@ -2306,8 +2335,7 @@ def update_model(
     if incoming_model_no and _normalized_key(incoming_model_no) != _normalized_key(current_model_no):
         renamed = _rename_model_group(db, m, incoming_model_no, catalog_scope)
 
-    for k, v in update_data.items():
-        setattr(m, k, v)
+    apply_model_update(db, row=m, values=update_data)
     for renamed_model, old_code in renamed:
         if renamed_model.id == m.id:
             continue
@@ -2362,7 +2390,7 @@ def update_model_paid_operations(
         pending_details.append((member, next_details))
     for member, next_details in pending_details:
         old_count = len(paid_operations_from_details(filter_paid_operations_for_factory(member.details_json, save_factory)))
-        member.details_json = next_details
+        set_model_paid_operations_details(db, member, next_details)
         log_action(
             db, current, "update_paid_operations", "Model", member.id,
             old_value={"factory": save_factory, "operation_count": old_count},
@@ -2409,9 +2437,7 @@ def approve_model(
                 raise HTTPException(409, "Usluga model approval requires exactly one main fabric")
     approved_at = datetime.now(timezone.utc)
     for row in pending:
-        row.status = "approved"
-        row.approved_by = current.id
-        row.approved_at = approved_at
+        apply_model_approval(db, row, actor_id=current.id, approved_at=approved_at)
         log_action(db, current, "approve", "Model", row.id,
                    new_value={"approval_scope": "model_family", "requested_model_id": mid})
     db.commit(); db.refresh(m)
@@ -2429,14 +2455,7 @@ def add_image(
     data = payload.model_dump()
     data["file_url"] = _validate_file_url(data["file_url"])
     data["image_type"] = _normalize_image_type(data.get("image_type"))
-    if data.get("is_primary"):
-        db.query(ModelImage).filter(ModelImage.model_id == mid, ModelImage.is_primary.is_(True)).update(
-            {"is_primary": False},
-            synchronize_session=False,
-        )
-    img = ModelImage(model_id=mid, **data)
-    db.add(img)
-    db.flush()
+    img = insert_url_image(db, model_id=mid, **data)
     log_action(db, current, "create", "ModelImage", img.id, new_value={"model_id": mid, "file_url": img.file_url})
     db.commit(); db.refresh(img)
     return {"id": img.id}
@@ -2477,25 +2496,15 @@ def _create_uploaded_model_image(
 ) -> int:
     _require_catalog_upload_model(db, model_id, catalog_scope)
     actor = _upload_actor(db, actor_id)
-    is_primary = image_type == "model"
-    if is_primary:
-        db.query(ModelImage).filter(
-            ModelImage.model_id == model_id,
-            ModelImage.is_primary.is_(True),
-        ).update({"is_primary": False}, synchronize_session=False)
-    image = ModelImage(
+    image = add_uploaded_model_image(
+        db,
         model_id=model_id,
         file_url=file_url,
         file_name=original_name,
         content_type=stored_content_type,
-        # The file is already persisted in MODEL_FILES_DIR. Keeping another
-        # multi-megabyte copy in PostgreSQL makes remote uploads needlessly slow.
-        file_data=None,
         image_type=image_type,
-        is_primary=is_primary,
+        is_primary=image_type == "model",
     )
-    db.add(image)
-    db.flush()
     log_action(
         db,
         actor,
@@ -2542,8 +2551,11 @@ async def upload_image(
         worker_sessions,
         partial(_require_catalog_upload_model, model_id=mid, catalog_scope=catalog_scope),
     )
-    ext = extension_for_upload(file, SAFE_IMAGE_EXTENSIONS | SAFE_DOCUMENT_EXTENSIONS)
     normalized_image_type = _normalize_image_type(image_type)
+    allowed_extensions = SAFE_IMAGE_EXTENSIONS | SAFE_DOCUMENT_EXTENSIONS
+    if normalized_image_type == "pattern":
+        allowed_extensions = allowed_extensions | MODEL_PATTERN_CAD_EXTENSIONS
+    ext = extension_for_upload(file, allowed_extensions)
     stored_image = None
     document_target = None
     document_state = UploadFileWriteState()
@@ -2565,7 +2577,10 @@ async def upload_image(
             safe_name = f"model_{mid}_{uuid4().hex}{ext}"
             document_target = Path(settings.MODEL_FILES_DIR) / safe_name
             async with upload_processing_slot():
-                content = await read_validated_upload_content(file, ext, 20 * 1024 * 1024)
+                if ext in MODEL_PATTERN_CAD_EXTENSIONS:
+                    content = await read_validated_pattern_cad_upload(file, ext, 20 * 1024 * 1024)
+                else:
+                    content = await read_validated_upload_content(file, ext, 20 * 1024 * 1024)
                 await run_upload_file_write(
                     partial(_write_new_model_document, document_target, content),
                     document_state,
@@ -2614,7 +2629,7 @@ def delete_image(
     if not img:
         raise HTTPException(404, "Pattern file not found")
     file_url = img.file_url
-    db.delete(img)
+    delete_model_image(db, img)
     log_action(db, current, "delete", "ModelImage", image_id, new_value={"model_id": mid, "file_url": file_url})
     db.commit()
 
@@ -2624,12 +2639,15 @@ def add_size(
     db: Session,
     mid: int,
     payload: ModelSizeIn,
-    catalog_scope: str = "standard",
-):
-    if not _catalog_model(db, mid, catalog_scope): raise HTTPException(404, "Model not found")
-    s = ModelSize(model_id=mid, **payload.model_dump())
-    db.add(s)
-    db.flush()
+    catalog_scope: CatalogScope = CatalogScope.STANDARD,
+) -> ModelSizeCreateResult:
+    # Other historical callers may still supply raw values; preserve their
+    # existing normalization and errors before the typed query.
+    scope = catalog_scope.value if isinstance(catalog_scope, CatalogScope) else catalog_scope
+    scope = CatalogScope(_normalize_catalog_scope(scope))
+    if not _catalog_model_for_scope(db, mid, scope): raise HTTPException(404, "Model not found")
+    command = ModelSizeCreateCommand(model_id=mid, **payload.model_dump())
+    s = insert_model_size(db, command)
     log_action(db, current, "create", "ModelSize", s.id, new_value={"model_id": mid, "size": s.size})
     db.commit(); db.refresh(s)
     return {"id": s.id}
@@ -2640,14 +2658,16 @@ def delete_size(
     db: Session,
     mid: int,
     size_id: int,
-    catalog_scope: str = "standard",
+    catalog_scope: CatalogScope = CatalogScope.STANDARD,
 ):
-    if not _catalog_model(db, mid, catalog_scope):
+    scope = catalog_scope.value if isinstance(catalog_scope, CatalogScope) else catalog_scope
+    scope = CatalogScope(_normalize_catalog_scope(scope))
+    if not _catalog_model_for_scope(db, mid, scope):
         raise HTTPException(404, "Model not found")
     s = db.query(ModelSize).filter(ModelSize.id == size_id, ModelSize.model_id == mid).first()
     if not s:
         raise HTTPException(404, "Size not found")
-    db.delete(s)
+    delete_model_size(db, s)
     log_action(db, current, "delete", "ModelSize", size_id, new_value={"model_id": mid, "size": s.size})
     db.commit()
 
@@ -2657,15 +2677,18 @@ def add_color(
     db: Session,
     mid: int,
     payload: ModelColorIn,
-    catalog_scope: str = "standard",
-):
-    if not _catalog_model(db, mid, catalog_scope): raise HTTPException(404, "Model not found")
+    catalog_scope: CatalogScope = CatalogScope.STANDARD,
+) -> ModelColorCreateResult:
+    scope = catalog_scope.value if isinstance(catalog_scope, CatalogScope) else catalog_scope
+    scope = CatalogScope(_normalize_catalog_scope(scope))
+    if not _catalog_model_for_scope(db, mid, scope): raise HTTPException(404, "Model not found")
     if len(payload.color_name) > 64:
         raise HTTPException(422, "color_name must be at most 64 characters")
     if payload.color_code is not None and len(payload.color_code) > 16:
         raise HTTPException(422, "color_code must be at most 16 characters")
-    c = ModelColor(model_id=mid, **payload.model_dump())
-    db.add(c); db.commit(); db.refresh(c)
+    command = ModelColorCreateCommand(model_id=mid, **payload.model_dump())
+    c = insert_model_color(db, command)
+    db.commit(); db.refresh(c)
     return {"id": c.id}
 
 
@@ -2858,9 +2881,11 @@ def delete_model(
     current: User,
     db: Session,
     mid: int,
-    catalog_scope: str = "standard",
+    catalog_scope: CatalogScope = CatalogScope.STANDARD,
 ):
-    m = _catalog_model(db, mid, catalog_scope)
+    raw_scope = catalog_scope.value if isinstance(catalog_scope, CatalogScope) else catalog_scope
+    scope = CatalogScope(_normalize_catalog_scope(raw_scope))
+    m = _catalog_model_for_scope(db, mid, scope)
     if not m:
         raise HTTPException(404, "Model not found")
 
@@ -2882,8 +2907,7 @@ def delete_model(
     if blockers:
         raise HTTPException(409, f"Model is in use by: {', '.join(blockers)}")
 
-    db.query(CollectionModel).filter(CollectionModel.model_id == mid).delete(synchronize_session=False)
-    db.delete(m)
+    delete_checked_model(db, m)
     log_action(db, current, "delete", "Model", mid, new_value={"code": m.code, "name": m.name})
     db.commit()
 
@@ -2922,8 +2946,7 @@ def add_process_qr_model_sizes(
     # cannot both observe an empty model and insert their own sets.
     if db.query(ModelSize.id).filter(ModelSize.model_id == mid).first() is not None:
         raise HTTPException(409, "Model already has sizes. Refresh to use the saved sizes.")
-    for size in payload.sizes:
-        db.add(ModelSize(model_id=mid, size=size))
+    add_initial_model_sizes(db, mid, payload.sizes)
     log_action(
         db, current, "process_qr_sizes_added", "model", mid,
         old_value={"sizes": []}, new_value={"sizes": payload.sizes},

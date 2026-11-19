@@ -210,7 +210,7 @@ def test_price_list_preserves_response_fields_and_semantics(client, auth_headers
 
     assert set(row) == {
         "id", "model_id", "model_no", "variant_no", "model_name", "model_category",
-        "model_sizes", "model_image_url", "variant_image_url", "kroy_no",
+        "model_sizes", "model_image_url", "variant_image_url", "kroy_no", "order_no",
         "cutting_passport_id", "date", "fabric_width_m", "lay_length_m", "size_count",
         "gramage", "binding_kg_per_piece", "fabric_price", "sewing_cost", "packaging_cost",
         "accessories", "cost_price_uzs", "selling_price", "variant_selling_price",
@@ -218,10 +218,15 @@ def test_price_list_preserves_response_fields_and_semantics(client, auth_headers
         "exchange_rate", "purchasing_status", "cutting_status", "accessories_status",
         "overall_status", "created_at", "updated_at", "fabric_consumption",
         "consumption_cost", "binding_price", "cost_price", "difference",
+        "workflow_state", "factory_code", "catalog_scope", "revision", "materials",
+        "purchasing_submitted_at", "accessories_submitted_at", "no_accessories_reason",
+        "printing_required", "printing_cost", "correction_team", "correction_reason",
+        "approved_at", "approved_by_id", "approved_by_name", "can_approve", "margin_percentage", "calculation_issues",
     }
     assert row["model_sizes"] == ["S", "M"]
     assert row["accessories"] == [{"name": "Thread", "price": 0.05}]
     assert row["date"] is None and row["cutting_passport_id"] is None
+    assert row["order_no"] is None
     # Seeded rows carry accessories but no cutting/purchasing/selling values, so
     # the per-stage and overall status semantics must stay as they are today.
     assert row["overall_status"] == "in_progress"
@@ -238,7 +243,12 @@ def test_price_request_mutation_uses_the_shared_preload(client, auth_headers):
     _seed_requests(1, "mutate")
     db = SessionLocal()
     try:
-        request_id = db.query(PriceCalculationRequest).order_by(PriceCalculationRequest.id.desc()).first().id
+        request = db.query(PriceCalculationRequest).order_by(PriceCalculationRequest.id.desc()).first()
+        request_id = request.id
+        request.workflow_state = "collecting"
+        request.active_model_id = request.model_id
+        request.factory_code = "MIL"
+        db.commit()
     finally:
         db.close()
 
@@ -254,5 +264,5 @@ def test_price_request_mutation_uses_the_shared_preload(client, auth_headers):
     assert body["model_sizes"] == ["S", "M"]
     assert body["model_image_url"] is not None
     assert body["variant_image_url"] is None  # Garment/BOM photos are not variant attachments.
-    assert body["purchasing_status"] == "complete"
+    assert body["purchasing_status"] == "in_progress"
     assert body["fabric_price"] == 12.5 and body["sewing_cost"] == 3.25

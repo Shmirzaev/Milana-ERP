@@ -1,0 +1,79 @@
+{
+  "recorded_at": "2026-11-04T11:24:58.172132+00:00",
+  "status": "DEPLOYED_WITH_SPECIFIC_OWNER_EXCEPTIONS",
+  "active": {
+    "release": "20261104_080711",
+    "source_manifest_sha256": "0221829adfc216391679b744ae512b6c4d96913bb0316c31dfe12fb9a1641be7",
+    "database_revision": "0154_eco_receipt_details",
+    "git_baseline_commit": "984aeffb22aedd3262d7cd61e2d88a905b589e8d"
+  },
+  "rollback": {
+    "release": "20261104_093330",
+    "slot": "green",
+    "commit": "bd7d572282b50886e9d03a650bcf886ca9109175",
+    "manifest": "c7b225466e539d4359e5022f37795f0ab2c065cbffdddc6ff1e8dd73563426dd",
+    "schema": "0154_eco_receipt_details"
+  },
+  "activated_at": {
+    "backend": "2026-11-04T11:20:29.539306+00:00",
+    "frontend": "2026-11-04T11:20:32.577022+00:00"
+  },
+  "images": {
+    "backend": "ghcr.io/shmirzaev/milana-erp-backend@sha256:b5f76c5298252a98fe79da0b4f068b9c689bf73eb7428a19933e8fe001403db5",
+    "frontend": "ghcr.io/shmirzaev/milana-erp-frontend@sha256:f1fbf7e8eeb8dd29480b4362a5cf73b5f9f944d6239b2fc8f362e4e7fe88da4b"
+  },
+  "backup": {
+    "path": "/opt/milana-erp/shared/backups/milana_erp_pre_20261104_080711_20261104_111942.dump",
+    "restore_objects": 1329,
+    "restore_list_bytes": 96150,
+    "restore_list_sha256": "04f5fa5cbed662f02a8be36ce2ced435b41f7920f7eaf7b7e90f4f76c67a8c18",
+    "bytes": 111953078,
+    "mode": "0o600",
+    "sha256": "a5539d47e3ccbbf7594b28a6e163775baaf67dd1072706aa980a1b17cb9b2f95"
+  },
+  "four_health_passed": true,
+  "api_invariants": {
+    "canonical_0154_schema_verified": true,
+    "eco_stock_matches_separate_ledger": true,
+    "existing_administrator_and_role_unchanged": true,
+    "legacy_literal_model_and_variant_match": true,
+    "mil_cannot_read_eco_balances": true,
+    "mil_source_matches_legacy_ledger": true,
+    "no_business_rows_created_or_deleted": true,
+    "separate_balances_unchanged": true,
+    "warehouse_selected_factory_in_every_available_origin": true
+  },
+  "public_performance_original_status": "FAIL; exact disclosed exceptions accepted; not resampled/relabelled",
+  "leases_released": true,
+  "qa_proxies_stopped": true,
+  "timed_monitoring": "waived; not run",
+  "production_business_writes_by_qa": false,
+  "human_acceptance": "not recorded by technical QA",
+  "pr": {
+    "number": 406,
+    "merged": false,
+    "draft": true
+  },
+  "worktree": "C:\\ERP\\.codex-work\\eco-inventory-release-20261104",
+  "branch": "codex/eco-inventory-release-20261104",
+  "local_review": "http://127.0.0.1:13085",
+  "evidence_sha256": {
+    "feature-20261104_080711-exception-reconciled-reactivation-evidence.json": "aced5e36b895b8e7f451a8de77af9291869c28cd5c6a62b904246c311497e31a",
+    "feature-984-live-api-readback.json": "2dcc3b6879e33acbc2b88b61f82c54520bcf5de27c9e62c7c8d74c1e9a82bd3f",
+    "feature-984-live-browser-ECO-closing.json": "25666bd36b34bcd3b245b543d4d571ef6bf9474bf43b4a358a46a66cac99686f",
+    "feature-984-final-independent-review.json": "bb01199c1732fb58fce76e9532c4665f18ae3f9805370726a3d376ceba919236",
+    "feature-reconciled-wrapper-independent-review.json": "7ba6a0dfa41dad3d887ef3fb1f874e47e6fe51c6ee3ebd7a547f1d6f53bc96b8",
+    "bridge-bd7-specific-p95-authorization.json": "ef45e5dd02184c455d56ff47ac7720cdc8786bdc271508a3e1b10612241a28f3",
+    "feature-984-exceptions-reconciled-authorization.json": "ede25c1151e4e6d551bd3a5ea88dbd7cb60b5d1fe301a1388815f74f7cb9b517",
+    "active-to-bridge-bd7-p1-public-closing.json": "6da868a6c64d014d2c567ca57b180baaeb937317683e30056315cce64778eb05",
+    "bridge-to-feature-984-p2-public-closing.json": "20f405328a2fa6c86e572dc106a1d7f361e26d6423b2e29b955061543f306304",
+    "feature-984-live-accessory-receipt.jpg": "31f5f007c7c8bbace125f9d2f7ca3a75dee16bc28080552f957bcd33cb9c7f50"
+  },
+  "limits": [
+    "p95 cause unproven",
+    "current print parity does not recreate earlier dataset; inline SQL source unarchived",
+    "initial noPTY live proxy lacks closing JSON",
+    "supplier placeholder cosmetic issue",
+    "production business handoffs not submitted by QA"
+  ]
+}

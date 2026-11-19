@@ -36,7 +36,7 @@ def test_model_prefix_stream_skips_existing_variants_and_keeps_other_prefixes():
         assert next_model_no(db, "PJ") == "PJ1254"
 
 
-@pytest.mark.parametrize(("prefix", "start"), [("XJ", 3201), ("XD", 109001)])
+@pytest.mark.parametrize(("prefix", "start"), [("XJ", 3201), ("XD", 109001), ("FG", 202001)])
 def test_model_create_reserves_server_number_even_after_stale_preview(client, auth_headers, prefix, start):
     preview = client.get(f"/api/models/next-number?prefix={prefix}", headers=auth_headers)
     assert preview.status_code == 200, preview.text
@@ -63,6 +63,36 @@ def test_xd_preview_skips_occupied_family_without_consuming_number():
         assert next_model_no(db, "XD") == "XD109002"
         assert db.query(SystemSetting).count() == before
         assert next_model_no(db, "XJ") == "XJ3201"
+
+
+def test_fg_preview_skips_occupied_code_and_metadata_without_consuming_number():
+    with TestSessionLocal() as db:
+        db.add_all([
+            Model(code="FG202001-V-9000", name="Existing FG family"),
+            Model(code="FG-METADATA", name="Explicit FG family", details_json={"general": {"model_no": "FG202002"}}),
+        ])
+        db.commit()
+        before = db.query(SystemSetting).count()
+        assert next_model_no(db, "FG") == "FG202003"
+        assert next_model_no(db, "fg") == "FG202003"
+        assert db.query(SystemSetting).count() == before
+        assert next_model_no(db, "XJ") == "XJ3201"
+        assert next_model_no(db, "XD") == "XD109001"
+
+
+def test_fg_failed_create_does_not_consume_number(client, auth_headers):
+    preview = client.get("/api/models/next-number?prefix=FG", headers=auth_headers)
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["model_no"] == "FG202001"
+    invalid = client.post("/api/models", headers=auth_headers, json={
+        "code": "ignored", "name": "Invalid FG", "automatic_model_prefix": "FG",
+        "details_json": {"general": {"variant_no": "V-1"}},
+    })
+    assert invalid.status_code == 400
+    with TestSessionLocal() as db:
+        assert next_model_no(db, "FG") == "FG202001"
+        assert db.query(Model).filter(Model.code.like("FG%")).count() == 0
+    assert client.get("/api/models/next-number?prefix=FG").status_code == 401
 
 
 def test_number_preview_is_read_only_and_failed_create_does_not_consume(client, auth_headers):

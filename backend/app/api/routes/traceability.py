@@ -95,14 +95,17 @@ def _find_production_batch(db: DbSession, key: str) -> ProductionBatch | None:
     for candidate in dict.fromkeys(candidates):
         if candidate.upper().startswith("BATCH:"):
             candidate = candidate.split(":", 1)[1].strip()
-        batch = (
+        batches = (
             db.query(ProductionBatch)
             .filter(ProductionBatch.batch_no == candidate)
             .order_by(ProductionBatch.id.desc())
-            .first()
+            .limit(2)
+            .all()
         )
-        if batch:
-            return batch
+        if len(batches) > 1:
+            raise HTTPException(409, "This batch number belongs to multiple orders; open it from its order or scan its batch QR")
+        if batches:
+            return batches[0]
     return None
 
 

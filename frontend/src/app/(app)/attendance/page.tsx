@@ -286,7 +286,7 @@ export default function AttendancePage() {
       />
 
       <div className="mb-5 border-y border-[#dedbd0] bg-[#fbfaf6]">
-        <dl className="grid grid-cols-2 divide-x divide-y divide-[#dedbd0] sm:grid-cols-4 sm:divide-y-0">
+        <dl className="grid grid-cols-2 [&>:not([hidden])~:not([hidden])]:border-l [&>:not([hidden])~:not([hidden])]:border-t [&>:not([hidden])~:not([hidden])]:border-[#dedbd0] sm:grid-cols-4 sm:[&>:not([hidden])~:not([hidden])]:border-t-0">
           {metrics.map(({ label, value, icon: Icon }) => (
             <div key={label} className="flex items-center gap-3 px-4 py-3">
               <Icon className="h-4 w-4 shrink-0 text-[#8a8472]" />

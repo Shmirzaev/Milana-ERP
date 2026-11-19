@@ -43,6 +43,7 @@ from app.models.bundles_service import (
     resolve_sewing_factory_code,
 )
 from app.models.model_images_service import model_display_image_url
+from app.models.production.floor_print_images_service import floor_print_image_url
 from app.models.factory_scope_service import require_operational_department_access
 from app.models.production_service import WORK_ORDER_OPERATION_PERMISSIONS
 from app.models.variant_display_service import format_variant_number
@@ -1623,6 +1624,7 @@ def _empty_production_context_payload() -> dict:
         "variant_no": None,
         "model_name": None,
         "model_image_url": None,
+        "print_image_url": None,
         "size_summary": None,
         "size_count": 0,
         "sizes": [],
@@ -1646,19 +1648,26 @@ def _production_context_by_production_order(db: DbSession, production_order_ids:
             ProductionOrder.model_id,
             ProductionOrder.planning_order_id,
             ProductionOrder.production_type,
+            ProductionOrder.printing_attachments,
+            SalesOrder.printing_attachments.label("sales_printing_attachments"),
         )
+        .outerjoin(SalesOrder, SalesOrder.id == ProductionOrder.sales_order_id)
         .filter(ProductionOrder.id.in_(po_ids))
         .all()
     )
-    model_by_po = {int(po_id): int(model_id) for po_id, model_id, _, _ in po_rows if model_id}
+    model_by_po = {int(row.id): int(row.model_id) for row in po_rows if row.model_id}
     planning_order_id_by_po = {
-        int(po_id): int(planning_order_id)
-        for po_id, _, planning_order_id, _ in po_rows
-        if planning_order_id
+        int(row.id): int(row.planning_order_id)
+        for row in po_rows
+        if row.planning_order_id
     }
     production_type_by_po = {
-        int(po_id): str(production_type or "") or None
-        for po_id, _, _, production_type in po_rows
+        int(row.id): str(row.production_type or "") or None
+        for row in po_rows
+    }
+    artwork_by_po = {
+        int(row.id): row.sales_printing_attachments or row.printing_attachments
+        for row in po_rows
     }
     planning_order_ids = sorted(set(planning_order_id_by_po.values()))
     planning_order_by_id = {
@@ -1750,6 +1759,7 @@ def _production_context_by_production_order(db: DbSession, production_order_ids:
             "variant_no": variant_no,
             "model_name": model.name if model else None,
             "model_image_url": model_display_image_url(model),
+            "print_image_url": floor_print_image_url(model, artwork_by_po.get(po_id)),
             "size_summary": size_summary,
             "size_count": size_count,
             "sizes": sizes,

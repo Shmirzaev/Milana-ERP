@@ -1,0 +1,122 @@
+# Factory full-suite triage — 13 November 2026
+
+Worker /root/packaging. Base6570901bc8628074e985aed38d5bd148c8c223e0.
+Isolated worktree C:/ERP/.codex-work/factory-suite-triage-20261113,
+branch codex/factory-suite-triage-20261113. Root checkout and production untouched.
+
+The full-suite root backend-final.log markers were mapped against the exact
+8,362 collected test nodes, then representative failures reproduced in the
+owned derivative milana-factory-qa:20261113 with the approved Packaging PG env.
+Evidence logs are ignored outputs/factory-triage/ in this worktree.
+
+## Packaging query budget: intentional behavior change, corrected assertion
+
+All three test_packaging_record_complete_bom_query_growth cases (BOM1/50/401)
+failed only27-versus26 SELECTs; the real API save returned201 and the later
+assertions still verify one PackagingRecord and exact BOM/stock usage.
+
+Old packaging budgets made3 aggregate reads (Sewing, manual receipts, input) plus
+one receipt-existence read. Automatic Sewing availability removes the receipt
+aggregate; the existence read is retained for legacy input-counter compatibility.
+The complete write now costs one fewer SELECT independently of BOM length.
+Only the fixed-count assertion is changed27->26 with this rationale. BOM and
+stock read assertions and all quantity/write conservation assertions remain.
+
+Red: all3 parameter cases failed with26!=27 on exactbase6570901bc.
+Green: full test_cutting_packaging_write_query_growth.py passed15 tests in the
+owned derivative image. No application source changes were needed.
+
+## Other failures: separated owners/environment evidence
+
+- Passport list models/sales chunk-budget test is8/8/13 reads vs prior7/7/12,
+  consistent with the one new batched Cutting navigation lookup. Assigned to
+  /root/cutting_reports; this worker makes no edit to that test/helper.
+-13 ECO migration/concurrency errors are the test fixture's explicit disposable
+  database-name guard: original approved root/Packaging env names lack_ci/_qa.
+  Root provisioned the owned empty milana_factory_packaging_qa DB. Rerun of
+  test_eco_inventory_postgres.py and test_eco_receiving_table_postgres.py using
+  the explicit loopback55439 URL passed13 tests. No product or fixture edit.
+- JWT resolved-runtime contract fails because the reusable QA derivative inherits
+  python-jose3.5.0 and ecdsa0.19.2 alongside the correctPyJWT2.15.0. Current and
+  exactba2ac53b source requirements declare onlyPyJWT2.15.0. Root owns derivative
+  image cleanup and its rerun; no Dockerfile/image change by this worker.
+- Optional-operator PostgreSQL fixture uses customDepartment.code=CUT-<uuid>;
+  new unconditional CuttingDepartmentCode cast raisesValueError before saving.
+  /root/eco_fabric owns a compatibility adapter for legacy central-only custom
+  departments while explicit ECO sources still requirecanonicalECT. No overlap
+  edit by this worker; both exact failing nodes were forwarded to that owner.
+
+No full-suite pass is claimed while the root run remains incomplete. Independent
+review of this assertion change, final combined reruns, browser readback, human
+acceptance and deployment approval remain coordinator-owned gates.
+
+## Legacy flow assertion reconciled with automatic availability
+
+The original root full run's67% failure was
+`test_production_flow.py::test_packaging_receives_sewing_work_by_scan_and_manual_entry`.
+It deliberately expected18 input to be refused after17 legacy receipts despite20
+actual passed Sewing pieces. This conflicts with the owner's requested automatic
+availability; the real API correctly returns201 on the candidate. Standalone red
+reproduction confirms201-versus-old400.
+
+The renamed compatibility test retains all manual/scan receipt history, duplicate
+scan and over-receiving checks. It now refuses21>20 actual output, checks queue20,
+saves18 despite17 historical receipts, and verifies queue2, actual input18, exactly2
+unchanged historical receipts and zero automatic packages. No application change.
+Full test_production_flow.py passes81 tests in the owned derivative image.
+
+## Automatic queue empty-state wording
+
+Root connected-browser inspection found the old Russian empty state still said
+accepted orders, contradicting automatic availability. Updated only the existing
+page.packagingReceive.queueEmpty value in EN/RU/UZ and mechanically equivalent
+supplemental locale mirrors; historical receipt/history labels remain unchanged.
+Actual queue SSR regression uses real runtime dictionaries for all3 languages,
+asserts the automatic-availability hint and empty state, and refuses the former
+accepted/received-order wording. User-access/render/redirect contract passes,
+full i18n audit passes3447 keys and strict TypeScript passes. No API/data change.
+
+## Outside-default S06 stock adjustment test caller
+
+Root's explicitly enabled backend/tests/test_stock_adjustment_postgres.py found
+one batch_delta case failing AttributeError: str has no value. Both the private
+service's StockMovementType annotation and schema persistence .value use already
+exist unchanged at ba2ac53b; gitdiff ba2ac53b..6570901bc is empty for the service,
+persistence helper and test. The test's direct private caller still passed the
+literal adjustment. This is stale test setup, not a candidate stock runtime change.
+
+Original failure preserved in ignored stock-adjustment-red.log:1fail/1pass.
+Changed only that direct test caller to the existing canonical
+StockMovementType.ADJUSTMENT. No service/schema relaxation or production change.
+On root-approved owned milana_test, both real PostgreSQL concurrency cases pass:
+concurrent delta final130 with matching20+10 ledger; concurrent absolute targets
+final120 with conserved net ledger. Schema teardown remains confined to its
+random s06_<uuid> schema. Independent review assigned to /root/cutting_reports.
+
+## PERF26 package row budget: baseline customer-policy read
+
+Final original-suite XML identified the late package-read failure as
+`test_sales_branded_variant_queries.py::test_package_rows_do_not_grow_with_the_variant_count`.
+An initial marker-only name guess was wrong; final XML is authoritative. The
+failure reproduces identically on a separate clean ba2ac53b baseline worktree and
+candidate6570901bc:27->27 package rows for9 cells across1->4 variants, with2->2
+package-lock queries. Runtime/testdiff on relevant Sales/Fulfillment files between
+those commits is empty. This is an inherited stale exact-row expectation, not an
+additional Packaging availability query or a variant-count growth regression.
+
+The third existing Package read is the single batched source-customer policy
+projection at fulfillment/stock_service.py:515. It protects customer-owned stock
+from allocation to another customer and must remain. Updated only this test to
+expect3*cells, with explicit one-unlocked-policy-query and exact*cells row checks
+on both small/large cases. The2 package locks and variant-independent total bound
+are still pinned, alongside existing reservation and metadata assertions.
+Original baseline/candidate failures are preserved in ignored perf26-baseline.log
+and perf26-candidate.log; full PostgreSQL module passes after test correction.
+Ruff passes. Independent exact-change review assigned to /root/cutting_reports.
+
+Original root full-run final evidence:8290pass,11fail,17error,77skip. Fixed budgets,
+legacy receipt expectations and canonical caller adjustments are separate commits;
+13 ECO errors are DB-name guards,4 SEC09 errors require HAProxy in the owned test
+image, and JWT failure is inherited obsolete image packages. Root owns the final
+corrected-environment integrated reruns. This record never turns the original
+failing run into a pass.

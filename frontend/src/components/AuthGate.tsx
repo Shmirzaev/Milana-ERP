@@ -3,7 +3,7 @@ import { factoryWorkspaceHome, hasInventoryPathAccess, packagingDepartmentForSes
 import { useEffect, useState } from "react";
 import { SWRConfig } from "swr";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { can, useMe } from "@/lib/auth";
+import { can, CEO_DASHBOARD_PATH, isCeo, useMe } from "@/lib/auth";
 import { api } from "@/lib/api";
 import { isSewingRole, isSewingWorkspacePath, sewingWorkspaceHome } from "@/lib/access";
 import { useT } from "@/lib/i18n";
@@ -21,6 +21,9 @@ type RouteGuard = {
 };
 
 const ROUTE_GUARDS: RouteGuard[] = [
+  { prefix: "/eco-inventory", perms: ["eco_inventory.read", "eco_inventory.receive", "eco_inventory.consume"] },
+  { prefix: "/eco-accessories", perms: ["eco_accessories.read", "eco_accessories.manage", "eco_accessories.approve", "eco_accessories.issue"] },
+  { prefix: "/factory-fabric-transfers", perms: ["factory_fabric_transfers.read", "factory_fabric_transfers.dispatch", "factory_fabric_transfers.receive"] },
   { prefix: "/besttex/cutting-orders", perms: ["besttex.cutting_sheets"] },
   { prefix: "/dashboards/cutting", perms: ["cutting.records", "cutting.bundles", "planning.production", "*"] },
   { prefix: "/dashboards/printing", perms: ["printing.records", "printing.bundles", "planning.production", "*"] },
@@ -122,7 +125,10 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   const { me, error, loading, hasToken, refresh } = useMe();
   const { t } = useT();
   const [factorySwitchError, setFactorySwitchError] = useState("");
-  const redirectRestrictedSewingRole = Boolean(me && isSewingRole(me) && !isSewingWorkspacePath(pathname)
+  const ceo = isCeo(me);
+  const ceoDashboard = pathname === CEO_DASHBOARD_PATH;
+  const redirectCeo = ceo && !ceoDashboard;
+  const redirectRestrictedSewingRole = Boolean(!ceo && !ceoDashboard && me && isSewingRole(me) && !isSewingWorkspacePath(pathname)
     && !(pathname === "/besttex/cutting-orders" && hasRouteAccess(me, pathname)));
   const restrictedSewingHome = sewingWorkspaceHome(me);
   const factoryHome = isSewingRole(me)
@@ -133,9 +139,11 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     (me.factory_code === "BST" && pathname === "/departments/BST")
     || (me.factory_code === "ECO" && pathname === "/departments/ECT")
   ));
-  const redirectNonMilanaHome = Boolean(me && me.factory_code !== "MIL"
+  const redirectNonMilanaHome = Boolean(!ceo && !ceoDashboard && me && me.factory_code !== "MIL"
     && pathname !== factoryHome && (pathname === "/" || deniedFactoryLanding));
   const operationalFactory = (() => {
+    if (ceo || ceoDashboard) return null;
+    if (pathname.startsWith("/eco-inventory") || pathname === "/eco-accessories") return "ECO";
     if (pathname === "/usluga" || pathname.startsWith("/usluga/")) return "ECO";
     const department = pathname.match(/^\/departments\/(CUT|PRT|SEW|MIL|PKG|BST|BPK|ECT|ECO|ECP)(?:\/|$)/)?.[1];
     if (department) {
@@ -184,6 +192,10 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   }, [hasToken, router]);
 
   useEffect(() => {
+    if (redirectCeo) router.replace(CEO_DASHBOARD_PATH);
+  }, [redirectCeo, router]);
+
+  useEffect(() => {
     if (redirectRestrictedSewingRole) router.replace(restrictedSewingHome);
   }, [redirectRestrictedSewingRole, restrictedSewingHome, router]);
 
@@ -201,7 +213,10 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   if (hasToken === undefined || (hasToken && (loading || !me))) {
     return <div className="p-6 text-slate-500">{t("common.loading")}</div>;
   }
-  if (!hasToken) return null;
+  if (!hasToken || redirectCeo) return null;
+  if (ceoDashboard) {
+    return ceo ? <>{children}</> : <div className="p-6 text-slate-600">{t("auth.accessDenied")}</div>;
+  }
   if (redirectRestrictedSewingRole) return null;
   if (redirectNonMilanaHome) return null;
   if (canSwitchOperationalFactory && !factorySwitchError) {

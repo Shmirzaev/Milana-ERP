@@ -67,6 +67,7 @@ transaction.
 | --- | --- | --- | --- | --- | --- |
 | [invoices_service.py](invoices_service.py) | `create_order_invoice` | `Session`, `InvoiceIn`, actor | the `Invoice` row | 404 sales order not found; 422 amount not representable in `invoices.amount` | this operation (invoice row, audit row, commit) |
 | [invoices_service.py](invoices_service.py) | `generate_order_invoice` | `Session`, sales order id, actor | `InvoiceGenerationOut` envelope | 404 sales order not found; 400 order status not invoiceable; 422 resolved total not finite or representable in nonnegative NUMERIC(14,2) cents | this operation (invoice row, audit row, commit) |
+| [invoices_service.py](invoices_service.py) | `void_invoices_for_shipment_reopen` | `Session`, already-locked/preflighted `Sequence[Invoice]` | `None` | none; shipment coordinator owns all eligibility refusals | shipment reopen (same outer transaction; no flush or commit here) |
 | [invoices_service.py](invoices_service.py) | `storable_invoice_amount`, `lock_sales_order` | value / session | bounded `Decimal` / locked order row | 422 from the amount guard | none (helpers of the operations above) |
 | [payments_service.py](payments_service.py) | `record_invoice_payment` | `Session`, `PaymentIn`, actor, idempotency key | `PaymentOut` snapshot dict | 404 invoice not found; 409 key reused with another payload or owner | this operation (payment row, audit row, idempotency row, commit) |
 | [customer_ledger_service.py](customer_ledger_service.py) | `list_customer_orders` | `Session`, customer id | order ledger rows | 404 customer not found | read-only |
@@ -208,10 +209,32 @@ does not establish visual verification or human acceptance for a new candidate.
 
 ## Remaining exceptions
 
+### Shipment reopen Finance participant (partial extraction)
+
+`models/shipment_reopen_service.reopen_shipment` owns the full shipment-return
+operation and its outer route commits once. It locks and preflights every related
+invoice before calling `finance.invoices_service.void_invoices_for_shipment_reopen`
+with those same locked rows. Finance stages the existing `VOID` status and zero
+amount through `schemas/finance/invoice_reversal_persistence.py`, using the
+caller's Session. It does not acquire locks, flush, audit or commit. Payment,
+external-posting, status and shared-shipment refusals remain in the shipment
+coordinator; the current audit is still one Shipment `reopen_shipment` entry.
+
+This extracts only ownership of the Finance invoice field writes. Shipment,
+FinishedGoodsStock, Package, SalesOrder, scan and idempotency mutations in the
+same operation remain in the existing coordinator; the shipment-reopen operation
+is not thereby complete under the full schema-owned-write target. The Invoice
+mapping and DTO were already typed as `InvoiceStatus`; this participant adds no
+enum, DDL or API behavior.
+
 - The customer-payment parent lock is implemented: `record_customer_payment`
-  calls `lock_sales_order` before invoice lookup. Automatic invoice/advance
-  writers remain pending schema-owned extraction; candidate visual and human
-  gates remain open.
+  calls `lock_sales_order` before invoice lookup. Its automatic invoice,
+  invoice-payment and customer-advance writes use Finance schema persistence
+  operations. Other invoice writers remain separate work:
+  `workflow_service.ensure_invoice_for_delivered_shipment` constructs an
+  Invoice directly, and `shipment_review_service.invoice_for_frozen_delivery`
+  directly reconciles `Invoice.amount`. Candidate visual and human gates remain
+  open.
 - The branded-stock-value and waste-report envelopes stay in the router, because
   moving an envelope alone would add a pass-through layer instead of an
   extraction. Their values come from `finance_service`.

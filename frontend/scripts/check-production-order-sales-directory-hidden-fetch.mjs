@@ -47,6 +47,7 @@ function createHarness(authorized) {
   let stateCursor = 0;
   let dirty = false;
   let requests = [];
+  const revalidations = [];
   let optionPageCount = 1;
 
   function useState(initial) {
@@ -95,7 +96,7 @@ function createHarness(authorized) {
             : key === "/api/users"
               ? []
               : undefined;
-    return { data, error: undefined, isLoading: false, mutate() {} };
+    return { data, error: undefined, isLoading: false, mutate() { revalidations.push(key); } };
   }
 
   function useSWRInfinite(getKey) {
@@ -127,6 +128,7 @@ function createHarness(authorized) {
     "@/lib/api": { api: {}, fetcher() {} },
     "@/components/ModelAsyncSelect": { default: "model-select" },
     "@/components/ProductionOrderSizePlan": { default: "size-plan" },
+    "@/components/PlanningCuttingFactoryAction": { default: "cutting-factory-action" },
     "@/lib/batchSerial": { formatBatchLabel: () => "Batch" },
     "@/components/PageHeader": { default: "page-header" },
     "@/components/Modal": { default: "modal" },
@@ -159,7 +161,7 @@ function createHarness(authorized) {
     return { tree, requests: [...requests], dirty };
   }
 
-  return { render };
+  return { render, revalidations };
 }
 
 function visit(tree, callback) {
@@ -257,4 +259,14 @@ assert.equal(
   "unauthorized users must retain no summary edit action",
 );
 
-console.log("Production-order directories: sales, utilization, and users stay dormant until their actual editors open.");
+const orderActionPage = createHarness(true);
+const header = find(orderActionPage.render().tree, node => node.type === "page-header");
+const action = find(header.props.actions, node => node.type === "cutting-factory-action");
+assert.ok(action, "the order header must expose the cutting factory action");
+assert.deepEqual(action.props.order, { id: 12, production_no: "PO-12" });
+await action.props.onChanged();
+assert.deepEqual(orderActionPage.revalidations, [pageContextKey], "saving refreshes this order's work-order context");
+const deniedHeader = find(denied.tree, node => node.type === "page-header");
+assert.equal(deniedHeader.props.actions, undefined);
+
+console.log("Production-order directories stay dormant; authorized cutting factory action targets and refreshes the current order.");

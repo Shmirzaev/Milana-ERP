@@ -1,0 +1,589 @@
+{
+  "active_release": "20261031_092951",
+  "active_slot": "blue",
+  "active_runtime_commit": "337ff3c01bb4778232dad9973d7c996396717e14",
+  "active_source_manifest": "f270b044a9b67069e44e3954f671bd59f9456146afd13221584f12053c2a3a94",
+  "candidate_release": "20261031_092951",
+  "candidate_commit": "337ff3c01bb4778232dad9973d7c996396717e14",
+  "current_status": "DEPLOYED_WITH_OWNER_ACCEPTED_INVENTORY_STOCK_P95_EXCEPTION; human operator acceptance pending",
+  "ci": {
+    "run": 41188970667,
+    "commit": "337ff3c01bb4778232dad9973d7c996396717e14",
+    "conclusion": "success",
+    "url": "https://github.com/Shmirzaev/Milana-ERP/actions/runs/41188970667",
+    "images": {
+      "backend": "ghcr.io/shmirzaev/milana-erp-backend@sha256:2fbb47402f1efa1853b0cd315d174debe0ed28779d52f587a06ebdd6be80cc3c",
+      "frontend": "ghcr.io/shmirzaev/milana-erp-frontend@sha256:21ad5f760ba01a884c71526f58631bdb816fe259fbc2f1ba05a1bb429e4160e0"
+    },
+    "backend_test_summaries": [
+      "4874 passed, 544 skipped, 15 warnings in 1084.63s (0:18:04)",
+      "7 passed, 1 warning in 1.88s",
+      "165 passed, 5 warnings in 134.43s (0:02:14)",
+      "11 passed, 5 warnings in 12.15s",
+      "20 passed, 5 warnings in 16.04s",
+      "176 passed, 5 warnings in 108.82s (0:01:48)"
+    ]
+  },
+  "artifacts": {
+    "metadata": {
+      "archive_bytes": 4533010,
+      "archive_sha256": "9bd606092e015ad25a8eca76a9bc7ac2625883bd9aab082b3461cf0ed41801ff",
+      "git_commit": "337ff3c01bb4778232dad9973d7c996396717e14",
+      "release": "20261031_092951",
+      "source_files": 1824,
+      "source_manifest_sha256": "f270b044a9b67069e44e3954f671bd59f9456146afd13221584f12053c2a3a94"
+    },
+    "images": {
+      "backend": {
+        "image": "sha256:2fbb47402f1efa1853b0cd315d174debe0ed28779d52f587a06ebdd6be80cc3c",
+        "digests": [
+          "ghcr.io/shmirzaev/milana-erp-backend@sha256:2fbb47402f1efa1853b0cd315d174debe0ed28779d52f587a06ebdd6be80cc3c"
+        ],
+        "source": "337ff3c01bb4778232dad9973d7c996396717e14",
+        "reference": "ghcr.io/shmirzaev/milana-erp-backend@sha256:2fbb47402f1efa1853b0cd315d174debe0ed28779d52f587a06ebdd6be80cc3c"
+      },
+      "frontend": {
+        "image": "sha256:21ad5f760ba01a884c71526f58631bdb816fe259fbc2f1ba05a1bb429e4160e0",
+        "digests": [
+          "ghcr.io/shmirzaev/milana-erp-frontend@sha256:21ad5f760ba01a884c71526f58631bdb816fe259fbc2f1ba05a1bb429e4160e0"
+        ],
+        "source": "337ff3c01bb4778232dad9973d7c996396717e14",
+        "reference": "ghcr.io/shmirzaev/milana-erp-frontend@sha256:21ad5f760ba01a884c71526f58631bdb816fe259fbc2f1ba05a1bb429e4160e0"
+      }
+    },
+    "ci_run": 41188970667
+  },
+  "backup": {
+    "path": "/opt/milana-erp/shared/backups/milana_erp_pre_20261031_092951_20261031_102318.dump",
+    "restore_objects": 1246,
+    "restore_list_bytes": 89402,
+    "restore_list_sha256": "d26fc96aeb95314f7a734326dd57efa2dae274f39057de1bef8cc42ca6d5f5e4",
+    "bytes": 104256130,
+    "mode": "0o600",
+    "sha256": "abcaa1f3d5d62ac7af9f28186ea184baef4a5b66ae4aa2c014e9e09cac025e5e"
+  },
+  "database": {
+    "revision": "0149_besttex_cutting_access",
+    "connections": 39,
+    "maximum": 100,
+    "invalid_indexes": 0
+  },
+  "first_activation": {
+    "passed": true,
+    "time": "2026-10-31T10:08:43.362930+00:00",
+    "slot": "blue",
+    "rollback": "20261029_111113"
+  },
+  "immediate_postflight_passed": true,
+  "candidate_browser": {
+    "passed": true,
+    "order": "PO-0495",
+    "batch": "0535-01",
+    "rows": [
+      {
+        "quantity": 50,
+        "size": "46"
+      },
+      {
+        "quantity": 50,
+        "size": "48"
+      },
+      {
+        "quantity": 50,
+        "size": "50"
+      },
+      {
+        "quantity": 50,
+        "size": "52"
+      },
+      {
+        "quantity": 50,
+        "size": "54"
+      }
+    ],
+    "invalidTotal249Guard": true,
+    "restoredTotal250": true,
+    "issuedLabels": false,
+    "warningOrErrorCount": 0,
+    "readOnlyProxy": true,
+    "initialEvidenceAssertion": "Corrected an object-key-order comparison; page allocation was already correct.",
+    "reloadPassed": true
+  },
+  "public_browser_during_blue_attempt": {
+    "passed": true,
+    "order": "PO-0495",
+    "batch": "0535-01",
+    "rows": [
+      {
+        "quantity": 50,
+        "size": "46"
+      },
+      {
+        "quantity": 50,
+        "size": "48"
+      },
+      {
+        "quantity": 50,
+        "size": "50"
+      },
+      {
+        "quantity": 50,
+        "size": "52"
+      },
+      {
+        "quantity": 50,
+        "size": "54"
+      }
+    ],
+    "warningOrErrorCount": 0,
+    "noLabelsIssued": true,
+    "url": "https://erp.milanapremium.uz/process-qr"
+  },
+  "paired_performance": {
+    "passed": true,
+    "comparison": {
+      "failures": [],
+      "report": {
+        "global_search": {
+          "baseline_median_ms": 92.82,
+          "candidate_median_ms": 92.6,
+          "median_change_pct": -0.24,
+          "p95_change_pct": 1.95,
+          "payload_change_pct": 0.0
+        },
+        "inventory_batches": {
+          "baseline_median_ms": 34.46,
+          "candidate_median_ms": 34.25,
+          "median_change_pct": -0.61,
+          "p95_change_pct": -1.22,
+          "payload_change_pct": 0.0
+        },
+        "inventory_stock": {
+          "baseline_median_ms": 24.52,
+          "candidate_median_ms": 24.82,
+          "median_change_pct": 1.22,
+          "p95_change_pct": 1.57,
+          "payload_change_pct": 0.0
+        },
+        "model_groups": {
+          "baseline_median_ms": 119.12,
+          "candidate_median_ms": 115.06,
+          "median_change_pct": -3.41,
+          "p95_change_pct": 5.08,
+          "payload_change_pct": 0.0
+        },
+        "model_options": {
+          "baseline_median_ms": 48.92,
+          "candidate_median_ms": 48.83,
+          "median_change_pct": -0.18,
+          "p95_change_pct": -8.31,
+          "payload_change_pct": 0.0
+        },
+        "process_qr": {
+          "baseline_median_ms": 838.08,
+          "candidate_median_ms": 842.66,
+          "median_change_pct": 0.55,
+          "p95_change_pct": -48.9,
+          "payload_change_pct": 0.0
+        }
+      }
+    },
+    "samples_per_endpoint": 120,
+    "fixed_queries": true,
+    "client": "unchanged green backend container"
+  },
+  "public_closing_performance": {
+    "passed": false,
+    "comparison": {
+      "failures": [
+        "inventory_stock: p95 regressed 20.3%"
+      ],
+      "report": {
+        "global_search": {
+          "baseline_median_ms": 214.27,
+          "candidate_median_ms": 210.16,
+          "median_change_pct": -1.92,
+          "p95_change_pct": -7.16,
+          "payload_change_pct": 0.0
+        },
+        "inventory_batches": {
+          "baseline_median_ms": 153.36,
+          "candidate_median_ms": 151.56,
+          "median_change_pct": -1.17,
+          "p95_change_pct": -2.18,
+          "payload_change_pct": 0.0
+        },
+        "inventory_stock": {
+          "baseline_median_ms": 140.67,
+          "candidate_median_ms": 140.5,
+          "median_change_pct": -0.12,
+          "p95_change_pct": 20.33,
+          "payload_change_pct": 0.02
+        },
+        "model_groups": {
+          "baseline_median_ms": 237.76,
+          "candidate_median_ms": 231.17,
+          "median_change_pct": -2.77,
+          "p95_change_pct": -0.1,
+          "payload_change_pct": 0.0
+        },
+        "model_options": {
+          "baseline_median_ms": 165.25,
+          "candidate_median_ms": 164.76,
+          "median_change_pct": -0.3,
+          "p95_change_pct": -0.77,
+          "payload_change_pct": 0.0
+        },
+        "process_qr": {
+          "baseline_median_ms": 955.8,
+          "candidate_median_ms": 955.61,
+          "median_change_pct": -0.02,
+          "p95_change_pct": 1.38,
+          "payload_change_pct": 0.0
+        }
+      }
+    },
+    "samples_per_endpoint": 120,
+    "fixed_queries": true,
+    "client": "unchanged green backend container"
+  },
+  "rollback": {
+    "passed": true,
+    "time": "2026-10-31T10:14:35.562741+00:00",
+    "active": "20261029_111113",
+    "slot": "green",
+    "reason": "Closing public inventory_stock p95 +20.33% exceeded +15% budget; failed gate retained",
+    "roles": {
+      "backend": {
+        "passed": true,
+        "active": "20261029_111113",
+        "slot": "green"
+      },
+      "frontend": {
+        "passed": true,
+        "active": "20261029_111113",
+        "slot": "green"
+      }
+    },
+    "errors": {},
+    "four_health_checks": "200"
+  },
+  "business_before": {
+    "production_orders": {
+      "rows": 1,
+      "sha256": "7e8cbdedc9ad2979f90536535d5c4e98175466d5a968b471930499df7b4ee0e4"
+    },
+    "production_order_items": {
+      "rows": 5,
+      "sha256": "d576ed6c34f7bf35fe7feeada8f832c79ef048384cab5486f99e749fc2149e06"
+    },
+    "production_batches": {
+      "rows": 2,
+      "sha256": "1a516b8dac57a68836c8468dec283212342eba9064f1e0ca3e00906d1ed4ab0f"
+    },
+    "work_orders": {
+      "rows": 4,
+      "sha256": "734906e2e89505fea76302f727d7d7dad2dbd2c8003ea368f5cf8e10a23f4bae"
+    },
+    "cutting_records": {
+      "rows": 2,
+      "sha256": "5d0b5f641d7c4e7db602e79a1bc7ecf24884476f9e28c99e162de2f1c19e9d9a"
+    },
+    "sewing_records": {
+      "rows": 1,
+      "sha256": "0c209d1b257547f95e33e3e0e2e8492edd9c124db1a6b2ce93a1ab54159985ad"
+    },
+    "payroll_qr_labels": {
+      "rows": 0,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "bundles": {
+      "rows": 10,
+      "sha256": "a07306e4850b822ac6066c434b3efd93fc25d268eb9630fb486fc8e8b8777f78"
+    },
+    "packaging_records": {
+      "rows": 0,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "payroll_records": {
+      "rows": 0,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    }
+  },
+  "business_after": {
+    "production_orders": {
+      "rows": 1,
+      "sha256": "7e8cbdedc9ad2979f90536535d5c4e98175466d5a968b471930499df7b4ee0e4"
+    },
+    "production_order_items": {
+      "rows": 5,
+      "sha256": "d576ed6c34f7bf35fe7feeada8f832c79ef048384cab5486f99e749fc2149e06"
+    },
+    "production_batches": {
+      "rows": 2,
+      "sha256": "1a516b8dac57a68836c8468dec283212342eba9064f1e0ca3e00906d1ed4ab0f"
+    },
+    "work_orders": {
+      "rows": 4,
+      "sha256": "734906e2e89505fea76302f727d7d7dad2dbd2c8003ea368f5cf8e10a23f4bae"
+    },
+    "cutting_records": {
+      "rows": 2,
+      "sha256": "5d0b5f641d7c4e7db602e79a1bc7ecf24884476f9e28c99e162de2f1c19e9d9a"
+    },
+    "sewing_records": {
+      "rows": 1,
+      "sha256": "0c209d1b257547f95e33e3e0e2e8492edd9c124db1a6b2ce93a1ab54159985ad"
+    },
+    "payroll_qr_labels": {
+      "rows": 0,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "bundles": {
+      "rows": 10,
+      "sha256": "a07306e4850b822ac6066c434b3efd93fc25d268eb9630fb486fc8e8b8777f78"
+    },
+    "packaging_records": {
+      "rows": 0,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "payroll_records": {
+      "rows": 0,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    }
+  },
+  "controller_reconciliation": {
+    "reason": "Initial preparation halted at extra controller-equality guard; immutable source verification passed; active unchanged",
+    "installed_sha256": "d422ff74b96c92115c3c657a02a1732925df5a3565f81b3f3a00bf0e9a5394a1",
+    "source_controller_sha256": "13a9e19d5b266c87d138cb2866a185fedf45a089b85534d26fb28667eb95c3f3",
+    "decision": "Preserve reviewed installed controller; supplement candidate readiness and48/100 connection-budget checks; reuse only fully reverified immutable candidate source; no overwrite"
+  },
+  "initial_postflight_probe_failure": {
+    "reason": "Docker top requires a PID column; args-only worker inspection was rejected by daemon",
+    "action": "Use pid,args; retain initial failure, rerun complete postflight; no application failure observed"
+  },
+  "legacy_archives": [
+    {
+      "source": "/opt/milana-erp/releases/20260812_115541",
+      "source_allocated_bytes": 3120693248,
+      "archive": "/opt/milana-erp/shared/release-archives/legacy-full-20260812_115541-approved-20261031_092951.tar.gz",
+      "archive_bytes": 3056345579,
+      "sha256": "feef3134a81f69e948cbc58a7539cdfe330816c2934a010370e487b19ff0f68b",
+      "comparison": "full GNU tar content/metadata comparison passed",
+      "original_removed": true,
+      "local_archive": "C:\\ERP\\.codex-work\\release-archives\\legacy-approved-20261031_092951\\legacy-full-20260812_115541-approved-20261031_092951.tar.gz",
+      "local_sha256_verified": true,
+      "backend_archive_relocated": true
+    },
+    {
+      "source": "/opt/milana-erp/releases/20260812_121048",
+      "source_allocated_bytes": 3120693248,
+      "archive": "/opt/milana-erp/shared/release-archives/legacy-full-20260812_121048-approved-20261031_092951.tar.gz",
+      "archive_bytes": 3056355941,
+      "sha256": "759bf46a9a1fa9653c25c51ce236cef855ffe4eb3171d9cac6b14192352127b4",
+      "comparison": "full GNU tar content/metadata comparison passed",
+      "original_removed": true,
+      "local_archive": "C:\\ERP\\.codex-work\\release-archives\\legacy-approved-20261031_092951\\legacy-full-20260812_121048-approved-20261031_092951.tar.gz",
+      "local_sha256_verified": true,
+      "backend_archive_relocated": true
+    },
+    {
+      "source": "/opt/milana-erp/releases/20260812_125958",
+      "source_allocated_bytes": 3120701440,
+      "archive": "/opt/milana-erp/shared/release-archives/legacy-full-20260812_125958-approved-20261031_092951.tar.gz",
+      "archive_bytes": 3056346568,
+      "sha256": "3e9e2151c48b30ea41a7eeb73034532d2d41e8bdb7ce7c8bbc66700c610a3f10",
+      "comparison": "full GNU tar content/metadata comparison passed",
+      "original_removed": true,
+      "local_archive": "C:\\ERP\\.codex-work\\release-archives\\legacy-approved-20261031_092951\\legacy-full-20260812_125958-approved-20261031_092951.tar.gz",
+      "local_sha256_verified": true,
+      "backend_archive_relocated": true
+    }
+  ],
+  "archive_cleanup": {
+    "archives": 3,
+    "disk_fraction": 0.7811384023039313,
+    "recovery_receipt": "/opt/milana-erp/shared/release-archives/legacy-relocated-20261031_092951.json"
+  },
+  "observation": {
+    "minutes": 0,
+    "owner_waiver": "deploy without 30 minute monitoring",
+    "performed": false
+  },
+  "independent_review": "Initial rollback review confirmed valid p95 calculation/method; no justified correction or proven cause; no resampling or waiver at that time. Subsequent explicit owner acceptance is recorded in performance_exception.",
+  "limitations": [
+    "Original measured public inventory_stock p95 +20.33% remains FAIL with explicit owner acceptance; cause unproven",
+    "Latency raw samples were not persisted, only summaries",
+    "Human operator acceptance pending",
+    "Timed monitoring explicitly waived and not performed"
+  ],
+  "retained_rollback_release": "20261029_111113",
+  "performance_exception": {
+    "owner_approved": true,
+    "verbatim": "Re-deploy with this latency exception",
+    "time": "2026-10-31T10:23:09.913296+00:00",
+    "scope": "Only the already measured public inventory_stock p95 178.73ms versus148.53ms (+20.33%); other gates remain required; failed measurement retained",
+    "metric": "p95",
+    "endpoint": "inventory_stock",
+    "baseline_ms": 148.53,
+    "measured_ms": 178.73,
+    "change_pct": 20.33
+  },
+  "redeployment": {
+    "passed": true,
+    "time": "2026-10-31T10:24:06.189270+00:00",
+    "release": "20261031_092951",
+    "commit": "337ff3c01bb4778232dad9973d7c996396717e14",
+    "explicit_exception": {
+      "owner_approved": true,
+      "verbatim": "Re-deploy with this latency exception",
+      "time": "2026-10-31T10:23:09.913296+00:00",
+      "scope": "Only the already measured public inventory_stock p95 178.73ms versus148.53ms (+20.33%); other gates remain required; failed measurement retained",
+      "metric": "p95",
+      "endpoint": "inventory_stock",
+      "baseline_ms": 148.53,
+      "measured_ms": 178.73,
+      "change_pct": 20.33
+    },
+    "preserved_failed_public_gate": true,
+    "observation": "waived by owner; not performed"
+  },
+  "redeployment_activation": {
+    "passed": true,
+    "time": "2026-10-31T10:24:00.737202+00:00",
+    "slot": "blue",
+    "rollback": "20261029_111113"
+  },
+  "initial_backup": {
+    "path": "/opt/milana-erp/shared/backups/milana_erp_pre_20261031_092951_20261031_100144.dump",
+    "restore_objects": 1246,
+    "restore_list_bytes": 89402,
+    "restore_list_sha256": "022410decbeda95efda4d92537f243d79a933f03cc0c439a215983504374d58f",
+    "bytes": 104041731,
+    "mode": "0o600",
+    "sha256": "d6efd68fb6a9dcb4a6c969caa7030262ea9f1f032c3c486c2f9db5203ee1070a"
+  },
+  "redeployed_public_browser": {
+    "passed": true,
+    "order": "PO-0495",
+    "batch": "0535-01",
+    "rows": [
+      {
+        "quantity": 50,
+        "size": "46"
+      },
+      {
+        "quantity": 50,
+        "size": "48"
+      },
+      {
+        "quantity": 50,
+        "size": "50"
+      },
+      {
+        "quantity": 50,
+        "size": "52"
+      },
+      {
+        "quantity": 50,
+        "size": "54"
+      }
+    ],
+    "warningOrErrorCount": 0,
+    "noLabelsIssued": true,
+    "url": "https://erp.milanapremium.uz/process-qr"
+  },
+  "business_after_redeployment": {
+    "production_orders": {
+      "rows": 1,
+      "sha256": "7e8cbdedc9ad2979f90536535d5c4e98175466d5a968b471930499df7b4ee0e4"
+    },
+    "production_order_items": {
+      "rows": 5,
+      "sha256": "d576ed6c34f7bf35fe7feeada8f832c79ef048384cab5486f99e749fc2149e06"
+    },
+    "production_batches": {
+      "rows": 2,
+      "sha256": "1a516b8dac57a68836c8468dec283212342eba9064f1e0ca3e00906d1ed4ab0f"
+    },
+    "work_orders": {
+      "rows": 4,
+      "sha256": "734906e2e89505fea76302f727d7d7dad2dbd2c8003ea368f5cf8e10a23f4bae"
+    },
+    "cutting_records": {
+      "rows": 2,
+      "sha256": "5d0b5f641d7c4e7db602e79a1bc7ecf24884476f9e28c99e162de2f1c19e9d9a"
+    },
+    "sewing_records": {
+      "rows": 1,
+      "sha256": "0c209d1b257547f95e33e3e0e2e8492edd9c124db1a6b2ce93a1ab54159985ad"
+    },
+    "payroll_qr_labels": {
+      "rows": 0,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "bundles": {
+      "rows": 10,
+      "sha256": "a07306e4850b822ac6066c434b3efd93fc25d268eb9630fb486fc8e8b8777f78"
+    },
+    "packaging_records": {
+      "rows": 0,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "payroll_records": {
+      "rows": 0,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    }
+  },
+  "redeployment_postflight": {
+    "passed": true,
+    "four_health_checks": "200",
+    "observation": "waived by owner; not run",
+    "roles": {
+      "backend": {
+        "state": {
+          "active_release": "20261031_092951",
+          "active_slot": "blue",
+          "role": "backend",
+          "rollback_release": "20261029_111113",
+          "rollback_slot": "green",
+          "updated_at": "2026-10-31T10:23:58.458148+00:00"
+        },
+        "active_id": "d8bee831dfe66451c7f1b193748c1c07fb9d79d61df4985f00557340c9a75b77",
+        "active_image": "sha256:2fbb47402f1efa1853b0cd315d174debe0ed28779d52f587a06ebdd6be80cc3c",
+        "active_commit": "337ff3c01bb4778232dad9973d7c996396717e14",
+        "rollback_id": "cfbdd0f0288e2ea088b59b2744ec7aed85142027e75553fb74402305eb48e2c3",
+        "rollback_image": "sha256:8e34ba5727ac67e3730192b358f97615f52a175fb27c4679e1720df6f65e5566",
+        "running": true,
+        "restarts": 0,
+        "oom": false,
+        "logs": {
+          "error_markers": 0,
+          "workers": 2
+        }
+      },
+      "frontend": {
+        "state": {
+          "active_release": "20261031_092951",
+          "active_slot": "blue",
+          "role": "frontend",
+          "rollback_release": "20261029_111113",
+          "rollback_slot": "green",
+          "updated_at": "2026-10-31T10:24:00.122815+00:00"
+        },
+        "active_id": "c612d1bb9f7e3d55716100112296a1be2eb67f2dbbb06c4025adfbcb2c50a6a9",
+        "active_image": "sha256:21ad5f760ba01a884c71526f58631bdb816fe259fbc2f1ba05a1bb429e4160e0",
+        "active_commit": "337ff3c01bb4778232dad9973d7c996396717e14",
+        "rollback_id": "f17e66c42b0a22ce474469a2942e0f455a45ff34a7c89c6f165399a387824c27",
+        "rollback_image": "sha256:77c1d42f7fcfac22103c0bba36547914d10519fcd80a60e88fea6a23aee6a9c4",
+        "running": true,
+        "restarts": 0,
+        "oom": false,
+        "logs": {
+          "error_markers": 0,
+          "workers": 0
+        }
+      }
+    }
+  }
+}

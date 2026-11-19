@@ -2,6 +2,20 @@
 
 This is the only supported production deployment process. Production changes are promoted from a clean Git commit as immutable source plus backend/frontend images. Production VMs do not install dependencies or build the application.
 
+## Automated preparation and merge promotion (17 November 2026)
+
+The owner authorized a fixed lightweight deployment worker on the backend VM.
+[Automatic deployment](docs/AUTO_DEPLOYMENT.md) documents the daily flow, exact-source
+trust checks, installation, QA adapter and recovery. This tooling is not installed
+or enabled by its source merge. After administrator setup and rehearsal, eligible
+worktree pushes can build and prepare immutable candidates in the background;
+merging the identical complete tree into `clone_main` promotes the prepared images.
+All existing validation, backup, site QA/performance and closing gates remain.
+Schema-changing releases continue through the reviewed procedure below. This
+separates preparation time from the short traffic switch; it does not guarantee
+seconds from a fresh push. Never overlap manual deployment with the automatic
+worker's reservation or observation.
+
 ## Production topology
 
 - Public domain: `https://erp.milanapremium.uz`
@@ -83,11 +97,64 @@ Both VMs must name the same release and manifest. If either differs from `deploy
 6. Review and test the exact change, then land into `clone_main` through the single
    integration queue when authorized. Re-fetch and rerun affected checks if another
    change landed first. Require passing CI for the exact release candidate before
-   promotion; never copy uncommitted files directly to production. At inspected
-   source `5c45531d`, direct `clone_main` pushes are not included in the CI push
-   trigger, so do not infer a pass from a push. RF-004 in `docs/REFACTOR_PLAN.md`
-   tracks that separately approved tooling correction; until then use the existing
-   explicit candidate validation/artifact workflow and verify its source SHA.
+   promotion; never copy uncommitted files directly to production. Both `main`
+   and `clone_main` pushes now trigger validation. Verify the actual run's source
+   SHA and result; a successful push is not a successful validation or deployment.
+
+## Reduce elapsed time without removing gates
+
+Use this order for every release:
+
+1. **Preflight early.** Reconcile both live releases/manifests with the recorded
+   production baseline before coding or building. Check disk space, registry
+   access and rollback compatibility immediately. Resolve the 70% disk alert
+   through the protected retention procedure before staging reaches its 80% stop.
+   Keep routine retention outside the release's critical path. Never blanket-prune
+   Docker on these shared hosts or remove active/rollback images and backups.
+2. **Find affected failures first.** Run changed-workflow, authorization and real
+   PostgreSQL migration/concurrency/query-budget checks before the long full
+   regression suite. Keep every required suite; an early pass does not replace it.
+   Preserve failure evidence and fix the cause before starting another full run.
+   Validate the real read-only QA selections against the actual mapped schema and
+   both API contracts early. A Python property such as ProductionOrder.order_no
+   is not automatically a SQL column. Use owned fixtures and bounded read-only
+   query/response checks; do not seed production data to make a selection pass.
+   Freeze complete ordered business projections and per-path hashes before timing,
+   rather than accepting equal row counts/bytes as proof of equal facts. If live
+   business activity invalidates a mutable benchmark epoch, preserve the failed
+   reports and protected functional baseline; review a fresh paired epoch explicitly.
+3. **Overlap independent checks.** Backend and frontend validation may run at the
+   same time on isolated runners. PostgreSQL jobs need their own databases and
+   fixture state. Do not run concurrent writers against a shared test database.
+4. **Freeze one candidate.** Record the exact source SHA, build configuration,
+   base release/manifest and all gate results. Reuse valid evidence for that same
+   candidate; rerun checks invalidated by source, configuration, baseline or
+   environment changes. Never substitute a parent commit's green run. The manual
+   artifact workflow still runs every gate encoded in its job dependencies.
+5. **Build once, promote the scanned images.** Use the exact cached immutable
+   images from the required security scan. The release job verifies their source
+   SHA and image IDs, then publishes those same images. Do not rebuild between
+   scanning and publication or on a serving VM.
+6. **Prepare both hosts concurrently.** After artifact verification and exclusive
+   deployment ownership, source transfer/verification and image pulls on separate
+   hosts may overlap. Keep backup completion before migration, successful migration
+   before candidate startup/QA, and every candidate gate before activation.
+   Activate backend first, verify it, then activate frontend.
+7. **Report each milestone promptly.** Record timestamps for preflight, validation,
+   artifacts ready, staging, QA, activation and observation completion. Report
+   Live after immediate postflight passes while continuing the required observer.
+   Observation is a separate phase, not additional application downtime. A waiver
+   applies only when the user explicitly grants it for that deployment.
+
+The 6 November release took 33m17s to artifacts ready: its backend job took
+26m53s, and image publication followed for 6m16s. Frontend validation ran alongside
+backend and finished in 4m34s. Failed earlier candidates and runtime/recovery/disk
+preparation added elapsed time; use these measurements to prioritize improvements,
+not as a guaranteed deployment duration.
+
+Collect slow-test timings with `pytest --durations=25` and retain the report.
+Splitting the backend suite into balanced jobs is a separately tested CI tooling
+follow-up: this document does not install sharding or authorize skipping tests.
 
 ## Build immutable artifacts
 
@@ -99,11 +166,13 @@ Run `.github/workflows/ci.yml` with **Run workflow** and provide:
 
 The workflow validates backend/frontend, verifies the production base, packages deterministic source, builds both images once outside production, pushes release-tagged images to GHCR, and retains the source/evidence artifact.
 
+The security workflow builds and scans both images, including the dependency
+lockfiles, before handing exact image identities to the manual release job.
 Docker Buildx imports and exports separate backend/frontend layer caches. A cache
 miss uses a normal build. Dependency-file changes invalidate their install layers;
-source changes invalidate dependent layers. The frontend `builder` stage explicitly
-disables cache reuse, so every release compiles the checked-out application even
-when its dependency layer is reused. Both builds still pull base images, and all
+source changes invalidate dependent layers. Verify the scanned image's source
+revision and effective build arguments; cache reuse must not substitute another
+candidate's frontend/API configuration. Both builds still pull base images, and all
 local/CI validation and production gates remain required. The first cache export
 may add time; later releases can reuse those layers.
 
@@ -145,6 +214,59 @@ Create a unique PostgreSQL custom-format backup without printing `DATABASE_URL`.
 - more than 100 restore objects;
 - recorded dump/restore-list sizes and SHA-256 values.
 
+Uploaded files are on the backend host's `/app/storage` bind mount, outside the
+database dump. For an approved coordinated recovery point, quiesce database and
+upload writes, take the dump and a snapshot/copy of the entire mount, then run
+this on an isolated host with `pg_restore` and both copied artifacts. Create a
+pairing manifest **outside** both artifacts:
+
+```sh
+python scripts/storage_recovery_manifest.py create \
+  --database-dump <path-to-custom-format.dump> \
+  --storage-root <path-to-storage-snapshot> \
+  --output <path-to-pairing-manifest.json>
+python scripts/storage_recovery_manifest.py verify \
+  --manifest <path-to-pairing-manifest.json> \
+  --database-dump <path-to-custom-format.dump> \
+  --storage-root <path-to-storage-snapshot>
+```
+
+The verifier reads the supplied artifacts only. It checks the dump hash,
+every storage file hash, missing/extra files, and known database upload URLs
+and stored filenames using local `pg_restore`; it does not connect to a
+database. A nonzero result blocks use of the pair (1 is a mismatch; 2 is
+invalid input or an unreadable artifact). Keep the mode-`0600` manifest
+with the artifacts. A manifest cannot prove the dump and file snapshot were
+captured at the same instant; record the quiesce interval and backup identities.
+It does not replace an isolated restore drill or establish the zero-RPO target.
+
+Before applying a new revision, prove the retained rollback backend can start
+on the target schema with its actual image command and strict production settings.
+Inspect the effective environment of every candidate and rollback backend: startup
+seeding and schema bootstrap must be disabled. Updating the shared environment file
+does not change an existing container's environment; recreate only the inactive slot.
+Startup seeding can reset configured credentials or permissions even when no business
+form is submitted. An omitted Docker image entrypoint is equivalent to a null default;
+still verify the actual command and refuse overrides.
+An additive table alone does not establish compatibility: the exact-head startup
+verifier also runs on worker replacement. In isolated owned infrastructure, verify
+two fresh workers, child replacement, full container restart, health and readiness.
+If the old image rejects the new head, first build and test an immutable compatibility
+image containing the exact old application plus the reviewed migration metadata.
+Do not downgrade/stamp production or bypass startup/security checks to make it boot.
+
+After the feature cutover and closing gates, a compatible previous application may
+replace the inactive rollback slot. Hold owned deployment locks on both hosts,
+retain the original state/resource evidence, and verify source manifests, exact
+image digests/revisions, real default command, strict schema head, workers, zero
+OOM/restarts and unchanged business ledger. Confirm actual proxy routing agrees
+with active state before replacing any inactive container. Register the compatible
+release through an atomic compare-and-set of only rollback fields using the
+installed controller; leave active routing, source and container IDs unchanged.
+Record each host's phase because cross-host writes are not globally atomic. Recovery
+attempts each host independently, preserves all data and uses its inactive color;
+never replace an active slot or relabel an old image as a different source commit.
+
 Run candidate migrations before traffic switch:
 
 ```sh
@@ -163,7 +285,68 @@ docker run --rm \
 
 Prefer forward-compatible migrations. Application rollback does not downgrade the database.
 
+### Schema-compatible recovery before a combined release
+
+If the new migration head prevents the current application image from restarting,
+prepare and independently verify a compatibility release before upgrading. Preserve
+the current application's business-code bytes; add the exact reviewed migration
+history and narrowly tested compatibility metadata. Scan the recovery images too:
+any necessary dependency or base-image security updates need their own narrow diff,
+compatibility tests and exact-image scan before promotion. Prove strict default-command
+cold start, two workers, worker replacement and restart at the target head with
+startup seeding disabled. Existing business facts must remain readable and valid;
+keep hardware/provisioning features disabled when their facts are unsupported.
+
+Include the compatibility commit in the final candidate's reviewed ancestry.
+Before activation, freeze a two-phase release plan containing the initial production
+release/manifest, both exact source commits, source manifests, image digests, slots
+and ordered gates. Build and validate both candidates outside production. Missing
+artifacts or an unexpected source/schema/slot identity stops the operation.
+
+After a fresh verified backup and explicit candidate migration, stage, warm, test
+and activate the compatibility release on the inactive slot, backend first then
+frontend, and update both source symlinks. It now provides a running recovery slot
+at the new head. Stage the complete combined release on the newly inactive slot,
+repeat its required QA/performance/health gates, then activate it in the same order.
+Never replace an active container in place or depend on the old strict-head image
+restarting successfully after migration.
+
+Treat these as two explicitly reviewed phases of one deployment. The immutable
+artifact's production-base metadata records the verified **initial** baseline;
+the phase journal separately pins the expected compatibility release and must
+compare it with both live hosts before the final activation. This named intermediate
+transition is not an exception for unexplained drift. Record its actual manifest,
+image and slot readbacks; do not silently substitute another base or rebuild an
+already-scanned image. After final postflight and observation, update the Git
+production baseline to the final active release and retain the compatibility slot.
+
 ## Stage inactive slots
+
+On the backend VM, install the reviewed slot manager from the extracted release
+before staging. The shared copy is not updated by extracting source:
+
+```sh
+sudo install -m 0644 /opt/milana-erp/releases/<release_id>/deploy/slotctl.py /opt/milana-erp/shared/deploy/slotctl.py
+cmp /opt/milana-erp/releases/<release_id>/deploy/slotctl.py /opt/milana-erp/shared/deploy/slotctl.py
+```
+
+If that manager upgrade also changes routing outside the reviewed release scope,
+keep the installed manager and use a separately reviewed backend staging adapter.
+Pin its exact controller/helper hashes and the entire expected `docker run` argument
+list. Invoke the installed manager's real `stage()` operation and add only
+`-e RELEASE_ID=<reviewed-release>` immediately before the exact immutable image.
+Refuse preexisting release overrides or any unexpected argument; preserve default
+CMD, ports, mounts, labels, resource limits and every other environment argument.
+Do not edit the installed manager, shared environment or active proxy. Frontend
+staging uses the original manager. Record this named adapter in the phase journal
+and independently test the actual installed-version command before use.
+
+Check the created container's release environment as well as image/source identity.
+The final application must report that exact release from both health endpoints.
+A named current-live compatibility image that predates those response fields needs
+an explicit legacy check bound to its immutable digest, OCI revision, container,
+slot, release environment, unchanged default CMD and two strict-schema workers;
+do not turn this into a general missing-release allowance.
 
 Read slot state:
 
@@ -188,6 +371,7 @@ sudo python /opt/milana-erp/shared/deploy/slotctl.py stage \
 ```
 
 The manager binds loopback-only candidates, refuses to replace the active slot, waits for health, and warms routes. Backend slots use two workers and an 8+4 pool per worker, keeping overlap below the 100-connection PostgreSQL ceiling.
+For the backend, `slotctl.py` also passes the staged release ID to the container as `RELEASE_ID`; `/health` and `/ready` report it as `release`. Use the ID from the reviewed release manifest when staging, and compare the stable endpoint's reported value after switching traffic. A backend started without this variable reports `unknown`.
 
 ## Performance and functional gate
 
@@ -238,6 +422,11 @@ ln -sfn /opt/milana-erp/releases/<release_id> /opt/milana-erp/current
 
 ## Required postflight
 
+Check `/ready` on the backend slots and stable backend port. The public frontend
+forwards `/health`; use the four supported public/internal endpoints below in the
+final checker. Validate these routing/response contracts during staging so an
+observer assumption does not delay closing after activation.
+
 ```sh
 curl --fail http://172.16.10.4:8000/health
 curl --fail --head http://172.16.10.5:3000/login
@@ -283,8 +472,15 @@ python scripts/observe_release.py \
 For high or uncertain risk, use `--risk high` (the default); record the affected
 area in `--reason`. There is no arbitrary duration override. Before starting,
 verify that the supplied identity matches both active slot states and the reviewed
-artifact. The observer records this identity; HTTP health checks alone do not
-independently prove which release is serving traffic.
+artifact. Compare the `release` field from internal and public `/health` with that
+identity: the observer records the supplied ID but checks HTTP status only.
+
+Bind any timed observation to a fresh actual post-cutover runtime/UTC anchor,
+including both hosts' activation timestamps, current journal/CAS and served release.
+The supplied CLI identity and HTTP200 alone cannot prove which release was observed.
+When the owner explicitly waives only timed observation, record the exact current
+waiver and do not start an observer or substitute monitor; all final public QA,
+performance and fresh closing checks still apply.
 
 The observer automatically checks all four required endpoints every 30 seconds
 using GET/HEAD only, records evidence, and reports start, failures and finish.

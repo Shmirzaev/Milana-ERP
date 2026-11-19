@@ -107,7 +107,10 @@ def test_passport_list_models_and_sales_references_are_chunk_bounded_without_blo
             ))
 
     (one, one_sql), (fifty, fifty_sql), (chunked, chunked_sql) = results
-    assert (len(one_sql), len(fifty_sql), len(chunked_sql)) == (7, 7, 12)  # One extra batched scalar read for exact order sizes; never one query per passport.
+    # Exact sizes and authorized Cutting links each add one batched scalar read.
+    # Navigation's extra query is fixed across the entire list, including401
+    # distinct orders; model hydration retains its existing400-row chunks.
+    assert (len(one_sql), len(fifty_sql), len(chunked_sql)) == (8, 8, 13)
     for payload, passport_ids, statements in (
         (one, one_ids, one_sql), (fifty, fifty_ids, fifty_sql), (chunked, chunked_ids, chunked_sql),
     ):
@@ -116,6 +119,9 @@ def test_passport_list_models_and_sales_references_are_chunk_bounded_without_blo
         assert all(row["model_image_url"].endswith(".webp") for row in payload)
         assert all(row["order_no"].startswith("SO-PERF14-L-") for row in payload)
         assert all(row["size_count"] == 2 for row in payload)
+        assert all(row["cutting_work_order_id"] is None for row in payload)
+        assert sum(statement.lstrip().startswith("SELECT work_orders.id") and
+                   "FROM work_orders JOIN departments" in statement for statement in statements) == 1
         assert sum("FROM production_order_items" in statement for statement in statements) == 1
         assert "file_data" not in "\n".join(statements).lower()
 

@@ -1203,7 +1203,7 @@ def test_usluga_cutting_records_kilograms_without_consuming_inventory_and_forces
     limited_password = "UslugaCuttingOnly!2026"
     with TestSessionLocal() as db:
         ect = db.query(Department).filter(Department.code == "ECT").one()
-        role = Role(name=f"Usluga cutting test {uuid4().hex[:8]}", permissions=["cutting.records", "production.view"])
+        role = Role(name=f"Usluga cutting test {uuid4().hex[:8]}", permissions=["cutting.records"])
         db.add(role)
         db.flush()
         db.add(User(

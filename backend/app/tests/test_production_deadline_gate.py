@@ -9,6 +9,7 @@ from app.api.routes.production import _gate_record_submission
 
 def test_record_submission_is_allowed_after_deadline() -> None:
     work_order = SimpleNamespace(
+        operation="cutting",
         is_blocked=False,
         block_reason=None,
         deadline=datetime.now(timezone.utc) - timedelta(days=1),
@@ -20,6 +21,7 @@ def test_record_submission_is_allowed_after_deadline() -> None:
 
 def test_explicitly_blocked_work_order_still_rejects_submission() -> None:
     work_order = SimpleNamespace(
+        operation="cutting",
         is_blocked=True,
         block_reason="Quality hold",
         deadline=datetime.now(timezone.utc) - timedelta(days=1),

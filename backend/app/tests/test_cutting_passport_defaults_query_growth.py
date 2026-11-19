@@ -123,7 +123,8 @@ def test_multi_material_defaults_queries_are_chunk_bounded_and_payload_is_stable
             ))
 
     (one, one_count), (fifty, fifty_count), (chunked, chunked_count) = results
-    assert (one_count, fifty_count, chunked_count) == (10, 10, 11)
+    # One aggregate projection now includes order-aware available stock and warehouse.
+    assert (one_count, fifty_count, chunked_count) == (11, 11, 12)
     for payload, batch_ids in ((one, one_batches), (fifty, fifty_batches), (chunked, chunked_batches)):
         assert [row["stock_batch_id"] for row in payload["materials"]] == batch_ids
         assert [row["planned_kg"] for row in payload["materials"][:2]] == (
@@ -185,7 +186,7 @@ def test_multi_material_defaults_preserve_distinct_items_and_false_empty_context
             lambda: cutting_passports.material_defaults(order_id, db, _factory_user()),
         )
 
-    assert count == 10  # Printing and Sewing flags share one read; model sizes share the model lookup.
+    assert count == 11  # Includes one bounded batch availability/warehouse projection.
     assert [row["material_item_name"] for row in payload["materials"]] == [
         "Performance fabric", "Distinct secondary fabric",
     ]
@@ -217,7 +218,7 @@ def test_defaults_combined_flags_freeze_after_output_on_completed_cutting(has_pr
         sewing_id = sewing.id
     with SessionLocal() as db:
         before, count = _select_count(db, lambda: cutting_passports.material_defaults(order_id, db, _factory_user()))
-        assert count == 10
+        assert count == 11
         assert before["has_print"] is has_print
         assert before["can_add_material"] is True
         db.add(SewingRecord(
@@ -227,6 +228,6 @@ def test_defaults_combined_flags_freeze_after_output_on_completed_cutting(has_pr
         db.commit()
     with SessionLocal() as db:
         after, count = _select_count(db, lambda: cutting_passports.material_defaults(order_id, db, _factory_user()))
-        assert count == 10
+        assert count == 11
         assert after["has_print"] is has_print
         assert after["can_add_material"] is False

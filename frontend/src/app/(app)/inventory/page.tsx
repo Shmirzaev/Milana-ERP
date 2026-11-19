@@ -113,6 +113,7 @@ type Item = {
 };
 
 type StockBatch = {
+  received_quantity?: number | null;
   id: number;
   item_id: number;
   item_sku?: string | null;
@@ -1231,7 +1232,7 @@ export default function InventoryPage() {
         <div className="flex h-10 min-w-0 flex-1 items-center gap-2 rounded-md border border-[#ded9ca] bg-[#fdfcf8] px-3">
           <Search className="h-4 w-4 shrink-0 text-[#8a8472]" />
           <input
-            className="w-full min-w-0 bg-transparent text-sm text-[#14110b] placeholder:text-[#8a8472] focus:outline-none"
+            className="w-full min-w-0 bg-transparent text-sm text-[#14110b] placeholder:text-[#8a8472] focus:outline-hidden"
             placeholder={t("page.inventory.searchPlaceholder")}
             value={searchDraft}
             onChange={(e) => setSearchDraft(e.target.value)}
@@ -1350,6 +1351,10 @@ export default function InventoryPage() {
                     </div>
                   )}
                   <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+                    {group === "materials" && batch && <div>
+                      <div className="label mb-0">{t("page.inventory.receivedQuantity")}</div>
+                      <div className="mono">{batch.received_quantity == null ? "-" : `${fmtQty(batch.received_quantity)} ${unit}`}</div>
+                    </div>}
                     <div>
                       <div className="label mb-0">{t("field.quantity")}</div>
                       <div className="mono font-semibold">{fmtQty(rowQuantity(s, batch))} {unit}</div>
@@ -1381,6 +1386,7 @@ export default function InventoryPage() {
                 <th>{t("field.batch")} / {t("field.internalBatchNo")}</th>
                 <th>{t("common.name")} / {t("field.materialColor")}</th>
                 <th>{t("field.quantity")}</th>
+                {group === "materials" && <th>{t("page.inventory.receivedQuantity")}</th>}
                 <th>{t("field.reserved")}</th>
                 <th>{t("field.available")}</th>
                 <th>{t("field.unit")}</th>
@@ -1423,6 +1429,7 @@ export default function InventoryPage() {
                       )}
                     </td>
                     <td className="mono">{fmtQty(rowQuantity(s, batch))}</td>
+                    {group === "materials" && <td className="mono">{batch?.received_quantity == null ? "-" : fmtQty(batch.received_quantity)}</td>}
                     <td className="mono">{fmtQty(rowReserved(s, batch))}</td>
                     <td className="mono">{fmtQty(rowAvailable(s, batch))}</td>
                     <td>{unit}</td>

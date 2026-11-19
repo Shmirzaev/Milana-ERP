@@ -1,6 +1,6 @@
 import os
 import logging
-from threading import Event, Lock, Thread
+from typing import Annotated
 from time import perf_counter
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -9,22 +9,24 @@ from urllib.parse import urlsplit
 from alembic.config import Config as AlembicConfig
 from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security.utils import get_authorization_scheme_param
 from starlette.middleware.gzip import GZipMiddleware
 from starlette.concurrency import run_in_threadpool
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse, Response
-from sqlalchemy import text
 
 from app.core.config import settings
+from app.core.ceo_access import CEO_DASHBOARD_ONLY_DETAIL, is_ceo
+from app.core import readiness as readiness_checks
 from app.core.proxy_trust import client_ip, effective_request_scheme, validate_proxy_runtime_configuration
-from app.core.deps import DbSession
+from app.core.deps import DbSession, get_current_user, oauth2_scheme, resolve_session_user
 from app.core.security import decode_token
 from app.core.shared_store import get_shared_counter_store
 from app.api.router import api_router
 from app.db.session import SessionLocal, engine
+from app.db import session as db_session
 import app.schemas  # noqa: F401 — register models with metadata
 
 logging.basicConfig(level=logging.INFO)
@@ -130,42 +132,6 @@ _RATE_LIMIT_IP_ONLY_PATHS = {
     "/api/session/reset-password",
 }
 _READINESS_TIMEOUT_SECONDS = 2.0
-_READINESS_CHECK_SLOT = Lock()
-
-
-def _probe_postgresql() -> None:
-    with engine.connect() as connection:
-        connection.execute(text("SELECT 1")).scalar_one()
-
-
-def _postgresql_ready_within(timeout_seconds: float) -> bool:
-    """Bound readiness latency and allow at most one stuck database probe."""
-    slot = _READINESS_CHECK_SLOT
-    if not slot.acquire(blocking=False):
-        return False
-
-    completed = Event()
-    ready = False
-
-    def run_probe() -> None:
-        nonlocal ready
-        try:
-            _probe_postgresql()
-        except Exception:
-            pass
-        else:
-            ready = True
-        finally:
-            slot.release()
-            completed.set()
-
-    try:
-        Thread(target=run_probe, name="postgres-readiness", daemon=True).start()
-    except Exception:
-        slot.release()
-        return False
-
-    return completed.wait(timeout=max(timeout_seconds, 0.001)) and ready
 
 
 def _rate_limit_client_key(request: Request) -> str:
@@ -179,11 +145,15 @@ def _rate_limit_allowed(key: str) -> tuple[bool, int | None]:
     if limit <= 0 or window <= 0:
         return False, window if window > 0 else 60
 
-    store = get_shared_counter_store()
-    store_key = f"global-rate:{key}"
-    count = store.increment(store_key, window)
-    if count > limit:
-        return False, store.ttl(store_key) or window
+    try:
+        store = get_shared_counter_store()
+        store_key = f"global-rate:{key}"
+        count = store.increment(store_key, window)
+        if count > limit:
+            return False, store.ttl(store_key) or window
+    except Exception:
+        # Route authentication and permissions still run; auth counters fail closed.
+        log.warning("Shared counter store unavailable; global rate limiting skipped")
     return True, None
 
 
@@ -246,6 +216,26 @@ async def _csrf_origin_guard(request: Request, call_next):
 
 
 @app.middleware("http")
+async def _legacy_file_session_scope(request: Request, call_next):
+    # Signed sales attachments and generated barcodes have their own link
+    # semantics and do not depend on the operational ERP actor.
+    if request.url.path.startswith(("/storage/barcodes/", "/storage/sales-order-files/")):
+        token = await oauth2_scheme(request) or request.cookies.get(settings.AUTH_COOKIE_NAME)
+        if token and await run_in_threadpool(_legacy_file_session_is_ceo, token):
+            return JSONResponse(status_code=403, content={"detail": CEO_DASHBOARD_ONLY_DETAIL})
+    return await call_next(request)
+
+
+def _legacy_file_session_is_ceo(token: str) -> bool:
+    with db_session.SessionLocal() as db:
+        try:
+            user, _ = resolve_session_user(token, db)
+        except HTTPException:
+            return False
+        return is_ceo(user)
+
+
+@app.middleware("http")
 async def _security_headers(request: Request, call_next):
     response = await call_next(request)
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
@@ -257,16 +247,12 @@ async def _security_headers(request: Request, call_next):
     )
     if effective_request_scheme(request) == "https":
         response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
-    # Uploaded files under /storage are served unauthenticated (so <img> tags can
-    # render them with bearer-token auth). They have unguessable UUID names; keep
-    # them out of shared caches and search indexes to limit URL-leak exposure.
+    # Model-file auth must run on every request, including cached images.
     if request.url.path.startswith("/storage/"):
         if response.status_code >= 400:
             response.headers["Cache-Control"] = "private, no-store"
-        elif request.url.path.startswith("/storage/model-files/thumb/"):
-            response.headers.setdefault("Cache-Control", "private, max-age=604800")
         elif request.url.path.startswith("/storage/model-files/"):
-            response.headers.setdefault("Cache-Control", "private, max-age=86400")
+            response.headers.setdefault("Cache-Control", "private, no-cache, must-revalidate")
         else:
             response.headers.setdefault("Cache-Control", "private, no-store")
         response.headers.setdefault("X-Robots-Tag", "noindex, nofollow")
@@ -298,6 +284,8 @@ async def _unhandled_exception(request: Request, exc: Exception):
     return JSONResponse(
         status_code=500,
         content={"detail": "Internal server error"},
+        # Uvicorn closes after an unhandled error; proxies must not pool this socket.
+        headers={"Connection": "close"},
     )
 
 
@@ -340,6 +328,17 @@ app.mount("/storage/barcodes", StaticFiles(directory=settings.BARCODE_STORAGE_DI
 os.makedirs(settings.MODEL_FILES_DIR, exist_ok=True)
 _MODEL_FILES_ROOT = os.path.realpath(settings.MODEL_FILES_DIR)
 _MODEL_THUMBS_ROOT = os.path.realpath(os.path.join(settings.MODEL_FILES_DIR, "_thumbs"))
+_MODEL_FILES_CONDITIONAL = StaticFiles(directory=settings.MODEL_FILES_DIR)
+
+
+def _conditional_model_file_response(path: str, request: Request, media_type: str | None = None):
+    from fastapi.responses import FileResponse
+    from starlette.staticfiles import NotModifiedResponse
+
+    response = FileResponse(path, stat_result=os.stat(path), media_type=media_type)
+    if _MODEL_FILES_CONDITIONAL.is_not_modified(response.headers, request.headers):
+        return NotModifiedResponse(response.headers)
+    return response
 
 
 def _model_file_path_if_exists(name: str):
@@ -374,37 +373,37 @@ def _model_image_record(name: str, db: DbSession):
     )
 
 
-def _require_model_file_token(request: Request) -> None:
-    """Validate image access without checking out a database connection.
+def _require_model_file_token(
+    request: Request,
+    token: Annotated[str | None, Depends(oauth2_scheme)],
+) -> None:
+    """Check current session access, then release the authentication connection.
 
-    A model list can render hundreds of thumbnails at once. Using CurrentUser
-    here made every image reserve a database connection merely to re-check the
-    same signed JWT, which could exhaust the pool and block login/API requests.
+    CurrentUser rejects disabled/deleted accounts and revoked credentials. A
+    model list can render hundreds of thumbnails at once, so do not hold that
+    database connection during filesystem reads, image generation or streaming.
+    These routes use separate short-lived sessions for database image fallback.
+
+    Acquire, validate and release inside the same threadpool call. Separate
+    synchronous dependencies can fill all workers with connection waiters before
+    an authenticated request gets another worker turn to release its connection.
     """
-    from fastapi import HTTPException, status
-
-    authorization = request.headers.get("authorization", "").strip()
-    token = authorization[7:].strip() if authorization.lower().startswith("bearer ") else ""
-    if not token:
-        token = request.cookies.get(settings.AUTH_COOKIE_NAME, "").strip()
-    try:
-        payload = decode_token(token) if token else None
-        user_id = int((payload or {}).get("sub") or 0)
-        if user_id <= 0:
-            raise ValueError("missing subject")
-    except Exception:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+    with db_session.SessionLocal() as db:
+        get_current_user(request, token, db)
 
 
-@app.get("/storage/model-files/{name}")
+@app.get("/storage/model-files/{name}", dependencies=[Depends(_require_model_file_token)])
 def serve_model_file(name: str, request: Request):
     from fastapi import HTTPException
     from fastapi.responses import FileResponse
 
-    _require_model_file_token(request)
     abs_path = _model_file_path_if_exists(name)
     if abs_path:
-        return FileResponse(abs_path)
+        from app.core.uploads import MODEL_PATTERN_CAD_EXTENSIONS
+        if Path(name).suffix.lower() in MODEL_PATTERN_CAD_EXTENSIONS:
+            return FileResponse(abs_path, media_type="application/octet-stream", filename=name,
+                                headers={"X-Content-Type-Options": "nosniff"})
+        return _conditional_model_file_response(abs_path, request)
 
     with SessionLocal() as db:
         img = _model_image_record(name, db)
@@ -415,17 +414,15 @@ def serve_model_file(name: str, request: Request):
     return Response(
         content=file_data,
         media_type=content_type or "application/octet-stream",
-        headers={"Cache-Control": "private, max-age=604800"},
+        headers={"Cache-Control": "private, no-store"},
     )
 
 
-@app.get("/storage/model-files/thumb/{name}")
+@app.get("/storage/model-files/thumb/{name}", dependencies=[Depends(_require_model_file_token)])
 def serve_model_thumbnail(name: str, request: Request, size: int = 320):
     from fastapi import HTTPException
-    from fastapi.responses import FileResponse
     from PIL import UnidentifiedImageError
 
-    _require_model_file_token(request)
     source_path = _model_file_path_if_exists(name)
     image_data = b""
     if not source_path:
@@ -456,11 +453,7 @@ def serve_model_thumbnail(name: str, request: Request, size: int = 320):
         except (UnidentifiedImageError, OSError, HTTPException):
             raise HTTPException(status_code=415, detail="File is not a previewable image")
 
-    return FileResponse(
-        thumb_path,
-        media_type="image/webp",
-        headers={"Cache-Control": "private, max-age=604800"},
-    )
+    return _conditional_model_file_response(thumb_path, request, media_type="image/webp")
 
 # Sales-order printing attachments may contain customer-supplied design files, so
 # they are NOT served from a public static mount. Access requires a short-lived
@@ -491,16 +484,17 @@ def serve_sales_order_file(name: str, exp: str | None = None, sig: str | None = 
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "app": settings.APP_NAME}
+    return {"status": "ok", "app": settings.APP_NAME, "release": settings.RELEASE_ID}
 
 
 @app.get("/ready", response_model=None)
 def readiness() -> dict[str, object] | JSONResponse:
-    if _postgresql_ready_within(_READINESS_TIMEOUT_SECONDS):
-        return {"status": "ready", "checks": {"postgresql": "ok"}}
+    checks = readiness_checks._readiness_checks_within(_READINESS_TIMEOUT_SECONDS)
+    if all(result == "ok" for result in checks.values()):
+        return {"status": "ready", "checks": checks, "release": settings.RELEASE_ID}
     return JSONResponse(
         status_code=503,
-        content={"status": "not_ready", "checks": {"postgresql": "unavailable"}},
+        content={"status": "not_ready", "checks": checks, "release": settings.RELEASE_ID},
     )
 
 

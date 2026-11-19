@@ -38,6 +38,7 @@ from app.libs.dto.inventory.stock_quantity_adjustment_input import StockQuantity
 from app.libs.dto.inventory.stock_quantity_adjustment_output import StockQuantityAdjustmentOut
 from app.libs.dto.inventory.warehouse_input import WarehouseIn
 from app.libs.enums.inventory import StockBatchQcStatus, StockMovementType
+from app.libs.types.inventory import ItemInsertCommand
 from app.models import inventory_access_service as inventory_access
 from app.models.audit_service import log_action
 from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response
@@ -73,7 +74,9 @@ from app.schemas import (
     Warehouse,
     WasteRecord,
 )
+from app.schemas.inventory import item_persistence
 from app.schemas.inventory import stock_movement_persistence
+from app.schemas.inventory import batch_restore_persistence
 from app.schemas.inventory import stock_receipt_persistence
 from app.schemas.inventory import warehouse_persistence
 from app.schemas.inventory.eco_transfer import EcoFabricRoll
@@ -272,7 +275,7 @@ def update_item_image(db, item_id: int, payload, current: User) -> Item:
     if not it:
         raise HTTPException(404, "Item not found")
     old_value = {"image_url": it.image_url}
-    it.image_url = _validate_item_image_url(payload.image_url)
+    item_persistence.set_item_image(db, it, _validate_item_image_url(payload.image_url))
     log_action(db, current, "update_image", "Item", it.id, old_value=old_value, new_value={"image_url": it.image_url})
     db.commit(); db.refresh(it)
     return it
@@ -284,8 +287,13 @@ def create_item(db, payload: ItemIn, current: User) -> Item:
         raise HTTPException(400, "SKU already exists")
     data = _item_payload(payload)
     _ensure_unique_active_item_name(db, data)
-    it = Item(**data)
-    db.add(it); db.flush()
+    command = ItemInsertCommand(
+        sku=data["sku"], name=data["name"], category=data["category"], unit=data["unit"],
+        default_cost=data["default_cost"], reorder_level=data["reorder_level"],
+        track_batch=data["track_batch"], is_active=data["is_active"],
+        image_url=data["image_url"], composition_json=data["composition_json"],
+    )
+    it = item_persistence.insert_item(db, command)
     log_action(db, current, "create", "Item", it.id, new_value={"sku": it.sku})
     db.commit(); db.refresh(it)
     return it
@@ -294,9 +302,13 @@ def create_item(db, payload: ItemIn, current: User) -> Item:
 def update_item(db, item_id: int, payload: ItemIn, current: User) -> Item:
     inventory_access.require_item(db, current, item_id)
     inventory_access.require_category(current, payload.category)
-    it = db.get(Item, item_id)
+    it = db.execute(select(Item).where(Item.id == item_id).with_for_update()
+                    .execution_options(populate_existing=True)).scalar_one_or_none()
     if not it:
         raise HTTPException(404, "Item not found")
+    from app.schemas.inventory.eco_inventory import EcoMaterialBatch
+    if (it.unit != payload.unit or it.category != payload.category) and db.query(EcoMaterialBatch.id).filter_by(item_id=item_id).first():
+        raise HTTPException(409, "Material unit/category cannot change after ECO inventory receipt")
     duplicate = db.query(Item).filter(Item.sku == payload.sku, Item.id != item_id).first()
     if duplicate:
         raise HTTPException(400, "SKU already exists")
@@ -323,7 +335,8 @@ def delete_item(db, item_id: int, current: User, force: bool = False) -> bool:
     """
     inventory_access.require_item(db, current, item_id)
     _require_admin_force(current, force)
-    it = db.get(Item, item_id)
+    it = db.execute(select(Item).where(Item.id == item_id).with_for_update()
+                    .execution_options(populate_existing=True)).scalar_one_or_none()
     if not it:
         raise HTTPException(404, "Item not found")
     linked = (
@@ -334,11 +347,15 @@ def delete_item(db, item_id: int, current: User, force: bool = False) -> bool:
         or db.query(PurchaseOrderLine.id).filter(PurchaseOrderLine.item_id == item_id).first()
         or db.query(WasteRecord.id).filter(WasteRecord.item_id == item_id).first()
     )
+    from app.schemas.inventory.eco_inventory import EcoMaterialBatch
+    from app.schemas.inventory.eco_accessory import EcoAccessoryRequirement
+    linked = linked or db.query(EcoMaterialBatch.id).filter_by(item_id=item_id).first() or db.query(
+        EcoAccessoryRequirement.id).filter_by(item_id=item_id).first()
     if linked and not force:
         raise HTTPException(409, "Item is linked to stock, BOM, purchasing, or waste records")
     if linked:
         old_value = {"sku": it.sku, "name": it.name, "is_active": it.is_active}
-        it.is_active = False
+        item_persistence.archive_item(db, it)
         log_action(
             db,
             current,
@@ -350,7 +367,7 @@ def delete_item(db, item_id: int, current: User, force: bool = False) -> bool:
         )
         db.commit()
         return True
-    db.delete(it)
+    item_persistence.delete_item(db, it)
     log_action(db, current, "delete", "Item", item_id, new_value={"sku": it.sku, "name": it.name})
     db.commit()
     return False
@@ -1122,7 +1139,7 @@ def update_batch(db, batch_id: int, payload: StockBatchUpdate, current: User, fo
         target_item = db.get(Item, int(values["item_id"]))
         if not target_item:
             raise HTTPException(404, "Material not found")
-        if not target_item.is_active:
+        if target_item.id != item.id and not target_item.is_active:
             raise HTTPException(409, "Selected material is inactive")
         if target_item.category not in _item_name_group_categories(item.category):
             raise HTTPException(409, "Batch material must stay in the same inventory group")
@@ -1345,6 +1362,7 @@ def restore_material_batch(db, batch_id: int, payload: StockBatchRestoreIn, curr
     batch = db.execute(
         select(StockBatch).options(lazyload(StockBatch.item))
         .where(StockBatch.id == batch_id).with_for_update(of=StockBatch)
+        .execution_options(populate_existing=True)
     ).scalar_one_or_none()
     if not batch:
         raise HTTPException(404, "Stock batch not found")
@@ -1373,18 +1391,7 @@ def restore_material_batch(db, batch_id: int, payload: StockBatchRestoreIn, curr
     }
     # The user confirms physical stock, not a rollback of historical consumption.
     # Past receipts, usage and released/consumed reservations remain unchanged.
-    batch.quantity = payload.quantity
-    batch.archived_at = None
-    batch.archived_by = None
-    batch.qc_status = "pending"
-    batch.roll_weights_kg = []
-    batch.roll_lengths_m = []
-    batch.piece_count = None
-    db.add(StockMovement(
-        movement_type="return", item_id=batch.item_id, batch_id=batch.id,
-        to_warehouse_id=batch.warehouse_id, quantity=payload.quantity, unit=batch.unit,
-        reference_type="StockBatchRestore", reference_id=batch.id, created_by=current.id,
-    ))
+    batch_restore_persistence.restore_material_batch(db, batch, quantity=payload.quantity, user_id=current.id)
     log_action(db, current, "restore", "StockBatch", batch.id, old_value=old_value, new_value={
         "quantity": float(payload.quantity), "reason": reason, "qc_status": "pending",
         "physical_stock_confirmed": True, "history_preserved": True,
@@ -1496,6 +1503,15 @@ def list_batches(
         total = 0
         rows = raw_rows
     batch_ids = [int(batch.id) for batch, _, _, _ in rows]
+    # Receipt evidence is separate from remaining stock, returns and corrections.
+    # A changed unit without a matching receipt has no comparable received amount.
+    received_by_batch = dict(db.query(
+        StockMovement.batch_id, func.sum(StockMovement.quantity),
+    ).join(StockBatch, StockBatch.id == StockMovement.batch_id).filter(
+        StockMovement.batch_id.in_(batch_ids),
+        StockMovement.movement_type == StockMovementType.RECEIVE.value,
+        StockMovement.unit == StockBatch.unit,
+    ).group_by(StockMovement.batch_id).all()) if batch_ids and not archived else {}
     offsite_rolls: dict[int, list[int]] = {}
     if batch_ids:
         for bid, roll in db.query(EcoFabricRoll.batch_id, EcoFabricRoll.roll_number).filter(
@@ -1586,6 +1602,9 @@ def list_batches(
             "available_quantity": float(batch.quantity or 0) - reserved_qty,
             "active_reservations": active_reservations.get(int(batch.id), []),
         }
+        if not archived:
+            received = received_by_batch.get(int(batch.id))
+            row["received_quantity"] = float(received) if received is not None else None
         if archived:
             row.update({
                 "item_image_url": item.image_url if item else None,

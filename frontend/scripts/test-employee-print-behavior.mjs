@@ -1,0 +1,24 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
+import { createRequire } from 'node:module';
+import test from 'node:test';
+import { prepareEmployeePrintRows } from '../src/app/(app)/process-qr/employeePrint.ts';
+const ts = createRequire(import.meta.url)('typescript');
+const source = fs.readFileSync(process.env.QR_PAGE || 'src/app/(app)/process-qr/page.tsx', 'utf8');
+const ast = ts.createSourceFile('page.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+let handler, workHandler, modeHandler, preview;
+function visit(n) { if (ts.isFunctionDeclaration(n) && n.name?.text === 'printEmployeeBadges') handler = n.getText(ast); if (ts.isFunctionDeclaration(n) && n.name?.text === 'printIssuedLabels') workHandler = n.getText(ast); if (ts.isFunctionDeclaration(n) && n.name?.text === 'printSelectedMode') modeHandler = n.getText(ast); if (ts.isJsxExpression(n) && n.expression && n.getText(ast).includes('employeeBadgeRows.map') && n.getText(ast).includes('selectEmployeeHint')) preview = n.expression.getText(ast); ts.forEachChild(n, visit); } visit(ast);
+const compile = code => ts.transpileModule(code, {compilerOptions:{target:ts.ScriptTarget.ES2020,jsx:ts.JsxEmit.React}}).outputText;
+test('collapsed preview instantiates no badges', () => { let badges=0; const c={collapsedSections:{employeePreview:true},employeeBadgeRows:[{key:'a'}], EmployeeBadge:()=>{},t:x=>x}; c.React={createElement(type){if(type===c.EmployeeBadge) badges++; return {};}}; vm.runInNewContext(compile(`const result = (${preview});`),c); assert.equal(badges,0); });
+function fixture({encode=async p=>`qr:${p}`,image={decode:async()=>{},naturalWidth:1}}={}) {
+ const rows=[{key:'a1',employee:{full_name:'A'},payload:'0042',copyIndex:1},{key:'a2',employee:{full_name:'A'},payload:'0042',copyIndex:2},{key:'b',employee:{full_name:'B'},payload:'B3',copyIndex:1}], state={calls:[],prints:0,errors:[],rows:[],frames:[]}, attempt={current:0},busy={current:false};
+ const c={employeeBadgeRows:rows,employeePrintAttempt:attempt,printAttemptBusy:busy,setPrintAttemptActive:v=>state.active=v,prepareEmployeePrintRows,qrDataUrl:p=>{state.calls.push(p);return encode(p)},setPreparingPrint:v=>state.preparing=v,setWorkLabelsToPrint:v=>state.work=v,issuedSizeOrder:[],issuedOperationNumbers:new Map(),compareIssuedLabelOrder:()=>0,operationNumberForLabel:()=>1,setPrintError:v=>state.errors.push(v),setEmployeePrintRows:v=>state.rows=v,setPrintMode:v=>state.mode=v,flushSync:f=>f(),employeePrintRef:{current:{querySelectorAll:()=>state.rows.map(()=>image)}},document:{body:{classList:{add(){},remove(){}}}},window:{print(){state.prints++;state.printedMode=state.mode},requestAnimationFrame(f){state.frames.push(f)}},t:x=>x}; vm.runInNewContext(compile(handler+'\n'+workHandler+'\n'+modeHandler),c); return {run:()=>c.printEmployeeBadges(),work:()=>c.printIssuedLabels([{qr_token:'work'}]),state,rows,attempt,busy}; }
+test('print before preview preserves snapshot, order and deduplication',async()=>{const f=fixture();await f.run();assert.equal(f.state.prints,1);assert.deepEqual(f.state.calls,['0042','B3']);assert.deepEqual(Array.from(f.state.rows,r=>[r.payload,r.copyIndex,r.qrImage]),[['0042',1,'qr:0042'],['0042',2,'qr:0042'],['B3',1,'qr:B3']]);assert.notEqual(f.state.rows[0].employee,f.rows[0].employee)});
+test('image failure blocks printing and allows retry',async()=>{let fail=true;const f=fixture({image:{decode:async()=>{if(fail)throw Error()},naturalWidth:1}});await f.run();assert.equal(f.state.prints,0);assert.equal(f.state.errors.at(-1),'page.processQr.printPreparationFailed');assert.equal(f.busy.current,false);fail=false;await f.run();assert.equal(f.state.prints,1)});
+test('unmount during encoding ignores late completion and duplicate attempt',async()=>{let resolve;const pending=new Promise(r=>resolve=r);const f=fixture({encode:()=>pending});const run=f.run();await f.run();assert.equal(f.state.calls.length,2);f.attempt.current++;resolve('image');await run;assert.equal(f.state.prints,0);assert.equal(f.state.rows.length,0)});
+
+
+test('work queued first blocks employee until print',async()=>{const f=fixture();await f.work();await f.run();assert.deepEqual(f.state.calls,['work']);while(f.state.frames.length) f.state.frames.shift()();assert.equal(f.state.prints,1);assert.equal(f.state.printedMode,'work')});
+test('employee pending blocks work printing',async()=>{let resolve;const pending=new Promise(r=>resolve=r);const f=fixture({encode:()=>pending});const run=f.run();await f.work();assert.deepEqual(f.state.calls,['0042','B3']);resolve('image');await run;assert.equal(f.state.prints,1);assert.equal(f.state.printedMode,'employees')});
+test('cleanup cancels queued work print',async()=>{const f=fixture();await f.work();f.attempt.current++;while(f.state.frames.length) f.state.frames.shift()();assert.equal(f.state.prints,0)});

@@ -203,7 +203,7 @@ def test_bulk_package_write_reads_are_bounded_and_results_match(monkeypatch, pac
     package_number_reads = [
         statement
         for statement in statements
-        if " from packages " in statement and "packages.package_no" in statement
+        if statement.startswith("select packages.package_no as packages_package_no from packages ")
     ]
     retired_number_reads = [
         statement
@@ -221,6 +221,11 @@ def test_bulk_package_write_reads_are_bounded_and_results_match(monkeypatch, pac
     assert persisted_items == package_count
     assert notifications == expected_recipients * package_count
     assert len(availability_reads) == 3
+    # Actual-size validation reads existing package evidence once per group;
+    # it is a different read from package-number allocation.
+    evidence_reads = [statement for statement in statements
+                      if "package_quantity_adjustments" in statement and " from packages " in statement]
+    assert len(evidence_reads) == 1
     assert len(package_number_reads) == 1
     assert len(retired_number_reads) == 1
     assert len(notification_directory_reads) == 2

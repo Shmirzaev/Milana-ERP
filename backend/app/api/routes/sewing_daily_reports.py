@@ -258,9 +258,14 @@ def _report_audit_values(report: SewingDailyReport) -> dict:
 
 
 def _lock_report_order(db, work_order_id) -> WorkOrder | None:
-    """Serialize report writes after the work-order lock used by sewing writes."""
+    """Match Sewing/direct Packaging: lock the parent before its work order."""
     if work_order_id is None:
         return None
+    order_id = db.query(WorkOrder.production_order_id).filter(WorkOrder.id == work_order_id).scalar()
+    if order_id is None:
+        return None
+    db.query(ProductionOrder).filter(ProductionOrder.id == order_id).populate_existing().with_for_update(
+        of=ProductionOrder).one()
     work_order = (
         db.query(WorkOrder)
         .filter(WorkOrder.id == work_order_id)
@@ -270,13 +275,6 @@ def _lock_report_order(db, work_order_id) -> WorkOrder | None:
     )
     if not work_order:
         return None
-    (
-        db.query(ProductionOrder)
-        .filter(ProductionOrder.id == work_order.production_order_id)
-        .populate_existing()
-        .with_for_update(of=ProductionOrder)
-        .first()
-    )
     return work_order
 
 

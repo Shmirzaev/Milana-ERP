@@ -7,6 +7,8 @@ from fastapi import HTTPException, UploadFile
 
 SAFE_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tif", ".tiff"}
 SAFE_DOCUMENT_EXTENSIONS = {".pdf", ".dxf", ".ai"}
+# Catalog pattern files only; other document and image upload allowlists stay narrow.
+MODEL_PATTERN_CAD_EXTENSIONS: frozenset[str] = frozenset({".gem", ".gemx"})
 
 _CONTENT_TYPES = {
     ".png": "image/png",
@@ -76,6 +78,27 @@ async def read_validated_upload_content(file, ext: str, max_bytes: int, chunk_si
     """Read and validate an UploadFile without ever issuing an unbounded read()."""
     content = await _read_bounded_upload_content(file, max_bytes, chunk_size)
     return validated_upload_content(content, ext, max_bytes)
+
+
+async def read_validated_pattern_cad_upload(file: UploadFile, ext: str, max_bytes: int) -> bytes:
+    """Opaque CAD transfer only: no proprietary-format parser or magic claim.
+
+    Reject recognizable executables/active web documents. The caller must restrict
+    this operation to Catalog's pattern attachment, never a raster image field.
+    """
+    if ext not in MODEL_PATTERN_CAD_EXTENSIONS:
+        raise HTTPException(400, "Unsupported pattern CAD extension")
+    content = await _read_bounded_upload_content(file, max_bytes, 1024 * 1024)
+    head = content[:512]
+    executable_headers = (b"MZ", b"\x7fELF", b"\xfe\xed\xfa\xce", b"\xfe\xed\xfa\xcf",
+                          b"\xce\xfa\xed\xfe", b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xbe")
+    if head.startswith(executable_headers):
+        raise HTTPException(400, "Executable content is not a pattern CAD file")
+    encoding = "utf-16" if head.startswith((b"\xff\xfe", b"\xfe\xff")) else "utf-8-sig"
+    text_head = head.decode(encoding, errors="ignore").lstrip().lower()
+    if text_head.startswith(("#!", "<!doctype html", "<html", "<script", "<?php")):
+        raise HTTPException(400, "Executable or HTML content is not a pattern CAD file")
+    return content
 
 
 async def _read_bounded_upload_content(file, max_bytes: int, chunk_size: int) -> bytes:

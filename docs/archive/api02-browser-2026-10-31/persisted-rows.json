@@ -1,0 +1,93 @@
+{
+  "tasks": [
+    {
+      "id": 2,
+      "title": "API02 fixture shortage committed",
+      "description": "Planning shortage",
+      "status": "pending",
+      "priority": "high",
+      "assigned_to": 2,
+      "created_by": 2,
+      "entity_type": null,
+      "entity_id": null,
+      "due_date": null,
+      "completed_at": null
+    },
+    {
+      "id": 3,
+      "title": "CB314-A high self",
+      "description": null,
+      "status": "pending",
+      "priority": "high",
+      "assigned_to": 2,
+      "created_by": 2,
+      "entity_type": null,
+      "entity_id": null,
+      "due_date": "2026-11-20T00:00:00+00:00",
+      "completed_at": null
+    },
+    {
+      "id": 4,
+      "title": "CB314-B low to recipient",
+      "description": null,
+      "status": "pending",
+      "priority": "low",
+      "assigned_to": 4,
+      "created_by": 2,
+      "entity_type": null,
+      "entity_id": null,
+      "due_date": "2026-11-25T00:00:00+00:00",
+      "completed_at": null
+    },
+    {
+      "id": 5,
+      "title": "CB314-C restricted own",
+      "description": null,
+      "status": "completed",
+      "priority": "medium",
+      "assigned_to": 3,
+      "created_by": 3,
+      "entity_type": null,
+      "entity_id": null,
+      "due_date": null,
+      "completed_at": "2026-10-31T12:27:29.152310+00:00"
+    }
+  ],
+  "fixture_users": [
+    {
+      "id": 4,
+      "email": "api02-recipient@example.com",
+      "name": "API02 recipient",
+      "permissions": [
+        "planning.view",
+        "dashboard.view"
+      ],
+      "factory": "MIL"
+    },
+    {
+      "id": 2,
+      "email": "api02-manager@example.com",
+      "name": "API02 manager",
+      "permissions": [
+        "tasks.manage",
+        "admin.users",
+        "planning.view",
+        "modeling.models",
+        "dashboard.view"
+      ],
+      "factory": "MIL"
+    },
+    {
+      "id": 3,
+      "email": "api02-denied@example.com",
+      "name": "API02 denied",
+      "permissions": [
+        "dashboard.view"
+      ],
+      "factory": "MIL"
+    }
+  ],
+  "task_audits": 10,
+  "notifications": 1
+}
+

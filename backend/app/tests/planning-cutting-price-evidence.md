@@ -1,0 +1,5 @@
+# Planning cutting-price persistence slice
+
+Base: febe73c69434032737bcca1f5f305aa7702e3ba8. Owner: Ismail; reviewer: Mirshoir. Scope: cutting contribution only. Permission precedes lookup; payload model_dump preserves omitted values as None; passport/model and metre refusals remain in the service. Schema helpers keep the existing assignment order, flush, and supplied transaction. Audit records input values; notification fires on transition to complete. No DDL or business-policy change.
+
+Fixed stage statuses remain raw strings and the service payload remains a raw dict; these are unresolved type debt, not completed enum adoption. Shared price_calculation_service.py and price_calculation_persistence.py overlap frozen PR #391; reconcile and verify the exact combined revision before integration. This candidate has not passed independent review, real PostgreSQL, browser/readback or bounded integrity checks. Visual and persisted-data acceptance remains with the laptop integrator; no AI_VERIFIED_AWAITING_HUMAN claim is made.

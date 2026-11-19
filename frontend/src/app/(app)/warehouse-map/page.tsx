@@ -4,7 +4,8 @@ import { formatModelVariantCode } from "@/lib/variantDisplay";
 import { useEffect, useMemo, useState } from "react";
 import useSWR from "swr";
 import { Bookmark, Clock3, MoveHorizontal, QrCode } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
 
 import { api, fetcher } from "@/lib/api";
 import PageHeader from "@/components/PageHeader";
@@ -151,9 +152,10 @@ function formatDateTime(value?: string | null, langCode?: string) {
 
 export default function WarehouseMapPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { t, lang } = useT();
-  const [modelQuery, setModelQuery] = useState("");
-  const [selectedCell, setSelectedCell] = useState<string | null>(null);
+  const [modelQuery, setModelQuery] = useState(searchParams.get("model_query") || "");
+  const [selectedCell, setSelectedCell] = useState<string | null>(searchParams.get("cell"));
   const [selectedShelf, setSelectedShelf] = useState<"S1" | "S2">("S1");
   const [message, setMessage] = useState("");
   const [messageError, setMessageError] = useState("");
@@ -164,9 +166,13 @@ export default function WarehouseMapPage() {
   const [selectedPackageId, setSelectedPackageId] = useState<number | null>(null);
   const [selectedPackageIds, setSelectedPackageIds] = useState<number[]>([]);
 
-  const mapQueryPath = modelQuery.trim()
-    ? `/api/packages/storage-map?model_query=${encodeURIComponent(modelQuery.trim())}`
-    : "/api/packages/storage-map";
+  const mapParams = new URLSearchParams();
+  for (const key of ["stock_kind", "sewing_factory_code", "created_from", "created_to"]) {
+    const value = searchParams.get(key);
+    if (value) mapParams.set(key, value);
+  }
+  if (modelQuery.trim()) mapParams.set("model_query", modelQuery.trim());
+  const mapQueryPath = `/api/packages/storage-map?${mapParams}`;
   const { data: mapData, mutate: mutateMap } = useSWR<any>(mapQueryPath, fetcher);
 
   const normalizedCells = useMemo(() => {
@@ -175,12 +181,12 @@ export default function WarehouseMapPage() {
     return rows.map((c) => ({
       ...c,
       count: c.count || 0,
-      matched_count: c.matched_count || 0,
+      matched_count: searchParams.get("model_id") ? (mapData?.placements || []).filter((row: StoragePlacement) => row.storage_cell === c.code && String(row.model_id) === searchParams.get("model_id") && (!modelQuery.trim() || row.matched)).length : c.matched_count || 0,
       status: getCellStatus(c),
     }));
-  }, [mapData?.cells]);
+  }, [mapData?.cells, mapData?.placements, searchParams, modelQuery]);
 
-  const placements = useMemo(() => (mapData?.placements || []) as StoragePlacement[], [mapData?.placements]);
+  const placements = useMemo(() => ((mapData?.placements || []) as StoragePlacement[]).map(row => searchParams.get("model_id") ? { ...row, matched: String(row.model_id) === searchParams.get("model_id") && (!modelQuery.trim() || row.matched) } : row), [mapData?.placements, searchParams, modelQuery]);
 
   useEffect(() => {
     if (selectedCell) return;
@@ -218,7 +224,9 @@ export default function WarehouseMapPage() {
     [selectedCellPlacements, selectedShelf],
   );
 
-  const candidatePlacements = selectedShelfPlacements.length ? selectedShelfPlacements : selectedCellPlacements;
+  const shelfCandidates = selectedShelfPlacements.length ? selectedShelfPlacements : selectedCellPlacements;
+  const hasPlacementFilter = Boolean(searchParams.get("model_id") || modelQuery.trim());
+  const candidatePlacements = useMemo(() => hasPlacementFilter ? shelfCandidates.filter(row => row.matched) : shelfCandidates, [shelfCandidates, hasPlacementFilter]);
 
   useEffect(() => {
     if (!candidatePlacements.length) {
@@ -250,7 +258,7 @@ export default function WarehouseMapPage() {
   const selectedMovePlacements = candidatePlacements.filter((row) => selectedPackageIds.includes(row.id));
   const allCandidatePackagesSelected =
     candidatePlacements.length > 0 && selectedMovePlacements.length === candidatePlacements.length;
-  const selectedCellQty = selectedCellPlacements.reduce((sum, row) => sum + (row.total_quantity || 0), 0);
+  const selectedCellQty = selectedCellPlacements.filter(row => !hasPlacementFilter || row.matched).reduce((sum, row) => sum + (row.total_quantity || 0), 0);
 
   const zoneCells = useMemo(() => normalizedCells.filter((row) => row.zone === selectedZone), [normalizedCells, selectedZone]);
   const zoneTotal = zoneCells.length || 1;
@@ -673,7 +681,7 @@ export default function WarehouseMapPage() {
 
   return (
     <div>
-      <PageHeader title={t("page.warehouseMap.title")} subtitle={t("page.warehouseMap.subtitle")} />
+      <PageHeader title={t("page.warehouseMap.title")} subtitle={t("page.warehouseMap.subtitle")} actions={<Link className="btn" href="/warehouse-stock">{t("nav.warehouseStock")}</Link>} />
 
       <div className="mb-6 grid grid-cols-1 gap-4 xl:grid-cols-5">
         <div className="kpi-card xl:col-span-1">
@@ -880,7 +888,7 @@ export default function WarehouseMapPage() {
               </div>
               <div>
                 <div className="label">{t("page.warehouseMap.onHand")}</div>
-                <div className="mono text-sm font-medium text-[#14110b]">{selectedShelfPlacements.length}</div>
+                <div className="mono text-sm font-medium text-[#14110b]">{selectedShelfPlacements.filter(row => !hasPlacementFilter || row.matched).length}</div>
               </div>
               <div>
                 <div className="label">{t("field.totalQty")}</div>

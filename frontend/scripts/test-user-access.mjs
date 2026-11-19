@@ -3,6 +3,7 @@ import fs from "node:fs";
 import vm from "node:vm";
 import ts from "typescript";
 import "./test-besttex-cutting.mjs";
+import { runtimeMessages } from "./runtime-locales.mjs";
 
 function load(path) {
   const exports = {};
@@ -13,7 +14,17 @@ function load(path) {
   return exports;
 }
 const { changeAccess, accessText } = load("src/lib/userAccess.ts");
+const catalogRows = fs.readFileSync("../backend/app/core/permission_catalog.py", "utf8").match(/_ROWS = """([\s\S]*?)"""/)?.[1];
+assert.ok(catalogRows, "Permission catalog rows missing");
+const catalogGroups = [...new Set(catalogRows.trim().split("\n").map((row) => row.split("|")[0]))].sort();
 const access = load("src/lib/access.ts");
+const { packageIdentityText, sewingFactoryLabel } = load("src/lib/packageIdentity.ts");
+for (const language of ["en", "ru", "uz"]) {
+  const text = packageIdentityText[language];
+  assert.ok(text.factory && text.model && text.variant && text.unknown);
+  assert.equal(sewingFactoryLabel({ sewing_factory_codes: [] }, text.unknown), text.unknown);
+  assert.equal(sewingFactoryLabel({ sewing_factory_codes: ["ECO", "MIL"] }, text.unknown), "Eco Cotton, Milana");
+}
 const { isSewingRole, factoryWorkspaceHome } = access;
 assert.equal(factoryWorkspaceHome({ factory_code: "BST", permissions: ["besttex.cutting_sheets"] }), "/besttex/cutting-orders");
 let value = { MIL: { allow: ["finance.view"], deny: ["sales.orders"] } };
@@ -33,7 +44,8 @@ assert.equal(isSewingRole({ role: "Sewing", access_configured: true, permissions
 for (const language of ["en", "ru", "uz"]) {
   const text = accessText(language);
   assert.ok(text.title && text.allow && text.deny && text.inherit && text.scopeHelp);
-  assert.equal(Object.keys(text.groups).length, 20);
+  assert.deepEqual(Object.keys(text.groups).sort(), catalogGroups);
+  for (const group of catalogGroups) assert.ok(text.groups[group], `${language} label missing for ${group}`);
 }
 console.log("User access: allow/deny/default, factory isolation, legacy and configured Sewing, and EN/RU/UZ labels passed.");
 
@@ -77,7 +89,7 @@ for (const [factory, oldHome, packingHome] of [["BST", "/departments/BST", "/dep
         if (name === "react") return { useEffect: (fn) => effects.push(fn), useState: (initial) => [initial, () => {}] };
         if (name === "next/navigation") return { usePathname: () => pathname, useSearchParams: () => new URLSearchParams(query), useRouter: () => ({ replace: (path) => redirects.push(path) }) };
         if (name === "@/lib/access") return access;
-        if (name === "@/lib/auth") return { useMe: () => ({ me, loading: false, hasToken: true }), can: (user, ...perms) => user.permissions.some(p => p === "*" || perms.includes(p)) };
+        if (name === "@/lib/auth") return { useMe: () => ({ me, loading: false, hasToken: true }), can: (user, ...perms) => user.permissions.some(p => p === "*" || perms.includes(p)), isCeo: () => false, CEO_DASHBOARD_PATH: "/ceo-dashboard" };
         if (name === "@/lib/api") return { api: { post: () => { throw new Error("Unexpected factory switch"); } } };
         if (name === "@/lib/i18n") return { useT: () => ({ t: (key) => key }) };
         if (name === "@/lib/priceCalculationRequests") return {};
@@ -98,7 +110,7 @@ assert.equal(factoryWorkspaceHome({ role: "Packaging", factory_code: "MIL", perm
 assert.match(fs.readFileSync("src/app/login/page.tsx", "utf8"), /window\.location\.href = "\/";/);
 console.log("Packaging login and stale landing recovery passed; factory isolation and existing homes preserved.");
 // Exercise each page's real query construction, including query-less bookmarks.
-for (const page of ["packages", "packaging/queue", "packaging/receive", "packaging/reports"]) {
+for (const page of ["packages", "packaging/queue", "packaging/reports"]) {
   const pageSource = fs.readFileSync(`src/app/(app)/${page}/page.tsx`, "utf8");
   const ast = ts.createSourceFile("page.tsx", pageSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   const component = ast.statements.find(node => ts.isFunctionDeclaration(node) && node.modifiers?.some(m => m.kind === ts.SyntaxKind.DefaultKeyword));
@@ -110,26 +122,87 @@ for (const page of ["packages", "packaging/queue", "packaging/receive", "packagi
   const queryCode = ts.transpileModule(declarations.join("\n"), { compilerOptions: { target: ts.ScriptTarget.ES2020 } }).outputText;
   for (const [factory, department] of [["MIL", "PKG"], ["BST", "BPK"], ["ECO", "ECP"]]) {
     for (const query of ["", `packaging_department=${department}`]) {
+      for (const origin of page === "packages" ? ["", "MIL", "BST", "ECO"] : [""]) {
       const keys = [];
+      let stateIndex = 0;
       vm.runInNewContext(queryCode, {
-        URLSearchParams, Intl, Date, packageReturnText: { en: {} },
+        URLSearchParams, Intl, Date, packagingAvailabilityText: { en: {} }, packageReturnText: { en: {} }, packageWorkflowCopy: { en: {} }, packageIdentityText, sewingFactoryLabel,
         useT: () => ({ t: value => value, lang: "en" }),
         useMe: () => ({ me: { factory_code: factory, permissions: packingPermissions } }),
         useSearchParams: () => new URLSearchParams(query),
-        useState: initial => [typeof initial === "function" ? initial() : initial, () => {}],
+        useState: initial => [page === "packages" && stateIndex++ === 0 ? origin : typeof initial === "function" ? initial() : initial, () => {}],
         useRef: initial => ({ current: initial }),
         useMemo: fn => fn(),
         useSWR: key => { if (key) keys.push(key); return {}; },
+        useSWRInfinite: getKey => {
+          const key = getKey(0, null);
+          if (key) keys.push(Array.isArray(key) ? key[0] : key);
+          return {};
+        },
         useLoadMore: key => { if (key) keys.push(key); return {}; },
         packagingDepartmentForSession: access.packagingDepartmentForSession,
         can: () => true, fetcher: () => {}, today: () => "2026-09-18",
       });
       assert.ok(keys.length > 0, page);
       for (const key of keys) assert.equal(new URL(key, "https://erp.example").searchParams.get("packaging_department_code"), department, `${factory} ${page} ${key}`);
+      if (page === "packages") {
+        const listKey = keys.find(key => new URL(key, "https://erp.example").pathname === "/api/packages");
+        assert.ok(listKey);
+        assert.equal(new URL(listKey, "https://erp.example").searchParams.get("sewing_factory_code"), origin || null);
+      }
+      }
     }
   }
 }
-console.log("All four Packaging pages request only the selected factory, with or without query parameters.");
+console.log("Active Packaging pages request only the selected factory, with or without query parameters.");
+// Render the actual empty queue with its real localized copy. Availability is
+// automatic; the empty state must not imply a separate acceptance action.
+const { renderToStaticMarkup } = await import("react-dom/server");
+const queueSource = ts.transpileModule(fs.readFileSync("src/app/(app)/packaging/queue/page.tsx", "utf8"), {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.ReactJSX },
+}).outputText;
+for (const language of ["en", "ru", "uz"]) {
+  const messages = runtimeMessages(language);
+  const queueExports = {};
+  vm.runInNewContext(queueSource, { URLSearchParams, exports: queueExports, require: name => {
+    if (name === "react") return React;
+    if (name === "react/jsx-runtime") return runtime;
+    if (name === "next/navigation") return { useSearchParams: () => new URLSearchParams("packaging_department=ECP") };
+    if (name === "next/link") return { default: props => React.createElement("a", props) };
+    if (name === "swr") return { default: () => ({ data: [], isLoading: false }) };
+    if (name === "lucide-react") return { Search: () => null, PackageOpen: () => null, RefreshCw: () => null, ArrowRight: () => null };
+    if (name === "@/components/PageHeader") return { default: props => React.createElement("p", null, props.subtitle) };
+    if (name === "@/lib/i18n") return { useT: () => ({ lang: language, t: key => messages.get(key) || key }) };
+    if (name === "@/lib/auth") return { useMe: () => ({ me: { factory_code: "ECO", permissions: packingPermissions } }) };
+    if (name === "@/lib/access") return access;
+    if (name === "@/lib/packagingAvailabilityText") return load("src/lib/packagingAvailabilityText.ts");
+    if (name === "@/lib/api" || name === "@/lib/variantDisplay" || name === "@/lib/orderRef" || name === "@/lib/modelImages") return {};
+    throw new Error(name);
+  }});
+  const markup = renderToStaticMarkup(React.createElement(queueExports.default));
+  assert.ok(markup.includes(messages.get("page.packagingReceive.queueEmpty")));
+  assert.match(markup, /automatically|автоматически|avtomatik/);
+  assert.doesNotMatch(markup, /received orders|принятых заказов|qabul qilingan buyurtmalar/);
+}
+
+// Legacy acceptance bookmarks redirect without accepting or creating business data.
+const receiveSource = fs.readFileSync("src/app/(app)/packaging/receive/page.tsx", "utf8");
+const receiveModule = ts.transpileModule(receiveSource, { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText;
+for (const department of ["", "PKG", "BPK", "ECP"]) {
+  const receiveExports = {};
+  const destinations = [];
+  new Function("exports", "require", receiveModule)(receiveExports, name => {
+    if (name === "react") return { useEffect: fn => fn() };
+    if (name === "next/navigation") return {
+      useRouter: () => ({ replace: target => destinations.push(target) }),
+      useSearchParams: () => new URLSearchParams(department ? `packaging_department=${department}` : ""),
+    };
+    throw new Error(`Acceptance redirect must not call APIs: ${name}`);
+  });
+  assert.equal(receiveExports.default(), null);
+  assert.deepEqual(destinations, [`/packaging/queue${department ? `?packaging_department=${department}` : ""}`]);
+}
+
 let selectedFactory = "MIL";
 let effective = ["planning.view"];
 let grantable = true;

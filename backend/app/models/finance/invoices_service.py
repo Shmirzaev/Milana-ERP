@@ -20,6 +20,7 @@ Contract for `generate_order_invoice`:
   the invoice existence check
 * transaction owner: this operation
 """
+from collections.abc import Sequence
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 
@@ -35,11 +36,23 @@ from app.models.numbering_service import next_invoice_no
 from app.models.payments_service import invoice_payment_status
 from app.schemas import Invoice, SalesOrder, User
 from app.schemas.finance.invoice_persistence import insert_order_invoice
+from app.schemas.finance.invoice_reversal_persistence import void_invoice_for_shipment_reopen
 
 # `invoices.amount` is NUMERIC(14, 2), so the largest storable amount is 999999999999.99
 # and the smallest non-zero one is one cent.
 INVOICE_AMOUNT_MAX = Decimal("999999999999.99")
 INVOICE_AMOUNT_CENT = Decimal("0.01")
+
+
+def void_invoices_for_shipment_reopen(db: Session, invoices: Sequence[Invoice]) -> None:
+    """Stage Finance's invoice values for a shipment reopen in the caller's Session.
+
+    The shipment operation owns invoice eligibility, locking and the complete
+    transaction. It passes its already-locked rows only after every invoice has
+    passed preflight, so this participant preserves the operation's write order.
+    """
+    for invoice in invoices:
+        void_invoice_for_shipment_reopen(db, invoice)
 
 # Sales-order statuses the sales entry point may invoice from.
 INVOICEABLE_ORDER_STATUSES: frozenset[SalesOrderStatus] = frozenset({

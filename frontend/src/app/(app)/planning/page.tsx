@@ -11,6 +11,7 @@ import { api, fetcher } from "@/lib/api";
 import { useMe, can } from "@/lib/auth";
 import PageHeader from "@/components/PageHeader";
 import BrandedOrderHistory, { type BrandedPlanningOrder } from "@/components/BrandedOrderHistory";
+import PlanningCuttingFactoryAction from "@/components/PlanningCuttingFactoryAction";
 import { BrandedPlanningOrderType } from "@/lib/brandedPlanning";
 import Modal from "@/components/Modal";
 import SearchableSelect from "@/components/SearchableSelect";
@@ -20,6 +21,7 @@ import { statusLabel } from "@/components/StagePipeline";
 import { useT } from "@/lib/i18n";
 import { numberOrFallback, numberOrZero, parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
 import { InventoryQcStatus, inventoryQcStatus } from "@/lib/inventoryQcStatus";
+import { fabricSelectionRows, fabricSourceInput, primaryFabricSourceInput } from "@/lib/fabricSource";
 
 type FabricBatch = {
   id: number;
@@ -98,7 +100,8 @@ type MaterialEstimateDraft = {
 
 type MaterialEstimatePayload = {
   brand_id: number;
-  fabric_batch_id: number;
+  fabric_batch_id: number | null;
+  eco_fabric_batch_id?: number | null;
   estimated_material_code: string;
   estimated_material_amount: number;
   estimated_material_unit: string;
@@ -206,10 +209,7 @@ function uniqueSortedSizes(values: Array<string | null | undefined>): string[] {
 
 function distributeExistingQuantityAcrossSizes(sizes: string[], lines: BrandedLine[]): BrandedLine[] {
   if (!sizes.length) return lines;
-  const total = Math.max(
-    sizes.length,
-    lines.reduce((sum, line) => sum + Math.max(0, numberOrZero(line.quantity)), 0),
-  );
+  const total = lines.reduce((sum, line) => sum + Math.max(0, numberOrZero(line.quantity)), 0);
   const baseQuantity = Math.floor(total / sizes.length);
   let remainder = total % sizes.length;
   const color = String(lines[0]?.color || "white").trim() || "white";
@@ -217,7 +217,7 @@ function distributeExistingQuantityAcrossSizes(sizes: string[], lines: BrandedLi
   return sizes.map((size) => {
     const quantity = baseQuantity + (remainder > 0 ? 1 : 0);
     if (remainder > 0) remainder -= 1;
-    return { color, size, quantity, printing_required: printingRequired };
+    return { color, size, quantity: total > 0 ? quantity : "", printing_required: printingRequired };
   });
 }
 
@@ -295,7 +295,7 @@ function validateMaterialEstimate(draft: MaterialEstimateDraft, fabricBatches: F
   return {
     payload: {
       brand_id: draft.brandId,
-      fabric_batch_id: batch.id,
+      ...primaryFabricSourceInput(batch.id),
       estimated_material_code: batch.item_sku || batch.batch_no,
       estimated_material_amount: amount,
       estimated_material_unit: batch.unit || DEFAULT_MATERIAL_UNIT,
@@ -340,6 +340,10 @@ export default function PlanningDashboard() {
   const { data: brands, mutate: mutateBrands } = useSWR<Brand[]>("/api/brands", fetcher);
   const { data: fabricBatches } = useSWR<FabricBatch[]>("/api/inventory/batches?group=materials&hide_empty=true&page_size=1000", fetcher);
   const { data: brandedOrders, mutate: mutateBrandedOrders } = useSWR<BrandedPlanningOrder[]>("/api/planning/branded-orders", fetcher, { refreshInterval: 10_000 });
+  const { data: rawEcoFabricBatches } = useSWR<Array<Omit<FabricBatch, "id"> & { id: number | null; eco_material_batch_id?: number | null }>>(
+    can(me, "planning.production") ? "/api/planning/eco-fabrics" : null, fetcher,
+  );
+  const ecoFabricBatches = useMemo(() => fabricSelectionRows(rawEcoFabricBatches || []), [rawEcoFabricBatches]);
   const canViewForecasting = can(me, "forecasting.view");
   const { data: forecastSuggestions } = useSWR<any[]>(
     canViewForecasting ? "/api/forecasting/branded-stock-suggestions" : null,
@@ -352,11 +356,11 @@ export default function PlanningDashboard() {
     deadline: "",
     cutting_department_code: "CUT",
     sewing_factory_code: "MIL",
-    lines: [{ color: "white", size: "", quantity: 600, printing_required: false }],
+    lines: [{ color: "white", size: "", quantity: "", printing_required: false }],
   });
   const [brandedSizeFrom, setBrandedSizeFrom] = useState("");
   const [brandedSizeTo, setBrandedSizeTo] = useState("");
-  const [brandedDistributeQty, setBrandedDistributeQty] = useState<NumberInputValue>(6000);
+  const [brandedDistributeQty, setBrandedDistributeQty] = useState<NumberInputValue>("");
   const [brandedLinesEditing, setBrandedLinesEditing] = useState(false);
   const [brandedLinesModelId, setBrandedLinesModelId] = useState(0);
   const [brandedDialogOpen, setBrandedDialogOpen] = useState(false);
@@ -408,6 +412,8 @@ export default function PlanningDashboard() {
       const status = inventoryQcStatus(String(batch.qc_status || "").toLowerCase());
       return status === null || !PLANNING_EXCLUDED_QC_STATUSES.includes(status);
     }), [fabricBatches]);
+  const fabricsForCutting = (department: CuttingDepartmentCode) => department === "ECT" ? ecoFabricBatches : availableFabricBatches;
+  const brandedFabricBatches = brandedForm.cutting_department_code === "ECT" ? ecoFabricBatches : availableFabricBatches;
   const selectedBrandedModel = selectedBrandedModelDetail || null;
   const selectedBrandedBrand = activeBrands.find((brand) => Number(brand.id) === Number(brandedForm.brand_id)) || null;
   const brandedModelLoaded = Boolean(brandedForm.model_id)
@@ -436,8 +442,8 @@ export default function PlanningDashboard() {
     [selectedBrandedModelDetail],
   );
   const brandedFabricBatchOptions = useMemo(
-    () => fabricBatchOptions(availableFabricBatches, selectedBrandedFabricItemIds, true),
-    [availableFabricBatches, selectedBrandedFabricItemIds],
+    () => fabricBatchOptions(brandedFabricBatches, selectedBrandedFabricItemIds, true),
+    [brandedFabricBatches, selectedBrandedFabricItemIds],
   );
   const brandedSizeOptions = selectedBrandedModelSizes;
   const brandedSizesReady = brandedModelLoaded && brandedSizeOptions.length > 0;
@@ -498,15 +504,15 @@ export default function PlanningDashboard() {
   }, [brandedForm.brand_id, brandedForm.model_id, selectedBrandedModelDetail]);
 
   useEffect(() => {
-    if (!brandedForm.model_id || !availableFabricBatches.length) return;
+    if (!brandedForm.model_id || !brandedFabricBatches.length) return;
     const firstMaterial = brandedForm.materials[0];
-    const currentIsValid = availableFabricBatches.some(
+    const currentIsValid = brandedFabricBatches.some(
       (batch) => Number(batch.id) === Number(firstMaterial?.fabric_batch_id),
     );
     if (currentIsValid) return;
-    const defaultBatch = availableFabricBatches.find(
+    const defaultBatch = brandedFabricBatches.find(
       (batch) => selectedBrandedFabricItemIds.includes(Number(batch.item_id)),
-    ) || availableFabricBatches[0];
+    ) || brandedFabricBatches[0];
     if (Number(firstMaterial?.fabric_batch_id || 0) === Number(defaultBatch?.id || 0)) return;
     setBrandedForm((prev) => ({
       ...prev,
@@ -514,7 +520,7 @@ export default function PlanningDashboard() {
         index === 0 ? { ...row, fabric_batch_id: Number(defaultBatch?.id || 0) } : row
       )),
     }));
-  }, [availableFabricBatches, brandedForm.materials, brandedForm.model_id, selectedBrandedFabricItemIds]);
+  }, [brandedFabricBatches, brandedForm.materials, brandedForm.model_id, selectedBrandedFabricItemIds]);
 
   function selectBrandedModel(modelId: number) {
     setBrandedSizeFrom("");
@@ -613,7 +619,7 @@ export default function PlanningDashboard() {
     if (!brandedSizesReady) return;
     setBrandedForm((prev) => ({
       ...prev,
-      lines: [...prev.lines, { color: prev.lines[0]?.color || "white", size: brandedSizeOptions.find((size) => !prev.lines.some((line) => line.size === size)) || brandedSizeOptions[0], quantity: 1, printing_required: false }],
+      lines: [...prev.lines, { color: prev.lines[0]?.color || "white", size: brandedSizeOptions.find((size) => !prev.lines.some((line) => line.size === size)) || brandedSizeOptions[0], quantity: "", printing_required: false }],
     }));
   }
 
@@ -757,7 +763,7 @@ export default function PlanningDashboard() {
 
   async function createPOFromMaterialEstimate() {
     if (!materialEstimate) return;
-    const check = validateMaterialEstimate(materialEstimate, availableFabricBatches);
+    const check = validateMaterialEstimate(materialEstimate, fabricsForCutting(materialEstimate.cuttingDepartmentCode));
     if (check.error || !check.payload) {
       setMaterialEstimateErr(check.error || localizeError("Enter material estimate before creating the production order."));
       return;
@@ -834,7 +840,7 @@ export default function PlanningDashboard() {
       setBatchPlanErr(t("batch.quantityGreaterThanZero"));
       return;
     }
-    const estimate = validateMaterialEstimate(batchPlan, availableFabricBatches);
+    const estimate = validateMaterialEstimate(batchPlan, fabricsForCutting(batchPlan.cuttingDepartmentCode));
     if (estimate.error || !estimate.payload) {
       setBatchPlanErr(estimate.error || localizeError("Enter material estimate before creating the production order."));
       return;
@@ -944,7 +950,7 @@ export default function PlanningDashboard() {
       return;
     }
     const materials = brandedForm.materials.map((row) => {
-      const batch = availableFabricBatches.find((candidate) => Number(candidate.id) === Number(row.fabric_batch_id));
+      const batch = brandedFabricBatches.find((candidate) => Number(candidate.id) === Number(row.fabric_batch_id));
       return {
         batch,
         quantity: Number(row.estimated_material_amount),
@@ -992,12 +998,12 @@ export default function PlanningDashboard() {
         planning_order_id: selectedBrandedOrderId,
         model_id: brandedForm.model_id,
         brand_id: brandedForm.brand_id,
-        fabric_batch_id: primaryMaterial.batch!.id,
+        ...primaryFabricSourceInput(primaryMaterial.batch!.id),
         estimated_material_code: primaryMaterial.batch!.item_sku || primaryMaterial.batch!.batch_no,
         estimated_material_amount: primaryMaterial.quantity,
         estimated_material_unit: primaryMaterial.batch!.unit || DEFAULT_MATERIAL_UNIT,
         materials: materials.map((row) => ({
-          stock_batch_id: row.batch!.id,
+          ...fabricSourceInput(row.batch!.id),
           estimated_quantity: row.quantity,
           unit: row.batch!.unit || DEFAULT_MATERIAL_UNIT,
         })),
@@ -1020,7 +1026,7 @@ export default function PlanningDashboard() {
         brand_id: 0,
         materials: [{ fabric_batch_id: 0, estimated_material_amount: "" }],
         deadline: "",
-        lines: [{ color: "white", size: "", quantity: 600, printing_required: false }],
+        lines: [{ color: "white", size: "", quantity: "", printing_required: false }],
       }));
       setBrandedLinesModelId(0);
       setBrandedLinesEditing(false);
@@ -1039,6 +1045,9 @@ export default function PlanningDashboard() {
       <PageHeader
         title={brandedOnly ? t("page.planning.brandedOrdersTitle") : t("page.planning.title")}
         subtitle={brandedOnly ? t("page.planning.brandedOrdersSubtitle") : t("page.planning.subtitle")}
+        actions={<PlanningCuttingFactoryAction me={me} orders={productionOrders || []} onChanged={async () => {
+          await Promise.all([mutateProductionOrders(), mutateBrandedOrders()]);
+        }} />}
       />
       {!brandedOnly ? (
         <>
@@ -1306,10 +1315,10 @@ export default function PlanningDashboard() {
                     <label className={MATERIAL_ESTIMATE_LABEL_CLASS}>{t("field.fabricBatch")}</label>
                     <SearchableSelect
                       value={batchPlan.fabricBatchId || null}
-                      options={fabricBatchOptions(availableFabricBatches, batchPlan.fabricItemIds)}
+                      options={fabricBatchOptions(fabricsForCutting(batchPlan.cuttingDepartmentCode), batchPlan.fabricItemIds)}
                       onChange={(batchId) => setBatchPlan((prev) => {
                         if (!prev) return prev;
-                        const batch = availableFabricBatches.find((row) => Number(row.id) === Number(batchId));
+                        const batch = fabricsForCutting(prev.cuttingDepartmentCode).find((row) => Number(row.id) === Number(batchId));
                         return { ...prev, fabricBatchId: Number(batchId), materialUnit: batch?.unit || prev.materialUnit };
                       })}
                       placeholder={t("field.fabricBatch")}
@@ -1362,6 +1371,7 @@ export default function PlanningDashboard() {
                       onChange={(e) => setBatchPlan((prev) => prev ? {
                         ...prev,
                         cuttingDepartmentCode: e.target.value as CuttingDepartmentCode,
+                        fabricBatchId: 0,
                       } : prev)}
                     >
                       <option value="CUT">{t("nav.cuttingFloor")}</option>
@@ -1501,10 +1511,10 @@ export default function PlanningDashboard() {
                   <label className={MATERIAL_ESTIMATE_LABEL_CLASS}>{t("field.fabricBatch")}</label>
                   <SearchableSelect
                     value={materialEstimate.fabricBatchId || null}
-                    options={fabricBatchOptions(availableFabricBatches, materialEstimate.fabricItemIds)}
+                    options={fabricBatchOptions(fabricsForCutting(materialEstimate.cuttingDepartmentCode), materialEstimate.fabricItemIds)}
                     onChange={(batchId) => setMaterialEstimate((prev) => {
                       if (!prev) return prev;
-                      const batch = availableFabricBatches.find((row) => Number(row.id) === Number(batchId));
+                      const batch = fabricsForCutting(prev.cuttingDepartmentCode).find((row) => Number(row.id) === Number(batchId));
                       return { ...prev, fabricBatchId: Number(batchId), materialUnit: batch?.unit || prev.materialUnit };
                     })}
                     placeholder={t("field.fabricBatch")}
@@ -1557,6 +1567,7 @@ export default function PlanningDashboard() {
                     onChange={(e) => setMaterialEstimate((prev) => prev ? {
                       ...prev,
                       cuttingDepartmentCode: e.target.value as CuttingDepartmentCode,
+                        fabricBatchId: 0,
                     } : prev)}
                   >
                     <option value="CUT">{t("nav.cuttingFloor")}</option>
@@ -1661,6 +1672,7 @@ export default function PlanningDashboard() {
                   onChange={(e) => setBrandedForm((prev) => ({
                     ...prev,
                     cutting_department_code: e.target.value as CuttingDepartmentCode,
+                    materials: prev.materials.map(row => ({ ...row, fabric_batch_id: 0 })),
                   }))}
                 >
                   <option value="CUT">{t("factory.milana")}</option>
@@ -1701,7 +1713,7 @@ export default function PlanningDashboard() {
               </div>
               <div className="divide-y divide-[#ecebe3] rounded-md border border-[#e3e0d5]">
                 {brandedForm.materials.map((material, index) => {
-                  const selectedBatch = availableFabricBatches.find(
+                  const selectedBatch = brandedFabricBatches.find(
                     (batch) => Number(batch.id) === Number(material.fabric_batch_id),
                   ) || null;
                   return (

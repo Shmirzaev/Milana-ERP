@@ -39,6 +39,8 @@ def test_package_context_preserves_preview_url_without_selecting_image_binary():
             result = _package_context(
                 db,
                 SimpleNamespace(
+                    id=0,
+                    legacy_receipt=None,
                     production_order_id=None,
                     sales_order_id=None,
                     model_id=model_id,
@@ -57,7 +59,11 @@ def test_package_context_preserves_preview_url_without_selecting_image_binary():
         "model_code": f"PKG-{marker}-V1",
         "model_name": "Package context projection",
         "model_image_url": image_url,
+        "model_no": f"PKG-{marker}",
+        "variant_no": "V1",
+        "sewing_factory_code": None,
+        "sewing_factory_codes": [],
     }
-    assert len(statements) == 5  # Family identity and image metadata are separate batched reads.
+    assert len(statements) == 6  # Family/photo metadata plus one batched sewing-origin read.
     assert len(image_reads) == 2
     assert all("model_images.file_data" not in sql for sql in image_reads)

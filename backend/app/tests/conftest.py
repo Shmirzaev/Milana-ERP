@@ -1,9 +1,10 @@
 import os
 import shutil
 import tempfile
+from datetime import datetime, timezone
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 # Configure SQLite for tests *before* importing app
@@ -39,6 +40,21 @@ _original_engine = session_module.engine
 test_engine = create_engine(
     os.environ["DATABASE_URL"], connect_args={"check_same_thread": False}, future=True,
 )
+
+
+@event.listens_for(test_engine, "begin")
+def sqlite_transaction_timestamp(connection):
+    """Match PostgreSQL now(): one UTC timestamp per supplied transaction.
+
+    SQLite's default CURRENT_TIMESTAMP advances per statement and truncates to
+    seconds. That makes same-transaction Cutting/Waste attribution nondeterministic
+    in tests. Override only this disposable test engine, never the application
+    engine or Python's clock; each subsequent transaction receives a fresh value.
+    """
+    stamp = datetime.now(timezone.utc).replace(tzinfo=None).strftime("%Y-%m-%d %H:%M:%S.%f")
+    connection.connection.driver_connection.create_function("current_timestamp", 0, lambda: stamp)
+
+
 TestSessionLocal = sessionmaker(bind=test_engine, autoflush=False, autocommit=False, expire_on_commit=False)
 
 # Patch the app's SessionLocal to use the test engine

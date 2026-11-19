@@ -10,3 +10,10 @@ class PartyOut(ORMModel):
     email: Optional[str] = None
     address: Optional[str] = None
     notes: Optional[str] = None
+
+
+class PartyPageOut(ORMModel):
+    rows: list[PartyOut]
+    total: int
+    page: int
+    page_size: int

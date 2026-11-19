@@ -5,6 +5,7 @@ from pathlib import Path
 
 from sqlalchemy.orm import Session
 
+from app.core.ceo_access import CEO_ROLE_NAME
 from app.core.config import settings
 from app.core.security import (
     LEGACY_DEFAULT_ADMIN_EMAIL,
@@ -59,6 +60,7 @@ AI_MONITOR_PERMISSIONS = [
 
 # Permissions per role (using "*" for full app access)
 ROLES = {
+    CEO_ROLE_NAME: [],
     "Super Admin": ["*", "admin.super"],
     "Admin": ["*"],
     "Management": [
@@ -95,7 +97,7 @@ ROLES = {
     "ReadyStorage": ["sales.customers", "storage.packages", "storage.shipment", "traceability.view", "traceability.export"],
     "Waste": ["waste.receive", "waste.sell", "waste.disposal"],
     PAYROLL_ROLE_NAME: [*PAYROLL_WORKSPACE_PERMISSIONS, PAYROLL_DAILY_SEWING_REPORT_PERMISSION, *PAYROLL_SEWING_PERMISSIONS],
-    "Finance": ["finance.view", "finance.invoice", "finance.payment", "inventory.reservations.view", "purchasing.view", "forecasting.view"],
+    "Finance": ["finance.view", "price_calculation.approve", "finance.invoice", "finance.payment", "inventory.reservations.view", "purchasing.view", "forecasting.view"],
     "HR": ["hr.employees"],
     AI_MONITOR_ROLE_NAME: AI_MONITOR_PERMISSIONS,
 }

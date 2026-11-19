@@ -4,7 +4,25 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import ts from "typescript";
 
-const source = fs.readFileSync(new URL("../src/app/(app)/work-orders/[id]/packaging/page.tsx", import.meta.url), "utf8");
+const source = fs.readFileSync(process.env.PACKAGING_PAGE_SOURCE_FILE || new URL("../src/app/(app)/work-orders/[id]/packaging/page.tsx", import.meta.url), "utf8");
+const multiNastil = {};
+new Function("exports", ts.transpileModule(fs.readFileSync(new URL("../src/lib/multiNastilPackaging.ts", import.meta.url), "utf8"), {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
+}).outputText)(multiNastil);
+const traceLibrary = {};
+new Function("exports", ts.transpileModule(fs.readFileSync(new URL("../src/lib/packageBatchTrace.ts", import.meta.url), "utf8"), {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
+}).outputText)(traceLibrary);
+const availabilityLibrary = {};
+new Function("exports", ts.transpileModule(fs.readFileSync(new URL("../src/lib/packagingAvailabilityText.ts", import.meta.url), "utf8"), {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
+}).outputText)(availabilityLibrary);
+const traceEditor = {};
+new Function("exports", "React", "require", ts.transpileModule(fs.readFileSync(new URL("../src/components/PackageBatchBreakdownEditor.tsx", import.meta.url), "utf8"), {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.React },
+}).outputText)(traceEditor, React, name => {
+  assert.equal(name, "@/lib/packageBatchTrace"); return traceLibrary;
+});
 const compiled = ts.transpileModule(source, { compilerOptions: {
   module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.React,
 } }).outputText;
@@ -12,32 +30,49 @@ const compiled = ts.transpileModule(source, { compilerOptions: {
 function render(sewn, remaining, batched = true, events = {}) {
   let stateIndex = 0;
   const batch = { id: 1, name: "Nastil 1", batch_no: "0306-01", planned_quantity: 684,
-    sewing_output_qty: sewn, available_input_qty: remaining, packed_qty: 0, available_to_package: 0 };
+    sewing_output_qty: sewn, available_input_qty: remaining, packed_qty: 0, available_to_package: remaining };
   const noop = () => null;
   const deps = {
-    react: { ...React, useState: initial => React.useState(stateIndex++ === 0
-      ? { ...initial, production_batch_id: batched ? 1 : 0 } : initial) },
+    react: { ...React, useState: initial => {
+      const index = stateIndex++;
+      const [value] = React.useState(events.states?.[index] ?? (index === 0
+        ? (typeof initial === "object" ? { ...initial, production_batch_id: batched ? 1 : 0 } : (batched ? 1 : 0)) : initial));
+      return [value, next => { (events.stateUpdates ??= {})[index] = typeof next === "function" ? next(value) : next; }];
+    }, useEffect: effect => { (events.effects ??= []).push(effect); } },
     "next/navigation": { useParams: () => ({ id: "3" }) },
     swr: { useSWRConfig: () => ({ mutate: async predicate => { events.sizePredicate = predicate; } }),
-      default: key => ({ mutate: async () => { (events.refreshed ??= []).push(key); }, data:
-      key?.includes("packaging-batch-progress") ? { ...batch, items: batched ? [batch] : [] }
-      : key?.includes("production-orders") ? { id: 1, planned_quantity: 684,
+      default: key => ({ mutate: async () => { if (events.refreshError) throw new Error("Refresh blocked"); (events.refreshed ??= []).push(key); }, error: key?.startsWith("/api/packages/sources/") ? events.sourceError : undefined, isLoading: !!events.sourceLoading, data:
+      key?.startsWith("/api/packages/sources/") ? { items: events.sources || events.batches || [batch], unbatched_source: batched ? null : batch }
+      : key?.includes("packaging-batch-progress") ? { ...batch, items: batched ? (events.batches || [batch]) : [] }
+      : key?.includes("production-orders") ? { id: 1, model_id: 1, planned_quantity: 684,
         batches: batched ? [batch] : [], items: [{ size: "M", color: "white", planned_quantity: 684 }] }
       : key?.includes("work-orders") ? { id: 3, production_order_id: 1, planned_output_qty: 684, passed_qty: 0 }
       : key === "/api/customers" ? [] : undefined }) },
-    "@/lib/api": { api: {}, fetcher: noop },
-    "@/lib/auth": { can: () => true, useMe: () => ({ me: {} }) },
-    "@/lib/i18n": { useT: () => ({ t: key => key }) },
+    "@/lib/api": { api: { openLabel: async () => { if (events.printError) throw new Error("Print blocked"); }, post: async () => { throw new Error("Separate record POST must not run"); } }, fetcher: noop },
+    "@/lib/auth": { can: () => true, useMe: () => ({ me: { id: 7 } }) },
+    "@/lib/i18n": { useT: () => ({ t: (key, vars) => {
+      if (events.translations) events.translations[key] = vars;
+      return key;
+    }, lang: "en" }) },
+    "@/lib/multiNastilPackaging": multiNastil,
+    "@/lib/packageBatchTrace": traceLibrary,
+    "@/lib/packagingAvailabilityText": availabilityLibrary,
+    "@/components/PackageBatchBreakdownEditor": traceEditor,
     "@/lib/errorMessages": { localizeError: value => value },
     "@/lib/batchSerial": { formatBatchLabel: row => row.name, formatBatchSerial: row => row.batch_no },
-    "@/lib/packageWorkflow": { postPackageWorkflow: noop },
+    "@/lib/packageWorkflow": { postPackageWorkflow: async (_path, body) => { (events.createdRequests ??= []).push(body); events.created = body; if (_path === "/api/packages/record-damage") return { id: 2, damaged_qty: body.damaged_qty }; return { id: 1, count: body.packages.length, package_ids: [1], run_no: "PRN-1" }; } },
     "@/lib/orderRef": { orderReference: () => "PO-0306" },
     "@/lib/numberInput": { numberOrZero: value => Number(value || 0), numberOrFallback: (v, f) => Number(v || f), parseNumberInput: Number },
     "@/components/StagePipeline": { operationLabel: value => value, statusLabel: value => value },
     "@/components/PackageQrSection": { default: props => { events.packageChanged = props.onChanged; return null; } },
   };
   const exports = {};
-  new Function("exports", "React", "require", compiled)(exports, React, name => {
+  const react = { ...React, createElement: (type, props, ...children) => {
+    if (type === "button" && props.onClick && children.includes("Record damage only")) events.submitDamage = props.onClick;
+    if (type === "form" && props.onSubmit) events.submitPackage = props.onSubmit;
+    return React.createElement(type, props, ...children);
+  } };
+  new Function("exports", "React", "require", compiled)(exports, react, name => {
     if (name in deps) return deps[name];
     assert.ok(name.startsWith("@/components/"), `Unexpected dependency ${name}`);
     return { default: noop };
@@ -47,12 +82,146 @@ function render(sewn, remaining, batched = true, events = {}) {
 
 for (const [sewn, remaining] of [[590, 590], [585, 285], [0, 0]]) {
   const html = render(sewn, remaining);
-  assert.ok(html.includes(`Nastil 1 (${sewn})`));
-  assert.ok(!html.includes("Nastil 1 (684)"));
-  assert.match(html, new RegExp(`min="0" max="${remaining}" value=""`));
-  assert.ok(html.includes(`field.available: ${remaining}`));
+  assert.ok(!html.includes("btn.savePackagingRecord"));
+  assert.ok(!html.includes("field.inputQty"));
+  assert.ok(html.includes(`Available to pack: ${remaining}`));
+  assert.match(html, /min="1" max="200" step="1"/);
 }
-assert.match(render(585, 285, false), /min="0" max="285" value=""/);
+assert.match(render(585, 285, false), /Available to pack: 285/);
+
+// Exercise the actual page submit closure, not just the planner: source selection
+// must reach the atomic endpoint and must not create packs from the third Nastil.
+const merged = { states: { 6: 2, 8: true, 9: [1, 2] }, batches: [], sources: [
+  { id: 1, name: "Nastil A", available_to_package: 35 },
+  { id: 2, name: "Nastil B", available_to_package: 40 },
+  { id: 3, name: "Unselected", available_to_package: 90 },
+  { id: 4, name: "Still sewing", available_to_package: 0 },
+] };
+const mergedHtml = render(75, 0, true, merged);
+assert.match(mergedHtml, /Selected Nastils: 2/);
+assert.match(mergedHtml, /aria-label="Select Still sewing" disabled=""/);
+await merged.submitPackage({ preventDefault() {} });
+assert.equal(merged.created.work_order_id, 3);
+assert.equal(merged.created.packages.length, 2);
+assert.deepEqual(merged.created.packages.map(pack => pack.items.reduce((sum, item) => sum + item.quantity, 0)), [60, 15]);
+assert.deepEqual(merged.created.packages.flatMap(pack => pack.batch_allocations.map(row => [row.production_batch_id, row.quantity])), [[1, 35], [2, 25], [2, 15]]);
+assert.deepEqual(merged.created.packages[0].batch_allocations.map(row => row.item_breakdown), [
+  [{ model_id: 1, color: "white", size: "M", quantity: 35 }],
+  [{ model_id: 1, color: "white", size: "M", quantity: 25 }],
+]);
+// Ambiguous mixed contents require actual operator attribution. A matching grand
+// total alone is insufficient: swapping size totals must still stop the write.
+const mixedItems = [{ model_id: 1, color: "white", size: "M", quantity: 30 }, { model_id: 1, color: "white", size: "L", quantity: 30 }];
+const mixedPlans = [{ items: mixedItems, batch_allocations: [{ production_batch_id: 1, quantity: 35, label: "Nastil A" }, { production_batch_id: 2, quantity: 40, label: "Nastil B" }] }];
+const traceKey = traceLibrary.packageTracePlanKey(mixedPlans);
+function mixedEvents(values = {}, key = traceKey) {
+  return { ...merged, created: undefined, states: { 1: mixedItems.map(({ size, quantity }) => ({ size, quantity })), 6: 1, 8: true, 9: [1, 2], 16: { key, values } } };
+}
+const missingTrace = mixedEvents();
+assert.match(render(75, 0, true, missingTrace), /Contents by Nastil and size/);
+await missingTrace.submitPackage({ preventDefault() {} });
+assert.equal(missingTrace.created, undefined);
+const cells = {};
+for (const [batch, m, l] of [[1, 10, 25], [2, 20, 5]]) {
+  cells[traceLibrary.traceCellKey(0, batch, mixedItems[0])] = String(m);
+  cells[traceLibrary.traceCellKey(0, batch, mixedItems[1])] = String(l);
+}
+const exactTrace = mixedEvents(cells);
+render(75, 0, true, exactTrace);
+await exactTrace.submitPackage({ preventDefault() {} });
+assert.deepEqual(exactTrace.created.packages[0].batch_allocations.map(row => row.item_breakdown.map(item => [item.size, item.quantity])), [[ ["M", 10], ["L", 25] ], [ ["M", 20], ["L", 5] ]]);
+const actualSources = mixedEvents({
+  [traceLibrary.traceCellKey(0, 1, mixedItems[0])]: "30",
+  [traceLibrary.traceCellKey(0, 2, mixedItems[1])]: "30",
+});
+render(75, 0, true, actualSources); await actualSources.submitPackage({ preventDefault() {} });
+assert.deepEqual(actualSources.created.packages[0].batch_allocations.map(row => [row.production_batch_id, row.quantity]), [[1, 30], [2, 30]], "Actual source sizes must not be forced into the scalar FIFO suggestion 35+25");
+for (const event of [mixedEvents(cells, "stale-plan"), mixedEvents({ ...cells, [traceLibrary.traceCellKey(0, 1, mixedItems[0])]: "11" })]) {
+  render(75, 0, true, event); await event.submitPackage({ preventDefault() {} }); assert.equal(event.created, undefined);
+}
+const onePack = { ...merged, states: { 6: 1, 8: true, 9: [1, 2] }, created: undefined };
+render(75, 0, true, onePack);
+await onePack.submitPackage({ preventDefault() {} });
+assert.equal(onePack.created.packages.length, 1);
+assert.deepEqual(onePack.created.packages[0].batch_allocations.map(row => [row.production_batch_id, row.quantity]), [[1, 35], [2, 25]]);
+// The real single-source submit must stop after the requested full or partial pack.
+for (const [quantity, copies, expected] of [[300, 1, [60]], [130, 2, [60, 60]], [75, 2, [60, 15]], [75, 5, [60, 15]], [0, 1, []]]) {
+  const events = { states: { 6: copies }, batches: [{ id: 1, packed_qty: quantity, available_to_package: quantity }] };
+  render(quantity, 0, true, events);
+  await events.submitPackage({ preventDefault() {} });
+  assert.deepEqual((events.created?.packages || []).map(pack => pack.items.reduce((sum, item) => sum + item.quantity, 0)), expected);
+}
+// Source previews must describe the selected final plans, including a pure
+// first pack before a mixed second pack and the final partial pack.
+for (const [copies, balances, expected, preview, fullCount, pending] of [
+  [1, [90, 90], [[[1, 60]]], "Nastil A: 60", 1, 120],
+  [2, [90, 90], [[[1, 60]], [[1, 30], [2, 30]]], "Nastil A: 60 | Nastil A: 30 + Nastil B: 30", 2, 60],
+  [2, [35, 40], [[[1, 35], [2, 25]], [[2, 15]]], "Nastil A: 35 + Nastil B: 25 | Nastil B: 15", 1, 0],
+]) {
+  const events = { states: { 6: copies, 8: true, 9: [1, 2] }, translations: {}, sources: [
+    { id: 1, name: "Nastil A", available_to_package: balances[0] },
+    { id: 2, name: "Nastil B", available_to_package: balances[1] },
+    { id: 3, name: "Unselected", available_to_package: 90 },
+  ] };
+  const html = render(balances[0] + balances[1], 0, true, events);
+  assert.ok(html.includes(`page.packaging.mergeSources: ${preview}`), preview);
+  if (copies === 1) assert.ok(!html.includes("Nastil A: 30 + Nastil B: 30"), "Never preview an unselected second pack");
+  assert.equal(events.translations["page.packaging.mergeFullPackages"].count, fullCount);
+  assert.equal(events.translations["page.packaging.mergePending"].count, pending);
+  await events.submitPackage({ preventDefault() {} });
+  assert.deepEqual(events.created.packages.map(pack => pack.batch_allocations.map(row => [row.production_batch_id, row.quantity])), expected);
+}
+const incomplete = { ...merged, states: { 8: true, 9: [1] }, created: undefined };
+render(75, 0, true, incomplete);
+await incomplete.submitPackage({ preventDefault() {} });
+assert.equal(incomplete.created, undefined);
+
+// The new damage field belongs to the same atomic action and reduces only good
+// availability; it must never send a second record request.
+for (const damaged of [5, 0]) {
+  const events = { states: { 15: damaged }, sources: [{ id: 1, available_to_package: 95, available_input_qty: 95 }] };
+  const html = render(95, 95, true, events);
+  assert.ok(html.includes(`Pieces left for later: ${35 - damaged}`));
+  await events.submitPackage({ preventDefault() {} });
+  assert.equal(events.created.work_order_id, 3);
+  assert.equal(events.created.damaged_qty ?? 0, damaged);
+  assert.equal(events.created.packages.length, 1);
+}
+for (const states of [{ 6: 201 }, { 6: 1.5 }, { 15: 96 }, { 15: -1 }, { 15: 0.5 }]) {
+  const events = { states, sources: [{ id: 1, available_to_package: 95, available_input_qty: 95 }] };
+  render(95, 95, true, events); await events.submitPackage({ preventDefault() {} });
+  assert.equal(events.created, undefined);
+}
+for (const eventFlags of [{ sourceError: new Error("Sources unavailable") }, { sourceLoading: true }]) {
+  const events = { ...eventFlags }; render(95, 95, true, events);
+  await events.submitPackage({ preventDefault() {} }); assert.equal(events.created, undefined);
+}
+for (const flags of [{ printError: true }, { refreshError: true }]) {
+  const events = { ...flags }; render(95, 95, true, events);
+  await events.submitPackage({ preventDefault() {} });
+  assert.equal(events.createdRequests.length, 1, "A refresh/print failure must never repeat a committed write");
+}
+
+// A source disappearing during revalidation must never transfer a damage draft
+// to a different Nastil. Exercise the actual page effects and refusal closure.
+const moved = { states: { 0: 9, 15: 5 }, sources: [{ id: 10, available_input_qty: 95, available_to_package: 95 }] };
+render(95, 95, true, moved); moved.effects.forEach(effect => effect());
+assert.equal(moved.stateUpdates[0], 9);
+await moved.submitPackage({ preventDefault() {} }); assert.equal(moved.created, undefined);
+for (const merged of [false, true]) {
+  const incomplete = { states: { 1: [{ size: "M", quantity: 60 }, { size: "L", quantity: "" }], 8: merged, 9: [1, 2] },
+    sources: [{ id: 1, available_to_package: 95 }, { id: 2, available_to_package: 95 }] };
+  render(190, 190, true, incomplete); await incomplete.submitPackage({ preventDefault() {} });
+  assert.equal(incomplete.created, undefined, "Incomplete size rows must not disappear in mixed mode");
+}
+const allDamage = { states: { 15: 95 }, sources: [{ id: 1, available_to_package: 95, available_input_qty: 95 }] };
+const allDamageHtml = render(95, 95, true, allDamage);
+assert.match(allDamageHtml, /Record damage only/);
+await allDamage.submitDamage();
+assert.deepEqual(allDamage.created, { work_order_id: 3, production_batch_id: 1, damaged_qty: 95 });
+assert.equal(allDamage.created.packages, undefined);
+assert.equal(allDamage.stateUpdates[11].type, "success");
+assert.equal(allDamage.stateUpdates[15], "");
 
 // A successful QR change must refresh both entry counters and size balances,
 // including other cached batches of this order, without invalidating other orders.
@@ -60,7 +229,7 @@ const events = {};
 render(120, 60, true, events);
 await events.packageChanged();
 assert.deepEqual(events.refreshed.sort(), [
-  "/api/production-orders/1", "/api/work-orders/3", "/api/work-orders/3/packaging-batch-progress",
+  "/api/production-orders/1", "/api/work-orders/3", "/api/work-orders/3/packaging-batch-progress", "/api/packages/sources/3",
 ].sort());
 for (const key of ["/api/packages/first-grade/size-entry/1", "/api/packages/first-grade/size-entry/1?production_batch_id=2"]) {
   assert.equal(events.sizePredicate(key), true);
@@ -94,4 +263,4 @@ for (const actual of [590, 585, 0, 600]) {
   }));
   assert.match(html, new RegExp(`field.actualQty</div><div class="font-medium">${actual}</div>`));
 }
-console.log("Packaging form renders passed sewing output and remaining input, including zero and unbatched orders.");
+console.log("PASS: direct Sewing packaging, selected batches and count, partial/unbatched balances and cache refresh; no separate record form/POST.");

@@ -94,7 +94,8 @@ def test_branded_export_saved_sizes_literal_text_and_empty_order(client,auth_hea
     assert sheet['B3'].value=='PG10530' and sheet['E3'].value=='V-6624' and sheet['D3'].value=='4388'
     assert sheet['L3'].value=='122, 128' and sheet['N3'].value==600
     assert sheet['O3'].value
-    assert sheet.max_column==19
+    assert sheet.max_column==20
+    assert sheet['T2'].value=='Bichish fabrikasi'
     assert sum(row[5] for row in list(book['Razmerlar'].values)[1:])==600
     assert all(cell.data_type!='f' for s in book for row in s for cell in row)
     assert client.get('/api/planning/branded-orders/999999/export.xlsx',headers=auth_headers).status_code==404

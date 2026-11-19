@@ -16,10 +16,18 @@ records. Business services live in models/*_service.py.
 - [ShipmentPackage](../sales/sales.py)
 - [ShipmentScanLog](../sales/sales.py)
 - [PackageQuantityAdjustment](shipment_review.py)
+- [PackageCustomerRelease](package_customer_release.py): explicit admin release,
+  source identity and remaining-quantity scope; persistence participates in the
+  caller's transaction without changing package/order/stock provenance.
 - [LegacyStockReceipt](../production/tracking.py)
 - [FinishedGoodsStock](../production/tracking.py)
 - [StockReservation](../production/tracking.py)
 - [WarehousePackReservation](../production/tracking.py)
+
+`shipment_allocation.py` owns mapped writes for a shipment's per-item package
+claim: copied JSON selection plus ShipmentPackage identity/quantity, including
+replacement. It shares the caller's Session and never commits. Calculations,
+eligibility and locking belong to the Fulfillment allocation service.
 
 These links follow business ownership; some point to mixed files in another group
 or shared core.py. Keep one authoritative mapping per table. Moving individual

@@ -1,5 +1,7 @@
 """Sewing completion accounts for every nastil while retaining real shortages."""
 from datetime import datetime, timezone
+from decimal import Decimal
+from uuid import uuid4
 
 import pytest
 
@@ -17,6 +19,37 @@ def _sew(client, headers, wid, bid, quantity, assignment_id=None):
         "input_qty": quantity, "sewn_qty": quantity, "passed_qty": quantity,
         "size_quantities": [{"size": "M", "quantity": quantity}],
     })
+
+
+def _approve_eco_accessories(client, milana_headers, eco_headers, order_id):
+    """Prepare the new ECO approval/issue handoff using the model's real BOM."""
+    response = client.get("/api/inventory/accessory-issue-plan", headers=milana_headers,
+                          params={"production_order_id": order_id})
+    assert response.status_code == 200, response.text
+    lines = [{"item_id": row["item_id"],
+              "quantity": str(Decimal(str(row["required_quantity"])).quantize(Decimal("0.0001")))}
+             for row in response.json()["rows"] if Decimal(str(row["required_quantity"])) > 0]
+    for line in lines:
+        response = client.post("/api/eco-inventory/receive", headers=eco_headers, json={
+            **line, "kind": "accessory", "request_key": uuid4().hex,
+            "batch_no": "NASTIL-ECO-" + uuid4().hex[:16],
+        })
+        assert response.status_code == 200, response.text
+    response = client.put(f"/api/eco-accessories/{order_id}", headers=eco_headers,
+                          json={"revision": 0, "lines": lines})
+    assert response.status_code == 200, response.text
+    for action in ("submit", "approve"):
+        response = client.post(f"/api/eco-accessories/{order_id}/{action}", headers=eco_headers,
+                               json={"revision": response.json()["revision"]})
+        assert response.status_code == 200, response.text
+    plan = response.json()
+    allocations = [{"allocation_id": allocation["id"], "quantity": allocation["quantity"]}
+                   for line in plan["lines"] for allocation in line["allocations"]]
+    if allocations:
+        response = client.post(f"/api/eco-accessories/{order_id}/issue",
+                               headers={**eco_headers, "Idempotency-Key": uuid4().hex},
+                               json={"revision": plan["revision"], "lines": allocations})
+        assert response.status_code == 200, response.text
 
 
 def _setup(client, headers, factory):
@@ -37,7 +70,8 @@ def _setup(client, headers, factory):
             "bundles": [{"color": "white", "size": "M", "quantity": 300, "count": 1}],
         })
         assert response.status_code == 201, response.text
-    _issue_required_accessories(client, headers, po["id"])
+    if factory != "ECO":
+        _issue_required_accessories(client, headers, po["id"])
     with TestSessionLocal() as db:
         # An old accepted shortage must not count again after the next nastil arrives.
         db.get(WorkOrder, work["cutting"]).failed_qty = 300
@@ -51,6 +85,8 @@ def _setup(client, headers, factory):
                 Department.id).filter_by(code=code).scalar()
         db.commit()
     scoped_headers = {"Authorization": f"Bearer {create_access_token(1, extra={'factory_code': factory})}"}
+    if factory == "ECO":
+        _approve_eco_accessories(client, headers, scoped_headers, po["id"])
     return work, first, second_id, scoped_headers
 
 

@@ -3,9 +3,26 @@ name: ERP validation and immutable release artifacts
 on:
   pull_request:
   push:
-    branches: [main, clone_main, "codex/**"]
+    branches:
+      - main
+      - clone_main
+      # Worktree pushes validate on hosted runners; QA runtime authorization stays exact.
+      - codex/**
+      - codex/ismail-finance-pilot-20261025
+      - codex/ismail-brand-feedback-20261028
+      - codex/ismail-combined-review-20261028
+  schedule:
+    - cron: "23 2 * * *"
   workflow_dispatch:
     inputs:
+      security_scan_only:
+        description: "Run only the security gate; never publish release artifacts"
+        type: boolean
+        default: false
+      security_scan_ref:
+        description: "Source ref for security-only evidence (ignored for releases)"
+        type: string
+        default: clone_main
       release_id:
         description: "UTC release ID (YYYYMMDD_HHMMSS)"
         required: true
@@ -19,13 +36,64 @@ on:
         required: true
         type: string
 
+# Only PRs share a group; even pending main/clone_main pushes stay independent.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('{0}-{1}', github.ref, github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
   packages: write
 
 jobs:
+  release-plan:
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.plan.outputs.enabled }}
+      release: ${{ steps.plan.outputs.release }}
+      base_release: ${{ steps.plan.outputs.base_release }}
+      base_manifest: ${{ steps.plan.outputs.base_manifest }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Select immutable candidate identity
+        id: plan
+        env:
+          AUTO_RELEASE_BUILDS: ${{ vars.AUTO_RELEASE_BUILDS }}
+          SECURITY_ONLY: ${{ inputs.security_scan_only }}
+          INPUT_RELEASE: ${{ inputs.release_id }}
+          INPUT_BASE_RELEASE: ${{ inputs.production_base_release }}
+          INPUT_BASE_MANIFEST: ${{ inputs.production_base_manifest }}
+        run: python scripts/release_ci_identity.py
+  security-scope:
+    permissions:
+      contents: read
+      pull-requests: read
+    runs-on: ubuntu-latest
+    outputs:
+      required: ${{ steps.scope.outputs.required }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Read PR changed paths
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files?per_page=100" --jq '.[].filename' > "$RUNNER_TEMP/security-changed.txt"
+      - name: Select security events
+        id: scope
+        run: |
+          touch "$RUNNER_TEMP/security-changed.txt"
+          python scripts/security_gate.py --scope --changed-files "$RUNNER_TEMP/security-changed.txt"
+  security-scan:
+    needs: [security-scope, release-plan]
+    if: needs.security-scope.outputs.required == 'true'
+    uses: ./.github/workflows/security-scan.yml
+    with:
+      source_ref: ${{ github.event_name == 'schedule' && 'clone_main' || github.event_name == 'workflow_dispatch' && inputs.security_scan_only && inputs.security_scan_ref || github.sha }}
+      release_images: ${{ needs.release-plan.outputs.enabled == 'true' }}
   backend-bootstrap:
     name: Backend / bootstrap and policy
+    if: &backend_validation github.event_name != 'schedule' && !(github.event_name == 'workflow_dispatch' && inputs.security_scan_only)
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -42,6 +110,8 @@ jobs:
             backend/requirements-dev.txt
       - &backend_install
         run: python -m pip install -r backend/requirements.txt -r backend/requirements-dev.txt
+      - name: Check CI trigger and cancellation policy
+        run: python scripts/test_ci_trigger_policy.py
       - name: Check backend shard coverage verification
         run: python scripts/test_backend_regression_shard.py
       - &backend_start_pg
@@ -61,11 +131,20 @@ jobs:
       - name: Verify one Alembic head
         working-directory: backend
         run: python -c "from alembic.config import Config; from alembic.script import ScriptDirectory; heads=ScriptDirectory.from_config(Config('alembic.ini')).get_heads(); assert len(heads)==1, heads; print(heads[0])"
+      - name: Rehearse fresh and both ECO/turnstile migration histories
+        working-directory: backend
+        env:
+          MIGRATION_REHEARSAL_ADMIN_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/postgres
+        run: python scripts/verify_eco_gate_migration_merge.py
+      - name: Security gate policy and workflow regressions
+        run: python -m unittest discover -s scripts -p 'test_security_gate.py' -v
       - name: Ruff and compile
         working-directory: backend
         run: |
           python -m ruff check app
           python -m compileall -q app scripts
+      - name: Automatic release trust, drift and recovery regressions
+        run: python -m unittest discover -s scripts -p 'test_auto_release*.py' -v
       - name: Deployment observation regression suite
         run: python -m unittest discover -s scripts -p 'test_observe_release.py' -v
       - &backend_stop_pg
@@ -78,6 +157,7 @@ jobs:
 
   backend-operations:
     name: Backend / PostgreSQL operations
+    if: *backend_validation
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -86,10 +166,51 @@ jobs:
       - *backend_python
       - *backend_install
       - *backend_start_pg
+      - name: Stabilization PostgreSQL auth and rate races
+        working-directory: backend
+        env:
+          STABILIZATION_POSTGRES_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/first_grade_qa_ci
+        run: >-
+          python -m pytest -v -rs
+          app/tests/test_password_change_races.py::test_postgres_same_current_password_changes_only_once
+          app/tests/test_rate_limit_scheduling.py::test_postgres_roster_lock_survives_concurrent_rate_store_workers
+      - name: Planning cutting factory PostgreSQL routing and stale-scope races
+        working-directory: backend
+        env:
+          PLANNING_CUTTING_POSTGRES_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/first_grade_qa_ci
+        run: python -m pytest -q app/tests/test_planning_cutting_factory_postgres.py app/tests/test_packaging_report_page_postgres.py
+      - name: BST handoff PostgreSQL preservation and recovery
+        env:
+          PYTHONPATH: ./backend
+          BST_HANDOFF_TEST_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/bst_handoff_test
+        run: |
+          docker exec milana-ci-postgres createdb -U postgres bst_handoff_test
+          trap 'docker exec milana-ci-postgres dropdb -U postgres bst_handoff_test' EXIT
+          python -m pytest -q backend/tests/test_bst_master_handoff_postgres.py
+      - name: ECO material PostgreSQL migration and concurrency
+        working-directory: backend
+        env:
+          STABILIZATION_POSTGRES_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/first_grade_qa_ci
+        run: python -m pytest -q app/tests/test_eco_inventory_postgres.py
+      - name: Combined Cutting rejection, Qolip CAD and passport allocation PostgreSQL regressions
+        working-directory: backend
+        env:
+          PLANNING_CUTTING_POSTGRES_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/first_grade_qa_ci
+          STABILIZATION_POSTGRES_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/first_grade_qa_ci
+          PASSPORT_ALLOCATION_POSTGRES_URL: postgresql+psycopg2://postgres@127.0.0.1:5432/first_grade_qa_ci
+        run: >-
+          python -m pytest -q
+          app/tests/test_cutting_order_rejection_postgres.py
+          app/tests/test_model_pattern_cad_postgres.py
+          app/tests/test_passport_batch_allocations_postgres.py
       - name: Purchasing approval PostgreSQL write boundary
         env:
           PUR_APPROVAL_PG_ADMIN_URL: postgresql://postgres@127.0.0.1:5432/postgres
         run: python backend/scripts/test_purchase_request_approval_postgres.py
+      - name: Purchasing approval cleanup controls
+        env:
+          PUR_APPROVAL_PG_ADMIN_URL: postgresql://postgres@127.0.0.1:5432/postgres
+        run: python backend/scripts/purchase_approval_cleanup_pg_control.py
       - name: Create disposable Sales list review database
         id: sales-list-db
         run: >-
@@ -121,6 +242,7 @@ jobs:
 
   backend-locking:
     name: Backend / PostgreSQL locking
+    if: *backend_validation
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -135,6 +257,7 @@ jobs:
         run: >-
           python -m pytest -q
           backend/app/tests/test_admin_membership_delete_race.py
+          backend/app/tests/test_process_qr_model_operations.py
           backend/app/tests/test_numbering_postgres_concurrency.py
           backend/app/tests/test_material_reservation_concurrency.py
           backend/app/tests/test_package_write_postgres.py
@@ -146,13 +269,24 @@ jobs:
           backend/app/tests/test_packaging_receive_options_query_growth.py
           backend/app/tests/test_warehouse_pack_reservations_postgres.py
           backend/app/tests/test_sewing_band_postgres.py
+          backend/app/tests/test_direct_packaging_postgres.py
+          backend/app/tests/test_sewing_packaging_lock_postgres.py
+          backend/app/tests/test_sewing_daily_report_lock_order.py
           backend/app/tests/test_sewing_later_nastil_postgres.py
+          backend/app/tests/test_nastil_factory_postgres.py
+          backend/app/tests/test_open_shipment_allocations_postgres.py
           backend/app/tests/test_besttex_cutting_postgres.py
           backend/app/tests/test_payroll_overlap_repair.py
+          backend/app/tests/test_payroll_split_correction_races.py
+          backend/app/tests/test_payroll_returned_split_races.py
+          backend/app/tests/test_manual_packaging_postgres.py
+          backend/app/tests/test_payroll_qr_return_races.py
+          backend/app/tests/test_payroll_period_races.py
       - *backend_stop_pg
 
   backend-schema:
     name: Backend / schema and reservations
+    if: *backend_validation
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -191,6 +325,7 @@ jobs:
 
   backend-regression:
     name: Backend / regression ${{ matrix.shard }}
+    if: *backend_validation
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -222,7 +357,7 @@ jobs:
 
   backend:
     needs: [backend-bootstrap, backend-operations, backend-locking, backend-schema, backend-regression]
-    if: always()
+    if: always() && github.event_name != 'schedule' && !(github.event_name == 'workflow_dispatch' && inputs.security_scan_only)
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -254,12 +389,13 @@ jobs:
         run: python scripts/run_backend_regression_shard.py verify --count 8 --directory "$RUNNER_TEMP/backend-coverage"
 
   frontend:
+    if: github.event_name != 'schedule' && !(github.event_name == 'workflow_dispatch' && inputs.security_scan_only)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          node-version: "20"
+          node-version: "24"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - working-directory: frontend
@@ -268,6 +404,13 @@ jobs:
         run: npm run lint
       - working-directory: frontend
         run: npm run typecheck:strict
+      - name: All node-only frontend tests (quarantines reported separately)
+        working-directory: frontend
+        timeout-minutes: 15
+        env:
+          TZ: UTC
+          LANG: en_US.UTF-8
+        run: node scripts/run-node-tests.mjs
       - name: Sales enum contracts and mutation checks
         working-directory: frontend
         run: npm run test:sales-enum-contracts
@@ -365,21 +508,21 @@ jobs:
           printf 'QA artifact digest: %s\n' "$ARTIFACT_DIGEST" >> "$GITHUB_STEP_SUMMARY"
 
   release:
-    if: github.event_name == 'workflow_dispatch'
-    needs: [backend, frontend]
+    if: needs.release-plan.outputs.enabled == 'true' && !inputs.security_scan_only
+    needs: [release-plan, backend, frontend, security-scan]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Validate release identity and production base
         env:
-          RELEASE_ID: ${{ inputs.release_id }}
+          RELEASE_ID: ${{ needs.release-plan.outputs.release }}
         run: |
-          [[ "$RELEASE_ID" =~ ^[0-9]{8}_[0-9]{6}$ ]]
+          [[ "$RELEASE_ID" =~ ^[0-9]{8}_[0-9]{6}(_[1-9][0-9]{0,19}_[1-9][0-9]{0,5})?$ ]]
           python scripts/verify_release_source.py . \
-            --expected-base-release '${{ inputs.production_base_release }}' \
-            --expected-base-manifest '${{ inputs.production_base_manifest }}'
+            --expected-base-release '${{ needs.release-plan.outputs.base_release }}' \
+            --expected-base-manifest '${{ needs.release-plan.outputs.base_manifest }}'
       - name: Package deterministic source archive
-        run: python scripts/package_release.py --release '${{ inputs.release_id }}' --output 'milana-erp-${{ inputs.release_id }}.tar.gz'
+        run: python scripts/package_release.py --release '${{ needs.release-plan.outputs.release }}' --output 'milana-erp-${{ needs.release-plan.outputs.release }}.tar.gz'
       - name: Authenticate to GHCR
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -394,45 +537,65 @@ jobs:
           owner="${REPOSITORY_OWNER,,}"
           echo "backend=ghcr.io/$owner/milana-erp-backend" >> "$GITHUB_OUTPUT"
           echo "frontend=ghcr.io/$owner/milana-erp-frontend" >> "$GITHUB_OUTPUT"
-      - name: Build and publish backend image
+      - uses: actions/download-artifact@v4
+        with:
+          name: scanned-release-images-${{ github.run_id }}
+          path: ${{ runner.temp }}/scanned-images
+      - name: Load and verify exact scanned images
+        run: |
+          docker load -i "$RUNNER_TEMP/scanned-images/images.tar"
+          python - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          identity = json.loads(Path(os.environ['RUNNER_TEMP'], 'scanned-images', 'identity.json').read_text())
+          assert identity['source_sha'] == os.environ['GITHUB_SHA']
+          for kind, expected in identity['images'].items():
+              actual = subprocess.check_output(['docker', 'image', 'inspect', '--format', '{{.Id}}', f'milana-security-{kind}:{os.environ["GITHUB_RUN_ID"]}'], text=True).strip()
+              assert actual == expected, (kind, actual, expected)
+          PY
+      - name: Publish scanned backend image
         id: backend_image
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
-        with:
-          context: ./backend
-          pull: true
-          push: true
-          tags: ${{ steps.images.outputs.backend }}:${{ inputs.release_id }}
-          labels: org.opencontainers.image.revision=${{ github.sha }}
-          cache-from: type=gha,scope=milana-backend-v1
-          cache-to: type=gha,scope=milana-backend-v1,mode=max
-      - name: Build and publish frontend image
+        env:
+          DESTINATION: ${{ steps.images.outputs.backend }}:${{ needs.release-plan.outputs.release }}
+        run: |
+          docker tag "milana-security-backend:$GITHUB_RUN_ID" "$DESTINATION"
+          docker push "$DESTINATION"
+          digest=$(docker image inspect --format '{{index .RepoDigests 0}}' "$DESTINATION")
+          echo "digest=${digest##*@}" >> "$GITHUB_OUTPUT"
+      - name: Verify rollback image strict schema-0150 startup and worker recovery
+        if: hashFiles('scripts/test_rollback_image_schema_0150.py') != '' && hashFiles('backend/app/models/fulfillment/package_customer_service.py') == ''
+        timeout-minutes: 12
+        env:
+          ROLLBACK_BACKEND_IMAGE: ${{ steps.images.outputs.backend }}@${{ steps.backend_image.outputs.digest }}
+          ROLLBACK_SOURCE_REVISION: ${{ github.sha }}
+        run: python scripts/test_rollback_image_schema_0150.py --image "$ROLLBACK_BACKEND_IMAGE" --revision "$ROLLBACK_SOURCE_REVISION"
+      - name: Publish scanned frontend image
         id: frontend_image
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
-        with:
-          context: .
-          file: ./frontend/Dockerfile
-          pull: true
-          push: true
-          tags: ${{ steps.images.outputs.frontend }}:${{ inputs.release_id }}
-          labels: org.opencontainers.image.revision=${{ github.sha }}
-          build-args: |
-            NEXT_PUBLIC_API_URL=https://erp.milanapremium.uz
-            API_URL=http://172.16.10.4:8000
-          # Reuse dependencies, but always compile the checked-out application.
-          no-cache-filters: builder
-          cache-from: type=gha,scope=milana-frontend-v1
-          cache-to: type=gha,scope=milana-frontend-v1,mode=max
+        env:
+          DESTINATION: ${{ steps.images.outputs.frontend }}:${{ needs.release-plan.outputs.release }}
+        run: |
+          docker tag "milana-security-frontend:$GITHUB_RUN_ID" "$DESTINATION"
+          docker push "$DESTINATION"
+          digest=$(docker image inspect --format '{{index .RepoDigests 0}}' "$DESTINATION")
+          echo "digest=${digest##*@}" >> "$GITHUB_OUTPUT"
+      - name: Pin deployment manifest to validated source and published digests
+        env:
+          RELEASE_ID: ${{ needs.release-plan.outputs.release }}
+          BACKEND_IMAGE: ${{ steps.images.outputs.backend }}@${{ steps.backend_image.outputs.digest }}
+          FRONTEND_IMAGE: ${{ steps.images.outputs.frontend }}@${{ steps.frontend_image.outputs.digest }}
+        run: python scripts/prepare_release_manifest.py
       - uses: actions/upload-artifact@v4
         with:
-          name: milana-erp-${{ inputs.release_id }}
+          name: milana-erp-${{ needs.release-plan.outputs.release }}
           path: |
-            milana-erp-${{ inputs.release_id }}.tar.gz
-            milana-erp-${{ inputs.release_id }}.tar.gz.json
+            milana-erp-${{ needs.release-plan.outputs.release }}.tar.gz
+            milana-erp-${{ needs.release-plan.outputs.release }}.tar.gz.json
+            deployment.json
           if-no-files-found: error
           retention-days: 90
       - name: Report artifacts ready
         env:
-          RELEASE_ID: ${{ inputs.release_id }}
+          RELEASE_ID: ${{ needs.release-plan.outputs.release }}
           BACKEND_IMAGE: ${{ steps.images.outputs.backend }}@${{ steps.backend_image.outputs.digest }}
           FRONTEND_IMAGE: ${{ steps.images.outputs.frontend }}@${{ steps.frontend_image.outputs.digest }}
         run: |
@@ -454,7 +617,8 @@ jobs:
               f"Frontend: `{os.environ['FRONTEND_IMAGE']}`",
               "",
               "Backend/frontend validation passed and immutable artifacts were published.",
-              "This workflow does not activate production.",
+              "This workflow does not activate production. The installed LAN worker prepares eligible branch candidates.",
+              "Wait for Milana / production: Ready to deploy before merging the exact candidate into clone_main.",
               "Follow DEPLOYMENT.md for source rechecks, backup, staging, QA and cutover.",
               "Report Live only after both roles and postflight pass; report Observation complete",
               "only after the reviewed 10-minute low-risk or 30-minute high-risk window",

@@ -3,6 +3,7 @@ import { localizeError } from "@/lib/errorMessages";
 import { useParams } from "next/navigation";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import useSWR from "swr";
+import CuttingRejectOrder from "@/components/CuttingRejectOrder";
 import CuttingSewingFactory from "@/components/CuttingSewingFactory";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { api, fetcher } from "@/lib/api";
@@ -22,6 +23,7 @@ import {
   type CuttingPassportAutofillSource,
 } from "@/lib/cuttingPassportAutofill";
 import { InventoryQcStatus } from "@/lib/inventoryQcStatus";
+import { passportBatchText } from "@/lib/passportBatchSplit";
 
 type SewingFactory = "milana" | "besttex" | "eco_cotton";
 
@@ -54,6 +56,7 @@ type BundleQuantityResponseRow = {
   size?: string;
 };
 type CuttingRecordDetailsEdit = {
+  groupedMaterials: boolean;
   materialUsagePending: boolean;
   materials: Array<{ stock_batch_id: number; quantity: NumberInputValue; unit: string; details: MaterialDetails }>;
   recordId: number;
@@ -318,7 +321,7 @@ function autoSplitRows(totalQty: number, maxPerBatch: number): SplitRow[] {
 }
 
 export default function CuttingPage() {
-  const { t } = useT();
+  const { t, lang } = useT();
   const dialogs = useDialogs();
   const params = useParams<{ id: string }>();
   const id = Number(params.id);
@@ -389,11 +392,23 @@ export default function CuttingPage() {
     }
     return `/api/inventory/batches?${params.toString()}`;
   }, [isUsluga, materialItemParam, po]);
-  const { data: batches = [] } = useSWR<StockBatchOption[]>(fabricBatchUrl, fetcher);
-  const { data: allMaterialBatches = [] } = useSWR<StockBatchOption[]>(
+  const { data: batches = [], mutate: refreshFabricBatches } = useSWR<StockBatchOption[]>(fabricBatchUrl, fetcher);
+  const { data: allMaterialBatches = [], mutate: refreshAllMaterialBatches } = useSWR<StockBatchOption[]>(
     po && !isUsluga ? "/api/inventory/batches?group=materials&page_size=1000" : null,
     fetcher,
   );
+  const { data: ecoFabricSources = [], mutate: refreshEcoFabricSources } = useSWR<Array<Omit<StockBatchOption, "id"> & { id: number | null }>>(
+    isEcoCottonCutting && !isUsluga && po?.id
+      ? `/api/cutting-passports/material-batches?production_order_id=${po.id}` : null, fetcher,
+  );
+  // Direct receipts acquire their canonical material identity when Planning or
+  // the passport saves. Cutting only offers those already resolved identities.
+  const ecoMaterialBatches = useMemo(() => ecoFabricSources.filter(
+    (batch): batch is StockBatchOption => batch.id !== null,
+  ), [ecoFabricSources]);
+  async function refreshFabricSources() {
+    if (!isUsluga) await Promise.all([refreshFabricBatches(), refreshAllMaterialBatches(), refreshEcoFabricSources()]);
+  }
   const { data: cuttingPassports = [] } = useSWR<CuttingPassportSummary[]>(
     po?.id ? `/api/cutting-passports?production_order_id=${po.id}&limit=50` : null,
     fetcher,
@@ -477,7 +492,7 @@ export default function CuttingPage() {
 
   const fabricBatches = useMemo(() => {
     const materialIdSet = new Set(materialItemIds);
-    return [...(batches || [])]
+    return [...(isEcoCottonCutting ? ecoMaterialBatches : batches || [])]
       .filter((batch) => {
         const itemId = Number(batch?.item_id || 0);
         if (materialIdSet.size > 0 && !materialIdSet.has(itemId)) return false;
@@ -494,10 +509,10 @@ export default function CuttingPage() {
         if (Math.abs(availableDiff) > 0.0001) return availableDiff;
         return Number(b.id || 0) - Number(a.id || 0);
       });
-  }, [batches, materialItemIds, po?.id]);
+  }, [batches, ecoMaterialBatches, isEcoCottonCutting, materialItemIds, po?.id]);
   const allSearchableFabricBatches = useMemo(() => {
     const materialIdSet = new Set(materialItemIds);
-    return uniqueBatchOptions(fabricBatches, allMaterialBatches)
+    return uniqueBatchOptions(fabricBatches, isEcoCottonCutting ? ecoMaterialBatches : allMaterialBatches)
       .filter((batch) => {
         const category = String(batch?.item_category || "").toLowerCase();
         if (!MATERIAL_BATCH_CATEGORIES.has(category)) return false;
@@ -515,7 +530,7 @@ export default function CuttingPage() {
         if (Math.abs(availableDiff) > 0.0001) return availableDiff;
         return Number(b.id || 0) - Number(a.id || 0);
       });
-  }, [allMaterialBatches, fabricBatches, materialItemIds, po?.id]);
+  }, [allMaterialBatches, ecoMaterialBatches, isEcoCottonCutting, fabricBatches, materialItemIds, po?.id]);
   const fabricSearchQuery = fabricSearch.trim();
   const fabricPickerOptions = useMemo(() => {
     const source = fabricSearchQuery ? allSearchableFabricBatches : fabricBatches;
@@ -831,12 +846,21 @@ export default function CuttingPage() {
 
   useEffect(() => {
     if (plannedMaterials.length > 0) return;
-    if (form.fabric_batch_id || fabricPickedManually || fabricBatches.length === 0) return;
-    const batch = fabricBatches.find(
-      (row) => Number(row.id || 0) === Number(po?.fabric_batch_id || 0),
-    ) || fabricBatches[0];
+    if (fabricPickedManually) return;
+    const plannedBatchId = Number(po?.fabric_batch_id || 0);
+    if (!plannedBatchId && form.fabric_batch_id) return;
+    // The saved source can arrive after generic inventory and can differ from
+    // the model BOM. Never auto-select another source while it is unavailable.
+    const batch = plannedBatchId
+      ? allSearchableFabricBatches.find(row => Number(row.id) === plannedBatchId)
+      : fabricBatches[0];
+    if (!batch) {
+      if (plannedBatchId && form.fabric_batch_id) setForm(prev => ({ ...prev, fabric_batch_id: 0 }));
+      return;
+    }
+    if (form.fabric_batch_id === Number(batch.id)) return;
     setForm((prev) => {
-      if (prev.fabric_batch_id) return prev;
+      if (prev.fabric_batch_id === Number(batch.id)) return prev;
       return {
         ...prev,
         fabric_batch_id: Number(batch.id || 0),
@@ -844,7 +868,7 @@ export default function CuttingPage() {
         waste_unit: batch.unit || prev.waste_unit,
       };
     });
-  }, [fabricBatches, fabricPickedManually, form.fabric_batch_id, plannedMaterials.length, po?.fabric_batch_id]);
+  }, [allSearchableFabricBatches, fabricBatches, fabricPickedManually, form.fabric_batch_id, plannedMaterials.length, po?.fabric_batch_id]);
 
 
   useEffect(() => {
@@ -1046,7 +1070,7 @@ export default function CuttingPage() {
     try {
       await api.del(`/api/work-orders/${id}/batches/${row.id}`);
       setEditingBatchId(0);
-      await Promise.all([mutatePo(), mutateWo(), mutateBatchProgress(), mutateBundles()]);
+      await Promise.all([mutatePo(), mutateWo(), mutateBatchProgress(), mutateBundles(), refreshFabricSources()]);
       setDoneMsg(t("batch.deleted"));
     } catch (error: any) {
       setBatchPlanEditErr(error.message || t("batch.deleteFailed"));
@@ -1195,7 +1219,7 @@ export default function CuttingPage() {
         material_rolls_used: "",
         notes: "",
       }));
-      await Promise.all([mutatePo(), mutateWo(), mutateBatchProgress(), mutateBundles(), mutateUslugaCutting()]);
+      await Promise.all([mutatePo(), mutateWo(), mutateBatchProgress(), mutateBundles(), mutateUslugaCutting(), refreshFabricSources()]);
     } catch (e: any) {
       setErr(e.message);
     } finally {
@@ -1345,6 +1369,7 @@ export default function CuttingPage() {
       const record = await api.get(`/api/cutting/records/${recordId}`);
       setEditingCuttingDetails({
         recordId,
+        groupedMaterials: (record.materials || []).some((row: any) => row.details?.passport_material_group),
         materialUsagePending: Boolean(record.material_usage_pending),
         materials: record.material_usage_pending
           ? (record.pending_materials || []).map((row: any) => ({ ...row, quantity: "", details: { ...emptyMaterialDetails(), cut_pieces: Number(record.cut_pieces || 0) } }))
@@ -1372,7 +1397,9 @@ export default function CuttingPage() {
       return;
     }
     try {
-      await api.patch(`/api/cutting/records/${editingCuttingDetails.recordId}`, {
+      await api.patch(`/api/cutting/records/${editingCuttingDetails.recordId}`, editingCuttingDetails.groupedMaterials ? {
+        notes: editingCuttingDetails.notes.trim() || null,
+      } : {
         material_usage: editingCuttingDetails.materialUsagePending ? editingCuttingDetails.materials.map((row) => ({
           stock_batch_id: row.stock_batch_id, quantity: numberOrZero(row.quantity), unit: row.unit,
           details: { ...row.details, layer_material_kg: numberOrZero(row.details.layer_material_kg),
@@ -1390,6 +1417,7 @@ export default function CuttingPage() {
         layup_operator_name: editingCuttingDetails.layup_operator_name.trim() || null,
         notes: editingCuttingDetails.notes.trim() || null,
       });
+      if (editingCuttingDetails.materialUsagePending) await refreshFabricSources();
       setEditingCuttingDetails(null);
       setDoneMsg(t("page.cutting.detailsUpdated"));
     } catch (e: any) {
@@ -1466,8 +1494,12 @@ export default function CuttingPage() {
     <div>
       <PageHeader
         title={t("page.cutting.title", { id, orderNo })}
+        actions={wo && <CuttingRejectOrder workOrderId={Number(id)} status={wo.status}
+          hasOutput={Number(wo.actual_output_qty || 0) > 0 || recordedPassedQty > 0 || recordedFailedQty > 0}
+          orderLabel={orderNo} onRejected={async () => { await Promise.all([mutateWo(), mutatePo(), mutateBatchProgress()]); }} />}
         subtitle={wo ? t("page.cutting.subtitle", { op: operationLabel(wo.operation, t), status: statusLabel(wo.status, t) }) : ""}
       />
+      {wo?.status === "rejected" && wo.block_reason && <p role="status" className="mb-4 border-l-2 border-red-600 pl-3 text-sm text-red-700">{wo.block_reason}</p>}
       <WorkOrderProductInfo
         t={t}
         so={so}
@@ -1481,6 +1513,7 @@ export default function CuttingPage() {
       />
 
 
+      {wo?.status !== "rejected" && <>
       {!isAlreadyBatched && canCompleteWithShortage && (
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-y border-amber-200 bg-amber-50 px-4 py-3">
           <div className="min-w-0 text-sm text-amber-950">
@@ -1812,6 +1845,7 @@ export default function CuttingPage() {
 
       {!isUsluga && can(me, "cutting.records", "*") && wo && po && (
         <CuttingSewingFactory workOrderId={Number(id)} factory={po.sewing_factory_code || "MIL"}
+          batches={batchItems}
           locked={batchItems.some((row: any) => row.sewing_output_recorded) || (po.work_orders || []).some((row: any) => row.operation === "sewing" && (row.actual_output_qty > 0 || row.passed_qty > 0 || row.failed_qty > 0))}
           onSaved={() => Promise.all([mutatePo(), mutateWo(), mutateBatchProgress(), mutateBundles()])} />
       )}
@@ -2164,6 +2198,14 @@ export default function CuttingPage() {
               </select>
             </div>
           )}
+          {usePassportMaterials && materialPassports.some((row: any) => row.batch_allocations?.length) && <section className="space-y-3 border-y border-[var(--erp-border)] py-3 md:col-span-2">
+            <h3 className="text-sm font-medium">{passportBatchText(lang).title}</h3>
+            {materialPassports.filter((row: any) => row.batch_allocations?.length).map((row: any) => <div key={row.stock_batch_id} className="space-y-1 text-sm">
+              <div className="font-medium">{row.fabric_type}</div>
+              {row.batch_allocations.map((source: {stock_batch_id: number; batch_no?: string; quantity: number}) => <div key={source.stock_batch_id} className="flex flex-wrap justify-between gap-x-4"><span className="font-mono">{source.batch_no || "—"}</span><span>{fmtQty(source.quantity)} {row.meter_mode ? "m" : "kg"}</span></div>)}
+              <div className="flex flex-wrap justify-between gap-x-4 border-t border-[var(--erp-border-soft)] pt-1"><span>{passportBatchText(lang).total}</span><span className="font-medium">{fmtQty(row.batch_allocations.reduce((sum: number, source: {quantity: number}) => sum + Number(source.quantity), 0))} {row.meter_mode ? "m" : "kg"}</span></div>
+            </div>)}
+          </section>}
           {hasPlannedMaterials ? null : !isUsluga ? <div className="md:col-span-2">
             <label className="label">{t("field.fabricBatch")}</label>
             <div
@@ -2628,6 +2670,8 @@ export default function CuttingPage() {
                 {editingCuttingDetails && (
                   <div className="border-t border-[#ecebe3] bg-white px-4 py-4">
                     <div className="mb-3 font-medium">{t("page.cutting.editCuttingDetails")}</div>
+                    {editingCuttingDetails.groupedMaterials && <p className="mb-3 text-sm text-[var(--erp-text-soft)]">{passportBatchText(lang).locked}</p>}
+                    <fieldset className="min-w-0" disabled={editingCuttingDetails.groupedMaterials}>
                     {editingCuttingDetails.materials.map((material, index) => {
                       const batch = plannedMaterialBatchLookup.get(material.stock_batch_id);
                       return <div key={material.stock_batch_id} className="mb-4 space-y-2 border-b border-[#ecebe3] pb-4">
@@ -2665,6 +2709,7 @@ export default function CuttingPage() {
                         </div>
                       </div>;
                     })}
+                    </fieldset>
                     <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                       {editingCuttingDetails.materials.length === 0 && <div>
                         <label className="label">{t("field.layerMaterialKg")}</label>
@@ -2732,6 +2777,7 @@ export default function CuttingPage() {
           </div>
         </div>
       )}
+      </>}
     </div>
   );
 }

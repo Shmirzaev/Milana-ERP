@@ -1,8 +1,8 @@
 # Tasks and notifications
 
 Business-service group guide, relocated into models/ on 24 October 2026.
-`tasks_service.py` now contains the focused system stock-shortage participant;
-general Task CRUD and other proposed extractions remain pending.
+`tasks_service.py` owns task CRUD and the system stock-shortage participant;
+`notifications_service.py` owns notification send and read-state operations.
 
 **Purpose:** Own task assignment/status and notification delivery/read-state behavior.
 
@@ -21,9 +21,9 @@ deduplication, audit, notification or permission behavior. No Task ORM object is
 returned to Sales. This is the already assigned task-creation responsibility;
 it does not introduce a generic CRUD API or migrate user-facing task routes.
 
-Canonical TaskStatus/TaskPriority are used by this writer and schema defaults.
-General Task input/update/output enum conversion and historical-value audit remain
-pending; raw stored values remain strings with unchanged column definitions.
+Canonical TaskStatus/TaskPriority are used by the writers, schema defaults,
+TaskIn/TaskUpdate and the task-status query. TaskOut still returns raw stored
+strings pending historical-value review; column definitions are unchanged.
 
 ## Existing code to study first
 

@@ -1,7 +1,29 @@
 {
   "description": "Required business case identities; additional cases allowed, removals need review.",
-  "collection_method": "Frozen function signatures/literal pytest parameter decorators only; no application/fixture code imported",
+  "collection_method": "Existing cases: frozen function signatures and literal pytest parameter decorators; six Identity groups: exact executed fixture-parametrized identities from qualified passing runtime receipt, with source functions verified by static AST; no application or fixture code imported.",
   "sources": {
+    "test_batch_restore_postgres": {
+      "revision": "db914a5b803810e1f9c24c870711c6b77559f364",
+      "git_blob_sha256": "33fc05acf06663991548a1641e60548eed240c45e1de9c3e63306325f4c5fd97",
+      "selected_functions": [
+        "test_pg_batch_restore_audit_failure_rolls_back",
+        "test_pg_batch_restore_concurrent_duplicate_serializes"
+      ]
+    },
+    "test_waste_create_receive_postgres": {
+      "revision": "cd9054ae42f3efeca75cbbca5cd6a3e1d3cb804a",
+      "git_blob_sha256": "70d24a5a856dfa52ac05e489df7b6bcd753e9a9b4b805e7b39048b3cc5e4b38c",
+      "selected_functions": [
+        "test_waste_create_receive_audit_failure_rolls_back_then_retry"
+      ]
+    },
+    "test_waste_receipt_race_characterization_postgres": {
+      "revision": "cd9054ae42f3efeca75cbbca5cd6a3e1d3cb804a",
+      "git_blob_sha256": "e3d91379e8387416028fd4e3da0308e8a34d28e216c08b8e98fa04c36dcd2f42",
+      "selected_functions": [
+        "test_receipt_concurrent_observed_recorded_characterization"
+      ]
+    },
     "test_brand_create_postgres": {
       "revision": "53ba460e85bb8b7e5ee9803affd624099276f9fe",
       "git_blob_sha256": "38c2d96fc95cf3c55725feb114a426c1c189d850dbce9c6ab9ac5e70b7c7e644",
@@ -112,9 +134,514 @@
         "test_pg_late_missing_reference_rolls_back",
         "test_pg_concurrent_conversion_serializes_and_refuses_second"
       ]
+    },
+    "test_planning_alternate_creation_postgres": {
+      "revision": "e02ecd1648ffebe943872e1eeed4063a5601fd41",
+      "git_blob_sha256": "a4746e221335620f03b7469886d5c0e1a9bff17ed1e88fb2454142bd2a031952",
+      "selected_functions": [
+        "test_pg_alternate_create_and_existing_order_handoff",
+        "test_pg_alternate_missing_and_closed_orders_refused",
+        "test_pg_alternate_postflush_and_audit_failure_rollback_retry"
+      ]
+    },
+    "test_customer_create_postgres": {
+      "revision": "db02232dbb261627970809e3c770882867b5c4ff",
+      "git_blob_sha256": "5a1a6433f95eb3ad9b023df4095a7cecbac35f08a313fb9a24bc57aa0d3a9c6c",
+      "selected_functions": [
+        "test_pg_route_saves_all_fields_and_audit_same_session",
+        "test_pg_route_refuses_unauthenticated_and_forbidden_without_writes",
+        "test_pg_route_failure_rolls_back_then_retry",
+        "test_pg_concurrent_customers_keep_audit_chain"
+      ]
+    },
+    "test_brand_update_postgres": {
+      "revision": "73d541e65f962403d7477160e9eef05705e9687c",
+      "git_blob_sha256": "b58fb74bfaf30959aaa34e1a3ac79d7a7f124b0a34e964ed6b3924c4bf9df197",
+      "selected_functions": [
+        "test_pg_update_persistence_omission_null_and_chain",
+        "test_pg_duplicate_and_audit_finalize_failure_roll_back_then_retry",
+        "test_pg_case_variant_update_is_allowed"
+      ]
+    },
+    "test_supplier_create_postgres": {
+      "revision": "e7ffc79a301ac9d59620278ca422408fedd940b5",
+      "git_blob_sha256": "d8aea97d8ea43e7794c1f3968bda6f2a8950a117ba0224bb5dda5bbf138cca21",
+      "selected_functions": [
+        "test_pg_route_saves_all_fields_and_audit_same_session",
+        "test_pg_route_refuses_unauthenticated_and_forbidden_without_writes",
+        "test_pg_route_failure_rolls_back_then_retry",
+        "test_pg_concurrent_suppliers_keep_audit_chain",
+        "test_pg_create_preserves_raw_fields_duplicates_and_validation"
+      ]
+    },
+    "test_supplier_update_postgres": {
+      "revision": "3cc6d1700ff1789efb06463a885ee3d84aff3c19",
+      "git_blob_sha256": "b289f785d6ff120492efeddfe48d5e52709f093e05b542b8821ce2efa6477271",
+      "selected_functions": [
+        "test_pg_patch_fields_permissions_and_audit",
+        "test_pg_inactive_direct_update_remains_out_of_active_list",
+        "test_pg_concurrent_distinct_suppliers_allow_same_name_and_chain",
+        "test_pg_precommit_failure_rolls_back_and_retry"
+      ]
+    },
+    "test_customer_update_postgres": {
+      "revision": "55af6fe40d4bca5159503ee69484e22adbd78c15",
+      "git_blob_sha256": "faf4fa619848aaab04c43f194f46bb52be3832b391936babb69470ca4081c27c",
+      "selected_functions": [
+        "test_pg_patch_fields_permissions_and_audit",
+        "test_pg_precommit_failure_rolls_back_and_retry",
+        "test_pg_concurrent_distinct_customers_allow_same_name_and_chain"
+      ]
+    },
+    "test_customer_delete_postgres": {
+      "revision": "6e0d134132663ac0f8de9b872a1d4c10ab574582",
+      "git_blob_sha256": "609bc67a8a4c9f1c61440325f08526c78d0c2a14173aa7d8984910dda06160ec",
+      "selected_functions": [
+        "test_pg_delete_route_success_repeat_and_missing",
+        "test_pg_delete_route_auth_denials_preserve_customer",
+        "test_pg_delete_reference_refusal_preserves_customer",
+        "test_pg_delete_precommit_failure_rolls_back_then_retry",
+        "test_pg_delete_distinct_rows_concurrently_preserves_audit_chain"
+      ]
+    },
+    "test_customer_delete_extra_fk_postgres": {
+      "revision": "6e0d134132663ac0f8de9b872a1d4c10ab574582",
+      "git_blob_sha256": "2784744f0b57a4ffdde821f93d56169cb2c9afc42889cb5a9d1e5a6616472125",
+      "selected_functions": [
+        "test_pg_existing_customer_fk_blocks_delete_then_retry"
+      ]
+    },
+    "test_customer_delete_reference_race_postgres": {
+      "revision": "8a4c78568c39985f95dd93feaaf6474d29ffc8f9",
+      "git_blob_sha256": "23dbed6b13ce62b8b5468c3e155fa44f6b5bd2c89d982d7f46bc453388921e25",
+      "selected_functions": [
+        "test_pg_payment_commit_after_guards_before_delete_flush",
+        "test_pg_delete_flush_blocks_payment_until_commit"
+      ]
+    },
+    "test_process_qr_size_setup_postgres": {
+      "revision": "01eead17e78a90b0e119bc7f0b59b72d9754ce92",
+      "git_blob_sha256": "8034b5081e0a724cb230789437eeca7eeabe9a3eab5bc6fa3ba9ce249d7cb695",
+      "selected_functions": [
+        "test_postgres_setup_audit_failure_rolls_back",
+        "test_postgres_simultaneous_setup_serializes",
+        "test_postgres_setup_then_generic_writer_waits_on_parent_fk",
+        "test_postgres_http_failure_teardown_rolls_back",
+        "test_postgres_deferred_commit_failure_rolls_back_request"
+      ],
+      "case_identity_source": "static function signatures and literal pytest parameters; runtime qualification pending"
+    },
+    "test_modelsize_create_postgres": {
+      "revision": "uncommitted CREATE-only + approved G012 wrap integration on exact 58bca5491e7759a18875656500588f37c3a418bd; test lifecycle repair; fresh verification required",
+      "candidate_file_sha256": "d5b163f1323f3958a1898dbb3d4f2ceb689b5e1fc622cfd1bfaf45fdd0a4c89a",
+      "selected_functions": [
+        "test_pg_create_atomic_audit_and_failure_retry",
+        "test_pg_concurrent_duplicate_creates"
+      ]
+    },
+    "test_modelcolor_create_postgres": {
+      "revision": "uncommitted CREATE-only + approved G012 wrap integration on exact 58bca5491e7759a18875656500588f37c3a418bd; test lifecycle repair; fresh verification required",
+      "candidate_file_sha256": "189c78a451b67216737dddb8c6330d1e02ce2b521dc335fbbce68ed4ff52b3e5",
+      "selected_functions": [
+        "test_pg_http_exact_unicode_null_empty_duplicate_readback",
+        "test_pg_http_auth_scope_dto_and_bound_precedence",
+        "test_pg_old_raw_scope",
+        "test_pg_invalid_scope_400_before_parent_and_length",
+        "test_pg_actual_schema_writer_one_session_commit_and_refresh",
+        "test_pg_actual_varchar_constraint_rejects_oversize",
+        "test_pg_real_fk_flush_failure_request_teardown_then_retry",
+        "test_pg_request_teardown_fault_then_fresh_readback_and_retry",
+        "test_pg_bounded_concurrent_independent_and_duplicate_values",
+        "test_pg_canonical_scope_accepted"
+      ]
+    },
+    "test_purchase_receipt_concurrency": {
+      "revision": "49b193b343232097daa266c3a09dc46394ffd5f6",
+      "git_blob_sha256": "99858110ca9214ee53565fe70d45c75673fd49834fb82423c570abde793e565a",
+      "selected_functions": [
+        "test_postgres_receipts_serialize_line_totals_and_closed_order_no_write"
+      ]
+    },
+    "test_purchase_receipt_idempotency": {
+      "revision": "92c10c302c03e5dbfc408880f95243acc5ad7d6e",
+      "git_blob_sha256": "3fdb9b25bc66da56a2d0cce0e82d3b82810d026405ef0349ab58a340dcfa7e21",
+      "selected_functions": [
+        "test_postgres_concurrent_receipts_serialize_before_replay",
+        "test_postgres_receipt_audit_finalization_failure_rolls_back_then_replays"
+      ]
+    },
+    "test_shipment_reopen_invoice_postgres": {
+      "revision": "bb00ca3921404fe8482f774752ee0d05db45c180",
+      "git_blob_sha256": "e03a4da9b9da696ede2f908fa9a5b1f6d95fdad17fd77c310167c2950cd24f97",
+      "selected_functions": [
+        "test_pg_shipment_reopen_finance_participant_same_session_and_no_early_commit",
+        "test_pg_shipment_reopen_preflights_every_invoice_before_any_finance_write",
+        "test_pg_shipment_reopen_audit_failure_rolls_back_and_retry_commits_all",
+        "test_pg_invoice_payment_and_shipment_reopen_serialize_on_invoice_row"
+      ]
+    },
+    "test_identity_access_catalog": {
+      "revision": "aced14c2fa6d2490834a23bfe7d9da82ae7b08b9",
+      "git_blob_sha256": "f4ec4d9527b9dfb9a8f1fd6a2f91de1839d8c91c43ad071ecc6e4e47b3bebc86",
+      "selected_functions": [
+        "test_catalog_authentication_and_permission_refusals",
+        "test_catalog_retains_order_labels_and_grantability_without_writes",
+        "test_direct_service_rejects_inactive_privileged_actor",
+        "test_direct_service_rejects_stale_deactivated_actor",
+        "test_direct_service_rejects_unprivileged_actor"
+      ],
+      "case_identity_source": "qualified passing runtime receipt evidence/identity-full-corrected/current.xml; includes fixture-parametrized IDs"
+    },
+    "test_identity_access_preview": {
+      "revision": "aced14c2fa6d2490834a23bfe7d9da82ae7b08b9",
+      "git_blob_sha256": "30b28c017758c7aace6c3c549a6bd648b5bec99a1427ee77cb931c546f8dfb78",
+      "selected_functions": [
+        "test_direct_service_rejects_inactive_privileged_actor",
+        "test_direct_service_rejects_stale_deactivated_actor",
+        "test_direct_service_rejects_unprivileged_actor",
+        "test_preview_expands_wildcard_without_saving_or_enforcing_grant_rights",
+        "test_preview_primary_denies_secondary_grants_and_empty_factories",
+        "test_preview_refusal_order_and_no_writes",
+        "test_super_admin_subject_is_available_in_every_factory"
+      ],
+      "case_identity_source": "qualified passing runtime receipt evidence/identity-full-corrected/current.xml; includes fixture-parametrized IDs"
+    },
+    "test_identity_admin_user_list": {
+      "revision": "aced14c2fa6d2490834a23bfe7d9da82ae7b08b9",
+      "git_blob_sha256": "56133f40949c1c4b4e3061ed8a3edfe493844053973d39ee8bcd50d3bd0b6ee5",
+      "selected_functions": [
+        "test_direct_service_rejects_inactive_privileged_actor",
+        "test_direct_service_rejects_stale_deactivated_actor",
+        "test_direct_service_rejects_unprivileged_actor",
+        "test_list_authentication_and_permission_refusals",
+        "test_list_includes_inactive_other_factory_and_protected_accounts_in_id_order"
+      ],
+      "case_identity_source": "qualified passing runtime receipt evidence/identity-full-corrected/current.xml; includes fixture-parametrized IDs"
+    },
+    "test_identity_admin_user_get": {
+      "revision": "aced14c2fa6d2490834a23bfe7d9da82ae7b08b9",
+      "git_blob_sha256": "b1881a2bc2fd2f8450cc0e1bdf20c168a0eba264887de1e2bb44aa070453428c",
+      "selected_functions": [
+        "test_direct_service_rejects_inactive_privileged_actor",
+        "test_direct_service_rejects_stale_deactivated_actor",
+        "test_direct_service_rejects_unprivileged_actor",
+        "test_lookup_permission_before_missing_target",
+        "test_lookup_retains_output_and_allows_inactive_other_factory_target"
+      ],
+      "case_identity_source": "qualified passing runtime receipt evidence/identity-full-corrected/current.xml; includes fixture-parametrized IDs"
+    },
+    "test_identity_admin_user_update": {
+      "revision": "aced14c2fa6d2490834a23bfe7d9da82ae7b08b9",
+      "git_blob_sha256": "79cddfe082ee868ab03ad5e59608ef4f7a791a3142f79c8aac46f07c5dda7210",
+      "selected_functions": [
+        "test_admin_password_rotates_cutoff_and_unused_reset_links_in_same_commit",
+        "test_cannot_remove_last_active_super_or_wildcard_admin",
+        "test_direct_service_rejects_inactive_privileged_actor",
+        "test_direct_service_rejects_stale_deactivated_actor",
+        "test_direct_service_rejects_unprivileged_actor",
+        "test_duplicate_email_failure_preserves_user_and_audit",
+        "test_empty_password_and_omitted_fields_keep_credentials_but_still_audit",
+        "test_inactive_guard_does_not_flush_pending_changes",
+        "test_manager_inventory_scope_cannot_be_removed_from_another_account",
+        "test_manager_updates_email_access_and_activation_atomically_with_audit",
+        "test_missing_target_after_authentication_and_permission",
+        "test_non_super_manager_cannot_edit_any_protected_administrator_form",
+        "test_password_change_rejects_old_bearer_and_accepts_new_bearer",
+        "test_patch_refusal_order_and_rollback",
+        "test_precommit_failure_rolls_back_user_credentials_links_and_audit_then_retry",
+        "test_super_admin_changes_factory_and_revokes_old_session"
+      ],
+      "case_identity_source": "qualified passing runtime receipt evidence/identity-full-corrected/current.xml; includes fixture-parametrized IDs"
+    },
+    "test_identity_admin_user_delete": {
+      "revision": "aced14c2fa6d2490834a23bfe7d9da82ae7b08b9",
+      "git_blob_sha256": "36367b6d2c05c5351de6daa16fce7c188401048bad0e8bcb64c4fbf5bc3f43be",
+      "selected_functions": [
+        "test_active_wildcard_actor_cannot_delete_protected_super_admin",
+        "test_audit_history_blocks_deletion_without_touching_any_references",
+        "test_authentication_and_permission_precede_missing_target",
+        "test_delete_unused_user_detaches_nullable_deletes_required_refs_and_audits_once",
+        "test_direct_service_rejects_inactive_privileged_actor",
+        "test_direct_service_rejects_stale_deactivated_actor",
+        "test_direct_service_rejects_unprivileged_actor",
+        "test_explicit_super_without_wildcard_can_delete_nonfinal_protected_account",
+        "test_last_wildcard_admin_refusal_precedes_history_check",
+        "test_non_super_manager_cannot_delete_protected_forms_before_history_cleanup",
+        "test_precommit_failure_rolls_back_deletion_all_refs_and_audit_then_retry",
+        "test_self_deletion_refused_before_protection_and_audit_history"
+      ],
+      "case_identity_source": "qualified passing runtime receipt evidence/identity-full-corrected/current.xml; includes fixture-parametrized IDs"
+    },
+    "test_item_delete_postgres": {
+      "revision": "cdf676c5483f431869d533bbd631b469d8996786",
+      "git_blob_sha256": "7b3f36bec2139678ea782511edb2459ca19b3bf4c77dd6e9e79111890d868c2a",
+      "selected_functions": [
+        "test_pg_delete_and_archive_share_session_and_preserve_audit",
+        "test_pg_actual_audit_finalization_failure_rolls_back",
+        "test_pg_unchecked_direct_reference_rejects_delete_atomically",
+        "test_pg_reference_insert_after_link_check_rolls_back_delete"
+      ]
+    },
+    "test_model_image_delete_postgres": {
+      "revision": "8e50a89059ee2f543943df57d546a58bd6ea0761",
+      "git_blob_sha256": "1ccfce9424fb7e6e69219f230415c189242150b22fb728910caa3c3ad0dbcf87",
+      "selected_functions": [
+        "test_pg_denied_usluga_and_reverse_scope_keep_binary",
+        "test_pg_request_failure_rolls_back_binary_and_audit",
+        "test_pg_update_then_delete_waits_and_audits_loaded_url",
+        "test_pg_deferred_delete_commit_failure_rolls_back_binary_and_audit"
+      ]
+    },
+    "test_stocktake_create_postgres": {
+      "revision": "658568d10f33e2eeacf686455c25d1fe1a1f5e0c",
+      "git_blob_sha256": "cb49e70d98ba4e3d83796a9b497d68f103475a4248087058dc6fcbb00944858a",
+      "selected_functions": [
+        "test_pg_http_create_auth_and_request_key_replay",
+        "test_pg_same_key_concurrent_create_replays_unique_winner",
+        "test_pg_request_audit_finalization_failure_rolls_back_then_retry",
+        "test_pg_deferred_create_commit_abort_rolls_back_then_retry"
+      ]
+    },
+    "test_stocktake_delete_postgres": {
+      "revision": "f613e28a7029a16ee1a5eac6c4c8772474d40317",
+      "git_blob_sha256": "588d8a2daa084ba3b84c6dc9c775a1c149d883fb701d2b284a11584bd44e9ce1",
+      "selected_functions": [
+        "test_pg_request_audit_flush_failure_rolls_back_bulk",
+        "test_pg_overlapping_bulk_deletes_serialize",
+        "test_pg_deferred_commit_failure_restores_bulk",
+        "test_pg_delete_blocks_scan_or_completion"
+      ]
+    },
+    "test_stocktake_undo_postgres": {
+      "revision": "02b09812523f433720c707ad5d5eeb6bae450641",
+      "git_blob_sha256": "b1cbdd3a7816e9ea322d422660130600d82dcda8b3851da7b532420d7afd5655",
+      "selected_functions": [
+        "test_pg_undo_auth_and_selection_refusal_before_mutation",
+        "test_pg_undo_request_audit_finalization_failure_then_retry",
+        "test_pg_undo_duplicate_and_foreign_selection_and_single_success",
+        "test_pg_undo_completed_count_refuses_without_mutation",
+        "test_pg_undo_waits_for_completion_with_preloaded_count"
+      ]
+    },
+    "test_stocktake_scan_postgres": {
+      "revision": "f7cc228daf1c3a6524acee063e865a5cc7427814",
+      "git_blob_sha256": "bc6506e31222f014e8ea3e9a3a6cacdd50c0382e939880b79cc3f8e2e2d7bb4c",
+      "selected_functions": [
+        "test_pg_scan_auth_duplicate_first_evidence_and_completed_refusal",
+        "test_pg_scan_request_audit_finalization_failure_then_retry",
+        "test_pg_scan_expected_unexpected_package_and_refusals",
+        "test_pg_duplicate_package_scan_waits_on_first_parent_lock",
+        "test_pg_scan_deferred_commit_abort_preserves_evidence_then_retry"
+      ]
+    },
+    "test_waste_manual_create_commit_postgres": {
+      "revision": "4de79e914aad3094f6f455e1fd1af0697b37b882",
+      "git_blob_sha256": "1ea26b77d08cb07fb4b8c5ef632777fc1d312320808dc7ce310303b32ad71633",
+      "selected_functions": [
+        "test_pg_manual_create_commit_abort_rolls_back_then_retry",
+        "test_pg_unicode_create_and_all_typed_status_filters_round_trip"
+      ]
+    },
+    "test_waste_request_postgres": {
+      "revision": "024f9b3039110ad96e6869695e294538806fbb54",
+      "git_blob_sha256": "6840ad19fa60b2fe319896dd26e236f9751edb3f4caed7075248dbf0d2651d05",
+      "selected_functions": [
+        "test_pg_disposal_http_refusal_and_audit_failure_retry",
+        "test_pg_disposal_deferred_commit_failure_retry",
+        "test_pg_disposal_request_race_serializes_on_parent"
+      ]
+    },
+    "test_waste_mark_disposed_postgres": {
+      "revision": "7074bc0536f8f5aefba361d693d82b034f20f4a7",
+      "git_blob_sha256": "935cc49faeafc6054c9140e725b6cea9ddbd8c1ff1dbcb22c65114e0f34c6957",
+      "selected_functions": [
+        "test_pg_mark_refuses_request_before_invalid_parent",
+        "test_pg_mark_refuses_nonapproved_parent",
+        "test_pg_mark_refuses_invalid_waste",
+        "test_pg_mark_disposed_auth_refusal_audit_failure_retry",
+        "test_pg_mark_disposed_deferred_commit_failure_retry",
+        "test_pg_mark_disposed_race_serializes_on_parent"
+      ]
+    },
+    "test_waste_disposal_integrity": {
+      "revision": "e3d0b774c05624b48597fa4536988ab12884ae54",
+      "git_blob_sha256": "1568e3fe8b0477cfb77be6a7d91a0ffee8d976fa17df1b2dca79d8e1265df3bd",
+      "selected_functions": [
+        "test_postgres_concurrent_disposal_has_one_effect_and_refreshes_cached_state"
+      ]
+    },
+    "test_waste_approve_postgres": {
+      "revision": "9d25728f99a6a4cd24b3ed2a5e3686322d7ff8d8",
+      "git_blob_sha256": "ffaf7a74cc733c43567a677a1c4e495c9687043d389f10a94ead16ea2e89d87a",
+      "selected_functions": [
+        "test_pg_approve_refuses_request_before_invalid_parent",
+        "test_pg_approve_refuses_invalid_parent",
+        "test_pg_approve_refuses_invalid_waste",
+        "test_pg_approve_auth_refusal_audit_failure_retry",
+        "test_pg_approve_deferred_commit_failure_retry",
+        "test_pg_approval_race_serializes_on_parent"
+      ]
+    },
+    "test_waste_reject_postgres": {
+      "revision": "e3d0b774c05624b48597fa4536988ab12884ae54",
+      "git_blob_sha256": "03bf206cd8011fb5e31ac9a96725762b1b194a6c6f4cf815d661ef0ec01a8e43",
+      "selected_functions": [
+        "test_pg_reject_refuses_request_before_invalid_parent",
+        "test_pg_reject_refuses_invalid_parent",
+        "test_pg_reject_recovers_invalid_historical_parent",
+        "test_pg_reject_orphan_creation_fk_refusal_then_existing_request",
+        "test_pg_reject_auth_refusal_audit_failure_retry",
+        "test_pg_reject_deferred_commit_failure_retry",
+        "test_pg_rejection_race_serializes_on_parent"
+      ]
+    },
+    "test_waste_race_rollback_postgres": {
+      "revision": "fdaa65d7543e768572b619deaa3b540bce010524",
+      "git_blob_sha256": "8b4c7f01b4a54a4d660b7f300a605b3e624850acfd607b8dcdd5864800cc1374",
+      "selected_functions": [
+        "test_waste_sale_postgres_contending_http_requests",
+        "test_waste_sale_postgres_audit_finalization_rollback"
+      ]
+    },
+    "test_waste_sale_commit_postgres": {
+      "revision": "fdaa65d7543e768572b619deaa3b540bce010524",
+      "git_blob_sha256": "d0772b050bb58ee562c5449816c9ae76e5d9f868b3c8f9363729956fd3aabba2",
+      "selected_functions": [
+        "test_pg_sale_deferred_commit_failure_rolls_back_replay_then_retry",
+        "test_pg_sale_auth_partial_then_exhaust_and_replay",
+        "test_pg_sale_same_key_service_race_serializes_and_replays"
+      ]
+    },
+    "test_waste_sale_list_postgres": {
+      "revision": "fdaa65d7543e768572b619deaa3b540bce010524",
+      "git_blob_sha256": "c8410d589a2d2e5549621ae1b2c3937787cb60e8b5907da9ea82c46c0ba5d14c",
+      "selected_functions": [
+        "test_pg_empty_filtered_list_has_no_sale_query",
+        "test_pg_list_batch_history_filters_auth_and_no_writes",
+        "test_pg_partial_sale_remaining_stale_and_exhaustion",
+        "test_pg_nan_original_service_diagnostic"
+      ]
+    },
+    "test_model_create_commit_postgres": {
+      "revision": "59a5a645209fc8e93e637cb1c320223908cc02c0",
+      "git_blob_sha256": "58d2b1ecb661129e504ed79f76c88a1315532c25ab9cd28a9a5c178bf40403b4",
+      "selected_functions": [
+        "test_pg_signed_create_auth_scope_and_retained_readback",
+        "test_pg_variant_inherits_approval_without_changing_family_or_other_scope",
+        "test_pg_create_finalization_and_deferred_commit_rollback_retry",
+        "test_pg_create_serializes_on_numbering_and_family_lock"
+      ]
+    },
+    "test_price_calculation_status_postgres": {
+      "revision": "ef48960c7879fc9cfd26c30ae63df42d8bf05fac",
+      "git_blob_sha256": "fa5f6245518a1f5c719c189d6806dcb8d6de023247ac21e5dcfca7e41176a1db",
+      "selected_functions": [
+        "test_pg_signed_status_transitions_finance_gate_and_notifications"
+      ]
+    },
+    "test_price_calculation_purchasing_postgres": {
+      "revision": "ef48960c7879fc9cfd26c30ae63df42d8bf05fac",
+      "git_blob_sha256": "fed846f056dc11e63a31856ec86e858925c4fb734fe394e001d3cf55cb581e86",
+      "selected_functions": [
+        "test_pg_purchasing_completion_transition_recipients_and_audit_actor",
+        "test_pg_purchasing_request_audit_and_notification_rollback_then_retry"
+      ]
+    },
+    "test_price_calculation_creation_postgres": {
+      "revision": "958e3f2de4007197864b0ba4689a5ad4f45ef514",
+      "git_blob_sha256": "786962b61b84dbd3202a68b9d4a92c2c81d95edc3922d3a971624b0846020a8b",
+      "selected_functions": [
+        "test_pg_signed_creation_auth_duplicates_and_recipients",
+        "test_pg_signed_creation_margin_contract",
+        "test_pg_signed_creation_failure_teardown_retry"
+      ]
+    },
+    "test_model_delete_postgres": {
+      "revision": "f6f86b6fdf65ddb3768947212b88b8414e72888e",
+      "git_blob_sha256": "5dad570528faea933dc3a546247434c93fafc01c7b4044dd987ccd37286bda62",
+      "selected_functions": [
+        "test_pg_signed_delete_scope_and_retained_readback",
+        "test_pg_signed_delete_unguarded_forecast_fk_rollback",
+        "test_pg_signed_delete_finalization_and_deferred_commit_rollback_retry",
+        "test_pg_signed_delete_real_reference_guards_in_order",
+        "test_pg_delete_blocks_concurrent_sales_reference_then_fk_refuses"
+      ]
+    },
+    "test_price_calculation_accessory_postgres": {
+      "revision": "65e90194ffac4ccc82722ac86121f1ca7c95e7c7",
+      "git_blob_sha256": "36a5b12215f3bb9cc767cec94538a27050ac8beda76fea791c9b399427542b72",
+      "selected_functions": [
+        "test_signed_accessory_transitions_and_retained_readback",
+        "test_signed_failure_rollback_and_retry",
+        "test_concurrent_unlocked_updates_characterize_stale_completion"
+      ]
+    },
+    "test_price_calculation_cutting_postgres": {
+      "revision": "58403a79d3f7f0cbc46b8faebd176b13463fc394",
+      "git_blob_sha256": "f76fbb563e968c9bb51a646c21f6cf5d58d8ff647d98385a0479c11b52821c07",
+      "selected_functions": [
+        "test_signed_failure_rollback_and_retry",
+        "test_signed_passport_manual_refusals_and_readback",
+        "test_concurrent_passport_update_uses_visible_committed_snapshot"
+      ]
+    },
+    "test_modelsize_delete_postgres": {
+      "revision": "166043cdcbfe1b29b729da665d7ced810a14fe50",
+      "git_blob_sha256": "fced308443c1f12ef2bbb3b458cadb9ab4bf7d503da3aff04a1a16a30b38a5b4",
+      "selected_functions": [
+        "test_delete_readback_and_audit",
+        "test_deferred_commit_failure_rolls_back_and_retry",
+        "test_signed_scope_permissions_missing_and_retained_state",
+        "test_signed_audit_finalization_failure_rolls_back_and_retry",
+        "test_last_size_with_issued_bundle_preserves_bundle",
+        "test_delete_and_same_label_insert_interleave_without_unique_guard"
+      ]
+    },
+    "test_price_calculation_finance_postgres": {
+      "revision": "6085e50d147eed3821971e522a1ca601c40c125e",
+      "git_blob_sha256": "b2503fd9ac983d5b32fba5170608ccffe65d90f26c5f9cf9c14a2486b6737729",
+      "selected_functions": [
+        "test_signed_finance_refusal_omission_null_and_attachment",
+        "test_signed_finance_rollback_and_retry",
+        "test_concurrent_finance_updates_wait_and_last_writer_wins"
+      ]
+    },
+    "test_waste_receive_commit_postgres": {
+      "revision": "e1c181fcf1a0275e533e59d9d43f2a6b3469156e",
+      "git_blob_sha256": "e37e3facedb07b9198da2c07680df1835b155fcba8dc2e549a1ad428041a3f42",
+      "selected_functions": [
+        "test_signed_receive_refusals_and_retained_readback",
+        "test_signed_receipt_finalization_commit_rollback_retry",
+        "test_signed_receipt_observed_wait_one_transition"
+      ]
     }
   },
   "cases": {
+    "test_catalog_price_import_postgres": [
+      "test_pg_import_deferred_commit_failure_preserves_prices_requests_and_history",
+      "test_pg_import_and_finance_approval_serialize_to_one_winner"
+    ],
+    "test_variant_price_workflow_postgres": [
+      "test_pg_concurrent_creation_one_slot_audit_and_team_notice",
+      "test_pg_parallel_submissions_retry_once_and_single_finance_notification",
+      "test_pg_approval_race_one_price_and_audit_and_atomic_rollback",
+      "test_pg_source_change_makes_pending_approval_stale"
+    ],
+    "test_batch_restore_postgres": [
+      "test_pg_batch_restore_audit_failure_rolls_back",
+      "test_pg_batch_restore_concurrent_duplicate_serializes"
+    ],
+    "test_waste_create_receive_postgres": [
+      "test_waste_create_receive_audit_failure_rolls_back_then_retry[create]",
+      "test_waste_create_receive_audit_failure_rolls_back_then_retry[receive]"
+    ],
+    "test_waste_receipt_race_characterization_postgres": [
+      "test_receipt_concurrent_observed_recorded_characterization"
+    ],
+    "test_customer_receipt_http_postgres": [
+      "test_pg_receipt_http_auth_split_and_idempotent_replay",
+      "test_pg_receipt_http_finalization_flush_failure_rolls_back_then_retry"
+    ],
     "test_brand_create_postgres": [
       "test_pg_create_duplicate_and_audit",
       "test_pg_audit_failure_rolls_back_then_retry"
@@ -234,6 +761,634 @@
       "test_pg_late_missing_reference_rolls_back[item]",
       "test_pg_late_missing_reference_rolls_back[supplier]",
       "test_pg_concurrent_conversion_serializes_and_refuses_second"
+    ],
+    "test_planning_alternate_creation_postgres": [
+      "test_pg_alternate_create_and_existing_order_handoff",
+      "test_pg_alternate_missing_and_closed_orders_refused[closed-400]",
+      "test_pg_alternate_missing_and_closed_orders_refused[missing-404]",
+      "test_pg_alternate_postflush_and_audit_failure_rollback_retry[insert_branded_planning_order]",
+      "test_pg_alternate_postflush_and_audit_failure_rollback_retry[log_action]"
+    ],
+    "test_customer_create_postgres": [
+      "test_pg_route_saves_all_fields_and_audit_same_session",
+      "test_pg_route_refuses_unauthenticated_and_forbidden_without_writes",
+      "test_pg_route_failure_rolls_back_then_retry[audit_enqueue]",
+      "test_pg_route_failure_rolls_back_then_retry[audit_finalize]",
+      "test_pg_route_failure_rolls_back_then_retry[commit]",
+      "test_pg_concurrent_customers_keep_audit_chain"
+    ],
+    "test_brand_update_postgres": [
+      "test_pg_update_persistence_omission_null_and_chain",
+      "test_pg_duplicate_and_audit_finalize_failure_roll_back_then_retry",
+      "test_pg_case_variant_update_is_allowed"
+    ],
+    "test_supplier_create_postgres": [
+      "test_pg_route_saves_all_fields_and_audit_same_session",
+      "test_pg_route_refuses_unauthenticated_and_forbidden_without_writes",
+      "test_pg_route_failure_rolls_back_then_retry[audit_enqueue]",
+      "test_pg_route_failure_rolls_back_then_retry[audit_finalize]",
+      "test_pg_route_failure_rolls_back_then_retry[commit]",
+      "test_pg_concurrent_suppliers_keep_audit_chain",
+      "test_pg_create_preserves_raw_fields_duplicates_and_validation"
+    ],
+    "test_supplier_update_postgres": [
+      "test_pg_patch_fields_permissions_and_audit",
+      "test_pg_inactive_direct_update_remains_out_of_active_list",
+      "test_pg_concurrent_distinct_suppliers_allow_same_name_and_chain",
+      "test_pg_precommit_failure_rolls_back_and_retry[audit_enqueue]",
+      "test_pg_precommit_failure_rolls_back_and_retry[audit_finalize]",
+      "test_pg_precommit_failure_rolls_back_and_retry[before_commit]"
+    ],
+    "test_customer_update_postgres": [
+      "test_pg_patch_fields_permissions_and_audit",
+      "test_pg_precommit_failure_rolls_back_and_retry[audit_enqueue]",
+      "test_pg_precommit_failure_rolls_back_and_retry[audit_finalize]",
+      "test_pg_precommit_failure_rolls_back_and_retry[before_commit]",
+      "test_pg_concurrent_distinct_customers_allow_same_name_and_chain"
+    ],
+    "test_customer_delete_postgres": [
+      "test_pg_delete_route_success_repeat_and_missing",
+      "test_pg_delete_route_auth_denials_preserve_customer",
+      "test_pg_delete_reference_refusal_preserves_customer[sales]",
+      "test_pg_delete_reference_refusal_preserves_customer[shipment]",
+      "test_pg_delete_reference_refusal_preserves_customer[both]",
+      "test_pg_delete_precommit_failure_rolls_back_then_retry[audit_enqueue]",
+      "test_pg_delete_precommit_failure_rolls_back_then_retry[audit_finalize]",
+      "test_pg_delete_precommit_failure_rolls_back_then_retry[before_commit]",
+      "test_pg_delete_distinct_rows_concurrently_preserves_audit_chain"
+    ],
+    "test_customer_delete_extra_fk_postgres": [
+      "test_pg_existing_customer_fk_blocks_delete_then_retry[payment]",
+      "test_pg_existing_customer_fk_blocks_delete_then_retry[branded_planning]",
+      "test_pg_existing_customer_fk_blocks_delete_then_retry[warehouse_pack_reservation]"
+    ],
+    "test_customer_delete_reference_race_postgres": [
+      "test_pg_payment_commit_after_guards_before_delete_flush",
+      "test_pg_delete_flush_blocks_payment_until_commit"
+    ],
+    "test_process_qr_size_setup_postgres": [
+      "test_postgres_setup_audit_failure_rolls_back",
+      "test_postgres_simultaneous_setup_serializes",
+      "test_postgres_setup_then_generic_writer_waits_on_parent_fk",
+      "test_postgres_http_failure_teardown_rolls_back[after_flush]",
+      "test_postgres_http_failure_teardown_rolls_back[audit_finalize]",
+      "test_postgres_http_failure_teardown_rolls_back[before_commit]",
+      "test_postgres_deferred_commit_failure_rolls_back_request"
+    ],
+    "test_modelsize_create_postgres": [
+      "test_pg_create_atomic_audit_and_failure_retry",
+      "test_pg_concurrent_duplicate_creates"
+    ],
+    "test_modelcolor_create_postgres": [
+      "test_pg_http_exact_unicode_null_empty_duplicate_readback[-None-standard-standard-/api/models]",
+      "test_pg_http_exact_unicode_null_empty_duplicate_readback[-None-usluga-eco-/api/usluga/models]",
+      "test_pg_http_exact_unicode_null_empty_duplicate_readback[  --standard-standard-/api/models]",
+      "test_pg_http_exact_unicode_null_empty_duplicate_readback[  --usluga-eco-/api/usluga/models]",
+      "test_pg_http_exact_unicode_null_empty_duplicate_readback[ e\\u0301 \\U0001f9f5 - \\u041a -standard-standard-/api/models]",
+      "test_pg_http_exact_unicode_null_empty_duplicate_readback[ e\\u0301 \\U0001f9f5 - \\u041a -usluga-eco-/api/usluga/models]",
+      "test_pg_http_exact_unicode_null_empty_duplicate_readback[e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301-KKKKKKKKKKKKKKKK-standard-standard-/api/models]",
+      "test_pg_http_exact_unicode_null_empty_duplicate_readback[e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301e\\u0301-KKKKKKKKKKKKKKKK-usluga-eco-/api/usluga/models]",
+      "test_pg_http_auth_scope_dto_and_bound_precedence",
+      "test_pg_old_raw_scope[None-standard]",
+      "test_pg_old_raw_scope[0-standard]",
+      "test_pg_old_raw_scope[-standard]",
+      "test_pg_old_raw_scope[ StAnDaRd -standard]",
+      "test_pg_old_raw_scope[ USLUGA -usluga]",
+      "test_pg_invalid_scope_400_before_parent_and_length[ ]",
+      "test_pg_invalid_scope_400_before_parent_and_length[unknown]",
+      "test_pg_actual_schema_writer_one_session_commit_and_refresh",
+      "test_pg_actual_varchar_constraint_rejects_oversize[color_name-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]",
+      "test_pg_actual_varchar_constraint_rejects_oversize[color_code-xxxxxxxxxxxxxxxxx]",
+      "test_pg_real_fk_flush_failure_request_teardown_then_retry",
+      "test_pg_request_teardown_fault_then_fresh_readback_and_retry[before_commit]",
+      "test_pg_request_teardown_fault_then_fresh_readback_and_retry[after_flush_before_commit]",
+      "test_pg_request_teardown_fault_then_fresh_readback_and_retry[refresh_after_commit]",
+      "test_pg_bounded_concurrent_independent_and_duplicate_values[True]",
+      "test_pg_bounded_concurrent_independent_and_duplicate_values[False]",
+      "test_pg_canonical_scope_accepted[standard-standard]",
+      "test_pg_canonical_scope_accepted[usluga-eco]"
+    ],
+    "test_purchase_receipt_concurrency": [
+      "test_postgres_receipts_serialize_line_totals_and_closed_order_no_write[False]",
+      "test_postgres_receipts_serialize_line_totals_and_closed_order_no_write[True]"
+    ],
+    "test_purchase_receipt_idempotency": [
+      "test_postgres_concurrent_receipts_serialize_before_replay[True]",
+      "test_postgres_concurrent_receipts_serialize_before_replay[False]",
+      "test_postgres_receipt_audit_finalization_failure_rolls_back_then_replays"
+    ],
+    "test_shipment_reopen_invoice_postgres": [
+      "test_pg_shipment_reopen_finance_participant_same_session_and_no_early_commit",
+      "test_pg_shipment_reopen_preflights_every_invoice_before_any_finance_write",
+      "test_pg_shipment_reopen_audit_failure_rolls_back_and_retry_commits_all",
+      "test_pg_invoice_payment_and_shipment_reopen_serialize_on_invoice_row"
+    ],
+    "test_identity_access_catalog": [
+      "test_catalog_retains_order_labels_and_grantability_without_writes[sqlite-manager]",
+      "test_catalog_retains_order_labels_and_grantability_without_writes[sqlite-wildcard]",
+      "test_catalog_retains_order_labels_and_grantability_without_writes[sqlite-super]",
+      "test_catalog_authentication_and_permission_refusals[sqlite-None-401-Not authenticated]",
+      "test_catalog_authentication_and_permission_refusals[sqlite-ordinary-403-Missing permission. Need any of: ['admin.users', '*']]",
+      "test_direct_service_rejects_unprivileged_actor[sqlite]",
+      "test_direct_service_rejects_inactive_privileged_actor[sqlite-manager]",
+      "test_direct_service_rejects_inactive_privileged_actor[sqlite-super]",
+      "test_direct_service_rejects_stale_deactivated_actor[sqlite-manager]",
+      "test_direct_service_rejects_stale_deactivated_actor[sqlite-super]",
+      "test_catalog_retains_order_labels_and_grantability_without_writes[postgres-manager]",
+      "test_catalog_retains_order_labels_and_grantability_without_writes[postgres-wildcard]",
+      "test_catalog_retains_order_labels_and_grantability_without_writes[postgres-super]",
+      "test_catalog_authentication_and_permission_refusals[postgres-None-401-Not authenticated]",
+      "test_catalog_authentication_and_permission_refusals[postgres-ordinary-403-Missing permission. Need any of: ['admin.users', '*']]",
+      "test_direct_service_rejects_unprivileged_actor[postgres]",
+      "test_direct_service_rejects_inactive_privileged_actor[postgres-manager]",
+      "test_direct_service_rejects_inactive_privileged_actor[postgres-super]",
+      "test_direct_service_rejects_stale_deactivated_actor[postgres-manager]",
+      "test_direct_service_rejects_stale_deactivated_actor[postgres-super]"
+    ],
+    "test_identity_access_preview": [
+      "test_preview_expands_wildcard_without_saving_or_enforcing_grant_rights[sqlite-manager]",
+      "test_preview_expands_wildcard_without_saving_or_enforcing_grant_rights[sqlite-wildcard]",
+      "test_preview_expands_wildcard_without_saving_or_enforcing_grant_rights[sqlite-super]",
+      "test_preview_primary_denies_secondary_grants_and_empty_factories[sqlite]",
+      "test_preview_refusal_order_and_no_writes[sqlite-None-changes0-401-Not authenticated]",
+      "test_preview_refusal_order_and_no_writes[sqlite-ordinary-changes1-403-Missing permission. Need any of: ['admin.users', '*']]",
+      "test_preview_refusal_order_and_no_writes[sqlite-manager-changes2-404-Role not found]",
+      "test_preview_refusal_order_and_no_writes[sqlite-manager-changes3-404-Department not found]",
+      "test_preview_refusal_order_and_no_writes[sqlite-manager-changes4-400-Factory must be MIL, BST, or ECO]",
+      "test_super_admin_subject_is_available_in_every_factory[sqlite]",
+      "test_direct_service_rejects_unprivileged_actor[sqlite]",
+      "test_direct_service_rejects_inactive_privileged_actor[sqlite-manager]",
+      "test_direct_service_rejects_inactive_privileged_actor[sqlite-super]",
+      "test_direct_service_rejects_stale_deactivated_actor[sqlite-manager]",
+      "test_direct_service_rejects_stale_deactivated_actor[sqlite-super]",
+      "test_preview_expands_wildcard_without_saving_or_enforcing_grant_rights[postgres-manager]",
+      "test_preview_expands_wildcard_without_saving_or_enforcing_grant_rights[postgres-wildcard]",
+      "test_preview_expands_wildcard_without_saving_or_enforcing_grant_rights[postgres-super]",
+      "test_preview_primary_denies_secondary_grants_and_empty_factories[postgres]",
+      "test_preview_refusal_order_and_no_writes[postgres-None-changes0-401-Not authenticated]",
+      "test_preview_refusal_order_and_no_writes[postgres-ordinary-changes1-403-Missing permission. Need any of: ['admin.users', '*']]",
+      "test_preview_refusal_order_and_no_writes[postgres-manager-changes2-404-Role not found]",
+      "test_preview_refusal_order_and_no_writes[postgres-manager-changes3-404-Department not found]",
+      "test_preview_refusal_order_and_no_writes[postgres-manager-changes4-400-Factory must be MIL, BST, or ECO]",
+      "test_super_admin_subject_is_available_in_every_factory[postgres]",
+      "test_direct_service_rejects_unprivileged_actor[postgres]",
+      "test_direct_service_rejects_inactive_privileged_actor[postgres-manager]",
+      "test_direct_service_rejects_inactive_privileged_actor[postgres-super]",
+      "test_direct_service_rejects_stale_deactivated_actor[postgres-manager]",
+      "test_direct_service_rejects_stale_deactivated_actor[postgres-super]"
+    ],
+    "test_identity_admin_user_list": [
+      "test_list_includes_inactive_other_factory_and_protected_accounts_in_id_order[sqlite-manager]",
+      "test_list_includes_inactive_other_factory_and_protected_accounts_in_id_order[sqlite-wildcard]",
+      "test_list_includes_inactive_other_factory_and_protected_accounts_in_id_order[sqlite-super]",
+      "test_list_authentication_and_permission_refusals[sqlite-None-401-Not authenticated]",
+      "test_list_authentication_and_permission_refusals[sqlite-ordinary-403-Missing permission. Need any of: ['admin.users', '*']]",
+      "test_direct_service_rejects_unprivileged_actor[sqlite]",
+      "test_direct_service_rejects_inactive_privileged_actor[sqlite-manager]",
+      "test_direct_service_rejects_inactive_privileged_actor[sqlite-super]",
+      "test_direct_service_rejects_stale_deactivated_actor[sqlite-manager]",
+      "test_direct_service_rejects_stale_deactivated_actor[sqlite-super]",
+      "test_list_includes_inactive_other_factory_and_protected_accounts_in_id_order[postgres-manager]",
+      "test_list_includes_inactive_other_factory_and_protected_accounts_in_id_order[postgres-wildcard]",
+      "test_list_includes_inactive_other_factory_and_protected_accounts_in_id_order[postgres-super]",
+      "test_list_authentication_and_permission_refusals[postgres-None-401-Not authenticated]",
+      "test_list_authentication_and_permission_refusals[postgres-ordinary-403-Missing permission. Need any of: ['admin.users', '*']]",
+      "test_direct_service_rejects_unprivileged_actor[postgres]",
+      "test_direct_service_rejects_inactive_privileged_actor[postgres-manager]",
+      "test_direct_service_rejects_inactive_privileged_actor[postgres-super]",
+      "test_direct_service_rejects_stale_deactivated_actor[postgres-manager]",
+      "test_direct_service_rejects_stale_deactivated_actor[postgres-super]"
+    ],
+    "test_identity_admin_user_get": [
+      "test_lookup_retains_output_and_allows_inactive_other_factory_target[sqlite-manager-super]",
+      "test_lookup_retains_output_and_allows_inactive_other_factory_target[sqlite-wildcard-ordinary]",
+      "test_lookup_retains_output_and_allows_inactive_other_factory_target[sqlite-super-manager]",
+      "test_lookup_permission_before_missing_target[sqlite-None-401-Not authenticated]",
+      "test_lookup_permission_before_missing_target[sqlite-ordinary-403-Missing permission. Need any of: ['admin.users', '*']]",
+      "test_lookup_permission_before_missing_target[sqlite-manager-404-User not found]",
+      "test_lookup_permission_before_missing_target[sqlite-super-404-User not found]",
+      "test_direct_service_rejects_unprivileged_actor[sqlite]",
+      "test_direct_service_rejects_inactive_privileged_actor[sqlite-manager]",
+      "test_direct_service_rejects_inactive_privileged_actor[sqlite-super]",
+      "test_direct_service_rejects_stale_deactivated_actor[sqlite-manager]",
+      "test_direct_service_rejects_stale_deactivated_actor[sqlite-super]",
+      "test_lookup_retains_output_and_allows_inactive_other_factory_target[postgres-manager-super]",
+      "test_lookup_retains_output_and_allows_inactive_other_factory_target[postgres-wildcard-ordinary]",
+      "test_lookup_retains_output_and_allows_inactive_other_factory_target[postgres-super-manager]",
+      "test_lookup_permission_before_missing_target[postgres-None-401-Not authenticated]",
+      "test_lookup_permission_before_missing_target[postgres-ordinary-403-Missing permission. Need any of: ['admin.users', '*']]",
+      "test_lookup_permission_before_missing_target[postgres-manager-404-User not found]",
+      "test_lookup_permission_before_missing_target[postgres-super-404-User not found]",
+      "test_direct_service_rejects_unprivileged_actor[postgres]",
+      "test_direct_service_rejects_inactive_privileged_actor[postgres-manager]",
+      "test_direct_service_rejects_inactive_privileged_actor[postgres-super]",
+      "test_direct_service_rejects_stale_deactivated_actor[postgres-manager]",
+      "test_direct_service_rejects_stale_deactivated_actor[postgres-super]"
+    ],
+    "test_identity_admin_user_update": [
+      "test_manager_updates_email_access_and_activation_atomically_with_audit[sqlite]",
+      "test_empty_password_and_omitted_fields_keep_credentials_but_still_audit[sqlite-None]",
+      "test_empty_password_and_omitted_fields_keep_credentials_but_still_audit[sqlite-]",
+      "test_admin_password_rotates_cutoff_and_unused_reset_links_in_same_commit[sqlite]",
+      "test_password_change_rejects_old_bearer_and_accepts_new_bearer[sqlite]",
+      "test_super_admin_changes_factory_and_revokes_old_session[sqlite]",
+      "test_patch_refusal_order_and_rollback[sqlite-ordinary-ordinary-body0-403-Missing permission. Need any of: ['admin.users', '*']]",
+      "test_patch_refusal_order_and_rollback[sqlite-manager-manager-body1-400-Factory must be MIL, BST, or ECO]",
+      "test_patch_refusal_order_and_rollback[sqlite-manager-manager-body2-403-Only Super Admin can change a user's factory]",
+      "test_patch_refusal_order_and_rollback[sqlite-manager-manager-body3-403-You cannot change your own role]",
+      "test_patch_refusal_order_and_rollback[sqlite-manager-manager-body4-403-You cannot change your own additional access]",
+      "test_patch_refusal_order_and_rollback[sqlite-manager-manager-body5-403-You cannot deactivate your own account]",
+      "test_patch_refusal_order_and_rollback[sqlite-manager-manager-body6-403-You cannot change your own access]",
+      "test_patch_refusal_order_and_rollback[sqlite-manager-ordinary-body7-404-Role not found]",
+      "test_patch_refusal_order_and_rollback[sqlite-manager-ordinary-body8-403-Only a super admin can assign administrator roles]",
+      "test_patch_refusal_order_and_rollback[sqlite-manager-ordinary-body9-400-Invalid factory permission]",
+      "test_patch_refusal_order_and_rollback[sqlite-manager-ordinary-body10-403-Only Super Admin can configure another factory]",
+      "test_patch_refusal_order_and_rollback[sqlite-manager-ordinary-body11-403-Only a super admin can grant administrator access]",
+      "test_patch_refusal_order_and_rollback[sqlite-manager-ordinary-body12-403-You cannot grant permissions you don't hold: ['sales.orders']]",
+      "test_patch_refusal_order_and_rollback[sqlite-manager-ordinary-body13-404-Department not found]",
+      "test_patch_refusal_order_and_rollback[sqlite-manager-ordinary-body14-400-Super Admin access is configured in the primary factory only]",
+      "test_patch_refusal_order_and_rollback[sqlite-manager-ordinary-body15-403-Only Super Admin can configure another factory]",
+      "test_patch_refusal_order_and_rollback[sqlite-manager-ordinary-body16-403-Only Super Admin can grant administrator access]",
+      "test_patch_refusal_order_and_rollback[sqlite-manager-ordinary-body17-403-You cannot grant permissions you don't hold]",
+      "test_patch_refusal_order_and_rollback[sqlite-manager-super-body18-403-Only a super admin can manage administrator accounts]",
+      "test_patch_refusal_order_and_rollback[sqlite-manager-ordinary-body19-400-Password must be at least 12 characters, include a number.]",
+      "test_patch_refusal_order_and_rollback[sqlite-manager-ordinary-body20-422-User name must be at most 128 characters]",
+      "test_patch_refusal_order_and_rollback[sqlite-manager-ordinary-body21-422-User email must be at most 255 characters]",
+      "test_missing_target_after_authentication_and_permission[sqlite-None-401-Not authenticated]",
+      "test_missing_target_after_authentication_and_permission[sqlite-ordinary-403-Missing permission. Need any of: ['admin.users', '*']]",
+      "test_missing_target_after_authentication_and_permission[sqlite-manager-404-User not found]",
+      "test_cannot_remove_last_active_super_or_wildcard_admin[sqlite-deactivate-super]",
+      "test_cannot_remove_last_active_super_or_wildcard_admin[sqlite-deactivate-wildcard]",
+      "test_cannot_remove_last_active_super_or_wildcard_admin[sqlite-demote-super]",
+      "test_cannot_remove_last_active_super_or_wildcard_admin[sqlite-demote-wildcard]",
+      "test_precommit_failure_rolls_back_user_credentials_links_and_audit_then_retry[sqlite]",
+      "test_non_super_manager_cannot_edit_any_protected_administrator_form[sqlite-True-role_name]",
+      "test_non_super_manager_cannot_edit_any_protected_administrator_form[sqlite-True-role_permission]",
+      "test_non_super_manager_cannot_edit_any_protected_administrator_form[sqlite-True-extra_permission]",
+      "test_non_super_manager_cannot_edit_any_protected_administrator_form[sqlite-True-access_policy]",
+      "test_non_super_manager_cannot_edit_any_protected_administrator_form[sqlite-True-wildcard]",
+      "test_non_super_manager_cannot_edit_any_protected_administrator_form[sqlite-False-role_name]",
+      "test_non_super_manager_cannot_edit_any_protected_administrator_form[sqlite-False-role_permission]",
+      "test_non_super_manager_cannot_edit_any_protected_administrator_form[sqlite-False-extra_permission]",
+      "test_non_super_manager_cannot_edit_any_protected_administrator_form[sqlite-False-access_policy]",
+      "test_non_super_manager_cannot_edit_any_protected_administrator_form[sqlite-False-wildcard]",
+      "test_manager_inventory_scope_cannot_be_removed_from_another_account[sqlite]",
+      "test_duplicate_email_failure_preserves_user_and_audit[sqlite]",
+      "test_direct_service_rejects_unprivileged_actor[sqlite]",
+      "test_direct_service_rejects_inactive_privileged_actor[sqlite-manager]",
+      "test_direct_service_rejects_inactive_privileged_actor[sqlite-super]",
+      "test_direct_service_rejects_stale_deactivated_actor[sqlite-manager]",
+      "test_direct_service_rejects_stale_deactivated_actor[sqlite-super]",
+      "test_inactive_guard_does_not_flush_pending_changes[sqlite]",
+      "test_manager_updates_email_access_and_activation_atomically_with_audit[postgres]",
+      "test_empty_password_and_omitted_fields_keep_credentials_but_still_audit[postgres-None]",
+      "test_empty_password_and_omitted_fields_keep_credentials_but_still_audit[postgres-]",
+      "test_admin_password_rotates_cutoff_and_unused_reset_links_in_same_commit[postgres]",
+      "test_password_change_rejects_old_bearer_and_accepts_new_bearer[postgres]",
+      "test_super_admin_changes_factory_and_revokes_old_session[postgres]",
+      "test_patch_refusal_order_and_rollback[postgres-ordinary-ordinary-body0-403-Missing permission. Need any of: ['admin.users', '*']]",
+      "test_patch_refusal_order_and_rollback[postgres-manager-manager-body1-400-Factory must be MIL, BST, or ECO]",
+      "test_patch_refusal_order_and_rollback[postgres-manager-manager-body2-403-Only Super Admin can change a user's factory]",
+      "test_patch_refusal_order_and_rollback[postgres-manager-manager-body3-403-You cannot change your own role]",
+      "test_patch_refusal_order_and_rollback[postgres-manager-manager-body4-403-You cannot change your own additional access]",
+      "test_patch_refusal_order_and_rollback[postgres-manager-manager-body5-403-You cannot deactivate your own account]",
+      "test_patch_refusal_order_and_rollback[postgres-manager-manager-body6-403-You cannot change your own access]",
+      "test_patch_refusal_order_and_rollback[postgres-manager-ordinary-body7-404-Role not found]",
+      "test_patch_refusal_order_and_rollback[postgres-manager-ordinary-body8-403-Only a super admin can assign administrator roles]",
+      "test_patch_refusal_order_and_rollback[postgres-manager-ordinary-body9-400-Invalid factory permission]",
+      "test_patch_refusal_order_and_rollback[postgres-manager-ordinary-body10-403-Only Super Admin can configure another factory]",
+      "test_patch_refusal_order_and_rollback[postgres-manager-ordinary-body11-403-Only a super admin can grant administrator access]",
+      "test_patch_refusal_order_and_rollback[postgres-manager-ordinary-body12-403-You cannot grant permissions you don't hold: ['sales.orders']]",
+      "test_patch_refusal_order_and_rollback[postgres-manager-ordinary-body13-404-Department not found]",
+      "test_patch_refusal_order_and_rollback[postgres-manager-ordinary-body14-400-Super Admin access is configured in the primary factory only]",
+      "test_patch_refusal_order_and_rollback[postgres-manager-ordinary-body15-403-Only Super Admin can configure another factory]",
+      "test_patch_refusal_order_and_rollback[postgres-manager-ordinary-body16-403-Only Super Admin can grant administrator access]",
+      "test_patch_refusal_order_and_rollback[postgres-manager-ordinary-body17-403-You cannot grant permissions you don't hold]",
+      "test_patch_refusal_order_and_rollback[postgres-manager-super-body18-403-Only a super admin can manage administrator accounts]",
+      "test_patch_refusal_order_and_rollback[postgres-manager-ordinary-body19-400-Password must be at least 12 characters, include a number.]",
+      "test_patch_refusal_order_and_rollback[postgres-manager-ordinary-body20-422-User name must be at most 128 characters]",
+      "test_patch_refusal_order_and_rollback[postgres-manager-ordinary-body21-422-User email must be at most 255 characters]",
+      "test_missing_target_after_authentication_and_permission[postgres-None-401-Not authenticated]",
+      "test_missing_target_after_authentication_and_permission[postgres-ordinary-403-Missing permission. Need any of: ['admin.users', '*']]",
+      "test_missing_target_after_authentication_and_permission[postgres-manager-404-User not found]",
+      "test_cannot_remove_last_active_super_or_wildcard_admin[postgres-deactivate-super]",
+      "test_cannot_remove_last_active_super_or_wildcard_admin[postgres-deactivate-wildcard]",
+      "test_cannot_remove_last_active_super_or_wildcard_admin[postgres-demote-super]",
+      "test_cannot_remove_last_active_super_or_wildcard_admin[postgres-demote-wildcard]",
+      "test_precommit_failure_rolls_back_user_credentials_links_and_audit_then_retry[postgres]",
+      "test_non_super_manager_cannot_edit_any_protected_administrator_form[postgres-True-role_name]",
+      "test_non_super_manager_cannot_edit_any_protected_administrator_form[postgres-True-role_permission]",
+      "test_non_super_manager_cannot_edit_any_protected_administrator_form[postgres-True-extra_permission]",
+      "test_non_super_manager_cannot_edit_any_protected_administrator_form[postgres-True-access_policy]",
+      "test_non_super_manager_cannot_edit_any_protected_administrator_form[postgres-True-wildcard]",
+      "test_non_super_manager_cannot_edit_any_protected_administrator_form[postgres-False-role_name]",
+      "test_non_super_manager_cannot_edit_any_protected_administrator_form[postgres-False-role_permission]",
+      "test_non_super_manager_cannot_edit_any_protected_administrator_form[postgres-False-extra_permission]",
+      "test_non_super_manager_cannot_edit_any_protected_administrator_form[postgres-False-access_policy]",
+      "test_non_super_manager_cannot_edit_any_protected_administrator_form[postgres-False-wildcard]",
+      "test_manager_inventory_scope_cannot_be_removed_from_another_account[postgres]",
+      "test_duplicate_email_failure_preserves_user_and_audit[postgres]",
+      "test_direct_service_rejects_unprivileged_actor[postgres]",
+      "test_direct_service_rejects_inactive_privileged_actor[postgres-manager]",
+      "test_direct_service_rejects_inactive_privileged_actor[postgres-super]",
+      "test_direct_service_rejects_stale_deactivated_actor[postgres-manager]",
+      "test_direct_service_rejects_stale_deactivated_actor[postgres-super]",
+      "test_inactive_guard_does_not_flush_pending_changes[postgres]"
+    ],
+    "test_identity_admin_user_delete": [
+      "test_delete_unused_user_detaches_nullable_deletes_required_refs_and_audits_once[sqlite-True-manager]",
+      "test_delete_unused_user_detaches_nullable_deletes_required_refs_and_audits_once[sqlite-True-super]",
+      "test_delete_unused_user_detaches_nullable_deletes_required_refs_and_audits_once[sqlite-False-manager]",
+      "test_delete_unused_user_detaches_nullable_deletes_required_refs_and_audits_once[sqlite-False-super]",
+      "test_authentication_and_permission_precede_missing_target[sqlite-None-401-Not authenticated]",
+      "test_authentication_and_permission_precede_missing_target[sqlite-ordinary-403-Missing permission. Need any of: ['admin.users', '*']]",
+      "test_authentication_and_permission_precede_missing_target[sqlite-manager-404-User not found]",
+      "test_self_deletion_refused_before_protection_and_audit_history[sqlite-manager]",
+      "test_self_deletion_refused_before_protection_and_audit_history[sqlite-super]",
+      "test_non_super_manager_cannot_delete_protected_forms_before_history_cleanup[sqlite-True-role_name]",
+      "test_non_super_manager_cannot_delete_protected_forms_before_history_cleanup[sqlite-True-role_permission]",
+      "test_non_super_manager_cannot_delete_protected_forms_before_history_cleanup[sqlite-True-extra_permission]",
+      "test_non_super_manager_cannot_delete_protected_forms_before_history_cleanup[sqlite-True-access_policy]",
+      "test_non_super_manager_cannot_delete_protected_forms_before_history_cleanup[sqlite-True-wildcard]",
+      "test_non_super_manager_cannot_delete_protected_forms_before_history_cleanup[sqlite-False-role_name]",
+      "test_non_super_manager_cannot_delete_protected_forms_before_history_cleanup[sqlite-False-role_permission]",
+      "test_non_super_manager_cannot_delete_protected_forms_before_history_cleanup[sqlite-False-extra_permission]",
+      "test_non_super_manager_cannot_delete_protected_forms_before_history_cleanup[sqlite-False-access_policy]",
+      "test_non_super_manager_cannot_delete_protected_forms_before_history_cleanup[sqlite-False-wildcard]",
+      "test_audit_history_blocks_deletion_without_touching_any_references[sqlite-True]",
+      "test_audit_history_blocks_deletion_without_touching_any_references[sqlite-False]",
+      "test_last_wildcard_admin_refusal_precedes_history_check[sqlite]",
+      "test_active_wildcard_actor_cannot_delete_protected_super_admin[sqlite]",
+      "test_precommit_failure_rolls_back_deletion_all_refs_and_audit_then_retry[sqlite-runtime]",
+      "test_precommit_failure_rolls_back_deletion_all_refs_and_audit_then_retry[sqlite-integrity]",
+      "test_explicit_super_without_wildcard_can_delete_nonfinal_protected_account[sqlite-True-role_name]",
+      "test_explicit_super_without_wildcard_can_delete_nonfinal_protected_account[sqlite-True-role_permission]",
+      "test_explicit_super_without_wildcard_can_delete_nonfinal_protected_account[sqlite-True-extra_permission]",
+      "test_explicit_super_without_wildcard_can_delete_nonfinal_protected_account[sqlite-True-access_policy]",
+      "test_explicit_super_without_wildcard_can_delete_nonfinal_protected_account[sqlite-True-wildcard]",
+      "test_explicit_super_without_wildcard_can_delete_nonfinal_protected_account[sqlite-False-role_name]",
+      "test_explicit_super_without_wildcard_can_delete_nonfinal_protected_account[sqlite-False-role_permission]",
+      "test_explicit_super_without_wildcard_can_delete_nonfinal_protected_account[sqlite-False-extra_permission]",
+      "test_explicit_super_without_wildcard_can_delete_nonfinal_protected_account[sqlite-False-access_policy]",
+      "test_explicit_super_without_wildcard_can_delete_nonfinal_protected_account[sqlite-False-wildcard]",
+      "test_direct_service_rejects_unprivileged_actor[sqlite]",
+      "test_direct_service_rejects_inactive_privileged_actor[sqlite-manager]",
+      "test_direct_service_rejects_inactive_privileged_actor[sqlite-super]",
+      "test_direct_service_rejects_stale_deactivated_actor[sqlite-manager]",
+      "test_direct_service_rejects_stale_deactivated_actor[sqlite-super]",
+      "test_delete_unused_user_detaches_nullable_deletes_required_refs_and_audits_once[postgres-True-manager]",
+      "test_delete_unused_user_detaches_nullable_deletes_required_refs_and_audits_once[postgres-True-super]",
+      "test_delete_unused_user_detaches_nullable_deletes_required_refs_and_audits_once[postgres-False-manager]",
+      "test_delete_unused_user_detaches_nullable_deletes_required_refs_and_audits_once[postgres-False-super]",
+      "test_authentication_and_permission_precede_missing_target[postgres-None-401-Not authenticated]",
+      "test_authentication_and_permission_precede_missing_target[postgres-ordinary-403-Missing permission. Need any of: ['admin.users', '*']]",
+      "test_authentication_and_permission_precede_missing_target[postgres-manager-404-User not found]",
+      "test_self_deletion_refused_before_protection_and_audit_history[postgres-manager]",
+      "test_self_deletion_refused_before_protection_and_audit_history[postgres-super]",
+      "test_non_super_manager_cannot_delete_protected_forms_before_history_cleanup[postgres-True-role_name]",
+      "test_non_super_manager_cannot_delete_protected_forms_before_history_cleanup[postgres-True-role_permission]",
+      "test_non_super_manager_cannot_delete_protected_forms_before_history_cleanup[postgres-True-extra_permission]",
+      "test_non_super_manager_cannot_delete_protected_forms_before_history_cleanup[postgres-True-access_policy]",
+      "test_non_super_manager_cannot_delete_protected_forms_before_history_cleanup[postgres-True-wildcard]",
+      "test_non_super_manager_cannot_delete_protected_forms_before_history_cleanup[postgres-False-role_name]",
+      "test_non_super_manager_cannot_delete_protected_forms_before_history_cleanup[postgres-False-role_permission]",
+      "test_non_super_manager_cannot_delete_protected_forms_before_history_cleanup[postgres-False-extra_permission]",
+      "test_non_super_manager_cannot_delete_protected_forms_before_history_cleanup[postgres-False-access_policy]",
+      "test_non_super_manager_cannot_delete_protected_forms_before_history_cleanup[postgres-False-wildcard]",
+      "test_audit_history_blocks_deletion_without_touching_any_references[postgres-True]",
+      "test_audit_history_blocks_deletion_without_touching_any_references[postgres-False]",
+      "test_last_wildcard_admin_refusal_precedes_history_check[postgres]",
+      "test_active_wildcard_actor_cannot_delete_protected_super_admin[postgres]",
+      "test_precommit_failure_rolls_back_deletion_all_refs_and_audit_then_retry[postgres-runtime]",
+      "test_precommit_failure_rolls_back_deletion_all_refs_and_audit_then_retry[postgres-integrity]",
+      "test_explicit_super_without_wildcard_can_delete_nonfinal_protected_account[postgres-True-role_name]",
+      "test_explicit_super_without_wildcard_can_delete_nonfinal_protected_account[postgres-True-role_permission]",
+      "test_explicit_super_without_wildcard_can_delete_nonfinal_protected_account[postgres-True-extra_permission]",
+      "test_explicit_super_without_wildcard_can_delete_nonfinal_protected_account[postgres-True-access_policy]",
+      "test_explicit_super_without_wildcard_can_delete_nonfinal_protected_account[postgres-True-wildcard]",
+      "test_explicit_super_without_wildcard_can_delete_nonfinal_protected_account[postgres-False-role_name]",
+      "test_explicit_super_without_wildcard_can_delete_nonfinal_protected_account[postgres-False-role_permission]",
+      "test_explicit_super_without_wildcard_can_delete_nonfinal_protected_account[postgres-False-extra_permission]",
+      "test_explicit_super_without_wildcard_can_delete_nonfinal_protected_account[postgres-False-access_policy]",
+      "test_explicit_super_without_wildcard_can_delete_nonfinal_protected_account[postgres-False-wildcard]",
+      "test_direct_service_rejects_unprivileged_actor[postgres]",
+      "test_direct_service_rejects_inactive_privileged_actor[postgres-manager]",
+      "test_direct_service_rejects_inactive_privileged_actor[postgres-super]",
+      "test_direct_service_rejects_stale_deactivated_actor[postgres-manager]",
+      "test_direct_service_rejects_stale_deactivated_actor[postgres-super]"
+    ],
+    "test_item_delete_postgres": [
+      "test_pg_delete_and_archive_share_session_and_preserve_audit[False]",
+      "test_pg_delete_and_archive_share_session_and_preserve_audit[True]",
+      "test_pg_actual_audit_finalization_failure_rolls_back[False]",
+      "test_pg_actual_audit_finalization_failure_rolls_back[True]",
+      "test_pg_unchecked_direct_reference_rejects_delete_atomically[False-reservation]",
+      "test_pg_unchecked_direct_reference_rejects_delete_atomically[False-manual_issue]",
+      "test_pg_unchecked_direct_reference_rejects_delete_atomically[False-forecast]",
+      "test_pg_unchecked_direct_reference_rejects_delete_atomically[True-reservation]",
+      "test_pg_unchecked_direct_reference_rejects_delete_atomically[True-manual_issue]",
+      "test_pg_unchecked_direct_reference_rejects_delete_atomically[True-forecast]",
+      "test_pg_item_lock_serializes_reference_insert_and_audit[commit]",
+      "test_pg_item_lock_serializes_reference_insert_and_audit[audit_rollback]"
+    ],
+    "test_model_image_delete_postgres": [
+      "test_pg_denied_usluga_and_reverse_scope_keep_binary",
+      "test_pg_request_failure_rolls_back_binary_and_audit[after_audit_flush]",
+      "test_pg_request_failure_rolls_back_binary_and_audit[before_commit]",
+      "test_pg_update_then_delete_waits_and_audits_loaded_url",
+      "test_pg_deferred_delete_commit_failure_rolls_back_binary_and_audit"
+    ],
+    "test_stocktake_create_postgres": [
+      "test_pg_http_create_auth_and_request_key_replay",
+      "test_pg_same_key_concurrent_create_replays_unique_winner",
+      "test_pg_request_audit_finalization_failure_rolls_back_then_retry",
+      "test_pg_deferred_create_commit_abort_rolls_back_then_retry"
+    ],
+    "test_stocktake_delete_postgres": [
+      "test_pg_request_audit_flush_failure_rolls_back_bulk",
+      "test_pg_overlapping_bulk_deletes_serialize",
+      "test_pg_deferred_commit_failure_restores_bulk",
+      "test_pg_delete_blocks_scan_or_completion[scan]",
+      "test_pg_delete_blocks_scan_or_completion[complete]"
+    ],
+    "test_stocktake_undo_postgres": [
+      "test_pg_undo_auth_and_selection_refusal_before_mutation",
+      "test_pg_undo_request_audit_finalization_failure_then_retry",
+      "test_pg_undo_duplicate_and_foreign_selection_and_single_success",
+      "test_pg_undo_completed_count_refuses_without_mutation",
+      "test_pg_undo_waits_for_completion_with_preloaded_count[False]",
+      "test_pg_undo_waits_for_completion_with_preloaded_count[True]"
+    ],
+    "test_stocktake_scan_postgres": [
+      "test_pg_scan_auth_duplicate_first_evidence_and_completed_refusal",
+      "test_pg_scan_request_audit_finalization_failure_then_retry",
+      "test_pg_scan_expected_unexpected_package_and_refusals",
+      "test_pg_duplicate_package_scan_waits_on_first_parent_lock",
+      "test_pg_scan_deferred_commit_abort_preserves_evidence_then_retry"
+    ],
+    "test_waste_manual_create_commit_postgres": [
+      "test_pg_manual_create_commit_abort_rolls_back_then_retry",
+      "test_pg_unicode_create_and_all_typed_status_filters_round_trip"
+    ],
+    "test_waste_request_postgres": [
+      "test_pg_disposal_http_refusal_and_audit_failure_retry",
+      "test_pg_disposal_deferred_commit_failure_retry",
+      "test_pg_disposal_request_race_serializes_on_parent"
+    ],
+    "test_waste_mark_disposed_postgres": [
+      "test_pg_mark_refuses_request_before_invalid_parent[pending]",
+      "test_pg_mark_refuses_request_before_invalid_parent[rejected]",
+      "test_pg_mark_refuses_request_before_invalid_parent[disposed]",
+      "test_pg_mark_refuses_nonapproved_parent[recorded]",
+      "test_pg_mark_refuses_nonapproved_parent[received_by_waste_department]",
+      "test_pg_mark_refuses_nonapproved_parent[sold]",
+      "test_pg_mark_refuses_nonapproved_parent[pending_disposal_approval]",
+      "test_pg_mark_refuses_nonapproved_parent[disposed]",
+      "test_pg_mark_refuses_invalid_waste[sellable]",
+      "test_pg_mark_refuses_invalid_waste[zero]",
+      "test_pg_mark_refuses_invalid_waste[negative]",
+      "test_pg_mark_refuses_invalid_waste[nan]",
+      "test_pg_mark_disposed_auth_refusal_audit_failure_retry",
+      "test_pg_mark_disposed_deferred_commit_failure_retry",
+      "test_pg_mark_disposed_race_serializes_on_parent"
+    ],
+    "test_waste_disposal_integrity": [
+      "test_postgres_concurrent_disposal_has_one_effect_and_refreshes_cached_state[actions0]",
+      "test_postgres_concurrent_disposal_has_one_effect_and_refreshes_cached_state[actions1]",
+      "test_postgres_concurrent_disposal_has_one_effect_and_refreshes_cached_state[actions2]",
+      "test_postgres_concurrent_disposal_has_one_effect_and_refreshes_cached_state[actions3]"
+    ],
+    "test_waste_approve_postgres": [
+      "test_pg_approve_refuses_request_before_invalid_parent[approved]",
+      "test_pg_approve_refuses_request_before_invalid_parent[rejected]",
+      "test_pg_approve_refuses_request_before_invalid_parent[disposed]",
+      "test_pg_approve_refuses_invalid_parent[recorded]",
+      "test_pg_approve_refuses_invalid_parent[received_by_waste_department]",
+      "test_pg_approve_refuses_invalid_parent[sold]",
+      "test_pg_approve_refuses_invalid_parent[disposal_approved]",
+      "test_pg_approve_refuses_invalid_parent[disposed]",
+      "test_pg_approve_refuses_invalid_waste[sellable]",
+      "test_pg_approve_refuses_invalid_waste[zero]",
+      "test_pg_approve_refuses_invalid_waste[negative]",
+      "test_pg_approve_refuses_invalid_waste[nan]",
+      "test_pg_approve_auth_refusal_audit_failure_retry",
+      "test_pg_approve_deferred_commit_failure_retry",
+      "test_pg_approval_race_serializes_on_parent[approve]",
+      "test_pg_approval_race_serializes_on_parent[reject]"
+    ],
+    "test_waste_reject_postgres": [
+      "test_pg_reject_refuses_request_before_invalid_parent[approved]",
+      "test_pg_reject_refuses_request_before_invalid_parent[rejected]",
+      "test_pg_reject_refuses_request_before_invalid_parent[disposed]",
+      "test_pg_reject_refuses_invalid_parent[recorded]",
+      "test_pg_reject_refuses_invalid_parent[received_by_waste_department]",
+      "test_pg_reject_refuses_invalid_parent[sold]",
+      "test_pg_reject_refuses_invalid_parent[disposal_approved]",
+      "test_pg_reject_refuses_invalid_parent[disposed]",
+      "test_pg_reject_recovers_invalid_historical_parent[True-2]",
+      "test_pg_reject_recovers_invalid_historical_parent[False-0]",
+      "test_pg_reject_recovers_invalid_historical_parent[False--0.25]",
+      "test_pg_reject_recovers_invalid_historical_parent[False-NaN]",
+      "test_pg_reject_orphan_creation_fk_refusal_then_existing_request",
+      "test_pg_reject_auth_refusal_audit_failure_retry",
+      "test_pg_reject_deferred_commit_failure_retry",
+      "test_pg_rejection_race_serializes_on_parent[reject]",
+      "test_pg_rejection_race_serializes_on_parent[approve]"
+    ],
+    "test_waste_race_rollback_postgres": [
+      "test_waste_sale_postgres_contending_http_requests",
+      "test_waste_sale_postgres_audit_finalization_rollback"
+    ],
+    "test_waste_sale_commit_postgres": [
+      "test_pg_sale_deferred_commit_failure_rolls_back_replay_then_retry",
+      "test_pg_sale_auth_partial_then_exhaust_and_replay",
+      "test_pg_sale_same_key_service_race_serializes_and_replays"
+    ],
+    "test_waste_sale_list_postgres": [
+      "test_pg_empty_filtered_list_has_no_sale_query",
+      "test_pg_list_batch_history_filters_auth_and_no_writes",
+      "test_pg_partial_sale_remaining_stale_and_exhaustion",
+      "test_pg_nan_original_service_diagnostic"
+    ],
+    "test_model_create_commit_postgres": [
+      "test_pg_signed_create_auth_scope_and_retained_readback[/api/models-standard-standard-None]",
+      "test_pg_signed_create_auth_scope_and_retained_readback[/api/usluga/models-eco-usluga-ECO]",
+      "test_pg_variant_inherits_approval_without_changing_family_or_other_scope",
+      "test_pg_create_finalization_and_deferred_commit_rollback_retry[audit]",
+      "test_pg_create_finalization_and_deferred_commit_rollback_retry[commit]",
+      "test_pg_create_serializes_on_numbering_and_family_lock[numbering]",
+      "test_pg_create_serializes_on_numbering_and_family_lock[family]"
+    ],
+    "test_price_calculation_status_postgres": [
+      "test_pg_signed_status_transitions_finance_gate_and_notifications"
+    ],
+    "test_price_calculation_purchasing_postgres": [
+      "test_pg_purchasing_completion_transition_recipients_and_audit_actor",
+      "test_pg_purchasing_request_audit_and_notification_rollback_then_retry"
+    ],
+    "test_price_calculation_creation_postgres": [
+      "test_pg_signed_creation_auth_duplicates_and_recipients",
+      "test_pg_signed_creation_margin_contract[999999.99-201-expected0]",
+      "test_pg_signed_creation_margin_contract[1000000-422-None]",
+      "test_pg_signed_creation_margin_contract[0.001-422-None]",
+      "test_pg_signed_creation_margin_contract[not-a-number-201-None]",
+      "test_pg_signed_creation_failure_teardown_retry[notification]",
+      "test_pg_signed_creation_failure_teardown_retry[audit]",
+      "test_pg_signed_creation_failure_teardown_retry[commit]"
+    ],
+    "test_model_delete_postgres": [
+      "test_pg_signed_delete_scope_and_retained_readback[standard-/api/models-standard]",
+      "test_pg_signed_delete_scope_and_retained_readback[usluga-/api/usluga/models-eco]",
+      "test_pg_signed_delete_unguarded_forecast_fk_rollback",
+      "test_pg_signed_delete_finalization_and_deferred_commit_rollback_retry[audit]",
+      "test_pg_signed_delete_finalization_and_deferred_commit_rollback_retry[commit]",
+      "test_pg_signed_delete_real_reference_guards_in_order[sales orders]",
+      "test_pg_signed_delete_real_reference_guards_in_order[production orders]",
+      "test_pg_signed_delete_real_reference_guards_in_order[production order items]",
+      "test_pg_signed_delete_real_reference_guards_in_order[bundles]",
+      "test_pg_signed_delete_real_reference_guards_in_order[packages]",
+      "test_pg_signed_delete_real_reference_guards_in_order[package items]",
+      "test_pg_signed_delete_real_reference_guards_in_order[finished goods stock]",
+      "test_pg_signed_delete_real_reference_guards_in_order[all]",
+      "test_pg_delete_blocks_concurrent_sales_reference_then_fk_refuses"
+    ],
+    "test_price_calculation_accessory_postgres": [
+      "test_signed_accessory_transitions_and_retained_readback",
+      "test_signed_failure_rollback_and_retry",
+      "test_concurrent_unlocked_updates_characterize_stale_completion"
+    ],
+    "test_price_calculation_cutting_postgres": [
+      "test_signed_failure_rollback_and_retry",
+      "test_signed_passport_manual_refusals_and_readback",
+      "test_concurrent_passport_update_uses_visible_committed_snapshot"
+    ],
+    "test_modelsize_delete_postgres": [
+      "test_delete_readback_and_audit[0-standard]",
+      "test_delete_readback_and_audit[1-usluga]",
+      "test_deferred_commit_failure_rolls_back_and_retry",
+      "test_signed_scope_permissions_missing_and_retained_state[standard-/api/models-standard]",
+      "test_signed_scope_permissions_missing_and_retained_state[usluga-/api/usluga/models-eco]",
+      "test_signed_audit_finalization_failure_rolls_back_and_retry",
+      "test_last_size_with_issued_bundle_preserves_bundle",
+      "test_delete_and_same_label_insert_interleave_without_unique_guard"
+    ],
+    "test_price_calculation_finance_postgres": [
+      "test_signed_finance_refusal_omission_null_and_attachment",
+      "test_signed_finance_rollback_and_retry[audit]",
+      "test_signed_finance_rollback_and_retry[commit]",
+      "test_concurrent_finance_updates_wait_and_last_writer_wins"
+    ],
+    "test_waste_receive_commit_postgres": [
+      "test_signed_receive_refusals_and_retained_readback",
+      "test_signed_receipt_finalization_commit_rollback_retry[audit]",
+      "test_signed_receipt_finalization_commit_rollback_retry[commit]",
+      "test_signed_receipt_observed_wait_one_transition"
+    ],
+    "test_variant_pricing_scope_postgres": [
+      "test_pg_shared_fabric_price_preserves_consumption_and_requires_submission",
+      "test_pg_retirement_deferred_commit_failure_preserves_all_rows",
+      "test_pg_retirement_and_approval_wait_on_same_model_and_refuse_old_price",
+      "test_pg_retirement_and_import_serialize_without_duplicate_cancellation"
     ]
   },
   "isolated_supplemental_cases": [

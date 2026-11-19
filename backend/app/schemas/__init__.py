@@ -1,4 +1,6 @@
 from app.schemas.inventory.eco_transfer import EcoFabricDispatch, EcoFabricRoll
+from app.schemas.inventory.eco_accessory import EcoAccessoryPlan, EcoAccessoryRequirement, EcoAccessoryAllocation
+from app.schemas.inventory.eco_inventory import EcoMaterialBatch, EcoMaterialMovement, FactoryFabricTransfer, FactoryFabricTransferLine
 from app.schemas.catalog.paid_process import PaidProcess
 from app.schemas.order_reference import BusinessOrderAlias
 from app.schemas.core import (
@@ -41,10 +43,14 @@ from app.schemas.planning.price_calculation import PriceCalculationRequest
 from app.schemas.inventory.stocktake import WarehouseStocktake, WarehouseStocktakeRow
 from app.schemas.packaging.package_workflows import ManualPackageReceipt, PackagePrintRun, PackagePrintRunMember
 from app.schemas.fulfillment.shipment_review import PackageQuantityAdjustment
+from app.schemas.fulfillment.package_customer_release import PackageCustomerRelease
+from app.schemas.fulfillment.ceo_balance_snapshot import CeoBalanceSnapshot
 
 from app.schemas.inventory.fabric_scan import FabricScan
 
 __all__ = [
+    "EcoAccessoryPlan", "EcoAccessoryRequirement", "EcoAccessoryAllocation",
+    "EcoMaterialBatch", "EcoMaterialMovement", "FactoryFabricTransfer", "FactoryFabricTransferLine",
     "EcoFabricDispatch", "EcoFabricRoll",
     "FabricScan",
     "PaidProcess",
@@ -77,4 +83,14 @@ __all__ = [
     "WarehouseStocktake", "WarehouseStocktakeRow",
     "ManualPackageReceipt", "PackagePrintRun", "PackagePrintRunMember",
     "PackageQuantityAdjustment",
+    "PackageCustomerRelease",
+    "CeoBalanceSnapshot",
+    "GatePhotoAsset",
+    "GateEmployeeDevice",
+    "GateOperation",
+    "GateTarget",
+    "GateSimulatorDevice",
+    "GateSimulatorPerson",
 ]
+
+from app.schemas.people.turnstile import GatePhotoAsset, GateEmployeeDevice, GateOperation, GateTarget, GateSimulatorDevice, GateSimulatorPerson

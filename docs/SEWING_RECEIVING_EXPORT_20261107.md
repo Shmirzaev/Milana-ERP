@@ -1,0 +1,247 @@
+# Daily sewing Excel and manual line receipt — 7 November 2026
+
+Status: AUTOMATED_CANDIDATE; actual connected-browser verification and independent
+AI review are pending the parent integrator. This is not human acceptance.
+
+## Direct scope and baseline
+
+The owner requested (4) that the selected Top/Bottom garment part appear in the
+daily sewing Excel, and (5) a sewing line choice during manual bundle receipt.
+The owner clarified: **Allow both: choose a line or leave unassigned.**
+No source merge, push, deployment or production business mutation is authorized
+by this packet. The parent owns the combined UI screenshots and completion email.
+
+Parent verified both live hosts on release `20261107_043754`; user approved verified
+`origin/clone_main` despite stale `origin/main`. Worker base is `b21b51e6c`, worktree
+`C:\ERP\.codex-work\sewing-receiving-export-20261107`, branch
+`codex/sewing-receiving-export-20261107`. Writer: Codex subagent
+`/root/sewing_receiving_export`; independent AI reviewer: parent integrator.
+Production engineer: Mirshoir; human reviewer: Ismail. Reporting/payroll owner
+Dilmurod and reviewer Mirshoir remain relevant for report interpretation.
+Shavkat/operators retain business acceptance; none is claimed here.
+
+## Changed behavior
+
+The workbook retains the original five columns in order, then adds localized
+Garment part, Top qty and Bottom qty. Top-only and Bottom-only saved splits display
+that exact part. Both positive quantities display both parts. Absent legacy splits
+remain blank quantity cells with '-' part instead of guessing from the model.
+Each saved entry remains one row; the existing Sewn qty column is unchanged and
+continues to hold top+bottom when the existing two-part model uses piece totals.
+No save, stock, Sewing output, payroll or PDF calculation changes.
+
+The manual receipt table adds an optional line selector per Nastil. Its default
+keeps the current assignment, or receives unassigned if none exists. Choosing an
+active line atomically uses the same acceptance operation as the batch QR. The
+complete locked Nastil must be ready; line/factory access, accessories, existing
+line conflicts and assignment quantity rules remain enforced. Replays create no
+duplicate receipt/assignment. They retain the existing acceptance audit behavior
+(one accepted-action entry per request, including zero-receipt replays).
+Manual selected-line receipts retain per-bundle manual audit entries and record
+`accept_sewing_batch_manual`; QR keeps its existing action/note.
+
+Legacy bundles whose explicit `production_batch_id` is null remain receipt-only;
+the selector explains this limitation in EN/RU/UZ. Assigning such historical
+order-wide bundles would require choosing a different assignment scope, outside
+this batch-acceptance reuse. An explicit API line with null batch fails before any
+write. A model-filtered manual request cannot widen to another historical model.
+Existing split/multiple-line work cannot be reassigned implicitly by this action.
+
+## Operation/caller and persistence map
+
+| Entry/caller | Service/contract | Reads and writes |
+| --- | --- | --- |
+| `BundleScanPanel.manualReceive` -> POST `/bundles/manual-receive-sewing` | `SewingManualReceiveIn`; `receive_manual_sewing` | Existing selected batch/model/factory scope; optional positive configurable line ID |
+| Existing batch QR -> POST `/bundles/sewing-batches/{id}/accept` | `accept_sewing_batch` -> `SewingBatchAcceptance` | Same batch -> bundle -> assignment lock order and original validation sequence |
+| Either line acceptance | schema `create_receipt_assignment`, `resize_receipt_assignment`, `start_receipt_assignment` | `sewing_assignments` insert/quantity/status/start; `work_orders.sewing_flow_id` only if empty |
+| Shared receipt helpers | `receive_many_at_sewing` / `receive_at_sewing` | Bundle status/departments, BundleScanLog, WorkOrder actual input/progress, ProductionOrder status; original audit/progress transaction retained |
+| Shared progress/audit | existing public `reconcile_sewing_order`, `log_action` | Same supplied Session; outer receipt service commits once |
+| GET daily report export | `build_sewing_daily_report_xlsx` | Reads saved `top_qty`/`bottom_qty`; workbook bytes only |
+
+No new table/column/index/migration or business permission. HTTP binding and
+permission dependency remain in routes. The legacy batch-output projection remains
+in `bundles.py`; this feature does not extract unrelated label/list logic. Shared
+receipt/progress/audit mapped writers are retained migration debt, not claimed
+schema-boundary completion. New assignment writes are schema-owned.
+
+## Field/type ledger
+
+| Table/contract field | Classification and disposition |
+| --- | --- |
+| `sewing_daily_reports.top_qty`, `bottom_qty`, `sewn_qty` | Existing optional/nonnegative integer saved quantities; unchanged. Report derives a localized display label without persisting a new discriminator. |
+| `SewingManualReceiveIn.production_batch_id` | Configurable FK; required, explicit-null historical meaning retained. |
+| `SewingManualReceiveIn.sewing_flow_id` | New optional positive configurable FK; not an enum or permission. |
+| `SewingManualReceiveIn.factory_code` | Canonical `SewingFactoryCode` enum with prior trim/uppercase/empty-to-default normalization. Invalid vocabulary now fails DTO validation with 422 rather than legacy service 400; legal serialized values unchanged. |
+| `SewingAssignment.status`, WorkOrder/Bundle states and operation, department codes | Existing fixed vocabulary and action subsets retained verbatim during bounded operation extraction. No canonical assignment enum exists at this base; broader table-by-table production adoption and actual stored-value census remain unresolved, not claimed complete. |
+| Assignment note and audit action | Source note identifies manual/QR; audit action is the existing open action namespace with one new manual-batch action. No user-controlled status/action. |
+| Line/model/order names and IDs | Configurable references/text; no enum conversion. |
+| `SewingBatchAcceptance` / `SewingManualReceiveResult` | Used dataclass and precise TypedDict beside their single production feature; route maps/returns their fields to existing public response without a parallel DTO hierarchy. |
+
+## Automated evidence and validity
+
+- Original b21 route fails selected-line regression: receipt succeeded without a
+  `sewing_assignment_id` or assignment. Candidate proves persisted assignment and
+  retry/readback. Original five-column Excel fails all four Top/Bottom/both/legacy
+  regression shapes; fixed candidate reads saved fields, preserving totals.
+- Candidate `5df36ac8e` passes **155** SQLite cases across
+  `test_sewing_manual_line_receive.py`, `test_sewing_daily_reports.py`,
+  `test_sewing_later_nastil_workflow.py`, `test_sewing_band_access.py`,
+  `test_sewing_workspace_permissions.py` and `test_production_flow.py`
+  (108.95 seconds). The first extra accessory-gate assertion incorrectly expected
+  400; source proves the established refusal is 409. The corrected full suite passes.
+- A narrow followup preserves the old str DTO's refusal of malformed falsey
+  factory values (`0`, `False`, `[]`): only actual strings are normalized. Its
+  targeted canonical-factory regression passes all malformed inputs, normalized
+  `" bst "`, absent factory and forbidden `ECT`. Legal receipt behavior is unchanged.
+- Isolated PostgreSQL uses owned container `milana-sewing-receipt-pg-20261107`,
+  loopback port 15568 and randomly isolated fixture schemas. The owned container was
+  stopped after the passing PostgreSQL run; no other local service was touched. It covers no-line
+  receipt plus printing loss, selected-line receipt for all three factories,
+  work-order lock refusal/recovery, sibling evidence, Sewing -> Packaging,
+  two concurrent selected receipts, and 12 replay requests per selected case;
+  **9 PostgreSQL cases PASS** (14.07 seconds).
+- Frontend strict TypeScript, scoped ESLint, actual scanner-handler execution,
+  factory access (54 cases) and factory daily report contracts all PASS.
+  Handler regression checks selected batch IDs `[89,95,null]` and line values
+  `[7,null,null]`, exercising the actual source function.
+- Existing test-only short JWT and deprecated TestClient/Pydantic namespace warnings
+  remain inherited; no real credentials are used.
+
+## Browser and human checklist
+
+Parent owns the actual connected-browser gate on the combined candidate. Use
+`backend/app/tests/sewing_receipt_browser_fixture.py` via `runpy.run_path` and an
+authenticated loopback httpx client; do not import pytest conftest into a QA server.
+It seeds one waiting 128-piece Nastil/four bundles, two lines and saved Top24/Bottom16
+reports and returns IDs/routes/expectations. Call again for an unassigned-receipt
+example. All synthetic writes are isolated local fixtures; no production QA rows.
+
+1. In `/bundles/scan/sewing?factory=MIL`, search returned order, choose a line,
+   receive; reopen line context and confirm one 128-piece assignment and four
+   receipt logs. Test second record with default unassigned and with planned line.
+2. Verify inaccessible/inactive/other-factory line, conflicting existing line and
+   missing accessories cannot partially receive or assign.
+3. Export chosen daily date: Top24 and Bottom16 each appear once with exact part,
+   numeric split and unchanged Sewn qty; inspect EN/RU/UZ, narrow viewport and no-batch
+   explanation. Existing report editing/PDF remain operational.
+4. QA master and named human owners record acceptance before any separately
+   authorized deployment. Until parent visual/independent gates pass, do not mark
+   AI_VERIFIED_AWAITING_HUMAN. No deployment happened in this worker.
+
+## Independent-review P2 followup: Printing loss at line acceptance
+
+Independent reviewer `/root/ect_receiving` reproduced an inherited batch-QR defect
+in the newly reused selected-manual path. On base `92ede3b44`, 128 original Cutting
+bundle pieces with 28 Printing rejects receive correctly, but assigning the raw
+128 leaves a line at `(quantity, completed_qty, status) = (128, 100, in_progress)`
+after the valid 100-piece Sewing and Packaging workflow completes. Initial green
+cases omitted the combination of selected-line receipt and Printing loss; that
+coverage gap is corrected. The new real-PostgreSQL regression proved RED exactly
+at this persisted tuple before changing the service.
+
+The shared receipt operation now uses the existing completion-target arithmetic,
+factored without behavior change from `unfinished_sewing_batches` into
+`sewing_input_service.usable_sewing_input_quantity`. The receipt helper reads
+exact-Nastil Printing passed/rejected evidence, including legacy records scoped
+through their dedicated Printing work order, and excludes cancelled/rejected/
+skipped work orders just as completion already does. Assignment quantity is capped
+by the exact physical bundle receipt. New manual and QR assignments owe 100, not
+128, in the reviewed case; actual saved bundle identities/quantities and receipt
+counts remain unchanged. Existing assignment-conflict/resize restrictions remain;
+this is not a historical assignment/data repair. All-rejected input refuses line
+acceptance with 409 before creating an empty assignment. Existing no-line receipt
+and its preserved plan behavior remain unchanged. Acceptance audit JSON retains
+raw `quantity` and adds integer `assignment_quantity` to distinguish the evidence.
+No migration, permission, DTO enum, payroll or packaging stock rule changes.
+
+The expanded PostgreSQL matrix covers MIL/BST/ECO, no-loss/loss, no-line/selected
+line, simultaneous requests, 12 pre-output replays and a post-completion replay,
+sibling history, WO lock refusal/recovery and Sewing -> Packaging. **12 cases PASS**
+(12.55 seconds), including persisted `(100, 100, completed)` and both WOs complete.
+SQLite manual/QR cases cover active same-Nastil loss, all-rejected refusal, sibling
+and cancelled Printing exclusion and legacy dedicated-Nastil attribution. Final
+SQLite suites (`test_sewing_manual_line_receive.py`, later-Nastil workflow and
+Nastil completion) pass **47 cases** (38.68 seconds). Ruff and `git diff --check`
+pass for the changed source.
+
+A separate pre-existing adjacent inconsistency remains: `production.py:post_sewing`
+uses `_context_work_order(..., "printing")` and sums that row's passed output without
+excluding a cancelled Printing work order. Thus a cancelled row with passed100/
+rejects28 still caps Sewing input at100 despite its existing completion target
+ignoring the cancelled row and requiring128. The exact `92ede3b44` service baseline
+is exercised by the two cancelled manual/QR characterizations, asserting the
+128-piece assignment and the existing output refusal at100. The followup retains
+this characterization and changes no `production.py` source. This is an unresolved
+adjacent workflow risk, not a claimed passing cancelled-Printing completion.
+Parent owns its separate prioritization and the actual browser/independent review
+of the combined active-Printing-loss fix. No production rows are changed.
+
+## Full-suite query-budget followup
+
+The parent's frozen full-suite check found six failures introduced by this slice;
+these are not classified as inherited. Original manual measurements became
+21/70/421 SELECTs at 1/50/401 bundles and QR acceptance became 31 instead of 29.
+The operation extraction moved its audit dependency into the new service, but the
+performance test still replaced the HTTP module's old logger. The resulting SQLite
+audit-chain lookup ran once per bundle inside a boundary that intentionally
+excluded auditing. The Printing-loss correction also added one constant read.
+
+The test now replaces the owning service logger and records/asserts every expected
+per-bundle/manual or per-batch/QR audit call. Its receipt-sum classifier matches
+`sum(bundles.quantity)` precisely, since the new Printing projection selects raw
+bundle quantity alongside a different aggregate. Actual audit writes are not
+removed, postponed or changed. To avoid increasing even the existing constant SQL
+budgets, the Printing totals are one independent aggregate joined into the existing
+locked Bundle read, after the batch lock. PostgreSQL uses `FOR UPDATE OF bundles`,
+retaining batch -> bundle lock order without locking aggregate rows. The aggregate
+runs once for the exact Nastil, independently of its bundle count; target arithmetic,
+all-reject refusal, receipt labels and active-loss completion are unchanged.
+
+The original exact budgets remain 20 manual / 29 QR SELECTs for 1/50/401 bundles.
+New selected-manual coverage has a tighter 24-query budget at all three sizes.
+There is no query-budget increase. A separate real PostgreSQL test runs all three
+modes without audit mocks at 1/50/401 bundles, checks persisted per-bundle audit rows
+and verifies the entire audit hash chain. Counts remain constant: manual 23/23/23,
+QR 31/31/31 and selected-manual 26/26/26. All 15 PostgreSQL cases pass in 17.28 seconds,
+including the 12 active-loss/concurrency/completion regressions. The scoped SQLite
+query-growth, shared accessory gate, manual line, later-Nastil and completion suites
+pass 76 cases in 42.72 seconds. Ruff and diff checks pass. Parent
+independent review and frozen combined-suite verification remain required.
+
+## Concurrency review: fresh Printing snapshot after bundle-lock waits
+
+This section supersedes the joined-aggregate optimization and its 29/24-query
+acceptance budgets above. Parent independent SQL review challenged its READ
+COMMITTED statement snapshot while waiting for bundle locks.
+
+Read-only tracing confirms current `POST /printing/records` resolves a real Nastil
+ID for both a dedicated Printing WO and a shared WO with selected batch. A new
+`PrintingRecord` persists that non-null FK. A real PostgreSQL test observes its
+KEY SHARE blocking receipt at the upfront ProductionBatch FOR UPDATE, before the
+later Printing snapshot, and the assignment correctly gets 100. The route does
+not itself publish a null-batch record in that case.
+
+The supported legacy coalesced source is different: a null-batch PrintingRecord
+scoped through its dedicated WO has no such batch FK lock. A bounded disposable-PG
+storage publication test holds the bundle lock, inserts that legacy-shaped source,
+starts receipt, observes the actual wait on the Bundle SELECT through
+`pg_stat_activity`, and commits the publisher. The joined statement captures the
+old aggregate and produces assignment128 instead of100: meaningful RED on
+`1c7b1895a`. This is a compatibility storage challenge, not a claim that the current
+HTTP writer emits null. The receipt service must not assume every accepted source
+is protected by the current writer's FK.
+
+The final operation therefore locks the same batch and bundle rows first, then
+executes one fresh bounded Printing aggregate statement. Both modern and legacy
+publication/wait tests now assign100 and retain the raw128-piece bundle identity.
+The parent explicitly approved this correctness cost: exact shared-context budgets
+are20 for receipt without line,30 for QR acceptance and25 for selected-manual
+receipt, constant at1/50/401 bundles. That is one justified fixed query for the
+Printing-loss feature, not a per-bundle allowance or removal of audits. Real PG
+with all audits enabled remains constant:23/23/23 manual,32/32/32 QR and27/27/27
+selected manual. The full PostgreSQL receipt suite passes17 cases in14.42seconds,
+including loss, scope, concurrency, completion, hash-chain verification and both
+publication lock boundaries. The final scoped SQLite query-growth, accessory gate,
+manual line, later-Nastil and completion suites pass 76 cases in 26.34 seconds.
+The owned loopback PG is left running for the parent's final combined PG checks;
+container/data retention and final stop are delegated to that parent cleanup.

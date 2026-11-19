@@ -12,6 +12,23 @@ from alembic.operations import Operations
 from app.tests.test_fresh_migration_bootstrap import postgres_migrations, load_migration  # noqa: F401
 
 
+def _role_grants(connection):
+    return connection.execute(sa.text("SELECT id, name, permissions FROM roles ORDER BY id")).all()
+
+
+def _assert_head_census(connection, before, previous_roles):
+    # Revision 0158 reserves the CEO role without assigning it to a user.
+    expected = {**before, "roles": before["roles"] + 1}
+    actual = {table: connection.scalar(sa.text(f'SELECT count(*) FROM "{table}"')) for table in expected}
+    assert actual == expected
+
+    roles = _role_grants(connection)
+    assert [role for role in roles if role.name != "CEO"] == previous_roles
+    (ceo,) = [role for role in roles if role.name == "CEO"]
+    assert ceo.permissions == []
+    assert connection.scalar(sa.text("SELECT count(*) FROM users WHERE role_id = :id"), {"id": ceo.id}) == 0
+
+
 def test_forward_catalog_alignment_preserves_rows_and_unique_constraint(postgres_migrations):
     engine, config = postgres_migrations.engine, postgres_migrations.config
     command.upgrade(config, "0137_perf34_shipment_indexes")
@@ -23,8 +40,11 @@ def test_forward_catalog_alignment_preserves_rows_and_unique_constraint(postgres
         connection.exec_driver_sql("INSERT INTO collections (name, brand_id, status) SELECT 'DB08 synthetic collection', id, 'draft' FROM brands WHERE name = 'DB08 synthetic brand'")
         before = {table: connection.scalar(sa.text(f'SELECT count(*) FROM "{table}"'))
                   for table in sa.inspect(connection).get_table_names() if table != "alembic_version"}
+        previous_roles = _role_grants(connection)
         assert migration.reservation_index_plan(connection) == "drop_redundant"
-    command.upgrade(config, "head")
+    # Rehearse the historical rollback at its own boundary, before newer
+    # forward-only pricing history exists. Final upgrade still exercises head.
+    command.upgrade(config, "0138_ismail_schema_contract")
     path = Path(__file__).resolve().parents[3] / "scripts/schema_audit.py"
     spec = importlib.util.spec_from_file_location("schema_audit", path)
     audit = importlib.util.module_from_spec(spec)
@@ -59,6 +79,13 @@ def test_forward_catalog_alignment_preserves_rows_and_unique_constraint(postgres
         assert not any(index["name"] == "ix_hr_calendar_events_event_type"
                        for index in sa.inspect(connection).get_indexes("hr_calendar_events"))
     command.upgrade(config, "head")
+    with engine.connect() as connection:
+        assert migration.reservation_index_plan(connection) == "already_absent"
+        _assert_head_census(connection, before, previous_roles)
+        final_evidence = audit.audit(engine, schema)
+        assert final_evidence["candidate_duplicates"] == []
+        assert all(index["action"] == "keep" for index in final_evidence["hr_indexes"])
+    (output / "schema-audit.json").write_text(json.dumps(final_evidence, indent=2), encoding="utf8")
 
 
 def test_duplicate_cleanup_refuses_an_index_with_different_meaning(postgres_migrations):
@@ -95,8 +122,9 @@ def test_live_single_reservation_index_is_attached_without_rebuild(postgres_migr
         oid = connection.scalar(sa.text("SELECT to_regclass(:name)::oid"), {"name": migration.REDUNDANT})
         before = {table: connection.scalar(sa.text(f'SELECT count(*) FROM "{table}"'))
                   for table in sa.inspect(connection).get_table_names() if table != "alembic_version"}
+        previous_roles = _role_grants(connection)
         assert migration.reservation_index_plan(connection) == "attach_existing_unique_index"
-    command.upgrade(config, "head")
+    command.upgrade(config, "0138_ismail_schema_contract")
     with engine.begin() as connection:
         assert connection.scalar(sa.text("SELECT to_regclass(:name)::oid"), {"name": migration.COVERING}) == oid
         assert any(key["name"] == migration.COVERING for key in sa.inspect(connection).get_unique_constraints("material_reservations"))
@@ -109,6 +137,10 @@ def test_live_single_reservation_index_is_attached_without_rebuild(postgres_migr
         assert migration.reservation_index_plan(connection) == "drop_redundant"
         assert connection.scalar(sa.text("SELECT to_regclass(:name)::oid"), {"name": migration.COVERING}) == oid
     command.upgrade(config, "head")
+    with engine.connect() as connection:
+        assert migration.reservation_index_plan(connection) == "already_absent"
+        assert connection.scalar(sa.text("SELECT to_regclass(:name)::oid"), {"name": migration.COVERING}) == oid
+        _assert_head_census(connection, before, previous_roles)
 
 
 @pytest.mark.parametrize("definition", [

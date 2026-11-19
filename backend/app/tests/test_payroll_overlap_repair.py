@@ -91,7 +91,7 @@ def test_postgres_concurrent_period_changes_cannot_overlap(payroll_postgres_sess
     end = start + timedelta(days=10)
     ready, release = Event(), Event()
     pids = Queue()
-    original = payroll._assert_period_dates_available
+    original = payroll.payroll_service._assert_period_dates_available
 
     def hold_first(*args, **kwargs):
         original(*args, **kwargs)
@@ -99,7 +99,7 @@ def test_postgres_concurrent_period_changes_cannot_overlap(payroll_postgres_sess
             ready.set()
             assert release.wait(10)
 
-    monkeypatch.setattr(payroll, "_assert_period_dates_available", hold_first)
+    monkeypatch.setattr(payroll.payroll_service, "_assert_period_dates_available", hold_first)
 
     def write(action):
         with sessions() as db:

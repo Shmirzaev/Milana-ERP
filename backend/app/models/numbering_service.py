@@ -14,7 +14,7 @@ from app.schemas import (
 )
 
 MODEL_VARIANT_START = 6455
-MODEL_VARIANT_SETTING_KEY = "model_variant_numbering"
+MODEL_VARIANT_SETTING_KEY = SystemSetting.MODEL_VARIANT_NUMBERING_KEY
 MODEL_NUMBER_SETTING_KEY = SystemSetting.MODEL_NUMBERING_KEY
 CATALOG_NUMBERING_BASE = json.loads(
     (Path(__file__).resolve().parents[2] / "data" / "catalog-numbering-20260930.json").read_text(encoding="utf-8")
@@ -176,11 +176,7 @@ def next_model_variant_no(db: Session, *, reserve: bool = False) -> str:
 
     if reserve:
         next_value = {"last_assigned": candidate}
-        if setting:
-            setting.value_json = next_value
-        else:
-            db.add(SystemSetting(key=MODEL_VARIANT_SETTING_KEY, value_json=next_value))
-        db.flush()
+        SystemSetting.write_model_variant_numbering(db, setting=setting, value_json=next_value)
     return f"V-{candidate}"
 
 
@@ -241,8 +237,7 @@ def next_bundle_no(db: Session) -> str:
     reference = _next_order(db, Bundle, "bundle_no", "BND")
     # Reserve in the caller's transaction, including after a future bundle deletion.
     # Bundle creation attaches its actual ID after flush; zero is reservation-only.
-    db.add(BusinessOrderAlias(namespace="BND", entity_id=0, reference=reference, canonical_reference=reference))
-    db.flush()
+    BusinessOrderAlias.reserve_bundle_reference(db, reference)
     return reference
 
 
@@ -282,6 +277,7 @@ def next_material_reservation_nos(db: Session, count: int) -> list[str]:
 
 def retire_label_numbers(db: Session, package_numbers: list[str], run_number: str | None = None) -> None:
     from app.schemas import PackagePrintRun
+    from app.schemas.packaging.manual_packages_persistence import write_retired_label_floor
     for model, attr, prefix, numbers in ((Package, "package_no", "PKG", package_numbers),
                                          (PackagePrintRun, "run_no", "PRN", [run_number] if run_number else [])):
         by_year: dict[str, int] = {}
@@ -294,9 +290,5 @@ def retire_label_numbers(db: Session, package_numbers: list[str], run_number: st
         for year, number in sorted(by_year.items()):
             _acquire_numbering_lock(db, f"{model.__tablename__}:{attr}:{prefix}:{year}")
             key = f"retired_number:{prefix}:{year}"
-            row = db.query(SystemSetting).filter_by(key=key).populate_existing().first()
-            if row:
-                row.value_json = {"number": max(number, int(row.value_json.get("number", 0)))}
-            else:
-                db.add(SystemSetting(key=key, value_json={"number": number}))
+            write_retired_label_floor(db, key=key, number=number)
     db.flush()

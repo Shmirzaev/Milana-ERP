@@ -9,6 +9,7 @@ from fastapi import HTTPException
 
 from app.schemas import Bundle, CuttingRecord, PrintingRecord, ProductionBatch, SewingRecord, WorkOrder
 from app.models.audit_service import log_action
+from app.models.sewing_input_service import usable_sewing_input_quantity
 
 
 def unfinished_sewing_batches(db, wo):
@@ -37,11 +38,11 @@ def unfinished_sewing_batches(db, wo):
     sewn = db.query(record_batch, func.sum(
         SewingRecord.passed_qty + SewingRecord.failed_qty + SewingRecord.rejected_qty)).filter(
         SewingRecord.work_order_id == wo.id)
-    if wo.production_batch_id is not None:
-        batches = batches.filter(ProductionBatch.id == wo.production_batch_id)
-        cutting = cutting.filter(CuttingRecord.production_batch_id == wo.production_batch_id)
-        received = received.filter(Bundle.production_batch_id == wo.production_batch_id)
-        printing = printing.filter(print_batch == wo.production_batch_id)
+    from app.models.production.batch_scope_service import filter_work_order_batches
+    batches = filter_work_order_batches(batches, ProductionBatch.id, wo)
+    cutting = filter_work_order_batches(cutting, CuttingRecord.production_batch_id, wo)
+    received = filter_work_order_batches(received, Bundle.production_batch_id, wo)
+    printing = filter_work_order_batches(printing, print_batch, wo)
     plans = dict(batches.all())
     cut = dict(cutting.group_by(CuttingRecord.production_batch_id).all())
     receipts = dict(received.group_by(Bundle.production_batch_id).all())
@@ -55,8 +56,10 @@ def unfinished_sewing_batches(db, wo):
         # Printing rejects are real losses in this exact Nastil. Bundle labels
         # may retain their original Cutting count; do not demand those rejects
         # again at Sewing or subtract them from another Nastil's allowance.
-        target = max(0, int(cut.get(bid) or 0) - printed_loss,
-                     int(receipts.get(bid) or 0) - printed_loss, printed_passed)
+        target = usable_sewing_input_quantity(
+            cutting_qty=int(cut.get(bid) or 0), received_qty=int(receipts.get(bid) or 0),
+            printing_passed_qty=printed_passed, printing_rejected_qty=printed_loss,
+        )
         # Historical unbatched entries have only aggregate counters. Preserve
         # that supported path; normal aggregate completion validates it.
         actual = int(output.get(bid) or 0)

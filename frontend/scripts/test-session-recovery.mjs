@@ -4,6 +4,7 @@ import ts from "typescript";
 
 // Exercise the actual hook against SWR states without a server or real session.
 const source = fs.readFileSync(new URL("../src/lib/auth.ts", import.meta.url), "utf8");
+const ceoPath = "/ceo-dashboard";
 function run(state) {
   const exports = {};
   let options;
@@ -15,7 +16,7 @@ function run(state) {
   new Function("exports", "require", ts.transpile(source, { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 }))(
     exports, (name) => dependencies[name],
   );
-  return { result: exports.useMe(), options };
+  return { result: exports.useMe(), options, auth: exports };
 }
 const identity = { id: 1, permissions: ["inventory.receive"] };
 for (const error of [new Error("503: Service unavailable"), new TypeError("Failed to fetch"), new Error("429: Too Many Requests")]) {
@@ -39,16 +40,31 @@ const runtime = await import("react/jsx-runtime");
 const gateSource = ts.transpile(fs.readFileSync(new URL("../src/components/AuthGate.tsx", import.meta.url), "utf8"), {
   module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.ReactJSX,
 });
-for (const [hasToken, me] of [[undefined, undefined], [true, { ...identity, factory_code: "MIL", available_factories: ["MIL"] }], [false, undefined], [true, { ...identity, factory_code: "ECO", available_factories: ["ECO"], sewing_band_id: 64 }]]) {
+const milana = { ...identity, factory_code: "MIL", available_factories: ["MIL"] };
+const eco = { ...identity, factory_code: "ECO", available_factories: ["ECO", "MIL"], sewing_band_id: 64 };
+const ceo = { ...eco, role: "CEO", permissions: ["*"] };
+const { auth } = run({});
+assert.equal(auth.can(ceo, "*"), false);
+for (const [hasToken, me, pathname, redirect, content] of [
+  [undefined, undefined, "/", null, "auth.connectionFailed"],
+  [false, undefined, "/", "/login", undefined],
+  [true, milana, "/", null, "workspace"],
+  [true, eco, "/", null, "workspace"],
+  [true, ceo, "/", ceoPath, undefined],
+  [true, ceo, "/departments/PKG", ceoPath, undefined],
+  [true, ceo, "/image-preview", ceoPath, undefined],
+  [true, ceo, ceoPath, null, "workspace"],
+  [true, { ...milana, role: "Super Admin", permissions: ["*"] }, ceoPath, null, "auth.accessDenied"],
+]) {
   const effects = [], redirects = [], exports = {};
   let logouts = 0;
   new Function("exports", "require", gateSource)(exports, name => {
     if (name === "react/jsx-runtime") return runtime;
     if (name === "react") return { useEffect: fn => effects.push(fn), useState: initial => [initial, () => {}] };
     if (name === "swr") return { SWRConfig: "SWRConfig" };
-    if (name === "next/navigation") return { usePathname: () => "/", useSearchParams: () => new URLSearchParams(), useRouter: () => ({ replace: path => redirects.push(path) }) };
-    if (name === "@/lib/auth") return { useMe: () => ({ me, hasToken, error: new Error("503: unavailable"), loading: false, refresh: async () => {} }), can: () => true };
-    if (name === "@/lib/api") return { api: { logout: async () => { logouts++; } } };
+    if (name === "next/navigation") return { usePathname: () => pathname, useSearchParams: () => new URLSearchParams(), useRouter: () => ({ replace: path => redirects.push(path) }) };
+    if (name === "@/lib/auth") return { ...auth, useMe: () => ({ me, hasToken, error: new Error("503: unavailable"), loading: false, refresh: async () => {} }) };
+    if (name === "@/lib/api") return { api: { logout: async () => { logouts++; }, post: () => assert.fail("CEO attempted an operational factory switch") } };
     if (name === "@/lib/access") return { isSewingRole: () => false, sewingWorkspaceHome: () => "/", factoryWorkspaceHome: () => "/", hasInventoryPathAccess: () => true };
     if (name === "@/lib/i18n") return { useT: () => ({ t: key => key }) };
     if (name === "@/lib/priceCalculationRequests") return {};
@@ -57,8 +73,8 @@ for (const [hasToken, me] of [[undefined, undefined], [true, { ...identity, fact
   const rendered = exports.default({ children: "workspace" });
   effects.forEach(fn => fn());
   assert.equal(logouts, 0);
-  assert.deepEqual(redirects, hasToken === false ? ["/login"] : []);
+  assert.deepEqual(redirects, redirect ? [redirect] : []);
   if (hasToken === undefined) assert.equal(rendered.props.role, "alert");
-  if (hasToken === true) assert.equal(rendered.props.children, "workspace");
+  else assert.equal(rendered?.props?.children, content);
 }
-console.log("AuthGate: outage retry, cached workspace, and definitive rejection passed.");
+console.log("AuthGate: session recovery and CEO-only routing passed.");

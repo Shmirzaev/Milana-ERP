@@ -18,6 +18,12 @@ export type Me = {
   available_factories: ("MIL" | "BST" | "ECO")[];
 };
 
+export const CEO_DASHBOARD_PATH = "/ceo-dashboard";
+
+export function isCeo(me: Me | undefined): boolean {
+  return me?.role === "CEO";
+}
+
 function isSessionRejected(error: unknown): boolean {
   return error instanceof Error && /^(401|403):/.test(error.message);
 }
@@ -48,7 +54,7 @@ export function useMe() {
 }
 
 export function can(me: Me | undefined, ...perms: string[]): boolean {
-  if (!me) return false;
+  if (!me || isCeo(me)) return false;
   if (me.permissions.includes("*")) return true;
   return perms.some((p) => me.permissions.includes(p));
 }

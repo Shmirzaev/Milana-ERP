@@ -1,7 +1,6 @@
 """Whole-record waste disposal decisions cannot replay or reopen terminal stock."""
 from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
-import os
 from queue import Queue
 from threading import Event
 from time import monotonic, sleep
@@ -9,16 +8,15 @@ from uuid import uuid4
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import create_engine, text
-from sqlalchemy.engine import make_url
+from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 
 from app.api.routes import waste
 from app.models.inventory import waste_service
 from app.core.security import create_access_token
-from app.db.base import Base
 from app.db.session import SessionLocal
 from app.schemas import AuditLog, User, WasteDisposalRequest, WasteRecord
+from app.tests.test_modelsize_create_postgres import pg_sessions as pg_sessions  # noqa: F401
 
 
 def _actor(permissions=("waste.receive", "waste.disposal", "management.approve"), session_factory=SessionLocal):
@@ -63,6 +61,16 @@ def test_request_disposal_requires_received_state_without_writes(client, state):
     before = _snapshot(wid)
     response = client.post(f"/api/waste/{wid}/request-disposal", headers=headers, json={"reason": "Test"})
     assert response.status_code == 400, response.text
+    assert _snapshot(wid) == before
+
+
+def test_request_disposal_checks_state_before_sellable_and_quantity(client):
+    _, headers = _actor()
+    wid, _ = _fixture(state="recorded", sellable=True, quantity=0)
+    before = _snapshot(wid)
+    response = client.post(f"/api/waste/{wid}/request-disposal", headers=headers, json={})
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Cannot dispose from status 'recorded'"
     assert _snapshot(wid) == before
 
 
@@ -216,6 +224,23 @@ def test_disposal_audit_failure_rolls_back_state_and_allows_retry(client, monkey
     assert response.status_code == 200, response.text
 
 
+def test_mark_disposed_schema_write_failure_rolls_back_both_statuses(client, monkeypatch):
+    _, headers = _actor()
+    wid, rid = _fixture(state="disposal_approved", request_state="approved")
+    before = _snapshot(wid)
+    original = waste_service.mark_waste_disposed
+
+    def fail_after_write(db, request, record):
+        original(db, request, record)
+        db.flush()
+        raise RuntimeError("Synthetic disposal persistence failure")
+
+    monkeypatch.setattr(waste_service, "mark_waste_disposed", fail_after_write)
+    with pytest.raises(RuntimeError, match="Synthetic disposal persistence failure"):
+        client.post(f"/api/waste/disposal/{rid}/mark-disposed", headers=headers)
+    assert _snapshot(wid) == before
+
+
 @pytest.mark.parametrize("action", ["approve", "mark-disposed"])
 def test_legacy_sellable_disposal_request_cannot_progress(client, action):
     _, headers = _actor()
@@ -223,6 +248,38 @@ def test_legacy_sellable_disposal_request_cannot_progress(client, action):
                         request_state="approved" if action == "mark-disposed" else "pending")
     before = _snapshot(wid)
     assert client.post(f"/api/waste/disposal/{rid}/{action}", headers=headers).status_code == 400
+    assert _snapshot(wid) == before
+
+
+def test_approval_refusal_checks_request_before_invalid_parent(client):
+    _, headers = _actor()
+    wid, rid = _fixture(state="sold", request_state="rejected", quantity=0, sellable=True)
+    before = _snapshot(wid)
+    response = client.post(f"/api/waste/disposal/{rid}/approve", headers=headers)
+    assert response.status_code == 400
+    assert response.json() == {"detail": "Disposal request is not pending"}
+    assert _snapshot(wid) == before
+
+
+def test_approval_schema_helper_failure_rolls_back_before_audit(client, monkeypatch):
+    actor_id, headers = _actor()
+    wid, rid = _fixture(state="pending_disposal_approval", request_state="pending")
+    before = _snapshot(wid)
+    calls = []
+
+    def fail_after_mutation(db, request, record, *, approved_by, approved_at):
+        calls.append((request.id, record.id, approved_by, approved_at))
+        request.status = "approved"
+        record.status = "disposal_approved"
+        db.flush()
+        raise RuntimeError("Synthetic approval persistence failure")
+
+    monkeypatch.setattr(waste_service, "apply_disposal_approval", fail_after_mutation)
+    with pytest.raises(RuntimeError, match="Synthetic approval persistence failure"):
+        client.post(f"/api/waste/disposal/{rid}/approve", headers=headers)
+    assert len(calls) == 1
+    assert calls[0][:3] == (rid, wid, actor_id)
+    assert calls[0][3] is not None
     assert _snapshot(wid) == before
 
 
@@ -241,6 +298,9 @@ def test_rejection_allows_safe_recovery_from_invalid_historical_pending_waste(cl
     assert after["record"]["sellable"] == before["record"]["sellable"]
     assert after["requests"][0]["status"] == "rejected"
     assert after["requests"][0]["approved_by"] == actor_id
+    assert after["requests"][0]["approved_at"] is not None
+    assert rejected.json()["approved_by"] == actor_id
+    assert rejected.json()["approved_at"]
     assert after["audits"] == before["audits"] + 1
     for action in ("approve", "mark-disposed", "reject"):
         response = client.post(f"/api/waste/disposal/{rid}/{action}", headers=headers)
@@ -279,35 +339,9 @@ def test_nonfinite_legacy_numeric_nan_is_refused():
 
 
 @pytest.fixture(scope="module")
-def disposal_postgres_engine():
-    raw_url = os.environ.get("STABILIZATION_POSTGRES_URL")
-    if not raw_url:
-        pytest.skip("Set STABILIZATION_POSTGRES_URL for real PostgreSQL disposal concurrency coverage")
-    url = make_url(raw_url)
-    if url.get_backend_name() != "postgresql" or url.host not in {"127.0.0.1", "localhost", "::1"} or url.query:
-        pytest.fail("Disposal concurrency tests require a loopback PostgreSQL URL without connection overrides")
-    schema = f"waste_disposal_{uuid4().hex}"
-    engine = create_engine(
-        url, connect_args={"options": f"-csearch_path={schema} -clock_timeout=15000 -cstatement_timeout=20000"},
-        pool_size=4, max_overflow=0, isolation_level="READ COMMITTED",
-    )
-    with engine.begin() as connection:
-        connection.exec_driver_sql(f'CREATE SCHEMA "{schema}"')
-    try:
-        tables = {WasteRecord.__table__, WasteDisposalRequest.__table__, AuditLog.__table__}
-        pending = list(tables)
-        while pending:
-            for foreign_key in pending.pop().foreign_keys:
-                target = foreign_key.column.table
-                if target not in tables:
-                    tables.add(target)
-                    pending.append(target)
-        Base.metadata.create_all(engine, tables=list(tables))
-        yield engine
-    finally:
-        with engine.begin() as connection:
-            connection.exec_driver_sql(f'DROP SCHEMA "{schema}" CASCADE')
-        engine.dispose()
+def disposal_postgres_engine(pg_sessions):
+    # The common fixture owns identity validation, migrated DB and terminal cleanup.
+    return pg_sessions.kw['bind']
 
 
 @pytest.mark.parametrize("actions", [

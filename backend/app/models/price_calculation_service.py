@@ -11,9 +11,17 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.core.deps import user_permissions
 from app.models.user_access_service import access_configured, permission_denied
-from app.schemas import CuttingPassport, Notification, User
+from app.schemas import CuttingPassport, ProductionOrder, User
+from app.schemas.core_persistence import add_notification_row
 from app.schemas.catalog.catalog import Model
+from app.schemas.catalog.model_price_persistence import apply_request_selling_price
 from app.schemas.planning.price_calculation import PriceCalculationRequest
+from app.libs.types.planning import PriceCalculationPurchasingCommand
+from app.libs.enums.planning import PriceCalculationStatus
+from app.schemas.planning.price_calculation_persistence import (
+    apply_accessory_contribution, apply_cutting_contribution, apply_purchasing_contribution,
+    insert_price_request, set_cutting_dimensions, set_cutting_passport_reference,
+)
 from app.models.audit_service import log_action
 from app.models.model_images_service import model_preview_image_url, model_variant_picture_url
 
@@ -51,7 +59,8 @@ def price_request_load_options() -> tuple:
             joinedload(PriceCalculationRequest.model).selectinload(relation)
             for relation in PRICE_MODEL_ASSET_RELATIONS
         ),
-        joinedload(PriceCalculationRequest.cutting_passport),
+        joinedload(PriceCalculationRequest.cutting_passport).joinedload(
+            CuttingPassport.production_order).joinedload(ProductionOrder.sales_order),
     )
 
 
@@ -145,16 +154,16 @@ def _model_parts(model: Model) -> tuple[str, str]:
     return model_no, variant_no
 
 
-def _stage_status(required_values: list[bool]) -> str:
+def _stage_status(required_values: list[bool]) -> PriceCalculationStatus:
     completed = sum(1 for value in required_values if value)
     if completed == 0:
-        return "new"
+        return PriceCalculationStatus.NEW
     if completed == len(required_values):
-        return "complete"
-    return "in_progress"
+        return PriceCalculationStatus.COMPLETE
+    return PriceCalculationStatus.IN_PROGRESS
 
 
-def cutting_status(request: PriceCalculationRequest) -> str:
+def cutting_status(request: PriceCalculationRequest) -> PriceCalculationStatus:
     return _stage_status([
         bool(str(request.kroy_no or "").strip()),
         _positive(request.fabric_width_m),
@@ -165,33 +174,33 @@ def cutting_status(request: PriceCalculationRequest) -> str:
     ])
 
 
-def purchasing_status(request: PriceCalculationRequest) -> str:
+def purchasing_status(request: PriceCalculationRequest) -> PriceCalculationStatus:
     return _stage_status([
         _positive(request.fabric_price),
         _positive(request.sewing_cost),
     ])
 
 
-def accessories_status(request: PriceCalculationRequest) -> str:
+def accessories_status(request: PriceCalculationRequest) -> PriceCalculationStatus:
     rows = request.accessories_json if isinstance(request.accessories_json, list) else []
     rows = [row for row in rows if isinstance(row, dict) and (str(row.get("name") or "").strip() or row.get("price") is not None)]
     if not rows:
-        return "new"
+        return PriceCalculationStatus.NEW
     if all(str(row.get("name") or "").strip() and _positive(row.get("price")) for row in rows):
-        return "complete"
-    return "in_progress"
+        return PriceCalculationStatus.COMPLETE
+    return PriceCalculationStatus.IN_PROGRESS
 
 
-def overall_status(request: PriceCalculationRequest) -> str:
+def overall_status(request: PriceCalculationRequest) -> PriceCalculationStatus:
     cutting = cutting_status(request)
     purchasing = purchasing_status(request)
     accessories = accessories_status(request)
     selling_complete = _positive(request.selling_price)
-    if cutting == "new" and purchasing == "new" and accessories == "new" and not selling_complete:
-        return "new"
-    if cutting == "complete" and purchasing == "complete" and accessories == "complete" and selling_complete:
-        return "complete"
-    return "in_progress"
+    if cutting == PriceCalculationStatus.NEW and purchasing == PriceCalculationStatus.NEW and accessories == PriceCalculationStatus.NEW and not selling_complete:
+        return PriceCalculationStatus.NEW
+    if cutting == PriceCalculationStatus.COMPLETE and purchasing == PriceCalculationStatus.COMPLETE and accessories == PriceCalculationStatus.COMPLETE and selling_complete:
+        return PriceCalculationStatus.COMPLETE
+    return PriceCalculationStatus.IN_PROGRESS
 
 
 def attach_completed_selling_price(
@@ -204,7 +213,9 @@ def attach_completed_selling_price(
     Incomplete or cleared requests never erase a previously approved variant
     price. A later completed request replaces it and becomes the traceable source.
     """
-    if overall_status(request) != "complete":
+    if request.workflow_state != "legacy" and request.workflow_state != "approved":
+        return False
+    if overall_status(request) != PriceCalculationStatus.COMPLETE:
         return False
     price = _decimal(request.selling_price)
     if price is None or price <= 0:
@@ -225,12 +236,9 @@ def attach_completed_selling_price(
         "selling_price_source": model.selling_price_source,
         "selling_price_request_id": model.selling_price_request_id,
     }
-    model.selling_price = price
-    model.selling_price_currency = "USD"
-    model.selling_price_source = "price_request"
-    model.selling_price_request_id = request.id
-    model.selling_price_updated_at = datetime.now(timezone.utc)
-    db.flush()
+    apply_request_selling_price(
+        db, model, price=price, request_id=request.id, updated_at=datetime.now(timezone.utc)
+    )
     log_action(
         db,
         current,
@@ -249,7 +257,7 @@ def attach_completed_selling_price(
 
 
 def _calculation(request: PriceCalculationRequest) -> dict:
-    ready = cutting_status(request) == "complete" and purchasing_status(request) == "complete" and accessories_status(request) == "complete"
+    ready = cutting_status(request) == PriceCalculationStatus.COMPLETE and purchasing_status(request) == PriceCalculationStatus.COMPLETE and accessories_status(request) == PriceCalculationStatus.COMPLETE
     if not ready:
         return {
             "fabric_consumption": None,
@@ -334,7 +342,11 @@ def serialize_price_request(request: PriceCalculationRequest) -> dict:
         "created_at": request.created_at,
         "updated_at": request.updated_at,
     }
-    payload.update(_calculation(request))
+    if request.workflow_state == "legacy":
+        payload.update(_calculation(request))
+    else:
+        from app.models.planning.price_workflow_calculation import projection
+        payload.update(projection(request))
     return payload
 
 
@@ -373,14 +385,7 @@ def create_price_request(db: Session, model_id: int, current: User) -> PriceCalc
         or margin != margin.quantize(Decimal("0.01"))
     ):
         raise HTTPException(422, "Model target margin exceeds supported price calculation precision")
-    request = PriceCalculationRequest(
-        model_id=model.id,
-        created_by_id=current.id,
-        profit_percentage=margin,
-        accessories_json=[],
-    )
-    db.add(request)
-    db.flush()
+    request = insert_price_request(db, model_id=model.id, created_by_id=current.id, margin=margin)
     log_action(
         db,
         current,
@@ -399,8 +404,7 @@ def update_cutting_details(db: Session, request: PriceCalculationRequest, data: 
     passport = _passport_for_kroy(db, request, kroy_no)
     if passport and (passport.meter_mode or any(row.get("meter_mode") for row in (passport.materials or []))):
         raise HTTPException(400, "Metre cutting passports cannot supply kilogram-based price calculations")
-    request.kroy_no = kroy_no
-    request.cutting_passport_id = passport.id if passport else None
+    set_cutting_passport_reference(request, kroy_no, passport.id if passport else None)
 
     passport_binding = None
     if passport and (passport.beka_per_piece_kg is not None or passport.other_beka_per_piece_kg is not None):
@@ -408,13 +412,16 @@ def update_cutting_details(db: Session, request: PriceCalculationRequest, data: 
             (_decimal(passport.beka_per_piece_kg) or Decimal(0))
             + (_decimal(passport.other_beka_per_piece_kg) or Decimal(0))
         )
-    request.fabric_width_m = passport.fabric_width_m if passport and passport.fabric_width_m is not None else data.get("fabric_width_m")
-    request.lay_length_m = passport.lay_length_m if passport and passport.lay_length_m is not None else data.get("lay_length_m")
+    fabric_width_m = passport.fabric_width_m if passport and passport.fabric_width_m is not None else data.get("fabric_width_m")
+    lay_length_m = passport.lay_length_m if passport and passport.lay_length_m is not None else data.get("lay_length_m")
+    set_cutting_dimensions(request, fabric_width_m=fabric_width_m, lay_length_m=lay_length_m)
     passport_size_count = _size_count_from_range(passport.size_range, passport_order_sizes(passport)) if passport else 0
-    request.size_count = passport_size_count or data.get("size_count")
-    request.gramage = passport.gramage if passport and passport.gramage is not None else data.get("gramage")
-    request.binding_kg_per_piece = passport_binding if passport_binding is not None else data.get("binding_kg_per_piece")
-    db.flush()
+    apply_cutting_contribution(
+        db, request,
+        size_count=passport_size_count or data.get("size_count"),
+        gramage=passport.gramage if passport and passport.gramage is not None else data.get("gramage"),
+        binding_kg_per_piece=passport_binding if passport_binding is not None else data.get("binding_kg_per_piece"),
+    )
     after = cutting_status(request)
     log_action(
         db,
@@ -432,34 +439,42 @@ def update_cutting_details(db: Session, request: PriceCalculationRequest, data: 
             "binding_kg_per_piece": data.get("binding_kg_per_piece"),
         },
     )
-    if before != "complete" and after == "complete":
+    if before != PriceCalculationStatus.COMPLETE and after == PriceCalculationStatus.COMPLETE:
         _notify_finance(db, request, "Cutting details completed")
 
 
-def update_purchasing_details(db: Session, request: PriceCalculationRequest, data: dict, current: User) -> None:
+def update_purchasing_details(
+    db: Session,
+    request: PriceCalculationRequest,
+    command: PriceCalculationPurchasingCommand,
+    current: User,
+) -> None:
     before = purchasing_status(request)
-    request.fabric_price = data.get("fabric_price")
-    request.sewing_cost = data.get("sewing_cost")
-    request.purchasing_updated_by_id = current.id
-    db.flush()
+    apply_purchasing_contribution(db, request, command, updated_by_id=current.id)
     after = purchasing_status(request)
-    log_action(db, current, "update_purchasing_costs", "PriceCalculationRequest", request.id, new_value={"fabric_price": data.get("fabric_price"), "sewing_cost": data.get("sewing_cost")})
-    if before != "complete" and after == "complete":
+    log_action(
+        db,
+        current,
+        "update_purchasing_costs",
+        "PriceCalculationRequest",
+        request.id,
+        new_value={"fabric_price": command.fabric_price, "sewing_cost": command.sewing_cost},
+    )
+    if before != PriceCalculationStatus.COMPLETE and after == PriceCalculationStatus.COMPLETE:
         _notify_finance(db, request, "Purchasing costs completed")
 
 
 def update_accessories(db: Session, request: PriceCalculationRequest, rows: list[dict], current: User) -> None:
     before = accessories_status(request)
-    request.accessories_json = [
+    normalized_rows = [
         {"name": str(row.get("name") or "").strip() or None, "price": row.get("price")}
         for row in rows
         if str(row.get("name") or "").strip() or row.get("price") is not None
     ][:4]
-    request.accessories_updated_by_id = current.id
-    db.flush()
+    apply_accessory_contribution(db, request, normalized_rows, updated_by_id=current.id)
     after = accessories_status(request)
     log_action(db, current, "update_accessory_costs", "PriceCalculationRequest", request.id, new_value={"accessories": request.accessories_json})
-    if before != "complete" and after == "complete":
+    if before != PriceCalculationStatus.COMPLETE and after == PriceCalculationStatus.COMPLETE:
         _notify_finance(db, request, "Accessory costs completed")
 
 
@@ -481,11 +496,11 @@ def _notify_new_request(db: Session, request: PriceCalculationRequest) -> None:
             link = "/purchasing/price-calculation"
         else:
             link = "/inventory/accessory-pricing"
-        db.add(Notification(user_id=recipient.id, title="New price calculation request", message=f"Model {request.model.code} needs cost information.", link=link))
+        add_notification_row(db, user_id=recipient.id, title="New price calculation request", message=f"Model {request.model.code} needs cost information.", link=link)
 
 
 def _notify_finance(db: Session, request: PriceCalculationRequest, title: str) -> None:
     for recipient in db.query(User).filter(User.is_active.is_(True)).all():
         if not is_finance_pricing_user(recipient) or "*" in user_permissions(recipient):
             continue
-        db.add(Notification(user_id=recipient.id, title=title, message=f"Model {request.model.code} price request was updated.", link="/finance/price-calculation"))
+        add_notification_row(db, user_id=recipient.id, title=title, message=f"Model {request.model.code} price request was updated.", link="/finance/price-calculation")

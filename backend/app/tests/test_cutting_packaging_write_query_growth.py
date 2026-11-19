@@ -360,8 +360,8 @@ def test_cutting_record_complete_bundle_query_growth(
     number_suffixes = [int(row["bundle_no"].rsplit("-", 1)[-1]) for row in bundles]
     assert number_suffixes == list(range(number_suffixes[0], number_suffixes[0] + bundle_count))
     counts = _table_select_counts(statements)
-    assert len(statements) == 41  # Fixed-cost Sewing lock and output evidence.
-    assert counts["departments"] == 6
+    assert len(statements) == 42  # Fixed-cost Sewing lock, factory scope and output evidence.
+    assert counts["departments"] == 7
     assert counts["business_order_aliases"] == 1
     print(
         f"PERF20 cutting bundles={bundle_count}: total={len(statements)} "
@@ -472,7 +472,9 @@ def test_packaging_record_complete_bom_query_growth(
     assert response.status_code == 201, response.text
     counts = _table_select_counts(statements)
     # One order lock serializes entry with QR deletion, independent of BOM size.
-    assert len(statements) == 27
+    # Automatic Sewing availability removes the old receipt-budget aggregate.
+    # BOM size must still add no reads: the complete save is now one read fewer.
+    assert len(statements) == 26
     assert counts["model_bom"] == 1
     assert counts["stock_batches"] == 2
     with TestSessionLocal() as db:

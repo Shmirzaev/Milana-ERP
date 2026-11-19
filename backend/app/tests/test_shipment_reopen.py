@@ -1,11 +1,17 @@
 from decimal import Decimal
+from uuid import uuid4
 
 import pytest
 from fastapi import HTTPException
+from sqlalchemy.orm import object_session
 
 from app.db.session import SessionLocal
-from app.schemas import AuditLog, FinishedGoodsStock, IdempotencyRecord, Invoice, Package, Payment, SalesOrder, Shipment, ShipmentScanLog
+from app.schemas import AuditLog, FinishedGoodsStock, IdempotencyRecord, Invoice, Package, Payment, SalesOrder, Shipment, ShipmentScanLog, User
+from app.libs.dto.fulfillment.shipment_review import ShipmentReopen
+from app.libs.enums.finance import InvoiceStatus
+from app.models.finance import invoices_service
 from app.models.payments_service import create_invoice_payment
+from app.models import shipment_reopen_service
 from app.tests.test_manual_pack_dispatch import receive, shipment
 from app.tests.test_package_workflows import warehouse, package_qr  # noqa: F401
 from app.tests.test_shipment_review import correct, dispatch, review_amount  # noqa: F401
@@ -14,6 +20,163 @@ from app.tests.test_shipment_review import correct, dispatch, review_amount  # n
 def payload(result):
     return {"reason": "All goods returned for correction", "packages_returned": True,
             "expected_shipped_at": result["shipped_at"]}
+
+
+def _ship_manual_order_with_invoice(client, warehouse):
+    run = receive(client, warehouse, (7,))
+    sid = shipment(client, warehouse, Decimal("2"))
+    url = f"/api/shipments/{sid}"
+    scan_keys = []
+    for package_id in run["package_ids"]:
+        scan_key = f"reopen-plan-scan-{uuid4().hex}"
+        scan_keys.append(scan_key)
+        scanned = client.post(
+            url + "/scan-package",
+            headers={**warehouse, "Idempotency-Key": scan_key},
+            json={"code": package_qr(package_id)},
+        )
+        assert scanned.status_code == 200 and scanned.json()["ok"], scanned.text
+    ship_key = f"reopen-plan-ship-{uuid4().hex}"
+    shipped = client.post(url + "/ship", headers={**warehouse, "Idempotency-Key": ship_key})
+    assert shipped.status_code == 200, shipped.text
+    return run, sid, url, shipped, [*scan_keys, ship_key]
+
+
+def test_finance_invoice_void_participant_uses_caller_session_without_committing(
+    client, warehouse, monkeypatch,
+):
+    _, _, _, shipped, _ = _ship_manual_order_with_invoice(client, warehouse)
+    order_id = shipped.json()["sales_order_id"]
+    called = []
+    original_participant = invoices_service.void_invoices_for_shipment_reopen
+
+    with SessionLocal() as db:
+        actor = db.query(User).filter_by(email="fgs@example.com").one()
+        invoice = db.query(Invoice).filter_by(sales_order_id=order_id).one()
+        before = (invoice.status, invoice.amount)
+
+        def participant(session, rows):
+            assert session is db
+            assert all(object_session(row) is db for row in rows)
+            called.extend(row.id for row in rows)
+            return original_participant(session, rows)
+
+        monkeypatch.setattr(shipment_reopen_service, "void_invoices_for_shipment_reopen", participant)
+        reopened = shipment_reopen_service.reopen_shipment(
+            db, shipped.json()["id"], ShipmentReopen.model_validate(payload(shipped.json())), actor,
+        )
+
+        assert called == [invoice.id]
+        assert reopened.status == "created"
+        assert invoice.status is InvoiceStatus.VOID
+        assert invoice.amount == Decimal("0.00")
+        assert db.in_transaction()
+        db.rollback()
+
+    with SessionLocal() as db:
+        persisted = db.query(Invoice).filter_by(sales_order_id=order_id).one()
+        assert (persisted.status, persisted.amount) == before
+        assert persisted.status is InvoiceStatus.UNPAID
+        assert db.get(Shipment, shipped.json()["id"]).status == "shipped"
+
+
+def test_reopen_preflights_all_invoices_before_voiding_any(client, warehouse):
+    _, sid, url, shipped, _ = _ship_manual_order_with_invoice(client, warehouse)
+    order_id = shipped.json()["sales_order_id"]
+    with SessionLocal() as db:
+        first = db.query(Invoice).filter_by(sales_order_id=order_id).one()
+        first_before = (first.status, first.amount)
+        blocked = Invoice(
+            sales_order_id=order_id,
+            invoice_no=f"INV-REOPEN-BLOCK-{uuid4().hex[:10]}",
+            amount=Decimal("1.00"),
+            status=InvoiceStatus.PAID,
+        )
+        db.add(blocked)
+        db.commit()
+        blocked_id = blocked.id
+        audit_count = db.query(AuditLog).filter_by(action="reopen_shipment", entity_id=sid).count()
+
+    result = client.post(url + "/reopen", headers=warehouse, json=payload(shipped.json()))
+    assert result.status_code == 409
+    assert result.json() == {"detail": "shipment_reopen_finance"}
+    with SessionLocal() as db:
+        first_after = db.query(Invoice).filter_by(sales_order_id=order_id).order_by(Invoice.id).first()
+        blocked_after = db.get(Invoice, blocked_id)
+        assert (first_after.status, first_after.amount) == first_before
+        assert first_after.status is InvoiceStatus.UNPAID
+        assert blocked_after.status is InvoiceStatus.PAID
+        assert blocked_after.amount == Decimal("1.00")
+        assert db.get(Shipment, sid).status == "shipped"
+        assert db.query(AuditLog).filter_by(action="reopen_shipment", entity_id=sid).count() == audit_count
+
+
+def test_reopen_audit_failure_rolls_back_invoice_and_retry_succeeds(client, warehouse, monkeypatch):
+    run, sid, url, shipped, idempotency_keys = _ship_manual_order_with_invoice(client, warehouse)
+    order_id = shipped.json()["sales_order_id"]
+    body = payload(shipped.json())
+    with SessionLocal() as db:
+        before_invoice = db.query(Invoice).filter_by(sales_order_id=order_id).one()
+        before_invoice_values = (before_invoice.status, before_invoice.amount)
+        before_stock = [
+            (row.id, row.available_qty, row.sold_qty, row.reserved_qty, row.status)
+            for row in db.query(FinishedGoodsStock).filter(
+                FinishedGoodsStock.package_id.in_(run["package_ids"])
+            ).order_by(FinishedGoodsStock.id)
+        ]
+        before_packages = [
+            (row.id, row.status, row.shipped_at, row.dispatched_quantity, row.dispatched_quantities)
+            for row in db.query(Package).filter(Package.id.in_(run["package_ids"])).order_by(Package.id)
+        ]
+        before_idempotency = {
+            row.id: row.request_hash
+            for row in db.query(IdempotencyRecord).filter(IdempotencyRecord.key.in_(idempotency_keys))
+        }
+        assert len(before_idempotency) == len(idempotency_keys)
+        before_audit_count = db.query(AuditLog).filter_by(action="reopen_shipment", entity_id=sid).count()
+
+    def fail_audit(*args, **kwargs):
+        raise RuntimeError("injected shipment reopen audit failure")
+
+    with monkeypatch.context() as scoped:
+        scoped.setattr(shipment_reopen_service, "log_action", fail_audit)
+        with pytest.raises(RuntimeError, match="injected shipment reopen audit failure"):
+            client.post(url + "/reopen", headers=warehouse, json=body)
+
+    with SessionLocal() as db:
+        invoice = db.query(Invoice).filter_by(sales_order_id=order_id).one()
+        assert (invoice.status, invoice.amount) == before_invoice_values
+        assert invoice.status is InvoiceStatus.UNPAID
+        assert db.get(Shipment, sid).status == "shipped"
+        assert [
+            (row.id, row.status, row.shipped_at, row.dispatched_quantity, row.dispatched_quantities)
+            for row in db.query(Package).filter(Package.id.in_(run["package_ids"])).order_by(Package.id)
+        ] == before_packages
+        assert [
+            (row.id, row.available_qty, row.sold_qty, row.reserved_qty, row.status)
+            for row in db.query(FinishedGoodsStock).filter(
+                FinishedGoodsStock.package_id.in_(run["package_ids"])
+            ).order_by(FinishedGoodsStock.id)
+        ] == before_stock
+        assert {
+            row.id: row.request_hash
+            for row in db.query(IdempotencyRecord).filter(IdempotencyRecord.id.in_(before_idempotency))
+        } == before_idempotency
+        assert db.query(AuditLog).filter_by(action="reopen_shipment", entity_id=sid).count() == before_audit_count
+
+    reopened = client.post(url + "/reopen", headers=warehouse, json=body)
+    assert reopened.status_code == 200, reopened.text
+    with SessionLocal() as db:
+        invoice = db.query(Invoice).filter_by(sales_order_id=order_id).one()
+        assert invoice.status is InvoiceStatus.VOID
+        assert invoice.amount == Decimal("0.00")
+        assert db.get(Shipment, sid).status == "created"
+        assert db.query(AuditLog).filter_by(action="reopen_shipment", entity_id=sid).count() == 1
+        for stock_id, available_qty, sold_qty, reserved_qty, status in before_stock:
+            row = db.get(FinishedGoodsStock, stock_id)
+            assert (row.available_qty, row.sold_qty, row.reserved_qty, row.status) == (
+                available_qty + sold_qty, 0, reserved_qty, "available" if reserved_qty == 0 else "reserved",
+            )
 
 
 def test_reopen_invalidates_legacy_and_scoped_scan_results_with_only_package_identity(client, warehouse):
@@ -77,7 +240,8 @@ def test_manual_return_and_redispatch(client, auth_headers, warehouse, price, de
                          for s in db.query(ShipmentScanLog).filter_by(shipment_id=sid).order_by(ShipmentScanLog.id)]
         if old_order:
             invoice = db.query(Invoice).filter_by(sales_order_id=old_order).one()
-            assert invoice.status == "void" and invoice.amount == 0
+            assert invoice.status is InvoiceStatus.VOID
+            assert invoice.amount == Decimal("0.00")
             assert db.get(SalesOrder, old_order).total_amount == 0
             with pytest.raises(HTTPException):
                 create_invoice_payment(db, invoice, amount=1)
@@ -193,10 +357,13 @@ def test_reopen_guards_atomicity_and_permissions(client, warehouse, block):
         if block == "external": inv.external_id = "exported"
         if block == "stock": db.query(FinishedGoodsStock).filter_by(package_id=run["package_ids"][0]).one().sold_qty = 6
         if block == "shared": db.add(Shipment(shipment_no="SH-OTHER", sales_order_id=sh.sales_order_id, status="created"))
+        before_invoice_values = (inv.status, inv.amount)
         db.commit()
     result = client.post(url + "/reopen", headers=warehouse, json=body)
     assert result.status_code == 409, result.text
     with SessionLocal() as db:
         assert db.get(Shipment, sid).status == "shipped"
         assert db.get(Package, run["package_ids"][0]).status == "shipped"
-        assert db.query(Invoice).filter_by(id=inv.id).one().amount == 14
+        invoice_after = db.query(Invoice).filter_by(id=inv.id).one()
+        assert (invoice_after.status, invoice_after.amount) == before_invoice_values
+        assert invoice_after.status is InvoiceStatus.UNPAID

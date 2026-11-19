@@ -31,6 +31,7 @@ import {
 import VerticalModelPhoto from "@/components/VerticalModelPhoto";
 import VariantColorSelect from "@/components/VariantColorSelect";
 import PaidOperationsEditor from "@/components/PaidOperationsEditor";
+import ModelPaidOperationsCopy from "@/components/ModelPaidOperationsCopy";
 import { useMe } from "@/lib/auth";
 import {
   createPaidOperation,
@@ -1085,7 +1086,7 @@ export default function ModelDetail() {
           <input
             className="input"
             type="file"
-            accept={imageType === "model" ? "image/png,image/jpeg,image/webp,image/gif" : "image/png,image/jpeg,image/webp,image/gif,.pdf,.dxf,.ai"}
+            accept={imageType === "model" ? "image/png,image/jpeg,image/webp,image/gif" : "image/png,image/jpeg,image/webp,image/gif,.pdf,.dxf,.ai,.gem,.gemx"}
             onChange={(e) => setImageFiles((prev) => ({ ...prev, [imageType]: e.target.files?.[0] || null }))}
           />
           <input
@@ -1740,7 +1741,7 @@ export default function ModelDetail() {
                       <td>{name}</td>
                       <td>{img.created_at ? new Date(img.created_at).toLocaleString() : "-"}</td>
                       <td className="flex gap-3">
-                        <a className="text-brand-600 hover:underline" href={img.file_url} download>{t("common.download")}</a>
+                        <a className="text-brand-600 hover:underline" href={img.file_url} download={name}>{t("common.download")}</a>
                         <button className="text-red-600 hover:underline" onClick={() => deleteImage(img.id)}>{t("btn.delete")}</button>
                       </td>
                     </tr>
@@ -1782,7 +1783,7 @@ export default function ModelDetail() {
                 </div>
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div><span className="text-slate-500">{t("page.modelDetail.sizeRange")}</span> {sizeRows.map((s: any) => s.size).join(", ") || "-"}</div>
-                  <div><span className="text-slate-500">{t("page.modelDetail.colorsLabel")}</span> {colorRows.map((c: any) => c.color_name).join(", ") || "-"}</div>
+                  <div className="min-w-0 break-words"><span className="text-slate-500">{t("page.modelDetail.colorsLabel")}</span> {colorRows.map((c: any) => c.color_name).join(", ") || "-"}</div>
                 </div>
                 {modelCompositionText && (
                   <div className="text-sm">
@@ -1859,6 +1860,10 @@ export default function ModelDetail() {
         )}
 
         {tab === 10 && (
+          <div className="space-y-4">
+          {isEditable && <ModelPaidOperationsCopy key={id} targetId={Number(id) || 0} isUsluga={isUsluga}
+            factories={visiblePaidOperationFactories}
+            onCopy={(rows) => { setMsg(""); setDetails((current) => withPaidOperations(current, rows)); }} />}
           <PaidOperationsEditor
             catalogScope={isUsluga ? "usluga" : "standard"}
             key={id}
@@ -1868,6 +1873,7 @@ export default function ModelDetail() {
             onUpdate={updatePaidOperation}
             onRemove={removePaidOperation}
           />
+          </div>
         )}
 
         {tab === 11 && (

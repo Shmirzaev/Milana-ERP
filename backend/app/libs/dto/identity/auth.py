@@ -1,5 +1,6 @@
 from pydantic import BaseModel, EmailStr, Field
 from typing import Optional
+from app.libs.enums.identity import FactoryCode
 
 
 class LoginIn(BaseModel):
@@ -16,6 +17,17 @@ class ResetPasswordIn(BaseModel):
     token: str
     new_password: str
     confirm_new_password: str
+
+
+class ChangePasswordIn(BaseModel):
+    current_password: str
+    new_password: str
+    confirm_new_password: str
+
+
+class ProfileUpdateIn(BaseModel):
+    name: str
+    email: EmailStr
 
 
 class LoginOk(BaseModel):
@@ -37,7 +49,7 @@ class UserMe(BaseModel):
     department_code: Optional[str] = None
     extra_permissions: list[str] = Field(default_factory=list)
     permissions: list[str] = Field(default_factory=list)
-    factory_code: str = "MIL"
-    assigned_factory_code: str = "MIL"
-    available_factories: list[str] = Field(default_factory=list)
+    factory_code: FactoryCode = FactoryCode.MILANA
+    assigned_factory_code: FactoryCode = FactoryCode.MILANA
+    available_factories: list[FactoryCode] = Field(default_factory=list)
     access_configured: bool = False

@@ -82,7 +82,7 @@ export default function ManagementDashboard() {
       ))}
     </div>
     {error && <div role="alert" className="mb-4 rounded-md border p-3 text-sm" style={{ borderColor: "var(--erp-danger)", color: "var(--erp-danger)" }}>{data ? copy.stale : copy.error} <button className="ml-3 underline" onClick={() => void mutate()}>{copy.refresh}</button></div>}
-    <div className="mb-5 grid grid-cols-2 divide-x rounded-lg border lg:grid-cols-4" style={surface}>
+    <div className="mb-5 grid grid-cols-2 [&>:not([hidden])~:not([hidden])]:border-l rounded-lg border lg:grid-cols-4" style={surface}>
       {[
         [copy.active, data?.active_orders, copy.current], [copy.planned, data?.planned_quantity, copy.current],
         [copy.late, data?.late_orders, copy.current], [copy.packed, data?.totals.packaging, copy.period],

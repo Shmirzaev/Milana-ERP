@@ -8,6 +8,10 @@ SQLAlchemy definitions now live under app/schemas/; Pydantic DTOs live in
 app/libs/dto/. The links below show the authoritative definitions for this group's
 records. Business services live in models/*_service.py.
 
+[user_persistence.py](user_persistence.py) owns the create-user insert/flush and
+setup-token insert using the caller's Session. It does not commit; the Identity
+service owns the creation transaction.
+
 ## Authoritative definitions
 
 - [Role](../core.py)

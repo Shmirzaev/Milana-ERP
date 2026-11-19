@@ -414,6 +414,7 @@ function FactoryDepartmentInboxPage() {
             rows={cuttingWorkOrders}
             cuttingDepartment={code}
             onSearch={setCuttingSearch}
+            onChanged={async () => { await Promise.all([mutate(), mutateCuttingOrderPages()]); }}
             total={cuttingOrdersTotal}
             t={t}
           />
@@ -452,13 +453,14 @@ function FactoryDepartmentInboxPage() {
           <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">{t("page.deptInbox.awaitingPackaging")} <span className="text-xs font-normal">{awaitingPackagingRows.length} / {awaitingPackagingTotal}</span></h3>
           <table className="table">
             <thead>
-              <tr><th>{t("page.workOrder.modelPicture")}</th><th>{t("cuttingInbox.variantPicture")}</th><th>{t("field.production")}</th><th>{t("field.batch")}</th><th>{t("field.modelNo")}</th><th>{t("field.variantNo")}</th><th>{t("field.readyQty")}</th><th>{t("field.sewn")}</th><th>{t("field.packed")}</th></tr>
+              <tr><th>{t("page.workOrder.modelPicture")}</th><th>{t("cuttingInbox.variantPicture")}</th><th>{t("page.modelDetail.printPicture")}</th><th>{t("field.production")}</th><th>{t("field.batch")}</th><th>{t("field.modelNo")}</th><th>{t("field.variantNo")}</th><th>{t("field.readyQty")}</th><th>{t("field.sewn")}</th><th>{t("field.packed")}</th></tr>
             </thead>
             <tbody>
               {awaitingPackagingRows.map((r: any) => (
                 <tr key={`${r.production_order_id}:${r.production_batch_id ?? "unbatched"}`}>
                   <td><ImageThumbnail imageUrl={r.model_image_url} label={r.model_no || r.model_name || ""} title={t("page.workOrder.modelPicture")} emptyLabel={t("page.workOrder.noImage")} /></td>
                   <td><ImageThumbnail imageUrl={r.material_image_url} label={formatVariantNumber(r.variant_no) || ""} title={t("cuttingInbox.variantPicture")} emptyLabel={t("page.workOrder.noImage")} /></td>
+                  <td><ImageThumbnail imageUrl={r.print_image_url} label={t("page.modelDetail.printPicture")} title={t("page.modelDetail.printPicture")} emptyLabel={t("page.workOrder.noImage")} fit="contain" /></td>
                   <td><Link href={`/production-orders/${r.production_order_id}`} className="mono hover:underline">{r.production_no || "-"}</Link></td>
                   <td>{r.batch_no ? [r.batch_no, r.batch_name].filter(Boolean).join(" · ") : "-"}</td>
                   <td>{r.model_no || r.model_code || "-"}</td>

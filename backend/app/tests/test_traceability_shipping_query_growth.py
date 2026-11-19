@@ -120,8 +120,12 @@ def test_traceability_batches_package_and_shipment_references(row_count):
         "warehouses": expected_chunks,
         "sales_orders": 0,
         "customers": 0,
-        "total": expected_chunks,
+        # One bounded allocation+batch projection accompanies each warehouse
+        # chunk so trace readback exposes exact matrices and legacy NULL.
+        "total": 2 * expected_chunks,
     }
+    assert sum(" from package_batch_allocations " in statement for statement in package_statements) == expected_chunks
+    assert all(row["batch_allocations"] == [] for row in package_payloads)
     assert shipment_counts == {
         "warehouses": 0,
         "sales_orders": expected_chunks,
@@ -309,5 +313,8 @@ def test_traceability_shipping_maps_match_scalar_precedence_missing_and_order():
     assert unknown_package["warehouse_name"] is None
     assert unknown_shipment["sales_order_no"] is None
     assert unknown_shipment["customer_name"] is None
-    assert unknown_package_statements == unknown_shipment_statements == []
+    assert unknown_shipment_statements == []
+    assert unknown_package["batch_allocations"] == []
+    assert len(unknown_package_statements) == 1
+    assert " from package_batch_allocations " in unknown_package_statements[0]
     assert zero_override["customer_name"] == fallback_name

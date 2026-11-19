@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, File, Header, UploadFile
 
 from app.core.deps import CurrentUser, DbSession, require_permissions
 from app.libs.dto.sales.invoice_generation_output import InvoiceGenerationOut
+from app.libs.dto.sales.sales_order_filter import SalesStatusFilter
 from app.libs.dto.sales.sales_order_input import SalesOrderIn
 from app.libs.dto.sales.sales_order_output import SalesOrderDetail, SalesOrderOut
 from app.libs.dto.sales.sales_stock_output import SalesStockReservationOut
@@ -36,7 +37,7 @@ async def upload_printing_attachment(
 @router.get("")
 def list_sales_orders(
     db: DbSession, _: CurrentUser,
-    status: str | None = None, order_type: str | None = None,
+    status: SalesStatusFilter = None, order_type: str | None = None,
     customer_id: int | None = None, q: str | None = None,
     created_from: date | None = None,
     created_to: date | None = None,

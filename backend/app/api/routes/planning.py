@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import Response
 
 from app.core.deps import DbSession, require_permissions
+from app.libs.dto.planning.branded_order_parties_output import BrandedOrderCustomerOut, BrandedOrderPartiesOut
 from app.libs.dto.planning.branded_planning_order_input import (
     BrandedPlanningOrderIn,
     BrandedStatusFilter,
@@ -9,12 +10,20 @@ from app.libs.dto.planning.branded_planning_order_input import (
 from app.libs.dto.planning.material_requirement_output import MaterialRequirement
 from app.libs.dto.planning.branded_planning_order_output import BrandedPlanningOrderOut
 from app.libs.dto.production.production import ProductionOrderIn, ProductionOrderOut
+from app.libs.dto.planning.fabric_source_output import PlanningFabricSourceOut
 from app.libs.enums.planning import BrandedPlanningOrderStatus
 from app.models.planning import branded_orders_service, production_planning_service
 from app.models.planning_service import material_requirements_for_sales_order
+from app.models.production.eco_fabric_source_service import list_planning_eco_fabrics
 from app.schemas import User
 
 router = APIRouter(prefix="/planning", tags=["planning"])
+
+
+@router.get("/eco-fabrics", response_model=list[PlanningFabricSourceOut])
+def eco_fabric_sources(db: DbSession, current: User = Depends(require_permissions("planning.production", "*")),
+                      q: str = Query("", max_length=200)):
+    return list_planning_eco_fabrics(db, current, q)
 
 
 @router.get("/branded-orders/{order_id}/export.xlsx")
@@ -26,11 +35,11 @@ def export_branded_order(order_id: int, db: DbSession,
                     headers={"Content-Disposition": f'attachment; filename="branded-order-{order_id}.xlsx"'})
 
 
-@router.get("/branded-order-parties")
+@router.get("/branded-order-parties", response_model=BrandedOrderPartiesOut)
 def branded_order_parties(
     db: DbSession,
     _: User = Depends(require_permissions("planning.production", "*")),
-):
+) -> BrandedOrderPartiesOut:
     return branded_orders_service.branded_order_parties(db)
 
 
@@ -43,10 +52,10 @@ def list_branded_orders(
     return branded_orders_service.list_branded_orders(db, status)
 
 
-@router.get("/branded-order-customers")
+@router.get("/branded-order-customers", response_model=list[BrandedOrderCustomerOut])
 def branded_order_customers(db: DbSession,
                            _: User = Depends(require_permissions("planning.production", "*")),
-                           q: str = Query("", max_length=100)):
+                           q: str = Query("", max_length=100)) -> list[BrandedOrderCustomerOut]:
     return branded_orders_service.branded_order_customers(db, q)
 
 

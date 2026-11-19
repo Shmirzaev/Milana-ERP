@@ -14,7 +14,17 @@ const functions = ast.statements.filter(node => ts.isFunctionDeclaration(node)
   .map(node => node.getText(ast)).join("\n");
 const namedSizes = ast.statements.find(node => ts.isVariableStatement(node)
   && node.declarationList.declarations.some(d => d.name.getText(ast) === "NAMED_SIZE_ORDER")).getText(ast);
-const section = source.slice(source.indexOf("<section ref={issuedLabelsSectionRef}"), source.indexOf("<Modal", source.indexOf("<section ref={issuedLabelsSectionRef}")));
+let issuedSection;
+function findIssuedSection(node) {
+  if (ts.isJsxElement(node) && node.openingElement.tagName.getText(ast) === "section"
+    && node.openingElement.attributes.properties.some(attribute => ts.isJsxAttribute(attribute)
+      && attribute.name.getText(ast) === "ref"
+      && attribute.initializer?.getText(ast) === "{issuedLabelsSectionRef}")) issuedSection = node;
+  ts.forEachChild(node, findIssuedSection);
+}
+findIssuedSection(ast);
+assert.ok(issuedSection, "The actual issued-label section must exist");
+const section = issuedSection.getText(ast);
 const entry = `
 import React from "react"; import {createRoot} from "react-dom/client";
 import {RefreshCw,Printer,Trash2,ChevronDown} from "lucide-react";
@@ -25,7 +35,7 @@ ${namedSizes}
 ${functions}
 const lang=new URLSearchParams(location.search).get("lang")||"en", dict={en,ru,uz}[lang];
 const t=(key,args={})=>Object.entries(args).reduce((v,[k,a])=>v.replaceAll("{"+k+"}",String(a)),dict[key]||key);
-const issuedLabelsSectionRef=null,issuedLabelsLoading=false,preparingPrint=false,deletingSize=null;
+const issuedLabelsSectionRef=null,issuedLabelsLoading=false,preparingPrint=false,printAttemptActive=false,deletingSize=null;
 const issuedSizeOrder=new Map([["122",0],["128",1]]),issuedOperationNumbers=new Map();
 const activeIssuedLabels=[2,1].flatMap(batch=>["128","122"].flatMap(size=>[2,1].map(op=>{
  const id=batch*100+Number(size)*10+op;issuedOperationNumbers.set(id,op);
@@ -50,9 +60,21 @@ try {
   await page.route("http://localhost:3198/**", route => route.fulfill({ contentType: "text/html",
     body: `<div id="root"></div><script>${built.outputFiles[0].text.replaceAll("</script>", "<\\/script>")}</script>` }));
   for (const lang of ["en", "ru", "uz"]) {
-    await page.goto(`http://localhost:3198/?lang=${lang}`);
     const batches = page.locator("[data-qr-batch]");
-    await batches.nth(1).waitFor();
+    let rejectRenderError;
+    const renderError = new Promise((_, reject) => { rejectRenderError = error => reject(error); });
+    page.on("pageerror", rejectRenderError);
+    try {
+      await Promise.race([
+        (async () => {
+          await page.goto(`http://localhost:3198/?lang=${lang}`);
+          await batches.nth(1).waitFor();
+        })(),
+        renderError,
+      ]);
+    } finally {
+      page.off("pageerror", rejectRenderError);
+    }
     assert.deepEqual(await batches.evaluateAll(nodes => nodes.map(n => n.dataset.qrBatch)), ["0420-01", "0420-02"]);
     const first = batches.first();
     const toggle=first.locator("button[aria-expanded]");

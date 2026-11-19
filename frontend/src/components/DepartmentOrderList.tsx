@@ -25,6 +25,7 @@ export type DepartmentOrder = {
   model_name?: string | null;
   variant_no?: string | null;
   model_image_url?: string | null;
+  print_image_url?: string | null;
   material_image_url?: string | null;
   material_item_sku?: string | null;
   material_item_name?: string | null;
@@ -140,6 +141,7 @@ export default function DepartmentOrderList({
                   <tr>
                     <th>{t("page.workOrder.modelPicture")}</th>
                     <th>{t("cuttingInbox.variantPicture")}</th>
+                    <th>{t("page.modelDetail.printPicture")}</th>
                     <th>{t("field.production")}</th>
                     <th>{t("field.modelNo")}</th>
                     <th>{t("field.variantNo")}</th>
@@ -161,6 +163,7 @@ export default function DepartmentOrderList({
                       <tr key={`${row.sewing_assignment_id || row.work_order_id || row.id || row.production_order_id}-${row.textile_code || "all"}`} className={rowTone(state)}>
                         <td><ImageThumbnail imageUrl={row.model_image_url} label={row.model_name || row.model_no || "-"} title={t("page.workOrder.modelPicture")} emptyLabel={t("page.workOrder.noImage")} /></td>
                         <td><ImageThumbnail imageUrl={row.material_image_url} label={material} title={t("cuttingInbox.variantPicture")} emptyLabel={t("page.workOrder.noImage")} /></td>
+                        <td><ImageThumbnail imageUrl={row.print_image_url} label={t("page.modelDetail.printPicture")} title={t("page.modelDetail.printPicture")} emptyLabel={t("page.workOrder.noImage")} fit="contain" /></td>
                         <td className="whitespace-nowrap">
                           <Link className="mono font-semibold text-[#14110b] hover:underline" href={orderHref ? orderHref(row) : `/production-orders/${row.production_order_id}`}>{orderReference(row)}</Link>
                           <div className="text-xs text-[#56503f]">{kind === "incoming"

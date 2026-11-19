@@ -86,6 +86,7 @@ function harness(scope) {
     "@/components/VerticalModelPhoto": { default: "photo" },
     "@/components/VariantColorSelect": { default: "color-select" },
     "@/components/PaidOperationsEditor": { default: "paid-operations" },
+    "@/components/ModelPaidOperationsCopy": { default: "operation-copy" },
     "@/lib/modelPaidOperations": { createPaidOperation: () => ({}), materializeLegacyPaidOperations: () => [],
       PAID_OPERATION_FACTORIES: [], paidOperationFactoryFromDepartmentCode: () => undefined,
       paidOperationsFromDetails: () => [], serializePaidOperations: () => [], samePaidProcess: () => false,

@@ -1,0 +1,290 @@
+{
+  "schema_version": 1,
+  "findings": [
+    {
+      "scope": "backend-image",
+      "type": "debian",
+      "package": "bsdutils",
+      "version": "1:2.41.5-0+deb13u1",
+      "advisories": [
+        "CVE-2026-76642",
+        "CVE-2026-78408",
+        "CVE-2026-78409",
+        "CVE-2026-78410",
+        "CVE-2026-3184",
+        "CVE-2022-0563"
+      ],
+      "only_unfixed": true,
+      "reason": "unused by the application",
+      "accepted_by": "Dilmurod, delegated by Mirshoir",
+      "accepted_on": "2026-11-03",
+      "review_by": "2027-02-03",
+      "source": "https://github.com/Shmirzaev/Milana-ERP/pull/362"
+    },
+    {
+      "scope": "backend-image",
+      "type": "debian",
+      "package": "libblkid1",
+      "version": "2.41.5-0+deb13u1",
+      "advisories": [
+        "CVE-2026-76642",
+        "CVE-2026-78408",
+        "CVE-2026-78409",
+        "CVE-2026-78410",
+        "CVE-2026-3184",
+        "CVE-2022-0563"
+      ],
+      "only_unfixed": true,
+      "reason": "unused by the application",
+      "accepted_by": "Dilmurod, delegated by Mirshoir",
+      "accepted_on": "2026-11-03",
+      "review_by": "2027-02-03",
+      "source": "https://github.com/Shmirzaev/Milana-ERP/pull/362"
+    },
+    {
+      "scope": "backend-image",
+      "type": "debian",
+      "package": "liblastlog2-2",
+      "version": "2.41.5-0+deb13u1",
+      "advisories": [
+        "CVE-2026-76642",
+        "CVE-2026-78408",
+        "CVE-2026-78409",
+        "CVE-2026-78410",
+        "CVE-2026-3184",
+        "CVE-2022-0563"
+      ],
+      "only_unfixed": true,
+      "reason": "unused by the application",
+      "accepted_by": "Dilmurod, delegated by Mirshoir",
+      "accepted_on": "2026-11-03",
+      "review_by": "2027-02-03",
+      "source": "https://github.com/Shmirzaev/Milana-ERP/pull/362"
+    },
+    {
+      "scope": "backend-image",
+      "type": "debian",
+      "package": "libmount1",
+      "version": "2.41.5-0+deb13u1",
+      "advisories": [
+        "CVE-2026-76642",
+        "CVE-2026-78408",
+        "CVE-2026-78409",
+        "CVE-2026-78410",
+        "CVE-2026-3184",
+        "CVE-2022-0563"
+      ],
+      "only_unfixed": true,
+      "reason": "unused by the application",
+      "accepted_by": "Dilmurod, delegated by Mirshoir",
+      "accepted_on": "2026-11-03",
+      "review_by": "2027-02-03",
+      "source": "https://github.com/Shmirzaev/Milana-ERP/pull/362"
+    },
+    {
+      "scope": "backend-image",
+      "type": "debian",
+      "package": "libpam-modules",
+      "version": "1.7.0-5",
+      "advisories": [
+        "CVE-2026-54411"
+      ],
+      "only_unfixed": true,
+      "reason": "unused by the application",
+      "accepted_by": "Dilmurod, delegated by Mirshoir",
+      "accepted_on": "2026-11-03",
+      "review_by": "2027-02-03",
+      "source": "https://github.com/Shmirzaev/Milana-ERP/pull/362"
+    },
+    {
+      "scope": "backend-image",
+      "type": "debian",
+      "package": "libpam-modules-bin",
+      "version": "1.7.0-5",
+      "advisories": [
+        "CVE-2026-54411"
+      ],
+      "only_unfixed": true,
+      "reason": "unused by the application",
+      "accepted_by": "Dilmurod, delegated by Mirshoir",
+      "accepted_on": "2026-11-03",
+      "review_by": "2027-02-03",
+      "source": "https://github.com/Shmirzaev/Milana-ERP/pull/362"
+    },
+    {
+      "scope": "backend-image",
+      "type": "debian",
+      "package": "libpam-runtime",
+      "version": "1.7.0-5",
+      "advisories": [
+        "CVE-2026-54411"
+      ],
+      "only_unfixed": true,
+      "reason": "unused by the application",
+      "accepted_by": "Dilmurod, delegated by Mirshoir",
+      "accepted_on": "2026-11-03",
+      "review_by": "2027-02-03",
+      "source": "https://github.com/Shmirzaev/Milana-ERP/pull/362"
+    },
+    {
+      "scope": "backend-image",
+      "type": "debian",
+      "package": "libpam0g",
+      "version": "1.7.0-5",
+      "advisories": [
+        "CVE-2026-54411"
+      ],
+      "only_unfixed": true,
+      "reason": "unused by the application",
+      "accepted_by": "Dilmurod, delegated by Mirshoir",
+      "accepted_on": "2026-11-03",
+      "review_by": "2027-02-03",
+      "source": "https://github.com/Shmirzaev/Milana-ERP/pull/362"
+    },
+    {
+      "scope": "backend-image",
+      "type": "debian",
+      "package": "libsmartcols1",
+      "version": "2.41.5-0+deb13u1",
+      "advisories": [
+        "CVE-2026-76642",
+        "CVE-2026-78408",
+        "CVE-2026-78409",
+        "CVE-2026-78410",
+        "CVE-2026-3184",
+        "CVE-2022-0563"
+      ],
+      "only_unfixed": true,
+      "reason": "unused by the application",
+      "accepted_by": "Dilmurod, delegated by Mirshoir",
+      "accepted_on": "2026-11-03",
+      "review_by": "2027-02-03",
+      "source": "https://github.com/Shmirzaev/Milana-ERP/pull/362"
+    },
+    {
+      "scope": "backend-image",
+      "type": "debian",
+      "package": "login",
+      "version": "1:4.16.0-2+really2.41.5-0+deb13u1",
+      "advisories": [
+        "CVE-2026-76642",
+        "CVE-2026-78408",
+        "CVE-2026-78409",
+        "CVE-2026-78410",
+        "CVE-2026-3184",
+        "CVE-2022-0563"
+      ],
+      "only_unfixed": true,
+      "reason": "unused by the application",
+      "accepted_by": "Dilmurod, delegated by Mirshoir",
+      "accepted_on": "2026-11-03",
+      "review_by": "2027-02-03",
+      "source": "https://github.com/Shmirzaev/Milana-ERP/pull/362"
+    },
+    {
+      "scope": "backend-image",
+      "type": "debian",
+      "package": "login.defs",
+      "version": "1:4.17.4-2",
+      "advisories": [
+        "CVE-2007-5686",
+        "CVE-2024-56433",
+        "TEMP-0628843-DBAD28"
+      ],
+      "only_unfixed": true,
+      "reason": "unused by the application",
+      "accepted_by": "Dilmurod, delegated by Mirshoir",
+      "accepted_on": "2026-11-03",
+      "review_by": "2027-02-03",
+      "source": "https://github.com/Shmirzaev/Milana-ERP/pull/362"
+    },
+    {
+      "scope": "backend-image",
+      "type": "debian",
+      "package": "mount",
+      "version": "2.41.5-0+deb13u1",
+      "advisories": [
+        "CVE-2026-76642",
+        "CVE-2026-78408",
+        "CVE-2026-78409",
+        "CVE-2026-78410",
+        "CVE-2026-3184",
+        "CVE-2022-0563"
+      ],
+      "only_unfixed": true,
+      "reason": "unused by the application",
+      "accepted_by": "Dilmurod, delegated by Mirshoir",
+      "accepted_on": "2026-11-03",
+      "review_by": "2027-02-03",
+      "source": "https://github.com/Shmirzaev/Milana-ERP/pull/362"
+    },
+    {
+      "scope": "backend-image",
+      "type": "debian",
+      "package": "passwd",
+      "version": "1:4.17.4-2",
+      "advisories": [
+        "CVE-2007-5686",
+        "CVE-2024-56433",
+        "TEMP-0628843-DBAD28"
+      ],
+      "only_unfixed": true,
+      "reason": "unused by the application",
+      "accepted_by": "Dilmurod, delegated by Mirshoir",
+      "accepted_on": "2026-11-03",
+      "review_by": "2027-02-03",
+      "source": "https://github.com/Shmirzaev/Milana-ERP/pull/362"
+    },
+    {
+      "scope": "backend-image",
+      "type": "debian",
+      "package": "sysvinit-utils",
+      "version": "3.14-4",
+      "advisories": [
+        "TEMP-0517018-A83CE6"
+      ],
+      "only_unfixed": true,
+      "reason": "unused by the application",
+      "accepted_by": "Dilmurod, delegated by Mirshoir",
+      "accepted_on": "2026-11-03",
+      "review_by": "2027-02-03",
+      "source": "https://github.com/Shmirzaev/Milana-ERP/pull/362"
+    },
+    {
+      "scope": "backend-image",
+      "type": "debian",
+      "package": "util-linux",
+      "version": "2.41.5-0+deb13u1",
+      "advisories": [
+        "CVE-2026-76642",
+        "CVE-2026-78408",
+        "CVE-2026-78409",
+        "CVE-2026-78410",
+        "CVE-2026-3184",
+        "CVE-2022-0563"
+      ],
+      "only_unfixed": true,
+      "reason": "unused by the application",
+      "accepted_by": "Dilmurod, delegated by Mirshoir",
+      "accepted_on": "2026-11-03",
+      "review_by": "2027-02-03",
+      "source": "https://github.com/Shmirzaev/Milana-ERP/pull/362"
+    },
+    {
+      "scope": "dependencies:frontend/package-lock.json",
+      "type": "npm",
+      "package": "minimatch",
+      "version": "10.2.5",
+      "advisories": [
+        "GHSA-g3hv-75wg-m249",
+        "CVE-2026-118764"
+      ],
+      "development_only": true,
+      "reason": "Accepted (Dilmurod, 5 Nov): development-only tooling, glob patterns come from our own config, not users; revisit by 5 Feb 2027 or when the package that pulls it in upgrades.",
+      "accepted_by": "Dilmurod",
+      "accepted_on": "2026-11-05",
+      "review_by": "2027-02-05",
+      "source": "https://github.com/Shmirzaev/Milana-ERP/pull/476"
+    }
+  ]
+}

@@ -1,5 +1,124 @@
 # Production execution
 
+## Optional sewing line at manual receipt
+
+`sewing_receipt_service.py` owns manual receipt and the existing batch-QR acceptance
+operation. Manual input may include `sewing_flow_id` for a real Nastil; the canonical
+batch acceptance validates the complete locked batch, line/factory, accessory gate,
+existing assignment and quantities, then receives and assigns in one transaction.
+Manual, batch and scanner receipts lock the parent production order before any
+batch/bundle/work-order lock, matching Sewing output and direct Packaging. This
+also covers implicit foreign-key locks and receipt-driven status reconciliation.
+Printing records take the same parent-first lock before refreshing their work
+order: their accessory update can flush Sewing work orders before parent status
+advances, so they participate in the same scan/Packaging serialization.
+Assignment quantity uses the shared usable Sewing-input target, capped by physical
+bundle receipt and excluding this exact Nastil's Printing rejects; original bundle
+labels/counts stay unchanged. All-rejected input cannot create a zero assignment.
+Omitting/null line retains the receipt-only behavior and preserves existing plans.
+Explicit-null legacy Nastils remain receipt-only. Model-filtered manual requests
+cannot silently accept another model in a mixed historical batch. Assignment writes
+use `schemas/production/sewing_receipt.py`; established bundle/progress/audit helpers
+remain shared migration debt. No migration, new permission or production write is
+introduced by source publication. See the [task packet](../../../../docs/SEWING_RECEIVING_EXPORT_20261107.md).
+
+## Transferred fabric for ECT passports
+
+`ect_passport_fabric_service.py` resolves only authoritative
+`EcoMaterialBatch.source_stock_batch_id` links for ECT standard orders. The existing
+central ID remains the planned-material identity; receipt balances, QC, actual
+debits and receive/reversal evidence belong to Eco stock. Do not substitute Eco
+primary keys into central foreign keys or fall back to Milana after a linked Eco
+balance is exhausted. The caller owns authorization, order/record locks and commit;
+mapped writes use the existing Eco schema persistence operations. See the
+[task packet](../../../../docs/PASSPORT_TOTALS_ECT_20261106.md) for scope and tests.
+
+Direct ECO receipts now participate through `eco_fabric_source_service.py`.
+Planning (MIL/ECO `planning.production`) or an authorized ECT passport save accepts
+an explicit `eco_material_batch_id`; it atomically assigns a central zero-balance
+material identity through schema-owned persistence. `source_stock_batch_id` is
+the production material identity, not proof of a Milana transfer. Actual transfer
+evidence remains in `FactoryFabricTransferLine`. No central quantity, reservation
+or movement is created; the original ECO receipt keeps all physical quantities,
+QC, reservations, debit and reversal evidence. GETs never assign an identity.
+See [WF06/WF07 evidence](../../../../docs/FACTORY_ECO_FABRIC_20261113.md).
+
+`order_routing_read_service.py` projects `ProductionOrderListOut` routing with one
+batched query over the existing authorized list/page. A single non-cancelled
+Cutting department yields canonical CUT/ECT; missing, unknown or mixed routes
+yield null. Passport selectors require an exact department match. This read does
+not mutate routing, broaden the list's access or guess an execution work order.
+
+The legacy generic `POST /production-orders` explicitly refuses new unresolved
+ECO primary/material inputs through `require_planning_for_eco_selection` before
+any creator writes. Use Planning's validated ECO participant; never silently
+drop an explicit ECO source. The separate Usluga creator keeps its customer-
+supplied, non-inventory material contract.
+
+## One passport material with several source batches
+
+`PassportMaterial.batch_allocations` optionally records at least two distinct
+`{stock_batch_id, quantity, batch_no}` sources including the retained primary
+`stock_batch_id`. Labels are display-only input and canonicalized by
+`passport_material_allocation_service.py`; quantities have three-decimal precision
+and must total the existing authoritative stock-usage calculation. Sources must
+share item/color/unit and known width/grammage and belong to the complete assigned
+order-material set. Recognized warehouse factory mismatches are refused; existing
+STR/NULL/unmapped warehouse behavior is retained for routed orders. Usluga customer
+fabrics do not gain warehouse sourcing. Legacy empty-allocation rows remain independent.
+
+Saving checks stock without debiting it; Cutting confirmation expands physical
+usage/reservation debits and per-source pending-shortage evidence. This preserves
+the existing shortage evidence lifecycle without adding a reconciliation action.
+Only the anchor usage stores the full source list; other usages store its anchor
+pointer. Sheet projection resolves that metadata independently of usage ordering
+and shows common calculations and source amounts once. Full source labels remain
+in JSON; the legacy scalar lot summary stays within its 64-character column. Dashboard
+and Excel retain one logical row/output count, with source labels in the export.
+Grouped actual-usage projections use the authoritative calculation; legacy
+display formulas remain unchanged. Used grouped allocations/calculations cannot
+be edited; notes remain supported. A grouped-passport-linked Nastil requires that
+matching passport and its saved materials, including when a caller omits the
+passport ID or tries raw/deferred usage. Pre-use batch replacement rewrites grouped
+JSON through the same-transaction schema persistence helper and preserves source
+validation. No migration or permission is added. Fixed source/type/status
+vocabulary is retained; the new reservation projection uses the existing canonical
+MaterialReservationStatus. Wider legacy route/persistence/type extraction remains
+pending. Run the new `test_passport_batch_allocations.py` and PostgreSQL companion,
+plus passport submission/meter/Nastil/report/default-budget and reservation tests.
+
+## Reject an unrecorded Cutting order
+
+`POST /api/work-orders/{wid}/reject-cutting` delegates to
+`cutting_rejection_service.reject_cutting_order`. It accepts `CuttingWorkOrderRejectIn`
+(a required trimmed reason, maximum 2000 characters), requires Cutting or Planning
+permission and the selected source factory, and locks ProductionOrder then all its
+WorkOrders. Usluga additionally requires ECO. Recorded execution/passport/material
+consumption or downstream handoff refuses rejection. The existing schema-owned
+write marks only the chosen Cutting work order rejected and blocked, preserves the
+reason and end time, and keeps plans, reservations and downstream rows unchanged.
+Audit and the creator's Planning notification participate in that same transaction;
+an exact same-reason retry adds neither again. Rejected Cutting cannot be restarted,
+unblocked, given new Cutting/Quality output, passports, bundles or batch edits.
+No reopen action or database migration is introduced. Run
+`test_cutting_order_rejection.py` and its `_postgres.py` companion plus work-order
+command and Planning routing regressions. Human/browser acceptance is tracked in
+the task packet; automated results alone do not authorize release.
+
+## Selected Nastil factory routing
+
+The existing Cutting `PATCH /work-orders/{wid}/sewing-factory` accepts optional
+`production_batch_ids`. The bounded action delegates to
+`nastil_factory_service.py`, using schema-owned operations in
+`schemas/production/factory_routing.py` and the caller's transaction. Selected
+unused Nastils get dedicated Sewing/Packaging work orders; shared stage budgets
+and completion exclude their batches through `batch_scope_service.py`. Recorded
+output/payroll/packaging evidence refuses rerouting that selected Nastil.
+Preserve another Nastil's history and test both receipt orders, later Cutting,
+printing loss, exhausted shared scopes and cross-factory denial. The dated
+[feature evidence](../../../../docs/archive/PRINT_NASTIL_WAREHOUSE_2026-10-29.md)
+records verification and pending human/release acceptance.
+
 Business-service group guide, relocated into models/ on 24 October 2026. This
 directory contains the released Besttex read-only compatibility service below;
 other existing implementations remain the *_service.py files linked below.

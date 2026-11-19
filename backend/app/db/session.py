@@ -1,4 +1,6 @@
+from fastapi import Request
 from sqlalchemy import create_engine
+from sqlalchemy.engine import Engine
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker, Session
 
@@ -21,9 +23,21 @@ engine = create_engine(
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
 
 
-def get_db() -> Session:
+def get_db(request: Request) -> Session:
     db = SessionLocal()
     try:
+        bind = db.get_bind()
+        if (
+            request.method == "GET"
+            and request.url.path == "/api/dashboard/ceo"
+            and isinstance(bind, Engine)
+            and bind.dialect.name == "postgresql"
+        ):
+            # Authenticate and report on one connection and one consistent view.
+            db.bind = bind.execution_options(
+                isolation_level="REPEATABLE READ",
+                postgresql_readonly=True,
+            )
         yield db
     finally:
         db.close()

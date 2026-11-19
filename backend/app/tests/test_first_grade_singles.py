@@ -115,14 +115,16 @@ def test_invalid_grade_does_not_create_stock(client, auth_headers, output, chang
     assert stock_fingerprint() == before
 
 
-def test_labels_have_no_cover_and_explicit_page_numbers(client, auth_headers, output):
+def test_labels_have_no_cover_or_page_footer_and_preserve_card_numbers(client, auth_headers, output):
     run = create(client, auth_headers, [output] * 5)[0].json()
     before = stock_fingerprint()
     html = client.get(f'/api/packages/print-runs/{run["id"]}/label', headers=auth_headers)
     assert html.status_code == 200, html.text
     assert "PACKRUN:" not in html.text
     assert html.text.count("class='label-page'") == 2
-    assert "Sahifa 1 / 2" in html.text and "Sahifa 2 / 2" in html.text
+    assert "Sahifa" not in html.text and "label-page-number" not in html.text
+    for ordinal in range(1, 6):
+        assert f"<b class='label-ordinal'>{ordinal}</b>" in html.text
     assert html.text.count("<article") == 5
     assert "1st Grade" in html.text
     assert stock_fingerprint() == before

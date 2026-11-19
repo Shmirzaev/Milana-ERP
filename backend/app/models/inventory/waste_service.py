@@ -11,12 +11,18 @@ from math import isfinite
 from fastapi import HTTPException
 
 from app.libs.dto.inventory.waste_input import WasteIn
-from app.libs.dto.inventory.waste_output import WasteOut
+from app.libs.dto.inventory.waste_disposal_input import WasteDisposalIn
+from app.libs.dto.inventory.waste_output import WasteListOut
 from app.libs.dto.inventory.waste_sale_input import WasteSaleIn
 from app.libs.dto.inventory.waste_sale_output import WasteSaleOut
+from app.libs.enums.inventory import WasteStatus
 from app.models.audit_service import log_action
 from app.models.idempotency_service import replay_idempotent_response, store_idempotent_response
 from app.schemas import Item, StockBatch, User, WasteDisposalRequest, WasteRecord, WasteSale
+from app.schemas.inventory.waste import add_disposal_request, apply_disposal_approval, mark_waste_disposed, persist_disposal_rejection
+from app.schemas.inventory.waste_create_persistence import insert_manual_waste
+from app.schemas.inventory.waste_receive_persistence import set_received
+from app.schemas.inventory.waste import insert_waste_sale, mark_waste_sold
 
 
 def _unit_cost_for_waste(db, item_id: int | None, batch_id: int | None) -> float:
@@ -44,16 +50,39 @@ def _estimated_value_for_waste(db, w: WasteRecord) -> float:
     return round(float(w.quantity or 0) * unit_cost, 2)
 
 
-def list_waste(db, status: str | None = None, sellable: bool | None = None) -> list[WasteOut]:
+def list_waste(db, status: WasteStatus | None = None, sellable: bool | None = None) -> list[WasteListOut]:
     qry = db.query(WasteRecord)
     if status: qry = qry.filter(WasteRecord.status == status)
     if sellable is not None: qry = qry.filter(WasteRecord.sellable.is_(sellable))
     rows = qry.order_by(WasteRecord.id.desc()).all()
+    # Read sale quantities in one batch; invalid history remains readable.
+    sold: dict[int, Decimal | None] = {row.id: Decimal("0") for row in rows}
+    if sold:
+        for record_id, quantity in db.query(WasteSale.waste_record_id, WasteSale.quantity).filter(
+            WasteSale.waste_record_id.in_(sold)
+        ).all():
+            try:
+                amount = Decimal(str(quantity))
+                previous = sold[record_id]
+                sold[record_id] = previous + amount if previous is not None and amount.is_finite() and amount > 0 else None
+            except (InvalidOperation, TypeError, ValueError):
+                sold[record_id] = None
+
+    def remaining(row: WasteRecord) -> float | None:
+        try:
+            original = Decimal(str(row.quantity))
+            total = sold[row.id]
+            if not original.is_finite() or original <= 0 or total is None or total > original:
+                return None
+            return float(original - total)
+        except (InvalidOperation, TypeError, ValueError):
+            return None
+
     # Preserve the existing live-estimate response without rewriting the
     # valuation snapshot stored with the historical waste record.
     return [
-        WasteOut.model_validate(row).model_copy(
-            update={"estimated_value": _estimated_value_for_waste(db, row)},
+        WasteListOut.model_validate(row).model_copy(
+            update={"estimated_value": _estimated_value_for_waste(db, row), "remaining_quantity": remaining(row)},
         )
         for row in rows
     ]
@@ -62,19 +91,18 @@ def list_waste(db, status: str | None = None, sellable: bool | None = None) -> l
 def create_waste(db, payload: WasteIn, current: User) -> WasteRecord:
     data = payload.model_dump()
     data["estimated_value"] = round(float(data.get("quantity") or 0) * _unit_cost_for_waste(db, data.get("item_id"), data.get("batch_id")), 2)
-    w = WasteRecord(**data, created_by=current.id, status="recorded")
-    db.add(w); db.flush()
+    w = insert_manual_waste(db, data=data, created_by=current.id)
     log_action(db, current, "create", "WasteRecord", w.id, new_value={"type": w.waste_type, "qty": float(w.quantity)})
     db.commit(); db.refresh(w)
     return w
 
 
 def receive_waste(db, wid: int, current: User) -> WasteRecord:
-    w = db.get(WasteRecord, wid)
+    w = db.query(WasteRecord).filter(WasteRecord.id == wid).with_for_update().populate_existing().first()
     if not w: raise HTTPException(404, "Waste record not found")
     if w.status != "recorded":
         raise HTTPException(400, f"Can't receive from status '{w.status}'")
-    w.status = "received_by_waste_department"
+    set_received(db, w)
     log_action(db, current, "receive", "WasteRecord", w.id)
     db.commit(); db.refresh(w)
     return w
@@ -168,7 +196,8 @@ def sell_waste(db, wid: int, payload: WasteSaleIn, current: User, idempotency_ke
     if quantity > remaining_quantity:
         raise HTTPException(400, f"Sale quantity exceeds remaining waste quantity {remaining_quantity:f}")
 
-    sale = WasteSale(
+    sale = insert_waste_sale(
+        db,
         waste_record_id=w.id,
         buyer_name=buyer_name,
         quantity=quantity,
@@ -177,13 +206,11 @@ def sell_waste(db, wid: int, payload: WasteSaleIn, current: User, idempotency_ke
         sold_by=current.id,
         sold_at=datetime.now(timezone.utc),
     )
-    db.add(sale)
-    db.flush()
     remaining_after_sale = remaining_quantity - quantity
     # Only a sale that exhausts the record closes it. Marking it sold on a
     # partial sale stranded the leftover waste as unsellable.
     if remaining_after_sale == 0:
-        w.status = "sold"
+        mark_waste_sold(w)
     log_action(db, current, "sell", "WasteRecord", w.id, new_value={
         "quantity": float(quantity),
         "remaining_quantity": float(remaining_after_sale),
@@ -234,13 +261,10 @@ def _disposal_request_for_update(db, rid: int) -> tuple[WasteDisposalRequest, Wa
     return r, w
 
 
-def request_disposal(db, wid: int, payload, current: User) -> WasteDisposalRequest:
+def request_disposal(db, wid: int, payload: WasteDisposalIn, current: User) -> WasteDisposalRequest:
     w = _disposal_waste_for_update(db, wid)
     _require_disposal_waste(w, "received_by_waste_department")
-    r = WasteDisposalRequest(waste_record_id=w.id, reason=payload.reason, requested_by=current.id, status="pending")
-    db.add(r)
-    w.status = "pending_disposal_approval"
-    db.flush()
+    r = add_disposal_request(db, w, reason=payload.reason, requested_by=current.id)
     log_action(db, current, "request_disposal", "WasteRecord", w.id)
     db.commit(); db.refresh(r)
     return r
@@ -251,10 +275,7 @@ def approve_disposal(db, rid: int, current: User) -> WasteDisposalRequest:
     if r.status != "pending":
         raise HTTPException(400, "Disposal request is not pending")
     _require_disposal_waste(w, "pending_disposal_approval")
-    r.status = "approved"
-    r.approved_by = current.id
-    r.approved_at = datetime.now(timezone.utc)
-    w.status = "disposal_approved"
+    apply_disposal_approval(db, r, w, approved_by=current.id, approved_at=datetime.now(timezone.utc))
     log_action(db, current, "approve_disposal", "WasteDisposalRequest", r.id)
     db.commit(); db.refresh(r)
     return r
@@ -266,10 +287,7 @@ def reject_disposal(db, rid: int, current: User) -> WasteDisposalRequest:
         raise HTTPException(400, "Disposal request is not pending")
     # Rejection safely withdraws even a historically invalid disposal request.
     _require_disposal_state(w, "pending_disposal_approval")
-    r.status = "rejected"
-    r.approved_by = current.id
-    r.approved_at = datetime.now(timezone.utc)
-    w.status = "received_by_waste_department"
+    persist_disposal_rejection(db, r, w, current.id, datetime.now(timezone.utc))
     log_action(db, current, "reject_disposal", "WasteDisposalRequest", r.id)
     db.commit(); db.refresh(r)
     return r
@@ -279,8 +297,7 @@ def mark_disposed(db, rid: int, current: User) -> WasteDisposalRequest:
     r, w = _disposal_request_for_update(db, rid)
     if r.status != "approved": raise HTTPException(400, "Disposal not approved yet")
     _require_disposal_waste(w, "disposal_approved")
-    r.status = "disposed"
-    w.status = "disposed"
+    mark_waste_disposed(db, r, w)
     log_action(db, current, "mark_disposed", "WasteDisposalRequest", r.id)
     db.commit(); db.refresh(r)
     return r

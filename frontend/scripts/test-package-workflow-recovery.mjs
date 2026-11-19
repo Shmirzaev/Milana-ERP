@@ -8,6 +8,7 @@ const listeners = new Map();
 const calls = [];
 let response = { status: "completed", result: { id: 8, run_no: "RUN-8" } };
 let labelError = null;
+let labelsOpened = 0;
 
 function storage(values) {
   return {
@@ -44,7 +45,7 @@ globalThis.Event = class Event { constructor(type) { this.type = type; } };
 
 const api = {
   post: async (path, body) => { calls.push({ path, body }); return response; },
-  openLabel: async () => { if (labelError) throw new Error(labelError); },
+  openLabel: async () => { labelsOpened += 1; if (labelError) throw new Error(labelError); },
 };
 const packageSource = ts.transpileModule(
   fs.readFileSync(new URL("../src/lib/packageWorkflow.ts", import.meta.url), "utf8"),
@@ -84,6 +85,10 @@ const componentSource = ts.transpileModule(
   fs.readFileSync(new URL("../src/components/PendingPackageWorkflow.tsx", import.meta.url), "utf8"),
   { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.ReactJSX } },
 ).outputText;
+const damageText = {};
+new Function("exports", ts.transpileModule(fs.readFileSync(new URL("../src/lib/multiNastilPackaging.ts", import.meta.url), "utf8"), {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
+}).outputText)(damageText);
 const componentModule = { exports: {} };
 new Function("require", "exports", "module", componentSource)(id => {
   if (id === "react") return react;
@@ -91,6 +96,7 @@ new Function("require", "exports", "module", componentSource)(id => {
   if (id === "@/lib/api") return { api };
   if (id === "@/lib/auth") return { useMe: () => ({ me: { id: 7 } }) };
   if (id === "@/lib/i18n") return { useT: () => ({ lang: "en" }) };
+  if (id === "@/lib/multiNastilPackaging") return damageText;
   if (id === "@/lib/packageWorkflow") return packageWorkflow;
   throw new Error(`unexpected import ${id}`);
 }, componentModule.exports, componentModule);
@@ -102,11 +108,11 @@ const storageKey = packageWorkflow.packageWorkflowStorageKey(path, 7);
 function save(requestKey) {
   localValues.set(storageKey, JSON.stringify({ requestKey, body }));
 }
-function render(onResolved = async () => {}) {
+function render(onResolved = async () => {}, overrides = {}) {
   for (let attempt = 0; attempt < 5; attempt++) {
     cursor = 0;
     dirty = false;
-    const tree = PendingPackageWorkflow({ path, onResolved });
+    const tree = PendingPackageWorkflow({ path, onResolved, ...overrides });
     const queued = effects;
     effects = [];
     queued.forEach(effect => effect());
@@ -120,12 +126,12 @@ function elements(tree, type) {
   if (typeof tree !== "object") return [];
   return [...(tree.type === type ? [tree] : []), ...elements(tree.props?.children, type)];
 }
-async function recover(onResolved = async () => {}) {
-  const tree = render(onResolved);
+async function recover(onResolved = async () => {}, overrides = {}) {
+  const tree = render(onResolved, overrides);
   const button = elements(tree, "button")[0];
   assert(button, "pending component must render its recovery handler");
   await button.props.onClick();
-  return render(onResolved);
+  return render(onResolved, overrides);
 }
 
 save("request-1");
@@ -164,6 +170,24 @@ await recover(async () => { throw new Error("refresh failed"); });
 assert.equal(calls.length, 5, "refresh failure after commit must not repost the package action");
 assert.equal(localValues.has(storageKey), false, "refresh failure keeps the committed action resolved");
 assert.ok(calls.every(call => call.path.endsWith("/reconcile")), "recovery only calls status/tombstone endpoints");
+
+// Damage-only recovery resolves the same keyed request without printing or
+// creating a synthetic empty print run, including a failed refresh.
+for (const failRefresh of [false, true]) {
+  hooks.length = 0; effects = []; cursor = 0;
+  const damagePath = "/api/packages/record-damage";
+  const damageKey = packageWorkflow.packageWorkflowStorageKey(damagePath, 7);
+  localValues.set(damageKey, JSON.stringify({ requestKey: `damage-${failRefresh}`, body: { work_order_id: 9, production_batch_id: 2, damaged_qty: 10 } }));
+  response = { status: "completed", result: { id: 100, damaged_qty: 10 } };
+  const previousLabels = labelsOpened;
+  let refreshCount = 0;
+  const result = await recover(async () => { refreshCount += 1; if (failRefresh) throw new Error("refresh failed"); }, { path: damagePath, resultKind: "damage" });
+  assert.equal(calls.at(-1).path, `${damagePath}/reconcile`);
+  assert.equal(refreshCount, 1);
+  assert.equal(localValues.has(damageKey), false);
+  assert.equal(labelsOpened, previousLabels);
+  assert.match(JSON.stringify(result), /Damage recorded/);
+}
 
 const manualSource = fs.readFileSync(new URL("../src/components/ManualPackageReceipt.tsx", import.meta.url), "utf8");
 assert.match(manualSource, /reconcilePendingPackageWorkflow<[^>]*PackagePrintRun/, "manual receipt handler must reconcile rather than repost");

@@ -1,4 +1,6 @@
 "use client";
+import SewingFactoryFilter from "@/components/SewingFactoryFilter";
+import { packageIdentityText, sewingFactoryLabel } from "@/lib/packageIdentity";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Fragment, useMemo, useState, type FormEvent } from "react";
@@ -10,8 +12,9 @@ import { packagingDepartmentForSession } from "@/lib/access";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import Modal from "@/components/Modal";
 import PendingPackageWorkflow from "@/components/PendingPackageWorkflow";
+import ManualPackageReceipt from "@/components/ManualPackageReceipt";
 import { packageReturnText } from "@/lib/packageReturnText";
-import { postPackageWorkflow, type PackagePrintRun } from "@/lib/packageWorkflow";
+import { packageWorkflowCopy, postPackageWorkflow, type PackagePrintRun } from "@/lib/packageWorkflow";
 import PageHeader from "@/components/PageHeader";
 import PaginationControls from "@/components/PaginationControls";
 import { productionTypeLabel, statusLabel } from "@/components/StagePipeline";
@@ -34,6 +37,8 @@ type EditForm = {
 
 export default function PackagesPage() {
   const { lang, t } = useT();
+  const identityText = packageIdentityText[lang];
+  const [sewingFactory, setSewingFactory] = useState("");
   const searchParams = useSearchParams();
   const { me } = useMe();
   const requestedDepartment = searchParams.get("packaging_department");
@@ -41,13 +46,15 @@ export default function PackagesPage() {
   const isEcoCotton = packagingDepartment === "ECP";
   const factoryLabel = isEcoCotton ? "Eco Cotton" : packagingDepartment === "BPK" ? "Besttex" : "Milana";
   const returnText = packageReturnText[lang];
+  const manualText = packageWorkflowCopy[lang];
+  const [manualRunToCancel, setManualRunToCancel] = useState<number | null>(null);
   const [returnedOnly, setReturnedOnly] = useState(false);
   const canApprovePackageChange = can(me, "management.approve");
   const canChangePackage = can(me, "packaging.packages") || can(me, "storage.packages");
   const canTraceability = can(me, "traceability.view");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
-  const listPager = useLoadMore<any>(`/api/packages?include_total=true&page=${page}&page_size=${pageSize}${returnedOnly ? "&status=returned_to_packaging" : ""}&packaging_department_code=${packagingDepartment}`, fetcher);
+  const listPager = useLoadMore<any>(`/api/packages?include_total=true&page=${page}&page_size=${pageSize}${returnedOnly ? "&status=returned_to_packaging" : ""}&packaging_department_code=${packagingDepartment}${sewingFactory ? `&sewing_factory_code=${sewingFactory}` : ""}`, fetcher);
   const { data: pageData, mutate } = listPager;
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
   const pendingRequestsKey = Object.values(expandedGroups).some(Boolean)
@@ -96,7 +103,7 @@ export default function PackagesPage() {
     for (const p of data || []) {
       const salesOrderId = p.sales_order_id == null ? null : Number(p.sales_order_id);
       const productionOrderId = p.production_order_id == null ? null : Number(p.production_order_id);
-      const key = salesOrderId != null ? `so-${salesOrderId}` : `po-${productionOrderId ?? "none"}`;
+      const key = p.manual_receipt_id ? `manual-${p.manual_receipt_id}` : salesOrderId != null ? `so-${salesOrderId}` : `po-${productionOrderId ?? "none"}`;
       const existing = map.get(key) ?? {
         key,
         sales_order_id: salesOrderId,
@@ -130,6 +137,7 @@ export default function PackagesPage() {
   }, [data]);
 
   function orderTitle(row: any) {
+    if (row?.manual_source?.receipt_no) return row.manual_source.receipt_no;
     return orderReference(row);
   }
 
@@ -309,11 +317,15 @@ export default function PackagesPage() {
 
   return (
     <div>
-      <PageHeader title={`${factoryLabel} - ${t("page.packages.title")}`} subtitle={t("page.packages.subtitle")} actions={<Link href={`/packaging/receive?packaging_department=${packagingDepartment}`} className="btn">{t("nav.receiveFromSewing")}</Link>} />
+      <PageHeader title={`${factoryLabel} - ${t("page.packages.title")}`} subtitle={t("page.packages.subtitle")} actions={<>
+        <ManualPackageReceipt key={packagingDepartment} packagingDepartment={packagingDepartment} onCreated={() => { void refreshPackages(); }} />
+        <Link href={`/packaging/queue?packaging_department=${packagingDepartment}`} className="btn">{t("nav.packingQueue")}</Link>
+      </>} />
       <label className="my-3 flex items-center gap-2"><input type="checkbox" checked={returnedOnly} onChange={e => { setReturnedOnly(e.target.checked); setPage(1); }} />{returnText.returnList}</label>
       <PendingPackageWorkflow path="/api/packages/resend-corrected" onResolved={refreshPackages} />
       {message && <div className="mb-3 rounded border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">{message}</div>}
       {error && <div className="mb-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
+      <div className="mb-4 max-w-xs"><SewingFactoryFilter value={sewingFactory} onChange={value => { setSewingFactory(value); setPage(1); }} /></div>
       <div className="card overflow-x-auto">
         <table className="table">
           <thead>
@@ -322,6 +334,7 @@ export default function PackagesPage() {
               <th>{t("field.order")}</th>
               <th>{t("field.barcode")}</th>
               <th>{t("field.model")}</th>
+              <th>{identityText.factory}</th>
               <th>{t("field.color")}</th>
               <th>{t("field.totalQty")}</th>
               <th>{t("field.cell")}</th>
@@ -359,7 +372,8 @@ export default function PackagesPage() {
                       {groupMeta && <div className="text-xs text-slate-500">{groupMeta}</div>}
                     </td>
                     <td><code>{g.packages.length}</code></td>
-                    <td>{sameModel ? first.model_id : "-"}</td>
+                    <td>{sameModel ? first.model_code || first.manual_source?.evidence?.model_code || "-" : "-"}</td>
+                    <td>{Array.from(new Set(g.packages.map((p: any) => sewingFactoryLabel(p, identityText.unknown)))).join("; ")}</td>
                     <td>{sameColor ? first.color : "-"}</td>
                     <td>{g.total_quantity}</td>
                     <td>{sameCell ? (first.storage_cell || "-") : "-"}</td>
@@ -405,13 +419,16 @@ export default function PackagesPage() {
                           {orderSubtitle(p) && <div className="text-xs text-slate-500">{orderSubtitle(p)}</div>}
                         </td>
                         <td><code>{p.barcode}</code></td>
-                        <td>{p.model_id}</td>
+                        <td>{p.model_code || p.manual_source?.evidence?.model_code || "-"}</td>
+                        <td>{sewingFactoryLabel(p, identityText.unknown)}</td>
                         <td>{p.color}</td>
                         <td>{p.total_quantity}</td>
                         <td>{p.storage_cell || "-"}</td>
                         <td>{p.storage_shelf || "-"}</td>
                         <td><span className="badge">{p.status === "returned_to_packaging" ? returnText.returned : statusLabel(p.status, t)}</span>{p.return_reason && <p className="mt-1 text-sm">{returnText.reason}: {p.return_reason}</p>}</td>
                         <td className="flex flex-wrap gap-2">
+                          {can(me, "packaging.packages") && p.status === "packed" && p.print_run_id && p.manual_source?.evidence?.source === "manual_packaging" &&
+                            <button type="button" className="text-red-700 hover:underline" disabled={busy} onClick={() => setManualRunToCancel(p.print_run_id)}>{manualText.cancelPacks}</button>}
                           <Link href={`/packages/${p.id}`} className="text-brand-600 hover:underline">{t("btn.view")}</Link>
                           {canTraceability && (
                             <Link href={`/traceability?package=${encodeURIComponent(p.package_no || p.barcode || p.id)}`} className="text-brand-600 hover:underline">
@@ -445,7 +462,7 @@ export default function PackagesPage() {
             })}
             {groups.length === 0 && (
               <tr>
-                <td colSpan={10} className="text-sm text-slate-400">
+                <td colSpan={11} className="text-sm text-slate-400">
                   {data ? t("page.packages.empty") : t("common.loading")}
                 </td>
               </tr>
@@ -543,6 +560,14 @@ export default function PackagesPage() {
           </form>
         )}
       </Modal>
+      <ConfirmDialog isOpen={manualRunToCancel !== null} title={manualText.cancelPacks} message={manualText.cancelPacksConfirm}
+        onCancel={() => { if (!busy) setManualRunToCancel(null); }} onConfirm={async () => {
+          if (busy || manualRunToCancel === null) return;
+          setBusy(true); setError("");
+          try { await api.del(`/api/packages/manual-packaging/${manualRunToCancel}`); setManualRunToCancel(null); await refreshPackages(); }
+          catch (e: any) { setError(e.message); }
+          finally { setBusy(false); }
+        }} />
       <ConfirmDialog
         isOpen={!!deleting}
         title={t("page.packages.deleteTitle")}

@@ -1,6 +1,9 @@
 from copy import deepcopy
 
+import pytest
+
 from app.schemas import AuditLog, Item, Model, ModelBOM, SewingFlow
+from app.models.catalog import models_service
 from app.models.paid_operations_service import filter_paid_operations_for_factory
 from app.tests.conftest import TestSessionLocal
 from app.tests.test_paid_operation_factory_scope import _create_payroll_manager, _operation
@@ -72,6 +75,34 @@ def test_payroll_family_save_cannot_override_factory_and_rejection_is_atomic(cli
     response = _save(client, headers, mids[1], operations, "besttex")
     assert response.status_code == 200, response.text
     assert all(_details(mid)["paid_operations"] == operations for mid in mids)
+
+
+def test_family_save_audit_failure_rolls_back_all_members(client, auth_headers, monkeypatch):
+    mids = [_model("PJ1236"), _model("PJ1236-V-6120")]
+    before = {mid: _details(mid) for mid in mids}
+    with TestSessionLocal() as db:
+        audits_before = db.query(AuditLog).filter(
+            AuditLog.action == "update_paid_operations", AuditLog.entity_id.in_(mids)
+        ).count()
+    original = models_service.log_action
+    calls = 0
+
+    def fail_after_second_audit(*args, **kwargs):
+        nonlocal calls
+        original(*args, **kwargs)
+        calls += 1
+        if calls == 2:
+            raise RuntimeError("injected audit failure")
+
+    monkeypatch.setattr(models_service, "log_action", fail_after_second_audit)
+    with pytest.raises(RuntimeError, match="injected audit failure"):
+        _save(client, auth_headers, mids[0], [_operation("new", "milana")])
+    assert calls == 2
+    assert {mid: _details(mid) for mid in mids} == before
+    with TestSessionLocal() as db:
+        assert db.query(AuditLog).filter(
+            AuditLog.action == "update_paid_operations", AuditLog.entity_id.in_(mids)
+        ).count() == audits_before
 
 
 def test_clear_legacy_operations_does_not_resurrect_them_or_clear_other_factories(client, auth_headers):

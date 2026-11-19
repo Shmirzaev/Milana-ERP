@@ -88,3 +88,5 @@ The boundary-audit script is versioned at
 [backend/scripts/audit_refactor_boundaries.py](../../scripts/audit_refactor_boundaries.py).
 Check tool availability explicitly in older checkouts; missing automation does not
 waive manual writer tracing or permit a claim that the gate passed.
+
+Shared shipment-reopen receipt invalidation uses `core_idempotency_record_persistence.set_idempotency_request_hash`; the shipment service calculates the hash and owns matching/transaction/flush policy. The schema setter does not commit or flush.

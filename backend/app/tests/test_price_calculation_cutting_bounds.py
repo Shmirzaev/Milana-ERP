@@ -89,7 +89,7 @@ def test_cutting_price_fields_preserve_existing_values_and_storage_boundaries():
     assert parsed.size_count == 2_147_483_647
     assert parsed.gramage == pytest.approx(99_999_999.999999)
     assert parsed.binding_kg_per_piece == pytest.approx(99_999_999.999999)
-    assert PriceCalculationCuttingIn(**_payload()).model_dump() == _payload()
+    assert PriceCalculationCuttingIn(**_payload()).model_dump(exclude={'expected_revision'}) == _payload()
 
 
 @pytest.mark.parametrize(

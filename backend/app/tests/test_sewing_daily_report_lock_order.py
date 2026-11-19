@@ -1,6 +1,5 @@
-"""Daily-report writers follow sewing's work-order then parent lock order."""
+"""Daily-report writers share Sewing/Packaging's parent-first lock protocol."""
 
-import os
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 from queue import Queue
@@ -8,13 +7,12 @@ from time import monotonic, sleep
 from uuid import uuid4
 
 import pytest
+from alembic import command
 from fastapi import HTTPException
-from sqlalchemy import create_engine, text
-from sqlalchemy.engine import make_url
+from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 
 from app.api.routes.sewing_daily_reports import create_report, delete_report, update_report
-from app.db.base import Base
 from app.schemas import (
     Department,
     Model,
@@ -26,6 +24,7 @@ from app.schemas import (
 )
 from app.libs.dto.production.sewing_daily_report import SewingDailyReportCreate, SewingDailyReportUpdate
 from app.tests.conftest import TestSessionLocal
+from app.tests.test_fresh_migration_bootstrap import postgres_migrations  # noqa: F401
 
 
 def _case(sessions, *, two_work_orders=False):
@@ -132,37 +131,14 @@ def test_same_parent_capacity_covers_reports_from_different_work_orders():
         assert db.query(SewingDailyReport).filter_by(production_order_id=case["order_id"]).count() == 2
 
 
-@pytest.fixture(scope="module")
-def report_lock_postgres_sessions():
-    raw = os.environ.get("STABILIZATION_POSTGRES_URL")
-    if not raw:
-        pytest.skip("Requires disposable PostgreSQL")
-    url = make_url(raw)
-    if url.get_backend_name() != "postgresql" or url.host not in {"127.0.0.1", "localhost", "::1"} or url.query:
-        pytest.fail("Only loopback PostgreSQL without overrides is supported")
-    schema = f"sewing_report_lock_{uuid4().hex}"
-    engine = create_engine(
-        url,
-        pool_size=4,
-        max_overflow=0,
-        connect_args={
-            "options": f"-csearch_path={schema} -clock_timeout=15000 -cstatement_timeout=20000",
-        },
-    )
-    assert engine.dialect.name == "postgresql"
-    with engine.begin() as connection:
-        connection.exec_driver_sql(f'CREATE SCHEMA "{schema}"')
-    try:
-        Base.metadata.create_all(engine)
-        yield sessionmaker(bind=engine, expire_on_commit=False, autoflush=False)
-    finally:
-        with engine.begin() as connection:
-            connection.exec_driver_sql(f'DROP SCHEMA "{schema}" CASCADE')
-        engine.dispose()
+@pytest.fixture
+def report_lock_postgres_sessions(postgres_migrations):
+    command.upgrade(postgres_migrations.config, "head")
+    return sessionmaker(bind=postgres_migrations.engine, expire_on_commit=False, autoflush=False)
 
 
 @pytest.mark.parametrize("operation", ["create", "update", "delete"])
-def test_postgres_report_write_waits_for_work_order_before_parent(report_lock_postgres_sessions, operation):
+def test_postgres_report_write_waits_for_parent_before_work_order(report_lock_postgres_sessions, operation):
     sessions = report_lock_postgres_sessions
     case = _case(sessions)
     worker_pid = Queue()
@@ -182,10 +158,10 @@ def test_postgres_report_write_waits_for_work_order_before_parent(report_lock_po
     with sessions() as holder, ThreadPoolExecutor(max_workers=1) as workers:
         assert holder.bind.dialect.name == "postgresql"
         holder_pid = holder.execute(text("SELECT pg_backend_pid()")).scalar_one()
-        work_order = (
-            holder.query(WorkOrder)
-            .filter(WorkOrder.id == case["work_order_ids"][0])
-            .with_for_update(of=WorkOrder)
+        order = (
+            holder.query(ProductionOrder)
+            .filter(ProductionOrder.id == case["order_id"])
+            .with_for_update(of=ProductionOrder)
             .one()
         )
         future = workers.submit(write_report)
@@ -199,18 +175,19 @@ def test_postgres_report_write_waits_for_work_order_before_parent(report_lock_po
                 ).scalars().all():
                     break
                 if future.done():
-                    pytest.fail("Report writer completed without waiting for the locked work order")
+                    pytest.fail("Report writer completed without waiting for the locked parent")
                 sleep(0.02)
             else:
-                pytest.fail("Report writer did not visibly wait for the locked work order")
+                pytest.fail("Report writer did not visibly wait for the locked parent")
 
-            parent = holder.execute(
-                text("SELECT id FROM production_orders WHERE id=:id FOR UPDATE NOWAIT"),
-                {"id": case["order_id"]},
+            work_id = holder.execute(
+                text("SELECT id FROM work_orders WHERE id=:id FOR UPDATE NOWAIT"),
+                {"id": case["work_order_ids"][0]},
             ).scalar_one()
-            assert parent == case["order_id"]
+            assert work_id == case["work_order_ids"][0]
+            work_order = holder.get(WorkOrder, work_id)
             work_order.notes = "sewing writer committed first"
-            holder.get(ProductionOrder, case["order_id"]).status = "sewing"
+            order.status = "sewing"
             holder.commit()
         finally:
             if holder.in_transaction():

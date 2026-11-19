@@ -12,6 +12,7 @@ def test_sixty_ship_thirty_same_qr_then_ship_remaining(client, auth_headers, dis
     with SessionLocal() as db:
         package = db.get(Package, dispatch["package"])
         package.total_quantity = 60
+        package.sales_order_id = dispatch["order"]
         for row in db.query(PackageItem).filter_by(package_id=package.id):
             row.quantity = 30
         for stock in db.query(FinishedGoodsStock).filter_by(package_id=package.id):
@@ -50,6 +51,8 @@ def test_sixty_ship_thirty_same_qr_then_ship_remaining(client, auth_headers, dis
     sid = second.json()["id"]
     scan = client.post(f'/api/shipments/{sid}/scan-package', headers=auth_headers, json={"code": "REVIEW-QR"})
     assert scan.status_code == 200, scan.text
+    assert scan.json()["ok"] is True, scan.text
+    assert scan.json()["package_quantity"] == 30
     with SessionLocal() as db:
         assert db.query(ShipmentPackage).filter_by(shipment_id=sid).one().quantity == 30
     result = client.post(f'/api/shipments/{sid}/ship', headers=auth_headers)
@@ -87,6 +90,10 @@ def test_receive_by_order_and_delete_one_pack(client, auth_headers, warehouse, p
     assert options.status_code == 200, options.text
     row = options.json()["rows"][0]
     assert row["package_ids"] == ids
+    assert [p["id"] for p in row["packages"]] == ids
+    with SessionLocal() as db:
+        for pack in row["packages"]:
+            assert pack["packed_at"] == db.get(Package, pack["id"]).packed_at.isoformat()
     from app.schemas import Model, ProductionOrder
     from app.models.model_identity_service import model_number_fields
     with SessionLocal() as db:

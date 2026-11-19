@@ -306,7 +306,7 @@ export default function TraceabilityPage() {
                     {t("page.traceability.scannedAt")}: {fmtDate(data.current_process?.as_of || data.generated_at)}
                   </div>
                 </div>
-                <dl className="grid grid-cols-2 divide-x divide-y divide-[#ecebe3] sm:grid-cols-4 lg:grid-cols-8">
+                <dl className="grid grid-cols-2 [&>:not([hidden])~:not([hidden])]:border-l [&>:not([hidden])~:not([hidden])]:border-t [&>:not([hidden])~:not([hidden])]:border-[#ecebe3] sm:grid-cols-4 lg:grid-cols-8">
                   {[
                     ["page.traceability.planned", data.quantity_summary?.planned],
                     ["page.traceability.cutCreated", data.quantity_summary?.cut_created],

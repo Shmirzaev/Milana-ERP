@@ -51,3 +51,44 @@ class BrandedCuttingProgress(str, Enum):
     NOT_STARTED = "not_started"
     PARTIAL = "partial"
     COMPLETED = "completed"
+
+
+class PriceCalculationStatus(str, Enum):
+    """Derived price-request stage and overall status; never persisted."""
+
+    NEW = "new"
+    IN_PROGRESS = "in_progress"
+    COMPLETE = "complete"
+
+
+class PriceWorkflowState(str, Enum):
+    LEGACY = "legacy"
+    COLLECTING = "collecting"
+    AWAITING_FINANCE = "awaiting_finance"
+    APPROVED = "approved"
+    CANCELLED = "cancelled"
+
+
+class PriceContributionTeam(str, Enum):
+    PURCHASING = "purchasing"
+    ACCESSORIES = "accessories"
+    CUTTING = "cutting"
+
+
+class PriceRequestQueue(str, Enum):
+    ALL = "all"
+    PENDING = "pending"
+    COMPLETED = "completed"
+    APPROVAL = "approval"
+
+
+class PriceReportFilter(str, Enum):
+    ALL = "all"
+    PENDING = "pending"
+    APPROVAL = "approval"
+    PRICED = "priced"
+
+
+class PriceMaterialUnit(str, Enum):
+    KG = "kg"
+    METRE = "m"

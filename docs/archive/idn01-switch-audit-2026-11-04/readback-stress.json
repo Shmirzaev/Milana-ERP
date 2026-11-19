@@ -1,0 +1,190 @@
+{
+  "candidate_head": "d19e6c91",
+  "timestamp_utc": "2026-11-03T15:03:00.190590+00:00",
+  "before": {
+    "audit": [],
+    "extra_permissions": [
+      "factory:ECO:sewing.flows"
+    ],
+    "primary_factory": "MIL",
+    "user_id": 2
+  },
+  "after_eco": {
+    "audit": [
+      {
+        "actor_id": 2,
+        "created_at": "2026-11-03T15:02:52.557925+00:00",
+        "entry_hash": "3e0200896b4be0fec05377e875c2f4126cb92257d92ef5da962c8379851e4632",
+        "id": 1,
+        "new": {
+          "factory_code": "ECO"
+        },
+        "old": {
+          "factory_code": "MIL"
+        },
+        "prev_hash": null
+      }
+    ],
+    "extra_permissions": [
+      "factory:ECO:sewing.flows"
+    ],
+    "primary_factory": "MIL",
+    "user_id": 2
+  },
+  "after_return": {
+    "audit": [
+      {
+        "actor_id": 2,
+        "created_at": "2026-11-03T15:02:52.557925+00:00",
+        "entry_hash": "3e0200896b4be0fec05377e875c2f4126cb92257d92ef5da962c8379851e4632",
+        "id": 1,
+        "new": {
+          "factory_code": "ECO"
+        },
+        "old": {
+          "factory_code": "MIL"
+        },
+        "prev_hash": null
+      },
+      {
+        "actor_id": 2,
+        "created_at": "2026-11-03T15:02:53.716261+00:00",
+        "entry_hash": "f135bb1a4fd90d227f44f939c602cdd5571e8074de03871d2d7fc36e6570ac14",
+        "id": 2,
+        "new": {
+          "factory_code": "MIL"
+        },
+        "old": {
+          "factory_code": "ECO"
+        },
+        "prev_hash": "3e0200896b4be0fec05377e875c2f4126cb92257d92ef5da962c8379851e4632"
+      }
+    ],
+    "extra_permissions": [
+      "factory:ECO:sewing.flows"
+    ],
+    "primary_factory": "MIL",
+    "user_id": 2
+  },
+  "after_same": {
+    "audit": [
+      {
+        "actor_id": 2,
+        "created_at": "2026-11-03T15:02:52.557925+00:00",
+        "entry_hash": "3e0200896b4be0fec05377e875c2f4126cb92257d92ef5da962c8379851e4632",
+        "id": 1,
+        "new": {
+          "factory_code": "ECO"
+        },
+        "old": {
+          "factory_code": "MIL"
+        },
+        "prev_hash": null
+      },
+      {
+        "actor_id": 2,
+        "created_at": "2026-11-03T15:02:53.716261+00:00",
+        "entry_hash": "f135bb1a4fd90d227f44f939c602cdd5571e8074de03871d2d7fc36e6570ac14",
+        "id": 2,
+        "new": {
+          "factory_code": "MIL"
+        },
+        "old": {
+          "factory_code": "ECO"
+        },
+        "prev_hash": "3e0200896b4be0fec05377e875c2f4126cb92257d92ef5da962c8379851e4632"
+      }
+    ],
+    "extra_permissions": [
+      "factory:ECO:sewing.flows"
+    ],
+    "primary_factory": "MIL",
+    "user_id": 2
+  },
+  "limited_before": {
+    "audit": [],
+    "extra_permissions": [],
+    "primary_factory": "MIL",
+    "user_id": 3
+  },
+  "limited_after_denied": {
+    "audit": [],
+    "extra_permissions": [],
+    "primary_factory": "MIL",
+    "user_id": 3
+  },
+  "stress": {
+    "duration_seconds": 0.032934166956692934,
+    "responses": [
+      {
+        "status": 200,
+        "latency_seconds": 0.018935790983960032
+      },
+      {
+        "status": 200,
+        "latency_seconds": 0.015312999952584505
+      }
+    ],
+    "database": {
+      "audit": [
+        {
+          "actor_id": 2,
+          "created_at": "2026-11-03T15:02:52.557925+00:00",
+          "entry_hash": "3e0200896b4be0fec05377e875c2f4126cb92257d92ef5da962c8379851e4632",
+          "id": 1,
+          "new": {
+            "factory_code": "ECO"
+          },
+          "old": {
+            "factory_code": "MIL"
+          },
+          "prev_hash": null
+        },
+        {
+          "actor_id": 2,
+          "created_at": "2026-11-03T15:02:53.716261+00:00",
+          "entry_hash": "f135bb1a4fd90d227f44f939c602cdd5571e8074de03871d2d7fc36e6570ac14",
+          "id": 2,
+          "new": {
+            "factory_code": "MIL"
+          },
+          "old": {
+            "factory_code": "ECO"
+          },
+          "prev_hash": "3e0200896b4be0fec05377e875c2f4126cb92257d92ef5da962c8379851e4632"
+        },
+        {
+          "actor_id": 2,
+          "created_at": "2026-11-03T15:02:58.986064+00:00",
+          "entry_hash": "45190de05c2e25daaa283c7fd0e5f4b0cce7e7b7b09538866bcc271e8825a0b4",
+          "id": 3,
+          "new": {
+            "factory_code": "ECO"
+          },
+          "old": {
+            "factory_code": "MIL"
+          },
+          "prev_hash": "f135bb1a4fd90d227f44f939c602cdd5571e8074de03871d2d7fc36e6570ac14"
+        },
+        {
+          "actor_id": 2,
+          "created_at": "2026-11-03T15:02:58.994165+00:00",
+          "entry_hash": "8c51f775b02a2bac2743819a3e26967d4ad035082e6aab3a4bfaa6f8ba10c173",
+          "id": 4,
+          "new": {
+            "factory_code": "ECO"
+          },
+          "old": {
+            "factory_code": "MIL"
+          },
+          "prev_hash": "45190de05c2e25daaa283c7fd0e5f4b0cce7e7b7b09538866bcc271e8825a0b4"
+        }
+      ],
+      "extra_permissions": [
+        "factory:ECO:sewing.flows"
+      ],
+      "primary_factory": "MIL",
+      "user_id": 2
+    }
+  }
+}

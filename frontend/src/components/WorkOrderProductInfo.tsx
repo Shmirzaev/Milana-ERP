@@ -164,7 +164,8 @@ export default function WorkOrderProductInfo({
   const { modelImage, materialImage } = selectProductImages(model, po, wo);
   const qolipFiles = selectQolipFiles(model);
   const qolipNo = modelQolipNo(model);
-  const modelLabel = model ? `${formatModelVariantCode(model.code)} - ${model.name}` : (po?.model_id ? `#${po.model_id}` : "-");
+  const contextModelLabel = [wo?.model_no, wo?.variant_no].filter(Boolean).join(" / ");
+  const modelLabel = model ? `${formatModelVariantCode(model.code)} - ${model.name}` : (contextModelLabel || po?.model_code || "-");
   const itemPlanTotal = Array.isArray(po?.items)
     ? po.items.reduce((sum: number, it: any) => sum + Math.max(0, Number(it?.planned_quantity || 0)), 0)
     : 0;
@@ -173,9 +174,10 @@ export default function WorkOrderProductInfo({
   const displayedActualQty = Math.max(0, Number(po?.actual_quantity ?? 0));
   const showActualQty = po?.actual_quantity != null;
   const isSewingWorkOrder = String(wo?.operation || "").toLowerCase() === "sewing";
+  const isPackagingWorkOrder = String(wo?.operation || "").toLowerCase() === "packaging";
   const receivedBundleCount = Number(wo?.received_bundle_count || 0);
   const receivedBundleQty = Number(wo?.received_bundle_qty || wo?.actual_input_qty || 0);
-  const showReceivedBundles = isSewingWorkOrder || receivedBundleCount > 0 || receivedBundleQty > 0;
+  const showReceivedBundles = !isPackagingWorkOrder && (isSewingWorkOrder || receivedBundleCount > 0 || receivedBundleQty > 0);
   const canEditCurrentBreakdown = Boolean(canEditBreakdown && onSaveBreakdown && displayedActualQty > 0);
   const [breakdownEditing, setBreakdownEditing] = useState(false);
   const [breakdownRows, setBreakdownRows] = useState<BreakdownDraftRow[]>([]);
@@ -310,6 +312,12 @@ export default function WorkOrderProductInfo({
               <div className="text-xs uppercase tracking-wide text-slate-500">{t("common.status")}</div>
               <div className="font-medium">{statusText || "-"}</div>
             </div>
+            {isPackagingWorkOrder && (
+              <div className="space-y-1">
+                <div className="text-xs uppercase tracking-wide text-slate-500">{t("page.workOrder.packagingInputRecorded")}</div>
+                <div className="font-medium">{Number(wo?.actual_input_qty || 0)} {t("field.qty").toLowerCase()}</div>
+              </div>
+            )}
             {showReceivedBundles && (
               <div className="space-y-1">
                 <div className="text-xs uppercase tracking-wide text-slate-500">{t("field.received")}</div>

@@ -4,12 +4,16 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc libpq-dev curl fonts-dejavu-core \
-    && rm -rf /var/lib/apt/lists/*
-
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
+    && apt-get install -y --no-install-recommends \
+        gcc libpq-dev libpq5 curl fonts-dejavu-core \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libpq5)" ge '17.12-0+deb13u1' \
+    && pip install --no-cache-dir setuptools==84.2.1 \
+    && pip install --no-cache-dir -r requirements.txt \
+    && apt-get purge -y --auto-remove gcc libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY . .
 

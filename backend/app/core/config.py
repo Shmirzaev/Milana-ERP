@@ -1,13 +1,16 @@
 import os
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
+
+from app.libs.enums.turnstile import GateMode
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     APP_NAME: str = "Milana ERP"
+    RELEASE_ID: str = "unknown"
     ENV: str = "development"
     DEBUG: bool = False
     DATABASE_URL: str = "postgresql+psycopg2://erp:erp@db:5432/erp"
@@ -64,6 +67,19 @@ class Settings(BaseSettings):
     HR_DOCUMENTS_DIR: str = "/app/storage/hr_documents"
     HR_DOCUMENT_MAX_BYTES: int = 20 * 1024 * 1024
     STARTUP_SCHEMA_SYNC: bool = False
+    TURNSTILE_PROVISIONING_MODE: GateMode = GateMode.DISABLED
+    TURNSTILE_PHOTOS_DIR: str = "/app/storage/turnstile_photos"
+    TURNSTILE_PHOTO_MAX_BYTES: int = Field(default=8 * 1024 * 1024, ge=1024, le=32 * 1024 * 1024)
+    TURNSTILE_PHOTO_MAX_PIXELS: int = Field(default=50_000_000, ge=1, le=50_000_000)
+    TURNSTILE_SIMULATOR_LEASE_SECONDS: int = Field(default=60, ge=1, le=300)
+    TURNSTILE_SIMULATOR_MAX_ATTEMPTS: int = Field(default=5, ge=1, le=10)
+
+    @model_validator(mode="after")
+    def validate_turnstile_mode(self):
+        if self.strict_security_required and self.TURNSTILE_PROVISIONING_MODE is not GateMode.DISABLED:
+            raise ValueError("Turnstile provisioning must remain disabled in production")
+        return self
+
 
     @field_validator("DEBUG", mode="before")
     @classmethod
@@ -77,6 +93,21 @@ class Settings(BaseSettings):
             if normalized in {"0", "false", "f", "no", "n", "off", "falce", "fasle", "flase"}:
                 return False
         return value
+
+    @field_validator("JWT_ALGORITHM")
+    @classmethod
+    def validate_jwt_algorithm(cls, value: str) -> str:
+        """Keep JWT verification on the configured HMAC family only.
+
+        The application uses one shared secret for signing and verification;
+        accepting an arbitrary algorithm here would make an unsafe deployment
+        setting (for example ``none``) possible.  Preserve the existing
+        HS256 default while allowing the other jose-supported HMAC strengths.
+        """
+        normalized = str(value).strip().upper()
+        if normalized not in {"HS256", "HS384", "HS512"}:
+            raise ValueError("JWT_ALGORITHM must be HS256, HS384, or HS512")
+        return normalized
 
     @field_validator("DB_POOL_SIZE")
     @classmethod

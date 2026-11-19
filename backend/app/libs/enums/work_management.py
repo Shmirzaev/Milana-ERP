@@ -1,8 +1,4 @@
-"""Task vocabularies documented by the mapping and used by the task UI.
-
-Adopted by the system stock-shortage write; general Task CRUD/input migration and
-historical-value reconciliation remain separate work. No storage constraint added.
-"""
+"""Canonical task values and resolved reference kinds; storage stays unchanged."""
 from enum import Enum
 
 
@@ -18,3 +14,13 @@ class TaskPriority(str, Enum):
     MEDIUM = "medium"
     HIGH = "high"
     URGENT = "urgent"
+
+
+class TaskReferenceKind(str, Enum):
+    SALES_ORDER = "salesorder"
+    PRODUCTION_ORDER = "productionorder"
+    WORK_ORDER = "workorder"
+    BUNDLE = "bundle"
+    PACKAGE = "package"
+    SHIPMENT = "shipment"
+    INVOICE = "invoice"

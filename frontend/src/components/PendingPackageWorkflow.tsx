@@ -3,12 +3,14 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { useMe } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
+import { packagingDamageActionText } from "@/lib/multiNastilPackaging";
 import { isPackagePrintRun, packageWorkflowChangedEvent, pendingPackageWorkflow, reconcilePendingPackageWorkflow, packageWorkflowCopy, type PackagePrintRun } from "@/lib/packageWorkflow";
 
-export default function PendingPackageWorkflow({ path, onResolved }: { path: string; onResolved: () => void | Promise<void> }) {
+export default function PendingPackageWorkflow({ path, onResolved, resultKind = "print_run" }: { path: string; onResolved: () => void | Promise<void>; resultKind?: "print_run" | "damage" }) {
   const { me } = useMe();
   const { lang } = useT();
   const c = packageWorkflowCopy[lang];
+  const damageCopy = packagingDamageActionText[lang];
   const [pending, setPending] = useState<Record<string, any> | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -33,7 +35,7 @@ export default function PendingPackageWorkflow({ path, onResolved }: { path: str
   if (!me || (!pending && !resolvedError && !error)) return null;
   const count = pending?.packages?.length || pending?.package_ids?.length || 0;
   return <div className="my-3 border p-3">
-    <p role="status">{resolvedError || `${c.pendingRequest} ${count} ${c.packages}`}</p>
+    <p role="status">{resolvedError || (resultKind === "damage" ? damageCopy.pending : `${c.pendingRequest} ${count} ${c.packages}`)}</p>
     {error && <p role="alert" className="text-red-700">{error}</p>}
     {pending && <button className="btn mt-2" type="button" disabled={busy} onClick={async () => {
       setBusy(true); setError("");
@@ -50,6 +52,15 @@ export default function PendingPackageWorkflow({ path, onResolved }: { path: str
           return;
         }
         const run = resolution.result;
+        if (resultKind === "damage") {
+          const damage = run as unknown as { id?: number; damaged_qty?: number };
+          if (!Number.isInteger(damage?.id) || !Number.isInteger(damage?.damaged_qty) || Number(damage.damaged_qty) <= 0) {
+            throw new Error("The recovered damage response was incomplete.");
+          }
+          setResolvedError(damageCopy.saved);
+          try { await onResolved(); } catch (e: any) { setError(e.message); }
+          return;
+        }
         if (!isPackagePrintRun(run)) {
           throw new Error("The recovered package receipt response was incomplete.");
         }

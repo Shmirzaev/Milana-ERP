@@ -404,13 +404,14 @@ def test_variant_candidate_rows_are_not_a_multiple_of_the_variant_count(warehous
 
 
 # --------------------------------------------------------------------------- #
-# 2. Locked packages are reused, so each package row is read once
+# 2. Locked packages are reused; one extra batch read validates customer policy
 # --------------------------------------------------------------------------- #
 def test_package_rows_do_not_grow_with_the_variant_count(warehouse):
-    """Each package row is read once per package-lock statement, not per variant.
+    """Two package locks and one customer-policy read stay fixed across variants.
 
     The reservation takes the package-first locks in two statements: the
-    order-wide pre-lock, then the batched variant lock. Re-reading the packages in
+    order-wide pre-lock, then the batched variant lock. A separate batched read
+    checks source-customer ownership before allocation. Re-reading the packages in
     `_package_allocation_candidates` — once for the shortage pre-check and again
     for the allocation — is what made the delivered rows scale with the variant
     count, and the `package_cache` is what removes it.
@@ -427,6 +428,8 @@ def test_package_rows_do_not_grow_with_the_variant_count(warehouse):
             )
         small = measured.total("packages")
         small_statements = len(measured.locking(PACKAGE_LOCK))
+        small_policy_reads = [(count, sql) for table, count, sql in measured.statements
+                              if table == "packages" and PACKAGE_LOCK not in sql]
     assert reservations
 
     # Measurement 2: four variants over the same grid, one wildcard plus three
@@ -440,6 +443,8 @@ def test_package_rows_do_not_grow_with_the_variant_count(warehouse):
             reservations, _ = _reserve(db, case_b, four)
         large = measured.total("packages")
         large_statements = len(measured.locking(PACKAGE_LOCK))
+        large_policy_reads = [(count, sql) for table, count, sql in measured.statements
+                              if table == "packages" and PACKAGE_LOCK not in sql]
 
     print(
         f"\nPERF26 package rows delivered={small}->{large} for "
@@ -451,7 +456,12 @@ def test_package_rows_do_not_grow_with_the_variant_count(warehouse):
     # Two package-first lock statements regardless of the variant count: the
     # order-wide pre-lock and one batched variant lock.
     assert small_statements == large_statements == 2
-    assert small == 2 * case_a["cells"]
+    # The pre-existing customer ownership gate adds exactly one non-locking
+    # package read, independently of variant count; never relax that gate.
+    assert len(small_policy_reads) == len(large_policy_reads) == 1
+    assert small_policy_reads[0][0] == case_a["cells"]
+    assert large_policy_reads[0][0] == case_b["cells"]
+    assert small == 3 * case_a["cells"]
     assert large == small, (
         f"delivered package rows grew from {small} to {large} when the variant "
         f"count grew; the locked packages are reused, not re-read"

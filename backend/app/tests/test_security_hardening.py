@@ -625,7 +625,7 @@ def test_model_file_thumbnail_is_authenticated_and_cacheable(client, auth_header
     thumb = client.get(thumb_url, headers=auth_headers)
     assert thumb.status_code == 200, thumb.text
     assert thumb.headers["content-type"].startswith("image/webp")
-    assert "max-age" in thumb.headers["cache-control"]
+    assert thumb.headers["cache-control"] == "private, no-cache, must-revalidate"
 
 
 def test_filesystem_thumbnail_does_not_use_database_pool(client, auth_headers, monkeypatch):
@@ -682,6 +682,7 @@ def test_model_file_survives_missing_filesystem_copy(client, auth_headers):
     original = client.get(file_url, headers=auth_headers)
     assert original.status_code == 200, original.text
     assert original.content.startswith(b"\x89PNG")
+    assert original.headers["cache-control"] == "private, no-store"
 
     thumb_url = file_url.replace("/storage/model-files/", "/storage/model-files/thumb/") + "?size=320"
     thumb = client.get(thumb_url, headers=auth_headers)

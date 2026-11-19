@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func
 
 from app.core.deps import CurrentUser, DbSession, require_permissions
-from app.schemas import Bundle, SewingAssignment, SewingFlow, SewingRecord, User, WorkOrder
+from app.schemas import Bundle, ProductionOrder, SewingAssignment, SewingFlow, SewingRecord, User, WorkOrder
 from app.libs.dto.production.production import SewingRecordIn
 from app.models.audit_service import log_action
 from app.models.sewing_band_progress_service import band_board
@@ -155,7 +155,8 @@ def receive(payload: ReceiveIn, db: DbSession, current: CurrentUser):
                                         Bundle.sewing_factory_code == "ECO", _sewing_receive_eligible_filter(db))
     else:
         raise HTTPException(422, "Scan a bundle or select a receiving batch")
-    # Existing receipt services lock bundles before work orders. Keep that order.
+    # All source mutations take the parent before bundle/WO locks.
+    db.query(ProductionOrder.id).filter_by(id=po_id).with_for_update().one()
     bundles = query.order_by(Bundle.id).populate_existing().with_for_update().all()
     if not bundles:
         raise HTTPException(409, "No bundles are waiting for receipt")
@@ -169,7 +170,7 @@ def receive(payload: ReceiveIn, db: DbSession, current: CurrentUser):
             return {"already_accepted": True, "received_count": 0}
         # Already received by a manager: claim only through manager assignment.
         raise HTTPException(409, "Already received; ask a manager to assign this work")
-    gate = verify_sewing_accessory_gate(db, po_id)
+    gate = verify_sewing_accessory_gate(db, po_id, sewing_factory_code="ECO")
     ids = receive_many_at_sewing(db, bundles, current, gate)
     db.flush()
     received_total = int(db.query(func.coalesce(func.sum(Bundle.quantity), 0)).filter(
@@ -220,7 +221,9 @@ def record_output(aid: int, payload: SewingRecordIn, db: DbSession, current: Cur
     replay = replay_idempotent_response(db, scope="sewing:output", key=idempotency_key, payload=payload.model_dump())
     if replay is not None:
         return replay
-    # Lock in the same order as the existing final-output handler.
+    # Match the final-output handler and direct Packaging: parent before WO.
+    wo = db.get(WorkOrder, assignment.work_order_id)
+    db.query(ProductionOrder.id).filter_by(id=wo.production_order_id).with_for_update().one()
     db.query(WorkOrder).filter(WorkOrder.id == assignment.work_order_id).with_for_update().one()
     db.refresh(assignment)
     if assignment.sewing_flow_id != current.sewing_band_id or assignment.status not in ("planned", "in_progress", "completed"):

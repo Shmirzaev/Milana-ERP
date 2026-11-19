@@ -11,37 +11,985 @@ this checkout, a new combined candidate or deployed production. Inspect current
 code and the operation ledger before advancing a gate. Schema-owned writers,
 system-wide enum/type adoption and human acceptance remain incomplete.
 
-Updated 2026-10-28. Keep this file short: current decisions, release pointers and
+Last updated 2026-11-19. Keep this file short: current decisions, release pointers and
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
-QA artifact entry is currently blocked by `QA-APP-ROUTES-20261028` in
-[the active tracker](../bugs/bugs.md): real `/login` and `/` navigation returned
-404 although health passed. The packager omitted two Next runtime inputs.
-The repair must reconcile declared runtime files, smoke-test the extracted
-artifact's login page, and repeat connected-browser/readback checks. Earlier
-build, hash and health results do not establish a usable QA website or acceptance.
+## CEO rollout reverted after performance gate (19 November)
 
-The current reservation compatibility correction preserves raw input spelling for
-retry fingerprints and failure audits while keeping canonical typed business
-values. Empty category fallback and invalid input have distinct private tags;
-invalid input must reach the original domain refusal point. Mapping/attribute
-validation, assignment and both Pydantic copy APIs have independent regression
-controls. The shared Catalog BOM page also clears stale success and reports a
-refused write without clearing the form. These corrections require their own
-combined PostgreSQL/build/browser evidence; earlier ff7c UI passes do not verify
-this source. Full enum adoption and human acceptance remain open.
+Current backend/frontend serve `20261119_030500`, blue: the previous application
+with identical candidate migrations 0158/0159, from compatibility commit
+`437523dbd2d558a76f1308d8aa2215aee64b86bb`. Source manifest is
+`b09fc748df6e4da0d00dbabbdd6a38a6b8ce2c38a8c2815cd960eb9e63902fbd`;
+database remains `0159_ceo_balance_snapshots`. Do not downgrade/stamp it.
+No CEO accounts were assigned and no balance snapshots or schedule were created.
 
-The [manual Finance invoice candidate](archive/FINANCE_MANUAL_INVOICE_CREATE_2026-10-27.md)
-moves its insert into schema-owned persistence and types its actual UI response.
-Existing policies are preserved; independent review, candidate visual checks and
-human acceptance remain separate. It does not complete Finance or the refactor.
+The owner approved rollout and said "Ignore and deploy" after disk/worker
+blockers were reported. Disk thresholds were explicitly overridden. Immutable
+CEO candidate `34727287848116f718a9f455a0484eafb32ed232`, release
+`20261119_025033`, was deployed to green. Exact-candidate CI, ordered read-only
+workflow parity, CEO service/authorization checks, initial API/search gates and
+all 61 rounds of the 30-minute health observer passed. Closing performance failed:
+production-list p95 was 238.264ms versus 45.633ms on recovery in one predefined
+101-pair diagnostic; sales and material-batch tails also exceeded 15%. Medians
+were within budget. These failures are preserved, not relabelled as passes.
 
-The isolated three-operation candidate `1d4f00da` combines Sales confirmation persistence, typed Catalog BOM PATCH persistence and the typed Finance customer-order payment projection. It preserves the complete reviewed author chains and records all source bytes in the integration freeze. The BOM PG ledger still requires 54 cases with the updated canonical-role PATCH node. Source review and individual author tests do not substitute for renewed combined application, PostgreSQL, frontend and actual browser evidence. Human acceptance remains separate. Serving `6f280c6d` does not include these three additions.
+Traffic was restored backend first and frontend second at 03:48 UTC. Both recovered
+identities and all four health checks passed. Green retains the rejected candidate;
+it must not be reactivated automatically. A new explicit override of the measured
+performance regression or a fixed, verified candidate is required. No source cause
+is established; actual serving load differs from the idle recovery benchmark.
+
+The failed automatic worker was recovered to idle and is stopped/disabled; review
+its pinned CI policy and new baseline before restoring unattended polling. Disk
+capacity and signed-in visual/console QA remain unresolved. Browser page controls
+failed; no visual pass or separate QA-master report is claimed. Compatibility 437523
+is recorded separately, not an ancestor of held candidate 347272. Its old pricing
+import allowlist safely returns 409 at 0159. Keep CEO unassigned when using this old
+application; assigned CEO accounts/sessions must be disabled/revoked before such
+recovery because it predates the CEO guard. New feature source remains on
+`clone_main`; the branch head is not the live application. Reconcile the separate
+compatibility lineage before future release work.
+
+See [full attempted release, recovery and evidence](archive/CEO_RELEASE_20261119.md).
+
+## Frontend performance fixes (17 November; local candidate)
+
+Scanner fallback, Cutting request/draft handling, Packaging pagination and QR
+print preparation have focused automated, restored-copy API, browser and
+independent review evidence. Native print-dialog cancellation and full local
+image parity remain unverified; production performance/release gates remain.
+The owner requested a local `clone_main` commit. No push/deployment is included.
+See [scope, evidence and remaining gates](archive/FRONTEND_PERFORMANCE_FIXES_20261117.md).
+
+## Deployment automation baseline (17 November; source reconciliation)
+
+The automatic deployment source is implemented and independently reviewed in the
+dedicated worktree. Its 55 Linux deployment fault tests, CI/security policy tests
+and observer tests pass. The owner selected a lightweight fixed worker on backend;
+its fixed files, dedicated Linux accounts/SSH key, backend configuration and
+systemd service, site gates, restricted host configurations/sudo rules and separately
+pinned `RELEASE_ID` adapter are installed from reviewed commit
+`76c49093d5fc1466399fc2654a03660480d0ff5f`; installed routing controllers are unchanged.
+At the 17 November installation the service was enabled/active on backend,
+with `AUTO_RELEASE_BUILDS=true` and an idle checkpoint. This is historical:
+the 19 November release recovered it to idle and stopped/disabled the service.
+The GitHub credential is provisioned
+under the owner's explicit authorization, readable only by the worker account;
+server-side Actions/branch/collaborator/policy reads, Contents/status writes and
+both restricted SSH helpers pass in the real hardened service sandbox. Credential
+rotation remains a follow-up. A pinned PostgreSQL 16 backup client replaces the
+incompatible native version 18 dump path; the private PostgreSQL 16 restore passes.
+The owned two-host preparation/approval/partial-cutover recovery rehearsal passed;
+both exact baselines were restored and temporary services/containers removed.
+Production activation timing remains unmeasured; bounded laboratory timings are
+in the task record. PR #558 is source-merged; broader backend CI is still running,
+while 55 focused Linux deployment tests, frontend/security checks and actual
+server verification pass. Future application candidates still require all CI jobs.
+Application changes require real, exact-plan QA evidence; missing evidence stops
+activation before either traffic switch. An initial live package-GET probe may have repaired QR cache/metadata;
+the effect was not fingerprinted. Later probes enforce read-only DB/storage.
+See [daily use/install](AUTO_DEPLOYMENT.md) and
+[verification/limitations](archive/AUTO_DEPLOYMENT_IMPLEMENTATION_20261117.md).
+
+At that historical checkpoint both source pointers named `20261116_130518`, manifest
+`bc2e0d4bdbb38f6c06b9f3d5c75f3fdaa1fb5087240ca8f7b49d01318908ce40`.
+All 2,559 declared files match raw Git blobs at
+`4d7cf17e55b165b1edc05407065f92597cebdbe5`; both manifest checks pass.
+Backend health/readiness report that release. Migration source head remains
+`0157_package_allocation_items`; protected installed-helper snapshots now pass on
+both VMs, including actual routing/container identities and the real backend
+database-head check. Both active slots were green; retained rollback was
+`20261116_092917` in blue. The 19 November section above supersedes these release
+pointers; previous failure/waiver evidence remains historical and unchanged.
+The owner authorized reconciling this verified live lineage with `clone_main`,
+then preparing and installing automatic deployment. Installation used the existing
+SSH account's Docker administrator access; application releases, routing and schema
+were unchanged. No intentional business writes occurred; the early QR-repair
+uncertainty is recorded above.
+
+## Model-file pool fix candidate (16 November; not deployed)
+
+An isolated candidate on exact source `db8d8d64953eb4f9dadc22bb8218942cd0999ac7`
+keeps image authentication and Session release in one synchronous worker call.
+The old source fails an 80-request / 40-worker / 8+4-pool regression; the fixed
+focused suite passes 35 tests including real PostgreSQL, and related suites pass
+51 with eight existing PostgreSQL-upload skips. Browser image rendering,
+revocation and recovery passed independent review through the real Next.js gallery
+on desktop and phone. Frontend lint, strict type checking and production
+build/contracts pass. The initial gallery harness result was invalid and is
+retained separately. The broad cached-runtime suite reported 6,850 passed,
+1,600 skipped and eight failures also reproduced on unchanged production source.
+Corrected runs pass 208 invoice, 255 auth/image/JWT/transport and 1,754 QR tests;
+required PostgreSQL groups pass. Only stale invoice test expectations were aligned
+with the approved 24pt layout; the generator remains unchanged. Original failures
+and unexercised optional skips remain recorded. Exact-commit CI and release gates
+are pending. No frontend change,
+timeout/pool increase, migration, push, merge or deployment is included. Human
+acceptance remains pending. See the
+[scoped evidence and limitations](archive/SEC04_POOL_STARVATION_20261116.md).
+Earlier SEC04 evidence did include PostgreSQL/browser and 8-concurrent stress;
+the gap was testing above the pool/thread scheduling threshold.
+
+## Adaptive invoice description width (16 November; current production)
+
+Backend/frontend serve `20261116_092917`, blue, runtime commit
+`db8d8d64953eb4f9dadc22bb8218942cd0999ac7`, manifest
+`54acee32ab64f7696a2cef52ad47c23f4f0aa7e8ebd45dafb3f5a3c3e71f96c3`.
+Running rollback is `20261116_090442`, green. Schema remains
+`0157_package_allocation_items`; no migration or business-data writes.
+Excel description width follows the longest description/header in each invoice,
+independently of the size column. Original10pt font, uniform24pt rows, no shrink
+and compact trailing columns remain. Excel's255-unit width limit still applies.
+Owner explicitly requested "deploy without any test". No additional tests/CI
+suites, scans, performance/browser QA, separate human approval or timed monitor
+ran for deployment; previous81tests/native Excel review are development evidence.
+Four operational endpoints returned200; both source/slot identities agree,
+zero container restarts/OOM. Immutable build-only run43839778882 reused live
+bases, changed only the Git-byte invoice generator; frontend filesystem unchanged.
+First092633attempt stopped before activation on source/image line-ending mismatch;
+its FAILED receipts remain. Final archive uses raw Git blobs, avoiding Windows
+archive EOL conversion. New blue cutover completed09:29UTC; both owned leases
+released, previous green retained. No main merge. Prior public-latency risks remain
+unresolved and this release was not benchmarked.
+Details: [deployment record](INVOICE_AUTO_WIDTH_RELEASE_20261116.md).
+
+## Earlier Pricing and Packaging release (16 November; owner exceptions)
+
+The earlier production release was `20261116_061924`, blue, exact reviewed runtime commit
+`8fb52df54a34ce94127ead2460e94d81a90721b2`, manifest
+`cd22477f24b62858d893ed4990d872ca8ca25dbed838b37314f06f0fbff3270b`.
+Backend activated08:35:47UTC, frontend08:36:07UTC; both source links match.
+Rollback is the running compatible `20261116_053002`, green, commit1ab6ff577,
+manifest304f2d4fea15243fe212b32135cc804c33eb55612e20b36d623ee436d096e2c4.
+DB remains `0157_package_allocation_items`: nullable JSON, no backfill/downgrade.
+The complete owner-selected branch is live: Purchasing no longer enters printing
+cost; Finance owns it. Whole Warehouse model cards open details, including missing
+pictures and Enter navigation. Direct/mixed Packaging and all factory changes are
+included. Source is pushed on codex/factory-workflows-20261113; no main/clone_main merge.
+
+Owner QA approved6c including physical labels/scans and its narrow8fb Printing
+follow-up. Exact CI43815960892 passed all five jobs: backend6862 passed/1628 skipped,
+required real-PG238 passed/zero skipped, related Linux127 passed/zero skipped.
+Recovery CI43810018892 and strict published0157 cold start/restart/worker/evidence
+compatibility passed. Immutable backend digestd9c0ef0ea998554780779876b1aa14230066269d9528ef9a820281935f097732;
+frontendff7beffb118fd7613de034bbec314cda8169301d8d8a82783b4fd1b94812ad59.
+
+Fresh staged43-response/26-table integrity checks and44 semantic checks passed.
+810 paired timing samples passed unchanged10% median/15% p95/15% bytes budgets
+(worst+3.64%,+7.91%,+1.48%). Public270 samples preserved all complete ordered bodies
+but FAILED two p95 limits: model groups334.919→1021.852ms; Cutting passports
+145.081→365.211ms. Owner explicitly chose “Keep the full release with these
+additional public-latency exceptions.” Earlier owner “deploy with an exception”
+covers the separate recovery PO762 median154.047→169.777ms (+10.21%). All original
+FAILED reports remain unchanged; neither timing reruns nor broader gate waivers
+were substituted. The public path latency cause remains unresolved.
+
+Actual staged/public signed read-only UI verified Purchasing/Finance, missing-image
+Warehouse model8836 (216 pieces, six sizes×36), direct Packaging PO0551/Nastil2
+(162 sewn/120 recorded/42 available) and Cutting. Zero ERP application console
+errors;51 staged/62 public M_ID errors originate solely in a browser extension.
+Public transport preserved one QR TLS interruption and four aborted unrelated
+prefetch requests; the latter causes are unproven. Two bounded TLS-verified public
+QR controls matched exact backend PNG732bytes/SHAfab1e4b26cf6b77e61fbf76edec43d7c7e8ccee60e495e26667c921c9dfdd013.
+
+Operator entries invalidated several captures despite pause confirmations. Exact
+pre-cutover ECT/Oyatullo additions (2batches/3Cutting records/24bundles/24creation
+logs) caused the original public global-fact-equality failure, preserved as FAILED.
+Separate independently reviewed transition verification proved all26 existing
+ordered fact tables unchanged/no deletions, exactly53 traced pre-cutover additions,
+all10 timing bodies unchanged, and all44 semantic/SQL checks using an explicit
+in-memory expected projection. No captured file or production fact was rewritten.
+A separate verifier omission of batch_no/name was corrected from authoritative
+SQL batch facts, retaining original failures and exact capture hashes.
+
+Fresh closing all four health checks passed at08:44:42UTC: both manifests/slots,
+strict defaultCMD/seeds, two workers, zero restarts/OOM/app errors, healthy routers,
+DB headroom/no invalid indexes, disk below80%. Compatible green remains running;
+original115200/052632/135430 sources/images retained. Fresh0600 PostgreSQL backup
+pre_final_20261116_061924_20261116_083243.dump:126631173bytes/1400restore objects,
+SHAcebdb35706458d2e95363e78637376e9a795cc3763549d87bfdd76092b7468e2.
+Both owned leases released; operators told to resume. No release business-data
+writes. Owner waived timed observation; no observer or substitute monitor ran.
+Detailed hashes, preserved failures and limitations: [task record](PRICE_WAREHOUSE_FIXES_20261116.md).
+
+## Mixed-package attribution and wording (14 November; local only)
+
+New mixed packages require exact source Nastil/model/color/size attribution; legacy
+NULL remains honestly unknown. Manual cells determine source totals, conserve package
+contents and enforce known actual Sewing size/total budgets across all requested packs.
+Metadata edits preserve evidence; physical corrections require replacement matrices.
+Snapshots/audits/labels/detail retain it through warehouse receipt. Unsupported exact
+mixed shipment quantity changes direct operators to attribution-aware Packaging
+correction. Migration0157 adds nullable JSON without backfill; downgrade refuses once
+exact evidence exists. Operator attribution is not independently proven Sewing color
+evidence. Per-size maxima remain capped by total availability after unsized damage.
+
+Packaging-only header now says input recorded; queue distinguishes passed Sewing,
+recorded Packaging output and availability including saved unlabelled goods, in
+EN/RU/UZ. No quantity formulas changed. 213 affected backend tests, independent
+21API/3real-PG checks, frontend conservation/recovery/render checks, TypeScript/ESLint,
+full exact-source production build and independent hash review passed. Actual
+Packaging-to-Warehouse UI plus independent SQL/HTTP verified exact30M/30L, remaining
+5/10, one receipt/location and unchanged prior cases, without duplicate stock.
+
+Print-popup visual gate remains BLOCKED by blob-URL browser policy; physical labels,
+hardware and human acceptance pending, no whole AI_VERIFIED/release-ready claim.
+This unpushed local checkpoint follows76820 on the investigation branch; it includes
+withdrawn ancestry and requires live-source reconciliation before a future release.
+No production data/schema change, push, merge or deployment. Public health still
+identifies115200; withdrawn094409/e538 stays off traffic. Detailed contract, hashes,
+preserved failures, migration recovery, limitations and human checklist are in
+[the evidence packet](PACKAGING_BATCH_SIZE_20261114.md). BOM shortage, legacy WIP and
+material-linked reversal gaps remain. At the owner's disk request, compression of
+eight inactive old build caches recovered~2.37GB without deleting any files.
+
+## Direct Sewing to Packaging correction (14 November; local only)
+
+The owner requested removal of the separate Save Packaging Record step globally.
+Local correction on `codex/factory-workflows-20261113` now creates only the selected
+packs/labels directly from passed Sewing, reuses saved unlabelled output first,
+retains exact batch allocations, supports damage-only entry without labels and
+starts partial Packaging automatically. Shared keyed transactions, cross-action
+retry exclusion and PO-first Sewing/Packaging locks prevent duplicate quantities
+and the reproduced deadlock. Legacy record history/API remains; no migration.
+
+137 focused backend tests, four mandatory PostgreSQL cases and five additional
+reserve PostgreSQL cases passed. Frontend regression/property/recovery checks,
+TypeScript, changed-path ESLint, fresh exact-source production compilation and
+independent hash review passed. Connected Edge admin/Packaging-role UI and read-only
+isolated SQL verified full/partial/mixed/grade/damage-only output and warehouse
+receiving. Label-popup visual checking is BLOCKED by browser blob-URL policy;
+physical labels, hardware and human acceptance are pending. No whole-task
+AI_VERIFIED or release-readiness claim. See the
+[operation/evidence packet](PACKAGING_DIRECT_SEWING_20261114.md).
+
+At that checkpoint, remaining gaps included mixed size-by-batch detail and confusing
+header/queue wording; the newer local-only section above addresses them. BOM shortages
+still do not block packing, legacy input greater than packed+damaged needs
+reconciliation, and material-linked cancellation lacks an operator reversal path.
+No production business data was touched. Active public health still identifies
+`20261111_115200`/source46ddd; withdrawn094409/e538 stays off traffic. This branch
+contains other withdrawn changes: reconcile the packaging patch with live source
+before any future release, complete remaining gates and obtain fresh deployment
+authorization. No merge or deployment was performed for this correction.
+
+## Factory workflow deployment rolled back (13 November)
+
+The owner reported bugs after Packaging appeared unchanged overall and instructed
+"return the last deployment there are bugs". Both hosts now serve blue
+`20261111_115200`, exact source `46ddd5c7864f0a68bd9a3c884d835a2a5dbf9bfb`,
+manifest `db9df64cbcf57e4ab93ac83ef677d7d394b07652a1a4cf3fe1815abc92adac28`.
+Backend/frontend returned at11:21:38/11:21:43 UTC (16:21 Tashkent); both current
+links and served identities agree. Database head remains0156_variant_price_workflow.
+
+The seven-fix release094409/sourcee538 is withdrawn. Its green containers remain
+off traffic; although runtime metadata names them as rollback, they are NOT a
+known-good fallback. Do not reactivate/redeploy this build using earlier approval.
+Any corrected release requires fresh owner authorization and completed verification.
+Older052632 source/images remain retained; no extra standby staging occurred.
+The task branch preserves the withdrawn code for investigation, not as live source.
+
+Fresh mode0600 backup123,661,339bytes verified1,400 restore objects (SHA5da6b689).
+No database downgrade/restore, schema change, business-data deletion or production
+fixture occurred; activity since cutover is preserved. All four health/login
+endpoints, readiness, source/image/default-command identities, routers, two workers,
+zero restart/OOM/log markers, database headroom and zero invalid indexes passed
+after rollback and independent review. Both deployment locks were released.
+Timed monitoring remained waived; no observer or substitute monitor ran.
+
+The reported defects remain unresolved. Prior automated, isolated and read-only
+QA passes are historical evidence and do not override the owner's rollback or
+establish human acceptance. Connected Chrome inspection during the follow-up
+failed in its control bridge; no fresh Chrome visual pass is claimed. Disk remains
+about78.55%/78.08%, above70% alert and below80% stop. See the
+[rollback record](archive/FACTORY_WORKFLOWS_ROLLBACK_20261113.md),
+[original deployment](archive/FACTORY_WORKFLOWS_RELEASE_20261113.md) and
+[task packet](FACTORY_WORKFLOWS_20261113.md). The dedicated branch is pushed, not
+merged into clone_main/main; later metadata commits are not deployed runtime code.
+
+## Invoice/report and Sewing update (11 November; previous release)
+
+That release served blue `20261111_115200`, runtime
+`46ddd5c7864f0a68bd9a3c884d835a2a5dbf9bfb`, manifest
+`db9df64cbcf57e4ab93ac83ef677d7d394b07652a1a4cf3fe1815abc92adac28`.
+Its rollback was green `20261111_052632` /
+`519c9fa36f3d90905f935caf08fe781417cf7e24`. Schema remained
+`0156_variant_price_workflow`; no task-initiated business-data writes or schema changes.
+The requested task branch is pushed, not merged into clone_main/main.
+
+Invoices share naturally sorted size text and 10px table/signature type, retaining
+23.1pt rows. Existing report has Today/This month Tashkent shortcuts; Sewing pages
+20 batches at a time. Exact-source CI passed6,756 backend cases /1,589 reported
+skips /36 subtests,649 mandatory PostgreSQL cases plus supplements/contracts,
+frontend and security. Staged browser/Excel and550 paired GETs passed.
+
+The first public280-GET check failed only Cutting-passport p95:150.85->186.97ms
+(+23.94%, limit15%); original failure and rollback are preserved. After initially
+keeping the old release, the owner explicitly instructed immediate deployment
+after disclosure of that failure, accepting this named exception. The same scanned
+images were promoted again without rebuilding or replacing the timing epoch.
+Fresh backup verified1,400 restore objects. Backend/frontend activated17:46:18 /
+17:46:24 Tashkent (12:46 UTC). Fresh staged/public complete-fact checks,81 unique
+MIL batches, connected Edge invoice/report, four health endpoints, readiness,
+source/image/router/worker/log/database checks passed. Timed observation remains
+waived; no observer or substitute monitor ran. Human domain acceptance remains
+unrecorded. Pre-existing shipment-traceability error at10:37:16 UTC remains unresolved;
+deployment-window logs were clean. See the [release record](archive/INVOICE_SEWING_RELEASE_20261111.md).
+
+## Variant pricing November scope (11 November; previous release)
+
+That release served green `20261111_052632`, runtime
+`519c9fa36f3d90905f935caf08fe781417cf7e24`, manifest
+`55d0edc9b7893df95987102cc6d9ccbe5b59a89f3c369eb5ea1f46a9868d4520`.
+Schema remained `0156_variant_price_workflow`; no migration. Its full-app
+rollback was blue `20261110_135430` / `cfe03885e03e4310e9b7c86ec9649ff350565d65`.
+Source was fast-forwarded into `clone_main`; deployment metadata is a later commit.
+
+Only missing-price standard variants created from 1 November 2026, 00:00
+Asia/Tashkent, qualify for active pricing. Usluga and older variants are excluded
+from automatic/manual creation, submission and approval, without gating Cutting.
+Admin retains Purchasing/Abbosxon and Accessories screens; Finance confirms after
+both submissions and has pending, history and full Excel. Existing prices are
+reused. Purchasing has one Fabric price USD input feeding the existing formula;
+cards show the public Order No. Internal Cutting evidence remains intact.
+
+Latest `11-11.xlsx` F + USD0.30 once filled exactly 14 missing prices. All 6,435
+matched prices verify; 6,421 existing prices/provenance remain unchanged. Exact
+model/variant wins; variant fallback must be unique across all catalogues.
+Exactly 131 older active requests were cancelled with costs/history preserved.
+Final snapshot: 39 active eligible requests, 36 MIL and 3 ECO, zero Usluga.
+All 36 protected business tables (119,419 rows) stayed identical through both
+writes, including order prices, manufacturing, stock and shipments. The original
+519-price import/backfill history remains in the [previous release record](archive/VARIANT_PRICING_RELEASE_20261111.md).
+
+Exact-source CI: 6,735 backend passes / 1,589 reported skips / 36 subtests,
+649 required PostgreSQL cases plus supplements/contracts, frontend and security.
+Staged 550 paired GETs passed. Public 280 GETs preserved complete facts, medians
+and payloads but failed model-options p95 162.13 to 202.97 ms (+25.19%) and Cutting
+passports 154.33 to 647.94 ms (+319.85%). Owner explicitly accepted these two
+new-release exceptions; cause remains unproven and failed evidence is retained.
+No replacement timing epoch was run. After writes, 30 full-fact comparisons across
+public, active and rollback passed, as did fresh both-host formal closing/all four
+health checks. The verified pre-cutover/data backup has 1,400 restore objects.
+Actual public Admin forms, imported price/history and the 6,596-row three-sheet
+Excel passed; one external ad-blocker error, zero ERP console errors. Owner waived
+30-minute observation; no observer/substitute monitor ran. Staff account-to-team
+mapping and human/QA-master acceptance remain unrecorded. See the
+[scope and deployment record](archive/VARIANT_PRICING_NOVEMBER_SCOPE_20261111.md).
+
+## Process QR base-model operations (10 November; previous release)
+
+The previous release served blue `20261110_070607`, application
+`843adaf3bda1b1f2d234e68b6763bbc649d3b72a`, manifest
+`7bf0a59c139cf8a46fc6af7a3a0c5457795ba7b1de7fe57e70c76b31481fac32`,
+on unchanged schema `0155_eco_gate_merge`. At that deployment, the healthy retained rollback was green
+`20261109_163130` / `271c5005e12d1efc65d6358756862d8c243685a5`.
+Process QR loads paid operations from the same catalog/factory's base model,
+while preserving the selected variant, pictures, sizes and label identity.
+No migration, backfill or deployment business-data writes ran.
+
+Exact-source CI passed 6,666 backend tests / 1,569 skips / 36 subtests, mandatory
+PostgreSQL 207, frontend, security scan and immutable publication. Actual signed
+Edge staging/public checks show all 20 BJ5039 operations. Four selected model rows
+and 240 issued labels stayed unchanged. Formal closing, all four health checks,
+source/images/workers/routers/database/rollback checks and the full 1,800.16-second
+observation passed (61 ticks, 244 HTTP 200 results, no failures or runtime drift).
+
+The owner explicitly accepted only two original public p95 failures: BJ5039
+generic detail 30.77 to 68.34 ms (+122.13%), and the larger model's opt-in base
+operations 42.54 to 49.90 ms (+17.30%), against the original +15% cap. All medians,
+payloads, full facts and four other public paths passed. Failed measurements and
+limits remain intact; no repeated public timing epoch or blanket waiver occurred.
+The staged benchmark's earlier cold failure was preserved, then one reviewed
+symmetric warm-up epoch passed. Human engineering/operator acceptance remains
+separate. Disk at that deployment was above the 70% alert (about 79.23% backend / 79.51% frontend);
+only eight reviewed unused images were removed, with protected releases retained.
+See the [release record](PROCESS_QR_BASE_MODEL_20261110.md).
+
+## BJ5039 Process QR immediate repair (10 November; before deployment)
+
+Owner requested an immediate repair before the permanent base-model loading fix
+and accepted verified live `20261109_163130` as the task baseline. The parent
+BJ5039 had 20 Milana operations; its four variants had none. The deployed audited
+family-save service copied the unchanged parent list to BJ5039-V-6793, V-6794,
+V-6795 (PO-0720), and V-6850. Five family-save audits identify System Admin as
+actor. Parent details and other variant details were verified unchanged; no
+issued QR or payroll rows existed for this family before/after the operation.
+
+Fresh PostgreSQL backup was verified before mutation: 117,227,928 bytes, 1,395
+restore objects, SHA-256 `b66142d10a7223810fe21e56f34b574d41062d8e95c2308e246894c08887cfb9`.
+Model response serialization returns all 20 selected Milana rows on every family
+member. Both live source manifests and all four health checks passed. Browser
+automation failed before navigation, so rendered UI verification was pending then;
+signed Edge verification passed during the permanent release above.
+At repair time, reloading Process QR refreshed the selected variant's cached list. No runtime code,
+release, schema, role, order, stock, issued QR, or payroll change was made by that
+repair. Active release then was `20261109_163130`, rollback `20261109_035740`.
+The permanent direct base-model read is now deployed as recorded above.
+See [repair evidence](BJ5039_PROCESS_QR_REPAIR_20261110.md).
+
+## BSO, fabric receipts and model copying (10 November; superseded release)
+
+Both hosts previously served green `20261109_163130`, application
+`271c5005e12d1efc65d6358756862d8c243685a5`, manifest
+`535aa197ba218b0d0e867480d6a6570a25273307dfdea2185ce28d383f4e56d7`,
+on unchanged schema `0155_eco_gate_merge`. Its then-compatible running rollback was blue
+`20261109_035740` / `4f33eba776284b2e950e201a29c9da06cf7bd237`.
+BSO page/Excel show Milana and Eco Cotton; fabric inventory adds received quantity;
+model editing copies all paid operations into an unsaved target draft.
+
+Exact-source CI passed 6,651 backend tests / 1,568 skips / 36 subtests, mandatory
+PostgreSQL, frontend, security policy and image publication. Actual signed Edge
+public BSO/Excel, received-versus-remaining and copy/full-reload checks passed;
+isolated saved-copy/reopen and complete protected read contracts also passed.
+No deployment business QA writes, migration, backfill or retention deletion ran.
+
+Original paired fabric-batch medians (+17.248% / +14.496%, limit +10%) and public
+p95 search/model-groups/stock (+23.475% / +31.173% / +18.649%, limit +15%) failed.
+The owner explicitly approved these two separately disclosed, exact exceptions.
+Original reports, exit1 and thresholds remain intact; no blanket performance pass.
+All other measured limits and full ordered facts/receipts passed. Seven existing
+stock adjustments and six depleted-batch archives explain the overnight dataset
+change; fresh complete current A/B parity passed without dropping any fields.
+
+The initial public UI console attempt failed on rapid-search cancellation messages
+from unchanged code. A separate settled attempt had zero ERP errors/warnings and
+two exact external ad-blocker errors, retained in full raw console with explicit
+provenance; global console cleanliness is not claimed. Operator/human acceptance
+remains pending under the separate disclosed owner override. No observer ran under
+the owner's monitoring waiver. Fresh final closing passed all four health checks,
+readiness, source/images/workers/routers, database/index/headroom and rollback
+checks. Both leases were released; owned preview processes and tabs were closed.
+See the [release record](archive/BSO_FABRIC_PAID_COPY_RELEASE_2026-11-10.md).
+
+## Previous ECT/warehouse release (9 November; superseded)
+
+Historical state before the 10 November cutover above. Both hosts then served blue `20261109_035740`, application
+`4f33eba776284b2e950e201a29c9da06cf7bd237`, manifest
+`e5d56b822d8a48d327429a5e6a59cd87111b81bb193a2fd8cf120d007a7fafb1`,
+on schema `0155_eco_gate_merge`. Backend activated at 05:36:04 UTC and frontend
+at 05:36:23 UTC. The then-compatible rollback was green `20261107_043754` /
+`3c6ccc82a8521d74ce274151024ccd5bc1942fde`. Reviewed application 4f33 was pushed
+and normally fast-forwarded to owner-approved `clone_main`; later metadata commits
+do not change the deployed application. No migration or permission was added.
+
+The release includes table ECT accessory/fabric receipts, older fabric-batch lookup,
+passport Open order, optional manual Sewing line choice, Top/Bottom Excel,
+selected multi-Nastil packaging, polished shipment reporting/Excel and merged
+warehouse stock/map. Actual staged signed UI/Excel and isolated write/handoff/
+concurrency checks passed. Public signed report/map checks and all affected fixed-ID
+read contracts passed after cutover. No production business QA rows or backfill
+were created; a live two-eligible-Nastil save was not exercised.
+
+Exact-source CI passed **6,649 backend tests / 1,567 skips**, mandatory PostgreSQL,
+frontend, security policy and immutable-image publication. Feature PG 25 and report
+polish 15 passed. Earlier Windows-suite failures remain historical evidence in the
+[task packet](ECT_WAREHOUSE_WORKFLOWS_20261107.md); they are not the final Linux CI.
+
+Paired inventory-stock AB median **failed** +10.05419% (limit +10%, about 2.43 ms).
+The owner explicitly approved that exact exception; the original failed report,
+exit 1 and limits remain intact. Reverse-order median improved 3.2606%. Public
+before/after measurement passed every original median/p95/payload/fact limit.
+The reviewed QA protocol keeps all 27 global snapshots as concurrency evidence and
+requires unchanged ordered API projections, actor/runtime and fixed workflow facts;
+it does not require unrelated factory activity to stop or claim global quiescence.
+
+The owner separately waived 30-minute monitoring: no observer/start anchor ran.
+The separate named QA-master gate was overridden under the owner's disclosed
+instruction to continue; no human QA-master approval is claimed. Operator
+acceptance remains pending. Fresh final closing passed all four supported health
+checks, readiness, exact sources/images/workers/routers, database/index/headroom
+and rollback guards. Owned leases were released and exact local preview services
+stopped. All 16 screenshots were emailed, including final polish and public screens.
+
+A validated 114,628,708-byte PostgreSQL backup preceded staging. Active backend has
+51 HIGH / 0 CRITICAL unfixed scan findings; frontend one MEDIUM. Disk maintenance,
+unlinked direct ECO receipts outside central cutting stock and the pre-existing
+cancelled-Printing input cap remain follow-ups. System-wide refactoring, enum
+adoption and security audit are not complete. Exact identities, backup/evidence
+hashes, exceptions and limits are in the
+[release record](archive/ECT_WAREHOUSE_RELEASE_2026-11-09.md).
+
+## Dilmurod source classification (7 November)
+
+Behavior-preserving Identity #546, People #545, Support #547 and Work #544 code
+landed on `clone_main`; #549 closes the remaining Eco Band writer and Work read
+boundaries. The [coverage ledger](REFACTOR_COVERAGE.md#dilmurods-source-classification-slice--7-november-2026)
+classifies 23 mapped tables / 324 fields from source and fixtures. Dilmurod
+excluded seed and one-off employee reconciliation from the running-app slice on
+7 November. Actual stored-value counts, contract decisions and human acceptance
+remain open. No deployment is implied by these merges.
+
+## RF-004 shared infrastructure (6 November)
+
+Dilmurod/Mirshoir four-family source extraction covers audit reads, shipment-reopen
+receipt hash assignment, bounded readiness probes and reusable verification evidence.
+Prerequisites #497/#506 are merged; user authorized one green combined top-PR CI
+merge and closure of included lower PRs. Existing shipment/idempotency tests remain
+unchanged; affected owner FYIs and dual-database evidence are in
+[the operation packet](archive/RF004_SHARED_2026-11-06.md). Ports20400–20402 are the
+owned local stack; no screen/Production contract/deployment changes. Global RF-004
+ratchet and other domain legacy boundaries remain separately tracked.
+
+## Payroll source extraction (6 November)
+
+Dilmurod / Mirshoir payroll extraction is finishing as three family PRs after the
+period/read stack: records and scans, adjustments/reversals, QR lifecycle. The user
+authorized a single top PR combined with current `clone_main`, green hosted CI,
+then merge and closure of included lower PRs. User owns one final browser check;
+the payroll QA servers/data/caches were removed after the user declared payroll done. Automated evidence and the complete
+operation/type retention ledger live in [the payroll record](archive/payroll-create-2026-11-06/CONTINUATION.md).
+No production deployment, visual acceptance or system-wide enum completion is claimed.
+
+## Historical passport, pictures and ECT release (6 November; superseded)
+
+**Historical 6 November release, superseded by the current runtime above.**
+At that release completion, both hosts served
+green `20261106_061725`, exact application
+`a8579e64efbb2f9545d6df1c35d527c1d4ae2f01`, manifest
+`7f52cf7bf61e6fa4159d65e590d9cefaa6a493992e8b80197343490e5ee09fb0`.
+Database then used `0154_eco_receipt_details`; no business backfill or production
+test rows were created. The historical saved rows now report automatically:
+PO-0749 and PO-0750 each show 1,200 pieces, totaling 2,400. Actual public Edge
+screenshots and signed immutable API checks agree. Export pictures and the
+authoritative ECT 5A picker also passed; fresh available 5A was 151.8 kg at QA.
+
+CI run 42173510387 passed for this exact source: 5,245 backend tests passed, 644
+skipped; separate required PostgreSQL gates passed 180/23/176 cases without
+skips. Frontend lint, strict types, build and contracts passed. Combined local
+Edge flows, independent review, staging/public performance comparisons, all four
+health checks, strict startup/router/log checks and database integrity passed.
+Fresh 113,383,511-byte PostgreSQL backup validated 1,329 restore objects.
+User explicitly waived timed observation; none was run. Owned deployment leases
+were released, and owned local QA services were stopped without deleting data.
+
+The historical **read-only** rollback at that checkpoint was blue `20261106_054000` /
+`bf9cb9f0e738e82b9a21909b22e4cdecae7bed37`. Plain writable 488 is unsafe after
+new grouped/Eco/rejection facts. Recovery uses read-only PostgreSQL and business
+storage, with a separate private writable SQLite security counter store; login
+locks/rate limits remain enabled across two workers. The retained counter copy
+is a rehearsal snapshot: before incident activation, quiesce green and refresh
+from its authoritative store using the separately reviewed recovery procedure.
+Direct old `activate-readonly-backend` authorization is superseded; no automatic
+fallback or completed recovery activation is claimed.
+
+See [combined release record](COMBINED_PASSPORT_FLOOR_RELEASE_20261106.md) for
+immutable identities, backup and actual evidence. Branch
+`codex/deploy-passport-floor-20261106` is pushed and unmerged; shared-source
+integration and human factory acceptance remain pending. The earlier candidate
+records below describe their pre-deployment snapshots and are superseded by this
+release state; they do not prohibit the owner's later explicit deployment request.
+The durable [recovery restriction](archive/passport-floor-release-2026-11-06/READONLY_RECOVERY.md)
+records the required fresh operational counter snapshot before emergency use.
+
+At task start both application hosts were verified on `20261105_065721` / `488f3d654`,
+manifest `e6c603d4c1954c64a75962cf189427eb5e316c039ea23de4699b9bd4f3112095`.
+All 1,905 manifest entries match the candidate base; database remains
+`0154_eco_receipt_details`, rollback source `20261105_043000`. The user approved
+using this exact source after the required baseline drift stop. Older runtime
+pointers below are historical. The initial standalone task did not deploy;
+the combined release above subsequently deployed its changes.
+
+The [passport repair packet](PASSPORT_TOTALS_ECT_20261106.md) records a reporting-only
+correction: sum saved fabric-row pieces, with a legacy parent fallback and the
+existing dashboard-only Tepa multiplier. Screenshot passports 800/801 total 2,400,
+not 1,200. Read-only live-history comparison finds 65 affected CUT passports and
+342,110 corrected all-time pieces versus 307,880 before; ECT totals are unchanged.
+No Nastil, bundle, stock or confirmed production quantity is rewritten. Excel adds
+separate embedded family-model/exact-variant pictures while retaining quantity columns.
+
+For transferred batch 5A, ECT passport lookup/validation and Cutting consumption
+use authoritative Eco receipt links to the central source batch, including split
+receipts and archived/empty Milana sources. Physical consumption and reversal stay
+in the Eco ledger; fabric-usage reports include that evidence. Direct unlinked Eco
+receipts and the separate central-only batch replacement/Planning workflows are
+outside this narrow repair. Candidate tests, independent review, actual browser
+checks and isolated PostgreSQL concurrency evidence are recorded in the packet;
+human acceptance, shared-source integration and deployment remain separate.
+
+## Production-based Cutting/order UI candidate (5 November)
+
+Both production hosts were verified on `20261105_065721` / `488f3d654`, manifest
+`e6c603d4c1954c64a75962cf189427eb5e316c039ea23de4699b9bd4f3112095`;
+rollback is `20261105_043000` / `94e4cfc54`. Older runtime pointers below are
+historical. The owner explicitly chose this exact production source for an isolated
+candidate and deferred integration into clone_main. No deployment is authorized.
+
+The [task packet](SEARCH_CUTTING_ORDER_FIXES_20261105.md) records shared search-icon
+padding, blank Planning quantities, package model/variant identities and Cutting
+rejection with a required reason. Rejection blocks only the unrecorded Cutting WO,
+preserves PO/downstream plans, audits and notifies its creator; execution/history
+and stale-writer guards prevent bypass. No migration or production data changed.
+Scoped automated/PostgreSQL and connected Edge visual/readback checks passed;
+independent AI review found no remaining blocker. Human acceptance, source
+integration and release authorization remain separate. The inherited missing
+`common.noData` i18n check and extension-injected browser hydration warnings are
+disclosed in the packet; neither is claimed fixed by this task.
+
+The follow-up [ECO fabric/Qolip packet](ECO_FABRIC_QOLIP_FIXES_20261105.md) records
+Milana-style ECO batch photos/metadata and responsive stock views, plus opaque
+20 MiB .gem/.gemx pattern attachments on standard/Usluga models. Final frontend
+build, 161 scoped backend cases, isolated HTTP byte-preserving readback and
+inventory browser checks pass; independent AI source review found no blocker.
+Complete browser file upload remains BLOCKED by extension/native policy checks;
+genuine Gemini and human acceptance are not claimed. No migration/deployment or
+production data change; both hosts remain065721. Owned QA services/database were
+removed; automatic command review blocked temporary QA configuration-file cleanup.
+
+The approved [cutting passport batch split](CUTTING_PASSPORT_BATCH_SPLIT_20261105.md)
+adds one shared calculation with exact per-batch allocations (100+200kg), preserving
+separate stock movements and one garment output.163 backend cases including7 real
+PostgreSQL cases, frontend build/type checks, actual save/reopen/confirmation and
+independent AI review pass; human acceptance remains pending. No migration or
+production change; both hosts remain065721. Older binaries do not understand new
+grouped JSON, so any future rollback needs explicit data compatibility review.
+Owned QA services/database were removed; temporary JSON cleanup was blocked by
+automatic review. Existing grouped-shortage reconciliation remains unchanged.
+
+## Current ECO runtime and narrow feature candidate (4 November)
+
+Both production hosts were reverified on blue `20261104_080711`, runtime
+`984aeffb22aedd3262d7cd61e2d88a905b589e8d`, manifest
+`0221829adfc216391679b744ae512b6c4d96913bb0316c31dfe12fb9a1641be7`.
+Live database readback is `0154_eco_receipt_details`; compatible retained rollback
+is green `20261104_093330` / `bd7d572282b50886e9d03a650bcf886ca9109175`.
+
+The owner approved reconciling the deployed ECO application into clone_main while
+preserving existing integration work, and preparing Planning cutting-factory
+reassignment, floor print pictures and a BST master handoff. This narrow runtime
+candidate starts from exact deployed984 source and ports only those small changes.
+No migration file or dependency version changes; it retains0154. Undeployed
+turnstile and other clone_main changes remain preserved in the separate source
+integration candidate, not included implicitly in this release. A future combined
+migration graph needs separate approval. See [candidate evidence](PLANNING_FLOORS_RELEASE_20261104.md).
+
+No production mutation, cutover or timed observation occurred. Connected-browser
+verification is BLOCKED after the policy helper could not reliably establish the
+current URL. BST execution also awaits confirmation whether stored employee620,
+Yo'ldasheva Dilfuzaxon, is the requested Yoldashova Dilfuza. Payroll rows remain
+untouched; existing historical reports would regroup under current managers.
+Historical performance exceptions apply only to the old release, not this candidate.
+
+## Historical ECO inventory deployment preparation (4 November)
+
+The owner authorized PR375 deployment and explicitly waived the30-minute timed
+monitoring window. The [narrow release record](archive/ECO_INVENTORY_RELEASE_2026-11-04.md)
+starts from freshly verified live11f80a29/blue20261103_094602 and preserves its
+customer-pack/FG fixes. Only reviewed ECO inventory/transfers/approval and package
+origin changes are included; unrelated clone_main runtime work remains excluded.
+The bounded sewing follow-up resolves the assigned line's factory and actual
+batch before the approval gate, including shared-work ECO assignments in order
+ownership. Approval and physical issue remain separate; no migration or role
+grant is added by that correction.
+The follow-up also recognizes a persisted direct sewing line when no active
+split assignment exists. Historical factory aliases use the existing shared
+mapping in both gate selection and SQL ownership; unknown values refuse safely.
+A restart-safe compatibility rollback is required before additive ECO migrations.
+No deployment, migration or production business-data changes have occurred yet.
+
+## Current refactor: Finance shipment invoice reversal (4 November)
+
+The [operation packet](REF350_INVOICE_REVERSAL_20261104.md) records
+AI_VERIFIED_AWAITING_HUMAN on application/gate candidate 60bcf909: Finance owns
+the same-Session schema write that voids eligible shipment invoices. 204 distinct
+PostgreSQL cases, actual desktop/EN/RU/UZ phone actions, one-shot receipts,
+20-table persisted checks and independent AI review passed. Copied synthetic QA
+schema needed a separately recorded existing-0084 repair; original failures stay
+preserved and no business action was replayed. Full shipment coordinator audit
+still fails on its unchanged legacy scan write. Other writers and broader
+Finance/type coverage remain pending. QA master reviews before deployment.
+Production/rollback pointers are unchanged; closed PR350 is not reopened.
+
+## Customer-pack and FG release active with approved p95 exception (3 November)
+
+Only customer shipment-pack restriction/admin release and FG numbering were pushed,
+merged and deployed. Runtime is blue `20261103_094602` / `11f80a29` on both hosts,
+manifest `ee765f999e782193878390897873c7b5865749460d4d776cf321fcd28490f8a9`,
+schema `0150_package_customer_release`. Compatible green `20261103_112256` /
+`37337ea6` remains the running rollback. Other clone_main runtime changes, including
+HR0151, were excluded. PR376/377 feature ancestry and PR383 incident records are
+preserved. Exact immutable CI passed 4,935 backend cases plus required PostgreSQL
+and frontend gates; isolated shipment denial/admin release/warehouse-role/FG-save
+workflows passed. Human production acceptance remains separate.
+
+The final public Model Options p95 failed: 162.26 -> 193.23 ms (+19.09%, above15%);
+median153.52 ->153.81 ms (+0.19%). Other six endpoints, rows and payload passed.
+Automatic recovery first restored both roles to37337ea6. The owner then explicitly
+answered **"Re-deploy with this specific p95 exception"**. The failed result remains
+FAIL with only that accepted exception; it was not resampled or relabeled PASS.
+Cause remains unproven. After a fresh verified full backup, the same11f80a29 images
+were reactivated at12:38:09UTC (17:38:09Tashkent). Fresh source/image/slot/proxy,
+default-command/no-seed/schema/readiness/pools/logs/workers/resources and four-health
+checks passed, followed by connected public Chrome and GET-only API readback.
+The separate 30-minute monitoring waiver was honored; no timed monitor ran.
+
+Inherited startup seeding had reset one configured admin password hash during
+initial staging. Only RUN_SEED_ON_STARTUP was disabled under backed-up byte-CAS
+controls; both actual backend containers now have seedfalse. A separately reviewed,
+backed-up row-lock/CAS transaction restored the exact original credential; actual
+PostgreSQL fault tests and independent readback verified it with access/profile
+fields unchanged. Earlier partial recovery/helper failures remain in the archive.
+No production manufacturing/order/package/shipment/model form was submitted;
+the release ledger remains empty. Both backend slots have two workers, zero OOM
+and restarts; historical old-container OOM evidence is retained. Final DB24/100,
+invalidindexes0; disk78.72%backend/78.54%frontend remains above70%alert/below80%stop.
+Owned locks are released and task QA services stopped. See [release/incident evidence](archive/PACK_CUSTOMER_FG_RELEASE_2026-11-03.md)
+and [machine-readable record](archive/PACK_CUSTOMER_FG_RELEASE_2026-11-03.json).
+
+## Turnstile development (4 November)
+
+The [Add access](TURNSTILE_ACCESS_BACKEND_20261103.md) and
+[Edit details](TURNSTILE_EDIT_DETAILS_20261103.md) packets preserve earlier simulator
+evidence. The [Replace photo packet](TURNSTILE_PHOTO_REPLACEMENT_20261104.md) records
+the next isolated slice: explicit selected-device replacement, preserving distinct
+device names/IDs and retaining prior photos until acceptance. Combined102 tests,
+guarded PostgreSQL, full frontend build and actual desktop/EN/RU/UZ phone checks
+passed; independent AI review found no remaining source blocker. Human acceptance remains unrecorded. Existing0152 constraints and
+guarded downgrade apply; no new migration. Production release/rollback pointers
+above are unchanged. REVOKE, adoption, live hardware and remaining system-wide
+refactor/type coverage stay pending.
+## Shared-counter outage policy (3 November)
+
+The approved [mixed policy and isolated evidence](archive/SHARED_STORE_MIXED_OUTAGE_2026-11-03.md)
+keep ordinary authenticated requests available with permissions enforced and a
+warning when global limiting is skipped. Login and both password-reset steps
+return JSON 503 until the store recovers. Dilmurod implements; Ismail reviews.
+Connected-browser evidence is PARTIAL (signed-in checks missing); human acceptance
+remains pending. No production changes were
+made; active/rollback records below are unchanged. #311 readiness/router integration
+must preserve this availability policy and is not included here. Full backend
+suite with a disclosed local PERF06 drain adapter: 5,947 passed, one known S06
+failure, zero errors/skips; the default fixture race remains a separate follow-up.
+
+## Identity policy-helper prerequisite (3 November)
+
+The [approved policy-only split](archive/ACCESS_POLICY_HELPER_SPLIT_2026-11-03.md)
+moves the three unchanged policy evaluators to a catalog-only leaf, preserving
+user-access exports while removing the factory-scope/user-access import cycle.
+Dilmurod implements; Ismail reviews this PR. RF-009 user creation, IDN-01 and
+human verification remain separate. This candidate changes no production release,
+permission or database contract; active/rollback records below are unchanged.
+
+## RF-009 create-user extraction candidate (3 November)
+
+Dilmurod approved the six recommended extraction decisions under Mirshoir's
+delegation. The [operation record](archive/RF009_CREATE_USER_EXTRACTION_2026-11-03.md)
+tracks a separate stacked PR for one create-user service, schema-owned account and
+setup-token writes, unchanged shared grant checks, and post-commit setup delivery.
+Ismail reviews. The #345 baseline passes unchanged before and after on SQLite and
+isolated PostgreSQL (196 cases, zero skips). This is a candidate, not a deployed
+release or human acceptance; active/rollback records below are unchanged.
+
+CI security-gate candidate [#507](https://github.com/Shmirzaev/Milana-ERP/pull/507)
+adds dated accepted findings and exact scanned-image handoff before manual release.
+It stacks on runtime npm removal [#509](https://github.com/Shmirzaev/Milana-ERP/pull/509); technical evidence remains in the PR. The nightly schedule starts once it reaches main. Both candidates are unmerged. JWT guard/migration
+[#357](https://github.com/Shmirzaev/Milana-ERP/pull/357)/[#364](https://github.com/Shmirzaev/Milana-ERP/pull/364) remain Shavkat-dependent. No release changed.
+
+## Active green release: older physical-pack history (2 November)
+
+PR369 merged into `clone_main` at `1ed3c5c7`; the owner authorized deployment.
+Active green `20261102_063110`, exact runtime `42078704df340558c8a21bf1ef14bf74cc87b222`, was finally
+activated at 2026-11-02 12:15:43 Tashkent. Both clean manifests are
+`becda671a332afe6fe86857ab948be2d686c984e81d02e6e68053ba83cb7a079`. Blue `20261031_092951` / runtime `337ff3c0`
+remains the running compatible rollback with original container identities.
+Schema remains `0149_besttex_cutting_access`; no business rows or labels changed.
+Only reviewed full-history model/pack/PRN search, Tashkent date/receipt filters
+and Previous/Next pages were added to exact previous runtime; other pending
+`clone_main` application changes were excluded.
+
+Exact-source CI (4,886 backend cases plus required PostgreSQL gates), independent
+review, actual candidate/public API/browser, paired and final public 120-sample
+performance and fresh four-health/source/slot/router/worker/database checks passed.
+Public lookup found October pack `PKG-2026-000159` / `PRN-2026-000012` among 377 groups.
+Console warnings/errors: zero. The first closing measurement aborted and triggered
+verified blue rollback; that failure remains recorded with unknown cause. One
+independently reviewed instrumentation retry retained the original baseline and
+all thresholds, used maximum live payload with constant row counts, and passed.
+No latency exception applies. The controller now matches exact release source
+`13a9e19d`; previous controller is backed up. Disk remains above 70% alert,
+below 80% hard staging limit. Timed 30-minute monitoring was explicitly waived and
+not run. Human operator acceptance remains pending.
+See [implementation/human checklist](archive/OLDER_PACK_FILTERS_2026-11-02.md) and
+[release evidence](archive/OLDER_PACK_FILTERS_RELEASE_2026-11-02.md).
+
+## Retained blue rollback: Process QR order sizes (31 October)
+
+The [reviewed fix and release evidence](archive/PROCESS_QR_ORDER_SIZES_2026-10-31.md)
+was deployed on blue `20261031_092951`, exact runtime `337ff3c01bb4778232dad9973d7c996396717e14`,
+and is the running rollback after the final 2 November promotion; the first benchmark abort and temporary restoration remain in that release record.
+Both verified source manifests are `f270b044a9b67069e44e3954f671bd59f9456146afd13221584f12053c2a3a94`.
+Green `20261029_111113` was the compatible rollback at that release; its containers
+were replaced by the 2 November candidate. Public PO-0495 / Nastil 1 showed 46/48/50/52/54 at
+50 each and no 56. No business data or QR labels changed; ten table hashes match.
+The exact release contains only the reviewed frontend/test/localization patch on
+active runtime `1344b572`; other pending `clone_main` work was excluded.
+
+Initial public Inventory Stock p95 failed at 178.73 ms versus 148.53 ms (+20.33%),
+and both roles were restored to green. The owner then explicitly answered
+**“Re-deploy with this latency exception.”** The same source/images were rechecked,
+a fresh verified backup was taken, and blue was reactivated at 2026-10-31 15:24:00 Tashkent.
+The failed measurement remains FAIL with that specific accepted exception; it
+was not resampled or relabeled PASS. Median was unchanged and the other five
+public endpoints passed; cause remains unproven. CI, required PostgreSQL suites,
+candidate/public QR browser, paired performance and fresh four-health/source/
+slot/router/worker/log/database/readiness checks passed. Schema stays
+`0149_besttex_cutting_access`; human operator acceptance remains pending.
+
+The separate 30-minute monitoring waiver was honored; no timed monitor ran.
+Installed controller `d422ff74` (`/health` probes) was preserved, with explicit
+both-slot `/ready` and 48/100 overlap-pool checks. Three owner-approved unused
+August release folders were fully archived/compared/hashed and relocated to
+`C:\ERP\.codex-work\release-archives\legacy-approved-20261031_092951` before server
+copies were removed. Recovery receipts remain on the server. Cleanup disk use
+was 78.11%; staging was below 80%, while the 70% alert remains applicable.
+
+## Active whole-ERP refactor
+
+6 November 2026: Payroll period CREATE is draft PR #511, with local characterization and extraction evidence; browser access is blocked and remaining payroll operations are pending. See [task record](archive/payroll-create-2026-11-06/README.md). No production change.
+
+PR343 merged three verified persistence operations into `clone_main` at
+`d235cf9e9a44b1de81428beb261f8fab837cbe87`; this did not deploy them. The owner
+resumed all remaining domains with cheap isolated subagents on 30 October.
+Collection UPDATE, Purchasing costing/notification persistence and typed Finance
+payment results are the current candidate batch, with verification still pending.
+See [the current operation backlog](REFACTOR_COVERAGE.md#current-integration-and-active-work--30-october-2026).
+No whole-domain, system-wide type or human production acceptance is claimed.
+
+## Historical green release (29 October)
+
+The [multiple open shipment package split](archive/OPEN_SHIPMENT_PACKAGE_SPLIT_2026-10-29.md)
+was retained on green as rollback `20261029_111113`, exact runtime `1344b572f8bff6f458892d3c2c8022560f306dbb`,
+merged into `clone_main` through PR346. Both source manifests are
+`93d632752aa355efad66fc67bf294fa6eb6321e90769106fc5de71c4cb6b7720`. Saving a partial per-size selection releases the
+unallocated remainder immediately for another open shipment using the same QR;
+either shipment may dispatch first. Existing valid package claims are supported.
+CI passed 4,874 backend cases (544 opt-in skips), both required PostgreSQL gates
+passed 165 cases with zero skips, and private browser/readback, paired/public
+120-sample performance, verified backup, no-op schema and four health/runtime
+checks passed. Temporary candidates were removed before the single closing
+public benchmark. No latency exception was needed. No production business edit
+was submitted; package PKG-2026-001240 still had all 60 claimed by open SH-2026-000180
+at the conserved readback. The operator must save the desired partial quantity
+there first. External earlier cancellations were not agent actions.
+The old blue `20261028_123531` containers were replaced during the 31 October
+QR release. After the documented rollback and explicit owner latency acceptance,
+blue `20261031_092951` was active and this green release was its compatible rollback.
+On 2 November these green containers were replaced; its release files/images remain historical recovery material.
+The owner's explicit 30-minute observation waiver was honored; no timed monitoring
+was performed. Human operator acceptance remains pending.
+
+The prior release remains documented below for its original five changes and
+PO-0377 correction; current runtime includes those changes.
+
+[Order artwork, Nastil factory selection, warehouse remainder and invoice
+sizing](archive/PRINT_NASTIL_WAREHOUSE_2026-10-29.md) was deployed on green
+`20261029_083228`, exact runtime `24f4f2310a2194afe9a589796347525e2a7759fa`,
+merged into `clone_main` through PR344. Both source manifests are
+`95d3be61132307dc41ec13fff4e51965ad460ab7faa4e5725448db488a13cd59`.
+Blue `20261028_123531` remains unchanged, including containers/images/start times.
+After verified backup, PO-0377 Nastils 2/3 (255/256) were assigned to Besttex;
+Nastil 1 stays Milana. Audit 151254 records the correction. Existing Sewing,
+packages, stock, order/batch quantities and unrelated Nastils were conserved.
+No historical Sewing output was invented. Exact-source CI (4,860 backend cases),
+165 required PostgreSQL cases, candidate/public browser, paired performance,
+no-op schema and immediate runtime/health checks passed. Two public p95 checks
+failed (model groups +22.17%, then inventory stock +28.03% after temporary
+container cleanup); both failures remain recorded. The owner explicitly accepted
+this measured latency exception and authorized finishing PO-0377. Cause remains
+unproven; no further retry or blanket performance pass is claimed. The separate
+30-minute monitoring waiver was honored. Cutting-sheet physical/visual operator
+acceptance remains pending. **Blue's old code cannot write mixed shared/dedicated
+Nastil scopes safely: use the documented maintenance recovery guard after this
+release; ordinary ungated blue activation is unsafe.**
+
+## Earlier production reconciliation (29 October)
+
+The [inactive-material batch-edit fix](archive/INACTIVE_BATCH_EDIT_2026-10-29.md)
+was deployed on green `20261029_053553`, runtime `186110a549d48f42801058241ffcabbb22acdaf9` (PR342, clone_main), before the current release.
+Only the unchanged-material validation was added to the prior green application;
+no separate Mirshoir/Dilmurod changes were introduced. Blue `20261028_123531`
+remains the unchanged running rollback. CI, 165 mandatory PG cases, verified backup,
+no-op schema, candidate/public browser and 120-sample performance/health/runtime
+gates passed. Real batch 7148's material/stock/ledger fingerprint was conserved;
+no production business edit was submitted. Monitoring was explicitly waived,
+not performed. Operator save/reopen acceptance remains pending.
+
+The owner authorized reconciling latest `clone_main` with all current production
+fixes and deploying through blue/green, with current production ready for rollback.
+At that earlier cutover, green was `20261029_042945`, exact runtime
+`921d646425054bb7b132042b1a173e2998249adc`, verified on both VMs. Retained blue
+`20261028_123531` (runtime `a0cb9d8b`) stays running and healthy for rollback.
+Both manifests at that earlier cutover were `eda617eedff05dfca42aef15003135c5c5870276bb5da087d6543c1add889580`.
+The tested source merges `clone_main` `45b12da1` and production record `a6a89f50`
+in a dedicated worktree and was fast-forwarded into shared `clone_main`.
+Only Supplier UPDATE and Customer DELETE persistence/type changes differ in
+application source; deployed Packaging, payroll, QR, Finance, frontend and
+migrations are preserved. Corrected full backend tests passed 4,834 cases with
+538 opt-in skips; the separate mandatory PostgreSQL CI gate passed all 165 cases
+with no skips. Frontend, exact-source immutable CI, isolated Supplier save/Customer delete
+browser and persisted readback, independent review, verified backup, candidate/public
+read-only QA, paired/public performance and all four health checks passed.
+Database remains `0149_besttex_cutting_access` after a no-op migration check.
+Production QA made no business writes; normal authentication GETs touch heartbeat
+metadata. The owner explicitly waived the 30-minute monitoring; it was not performed.
+The first combined CI failure remains recorded; its SQLite-only timestamp fixture
+was corrected and independently challenged without changing application clocks.
+Closing root-disk use was backend 79.44%, frontend 77.16%; the 80% staging gate
+remains mandatory for the next release. Existing linked-Customer FK error handling
+and prior physical-label/operator acceptance limitations remain open.
+See the [reconciliation record](archive/CLONE_PRODUCTION_RECONCILIATION_2026-10-29.md).
+
+The earlier QA artifact omitted Next runtime inputs and returned 404 on `/login` and
+`/`. A repaired genuine f27 artifact subsequently passed local login and scoped
+visual/readback checks for PRs 335–337. This does not establish production status
+or human production acceptance. See the [dated integration evidence](archive/VERIFIED_INTEGRATION_2026-10-28.md)
+for exact source identities, observations and limitations; the earlier failures and
+candidate history remain recorded there.
+
+The current integration checkpoint includes CI tooling PR338 at
+`e6f597891489e38207e01b6bfcca3d8df1b7adea` and Customer UPDATE PR339 at
+`61b1a7020c5e1465aa076acc238d94ea1ad7dd03`. Its scoped Customer evidence and
+V23 resource failure are recorded in the [dated integration evidence](archive/VERIFIED_INTEGRATION_2026-10-28.md).
+Supplier UPDATE is a later source candidate with its own verification gates; it is
+not included in that dated checkpoint. Dependency PR331 has separate environment
+and runtime gates. No deployment or human production acceptance is implied.
+
+## Historical Manual Packaging and combined release (28 October)
+
+At the 28 October release, active blue was `20261028_123531`, exact runtime
+`a0cb9d8b9fdab64dd751e7f3da7a1fa832779780`, verified on both VMs. Its then-retained
+green rollback was `20261027_115452`. Database stayed `0149_besttex_cutting_access`.
+The release combines reviewed clone_main through `61b1a702`, reconciled live
+fixes, manual Packaging pack creation/reprinting/cancellation, and a narrow
+Finance unlinked-BOM crash correction. Shared refactoring work was untouched;
+this does not complete its operation/type ledger or human acceptance.
+Fresh backup, exact CI/PostgreSQL, actual connected-browser/read-only QA,
+fixed-origin paired/public performance, all four health checks and immediate
+runtime/source/rollback postflight passed. Owner waived timed monitoring only.
+No QA business data was created. Physical print visual acceptance is pending
+after browser blob inspection was refused. See the detailed
+[release record](archive/MANUAL_PACKAGING_RELEASE_2026-10-28.md) for immutable
+images, backup hashes, failed earlier attempts and honest verification limits.
+
+Owner-authorized employee-master correction applied on 28 October: the two MIL
+employees formerly reporting to Akbarova Dilafruz #503 now report to #321.
+Both Dilafruz records remain distinct; no payroll or attendance history moved.
+The exact reviewed script `fe4bc0f8` passed a real PostgreSQL commit test and a
+live rollback rehearsal before apply. Own-transaction attribution verified only
+two employee manager/timestamp updates plus audit entries 144572/144573, with
+95 other business tables untouched by the transaction. Fresh persisted readback
+and all four health checks passed. Backup and full evidence are in
+[the task record](archive/MANUAL_PACKAGING_2026-10-28.md). This data correction preceded the runtime promotion above.
 
 ## Source and production
 
 - Shared integration/production branch: clone_main. origin/main is stale for this work.
+- Pending platform change: staged backend containers will receive `RELEASE_ID` from
+  `slotctl.py` and report it in `/health` and `/ready`. The backend VM's shared
+  slot manager must be updated from the reviewed release before staging. Existing
+  deployed slots have no process release ID until restaged; the observer still
+  checks status only.
 - Continue a suitable isolated worktree; preserve the legacy C:\ERP checkout.
   Use separate engineer work directories and one landing queue coordinated by Mirshoir.
 - [DEPLOYMENT.md](../DEPLOYMENT.md) is the only supported release procedure.
@@ -63,7 +1011,7 @@ The isolated three-operation candidate `1d4f00da` combines Sales confirmation pe
   reconciled with frozen refactor candidate `d0920f6367b702f63c88d5940cf1b44155b34aec`.
   This successor candidate is **not deployed, not AI-verified and not human-approved**.
   The prior invoice-only production release does not accept or deploy the refactor.
-- `deploy/production-base.json` carries the imported release assertion above.
+- `deploy/production-base.json` records the verified 31 October runtime above. The following describes older integration evidence.
   Local successor merge `02c25ecf2c8acad55418d86cf5b067fc89307162` has actual
   parents `034cb788` and recorded production `439555`; all 36 released paths were
   reconciled, retaining reviewed namespace ports and both historical release records.
@@ -180,12 +1128,55 @@ The isolated three-operation candidate `1d4f00da` combines Sales confirmation pe
 - Shared [skills](AGENT_SKILLS.md): milana-refactor for extraction, milana-feature
   for new behavior; both Codex and Claude use repository-controlled instructions.
 
+## SEC04 model-file session authentication (branch review only)
+
+- The 27 October browser follow-up found that one-day file and one-week thumbnail
+  private caches let revoked users reopen prior images. The SEC04 branch now
+  requires revalidation after auth and returns byte-free 304s for active filesystem
+  images; legacy DB fallback is `no-store`. Isolated Chromium Gate 3 and bounded
+  HTTP Gate 4 passed on candidate `9f6895a9`; Mirshoir's review and human
+  acceptance remain pending. Previously cached old-policy images can outlive the
+  deploy until their old TTL expires; rollout handling is unresolved.
+  [Current evidence](../backend/app/tests/SEC04-model-file-auth-evidence.md#browser-cache-follow-up--2026-10-27).
+- Updated `codex/sec04-model-file-auth` with `clone_main` at `ba70e0cb`.
+  Model files/thumbnails use current-account authentication and immediately release
+  its DB session before file reads/streaming. Company-wide access is intentional;
+  no factory/per-model scope was added. Owner Dilmurod; reviewer Mirshoir (pending).
+- The evidence file retains the earlier 25 October BLOCKED record as history;
+  the 27 October local gates supersede it. No merge to `clone_main`, deployment,
+  production verification or business-data change. Release/rollback pointers
+  above are historical and were not reverified.
+
+## Turnstile REVOKE candidate — 4 November 2026
+
+- Guarded simulator REVOKE at functional freeze `75083615` has 113 focused tests,
+  finalized PostgreSQL concurrency and migration proofs, and inspected desktop/phone
+  evidence. Independent AI source/evidence review found no new blocker; human acceptance remains unrecorded. See the [operation packet](TURNSTILE_REVOKE_20261104.md).
+- HR archive and explicit gate revoke are separate. The owner's latest instruction
+  places QA master human review before deployment, without pausing source integration
+  or further refactoring. No real-device support or deployment is inferred.
+
 ## Required checks and open risks
 
+- OPS05 isolated candidate adds the shared-store readiness probe and a shared
+  bounded flight; `/health` stays dependency-free. Automated evidence and blocked
+  visual/stress gates are in [the task record](archive/OPS05_READINESS_2026-10-26.md).
+  This candidate is not merged, deployed or human-accepted.
+- API02 candidate (re-aimed 29 October, Dilmurod; Mirshoir review): task write DTOs now
+  validate state, priority, date and reference input; task creation/reassignment
+  checks target visibility and holds a PostgreSQL key-share lock through commit.
+  Existing state reopening remains allowed pending a business transition policy.
+  Polymorphic task references still have no database FK, so later target deletion
+  can orphan a task. This is branch work, not a production fix; see the
+  [API02 verification record](archive/API02_TASK_VALIDATION_2026-10-26.md).
 - Follow [verification gates](VERIFICATION.md) after each runtime migration/fix/feature:
   test validity, relevant automated tests, actual visual E2E with screenshot inspection,
   bounded isolated stress, persisted integrity/recovery, then human acceptance.
   Required missing/skipped checks are BLOCKED, not PASS. No production stress/data fabrication.
+- The [local PostgreSQL runner adaptation](archive/LOCAL_POSTGRES_RUNNER_2026-10-29.md)
+  supplies legacy and approved-instance fixtures together. Its full local run had
+  5,375 passes, one stale S06 enum-call failure, and zero skips; required operation
+  and supplement groups passed. Mirshoir review remains pending; CI is unchanged.
 - Default backend pytest fixtures use SQLite. Real PostgreSQL checks need their
   documented setup/collection; do not infer locking correctness from SQLite success.
 - One write path per request and one outer transaction owner. Preserve locks, audit,
@@ -207,6 +1198,11 @@ The isolated three-operation candidate `1d4f00da` combines Sales confirmation pe
   accountable production rollback operator remain pending. No production state changed.
 - Recovery targets in [DISASTER_RECOVERY.md](DISASTER_RECOVERY.md) remain requirements,
   not proof of measured capacity. Preserve backups, active/rollback releases and evidence.
+- OPS06 candidate (26 October, Dilmurod; Mirshoir review) adds a local read-only
+  dump/storage pairing verifier with per-file hashes and checks of known database
+  upload references. No production pairing schedule or shared snapshot ID was
+  found; a manifest cannot prove capture-time atomicity or zero RPO. See the
+  [OPS06 record](archive/OPS06_BACKUP_PAIRING_2026-10-26.md).
 
 ## Latest documentation work
 

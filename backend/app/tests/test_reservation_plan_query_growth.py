@@ -46,6 +46,12 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
 from app.db.base import Base
+from app.libs.dto.inventory.material_reservation_output import MaterialReservationPlanOut
+from app.libs.enums.inventory import (
+    MaterialReservationType,
+    ReservationPlanRowStatus,
+    ReservationPlanStatus,
+)
 from app.schemas import (
     Item,
     MaterialReservation,
@@ -735,6 +741,69 @@ def _row_for(plan, *, item_id, unit, stock_batch_id=None):
         if (row.get("stock_batch_id") or None) == (stock_batch_id or None):
             return row
     raise AssertionError(f"no plan row for item={item_id} unit={unit!r} batch={stock_batch_id}")
+
+
+@pytest.mark.parametrize(
+    ("scenario", "expected_status", "expected_rows", "required", "reserved", "remaining", "shortage"),
+    [
+        ("no_bom", ReservationPlanStatus.NO_BOM, [], 0, 0, 0, 0),
+        ("ready", ReservationPlanStatus.READY, ["ready"], 10, 10, 0, 0),
+        ("partial", ReservationPlanStatus.PARTIAL, ["partial"], 10, 0, 10, 0),
+        ("shortage", ReservationPlanStatus.SHORTAGE, ["shortage"], 10, 0, 10, 7),
+        ("mixed", ReservationPlanStatus.SHORTAGE, ["ready", "partial", "shortage"], 30, 10, 20, 7),
+    ],
+)
+def test_pg_readiness_contract_and_wire_serialization(
+    postgres_session_factory, scenario, expected_status, expected_rows, required, reserved, remaining, shortage,
+):
+    """Read real persisted plans and serialize their canonical readiness values."""
+    marker = f"readiness-{uuid4().hex[:8]}"
+    catalog = _base_rows(postgres_session_factory, marker)
+    expected_by_item = {}
+    with postgres_session_factory.begin() as db:
+        order = _new_order(db, model_id=catalog["model_id"], planned_quantity=10)
+        for index, state in enumerate(expected_rows):
+            item = _new_item(db, marker, index)
+            db.add(ModelBOM(model_id=catalog["model_id"], item_id=item.id, material_name=state,
+                            material_role="main", quantity_per_piece=1, unit="kg", waste_percent=0))
+            batch = _new_batch(db, item_id=item.id, warehouse_id=catalog["warehouse_id"],
+                               marker=marker, index=index, quantity=3 if state == "shortage" else 10,
+                               unit="kg", day_offset=index)
+            if state == "ready":
+                _reserve(db, order=order, item_id=item.id, unit="kg", reserved=10, batch_id=batch.id)
+            expected_by_item[item.id] = state
+        order_id = order.id
+
+    # A separate session reads committed fixture rows; the producer is not mocked.
+    with postgres_session_factory() as db:
+        plan = reservation_plan_for_production_order(db, order_id)
+
+    assert plan["status"] is expected_status
+    assert plan["is_complete"] is (scenario in {"no_bom", "ready"})
+    assert plan["summary"] == {
+        "required_quantity": required,
+        "already_reserved_quantity": reserved,
+        "remaining_to_reserve": remaining,
+        "shortage": shortage,
+        "line_count": len(expected_rows),
+        "ready_line_count": expected_rows.count("ready"),
+        "shortage_line_count": expected_rows.count("shortage"),
+    }
+    for row in plan["rows"]:
+        state = expected_by_item[row["item_id"]]
+        assert row["status"] is ReservationPlanRowStatus(state)
+        assert row["reservation_type"] is MaterialReservationType.MATERIAL
+        assert len(row["suggested_batches"]) == (0 if state == "ready" else 1)
+        for suggestion in row["suggested_batches"]:
+            assert isinstance(suggestion["received_date"], datetime)
+
+    wire = MaterialReservationPlanOut.model_validate(plan).model_dump(mode="json")
+    assert wire["status"] == expected_status.value
+    assert wire["summary"] == plan["summary"]
+    assert {row["item_id"]: row["status"] for row in wire["rows"]} == expected_by_item
+    assert all(row["reservation_type"] == "material" for row in wire["rows"])
+    assert all(isinstance(batch["received_date"], str)
+               for row in wire["rows"] for batch in row["suggested_batches"])
 
 
 # --------------------------------------------------------------------------

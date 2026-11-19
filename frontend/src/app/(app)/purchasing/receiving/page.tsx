@@ -570,7 +570,7 @@ export default function PurchaseReceivingPage() {
                     <td colSpan={8} className="px-3 py-2.5">
                       <button
                         type="button"
-                        className="flex w-full items-center gap-2 rounded-md px-1 py-1 text-left text-sm font-semibold text-[#14110b] hover:bg-[#efebdf] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#a89262]"
+                        className="flex w-full items-center gap-2 rounded-md px-1 py-1 text-left text-sm font-semibold text-[#14110b] hover:bg-[#efebdf] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-[#a89262]"
                         aria-expanded={!isCollapsed}
                         aria-controls={groupContentId}
                         aria-label={t(isCollapsed ? "page.purchasing.expandSupplier" : "page.purchasing.collapseSupplier", { supplier: group.supplierName })}
@@ -595,7 +595,7 @@ export default function PurchaseReceivingPage() {
                           target="_blank"
                           rel="noopener noreferrer"
                           aria-label={t("page.purchasing.openPhoto")}
-                          className="inline-block rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#a89262]"
+                          className="inline-block rounded-md focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-[#a89262]"
                         >
                           <img src={line.photo_url} alt="" className="h-[168px] w-[168px] rounded-md border border-[#ded9ca] object-cover" />
                         </a>

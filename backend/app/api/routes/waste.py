@@ -4,17 +4,18 @@ from app.core.deps import DbSession, CurrentUser, require_permissions
 from app.libs.dto.inventory.waste_disposal_input import WasteDisposalIn
 from app.libs.dto.inventory.waste_disposal_output import WasteDisposalOut
 from app.libs.dto.inventory.waste_input import WasteIn
-from app.libs.dto.inventory.waste_output import WasteOut
+from app.libs.dto.inventory.waste_output import WasteOut, WasteListOut
 from app.libs.dto.inventory.waste_sale_input import WasteSaleIn
 from app.libs.dto.inventory.waste_sale_output import WasteSaleOut
+from app.libs.dto.inventory.waste_filter import WasteStatusFilter
 from app.models.inventory import waste_service
 from app.schemas import User
 
 router = APIRouter(prefix="/waste", tags=["waste"])
 
 
-@router.get("", response_model=list[WasteOut])
-def list_waste(db: DbSession, _: CurrentUser, status: str | None = None, sellable: bool | None = None):
+@router.get("", response_model=list[WasteListOut])
+def list_waste(db: DbSession, _: CurrentUser, status: WasteStatusFilter = None, sellable: bool | None = None):
     return waste_service.list_waste(db, status=status, sellable=sellable)
 
 

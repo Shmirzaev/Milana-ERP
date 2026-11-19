@@ -21,6 +21,8 @@ These are required targets, not measured current capabilities. No backup schedul
   - `BARCODE_STORAGE_DIR`
   - `MODEL_FILES_DIR`
   - `SALES_ORDER_FILES_DIR`
+  - `ATTENDANCE_PHOTOS_DIR`
+  - `HR_DOCUMENTS_DIR`
 - Frontend VM release and shared environment configuration.
 - Backend VM release, image tag, and shared environment configuration.
 
@@ -45,6 +47,8 @@ Demonstrate the target in an isolated failure/restore drill with a recorded fina
 1. Create a clean recovery database.
 2. Restore the latest approved database backup.
 3. Restore backend file storage from the matching backup snapshot.
+   Verify the supplied dump, storage tree and pairing manifest with
+   `scripts/storage_recovery_manifest.py verify` before serving the restored app.
 4. Restore the shared backend and frontend environment files from the approved secret backup.
 5. Deploy backend and frontend using `DEPLOYMENT.md`.
 6. Run the release migration before switching the `current` symlinks.

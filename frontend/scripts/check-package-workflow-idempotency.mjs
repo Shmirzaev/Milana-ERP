@@ -197,6 +197,41 @@ const { postPackageWorkflow, pendingPackageWorkflow, reconcilePendingPackageWork
   await assert.rejects(postPackageWorkflow(corruptPath, body, 22), /invalid/);
   assert.equal(calls.length, callsBeforeCorrupt, "corrupt evidence must fail before minting or sending another key");
   assert.equal(localValues.get(corruptKey), "not-json");
+  const manualPackagingPath = "/api/packages/manual-packaging";
+  failure = "Network timeout";
+  await assert.rejects(postPackageWorkflow(manualPackagingPath, body, 41));
+  failure = null;
+  response = { status: "completed", result: { receipt_no: "WMR-QA", print_run: { id: 51 } } };
+  assert.equal((await reconcilePendingPackageWorkflow(manualPackagingPath, 41)).status, "completed");
+  assert.equal(calls.at(-1).url, "/api/packages/manual-packaging/reconcile");
+  assert.equal(pendingPackageWorkflow(manualPackagingPath, 41), null);
+  const productionPaths = ["/api/packages/record-damage", "/api/packages/print-runs/create-packages"];
+  for (const [index, first] of productionPaths.entries()) {
+    const alternate = productionPaths[1 - index];
+    const actor = 70 + index;
+    const physicalDamage = { work_order_id: 12, damaged_qty: 10 };
+    failure = "Network timeout";
+    await assert.rejects(postPackageWorkflow(first, physicalDamage, actor));
+    const originalKey = pendingPackageWorkflow(first, actor).requestKey;
+    const beforeAlternate = calls.length;
+    await assert.rejects(postPackageWorkflow(alternate, physicalDamage, actor), /Retry the saved/);
+    assert.equal(calls.length, beforeAlternate, "Another action cannot resubmit uncertain physical damage");
+    assert.equal(pendingPackageWorkflow(first, actor).requestKey, originalKey);
+    assert.equal(pendingPackageWorkflow(alternate, actor), null);
+    failure = null; response = { status: "completed", result: { id: 300, damaged_qty: 10 } };
+    await reconcilePendingPackageWorkflow(first, actor);
+    assert.equal(pendingPackageWorkflow(first, actor), null);
+    response = { ok: true };
+    await postPackageWorkflow(alternate, physicalDamage, actor);
+  }
+  // Concurrent preparation in different tabs uses the same actor/group lock.
+  // The first uncertain action leaves evidence before the alternate can send.
+  failure = "Network timeout";
+  const beforeRace = calls.length;
+  await Promise.allSettled(productionPaths.map(path => postPackageWorkflow(path, { work_order_id: 12, damaged_qty: 10 }, 72)));
+  assert.equal(calls.length - beforeRace, 1);
+  assert.equal(productionPaths.filter(path => pendingPackageWorkflow(path, 72)).length, 1);
+  failure = null;
   for (const lang of ["ru", "uz"]) assert.deepEqual(Object.keys(packageWorkflowCopy[lang]).sort(), Object.keys(packageWorkflowCopy.en).sort());
   console.log("Package request identity, cross-tab locking, generic reconciliation, unavailable-result cleanup, legacy migration, and locale tests passed");
 })().catch(error => { console.error(error); process.exitCode = 1; });

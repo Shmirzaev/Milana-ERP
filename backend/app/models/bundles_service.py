@@ -21,6 +21,7 @@ from app.schemas.order_reference import BusinessOrderAlias
 class SewingAccessoryGate:
     production_order_id: int
     transaction: object
+    sewing_factory_code: str | None = None
 
 
 @dataclass
@@ -34,15 +35,15 @@ class SewingReceiptContext:
     received_quantities_by_scope: dict[tuple[int, int | None], int]
 
 
-def verify_sewing_accessory_gate(db: Session, production_order_id: int) -> SewingAccessoryGate:
+def verify_sewing_accessory_gate(db: Session, production_order_id: int, *, sewing_factory_code: str | None = None) -> SewingAccessoryGate:
     """Verify the shared order-level gate for receipt calls in this transaction."""
     from app.models.inventory_service import ensure_accessories_issued_for_sewing
 
-    ensure_accessories_issued_for_sewing(db, production_order_id)
+    ensure_accessories_issued_for_sewing(db, production_order_id, sewing_factory_code=sewing_factory_code)
     transaction = db.get_transaction()
     if transaction is None:  # pragma: no cover - the gate always performs database reads
         raise RuntimeError("Accessory verification requires an active transaction")
-    return SewingAccessoryGate(production_order_id=production_order_id, transaction=transaction)
+    return SewingAccessoryGate(production_order_id=production_order_id, transaction=transaction, sewing_factory_code=sewing_factory_code)
 
 
 def find_bundle_by_scanned_code(db: Session, raw_code: str) -> Bundle | None:
@@ -443,10 +444,7 @@ def create_bundle(
     db.add(b)
     db.flush()
 
-    db.query(BusinessOrderAlias).filter(
-        BusinessOrderAlias.namespace == "BND", BusinessOrderAlias.reference == bundle_no,
-        BusinessOrderAlias.entity_id == 0,
-    ).update({BusinessOrderAlias.entity_id: b.id}, synchronize_session=False)
+    BusinessOrderAlias.link_reserved_bundle_reference(db, bundle_no, b.id)
 
     b.qr_code_url = bundle_qr_image_url(b.id)
     # also persist a barcode image for printing labels
@@ -474,16 +472,7 @@ def reserve_bundle_numbers(db: Session, count: int) -> list[str]:
         f"{prefix}-{number:0{width}d}"
         for number in range(start, start + count)
     ]
-    db.add_all([
-        BusinessOrderAlias(
-            namespace="BND",
-            entity_id=0,
-            reference=reference,
-            canonical_reference=reference,
-        )
-        for reference in references[1:]
-    ])
-    db.flush()
+    BusinessOrderAlias.reserve_bundle_references(db, references[1:])
     return references
 
 
@@ -562,7 +551,8 @@ def send_to_sewing(db: Session, bundle: Bundle, user_id: int | None = None):
         raise HTTPException(400, f"Bundle in status '{bundle.status}' cannot be sent to sewing")
     from app.models.inventory_service import ensure_accessories_issued_for_sewing
 
-    ensure_accessories_issued_for_sewing(db, int(bundle.production_order_id))
+    ensure_accessories_issued_for_sewing(db, int(bundle.production_order_id), sewing_factory_code=resolve_sewing_factory_code(bundle.sewing_factory_code),
+                                       production_batch_id=bundle.production_batch_id)
     from_code = DEPT_PRT if bundle.status == "received_printing" else DEPT_CUT
     factory_code = resolve_sewing_factory_code(bundle.sewing_factory_code)
     target = _sewing_factory_dept(db, factory_code)
@@ -599,9 +589,10 @@ def receive_at_sewing(
         raise HTTPException(409, "This bundle sticker was already received at sewing")
     production_order_id = int(bundle.production_order_id)
     if accessory_gate is None:
-        accessory_gate = verify_sewing_accessory_gate(db, production_order_id)
+        accessory_gate = verify_sewing_accessory_gate(db, production_order_id, sewing_factory_code=resolve_sewing_factory_code(bundle.sewing_factory_code))
     elif (
         accessory_gate.production_order_id != production_order_id
+        or accessory_gate.sewing_factory_code not in (None, resolve_sewing_factory_code(bundle.sewing_factory_code))
         or accessory_gate.transaction is not db.get_transaction()
     ):
         raise HTTPException(409, "Accessory verification does not match this receipt transaction")
@@ -650,6 +641,11 @@ def receive_at_sewing(
         )
         if receipt_context is not None:
             received_qty = receipt_context.received_quantities_by_scope.get(quantity_scope, 0)
+            if wo.production_batch_id is None:
+                dedicated_ids = {row.production_batch_id for row in receipt_context.work_orders.get(production_order_id, [])
+                                 if row.operation == "sewing" and row.production_batch_id is not None and row.status != "cancelled"}
+                received_qty -= sum(receipt_context.received_quantities_by_scope.get((production_order_id, bid), 0)
+                                    for bid in dedicated_ids)
         else:
             qty_filters = [
                 Bundle.production_order_id == bundle.production_order_id,
@@ -657,9 +653,10 @@ def receive_at_sewing(
             ]
             if wo.production_batch_id is not None:
                 qty_filters.append(Bundle.production_batch_id == wo.production_batch_id)
+            from app.models.production.batch_scope_service import filter_work_order_batches
             received_qty = int(
-                db.query(func.coalesce(func.sum(Bundle.quantity), 0))
-                .filter(*qty_filters)
+                filter_work_order_batches(db.query(func.coalesce(func.sum(Bundle.quantity), 0))
+                .filter(*qty_filters), Bundle.production_batch_id, wo)
                 .scalar()
                 or 0
             )

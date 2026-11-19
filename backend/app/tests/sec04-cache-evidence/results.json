@@ -1,0 +1,48 @@
+{
+  "network": [
+    {
+      "path": "/storage/model-files/thumb/sec04-verification.png",
+      "status": 200
+    },
+    {
+      "path": "/storage/model-files/sec04-verification.png",
+      "status": 200
+    },
+    {
+      "path": "/storage/model-files/thumb/sec04-verification.png",
+      "status": 200
+    },
+    {
+      "path": "/storage/model-files/sec04-verification.png",
+      "status": 401
+    },
+    {
+      "path": "/storage/model-files/thumb/sec04-verification.png",
+      "status": 401
+    }
+  ],
+  "revokedResponses": [
+    {
+      "path": "/storage/model-files/sec04-verification.png",
+      "status": 401,
+      "cacheControl": "private, no-store",
+      "body": "{\"detail\":\"Inactive or unknown user\"}"
+    },
+    {
+      "path": "/storage/model-files/thumb/sec04-verification.png?size=160",
+      "status": 401,
+      "cacheControl": "private, no-store",
+      "body": "{\"detail\":\"Inactive or unknown user\"}"
+    }
+  ],
+  "cachedRequestCount": 3,
+  "readback": {
+    "user": "sec04-viewer@example.com",
+    "is_active": false,
+    "model": "SEC04-VERIFY-001",
+    "image_records": 1,
+    "file_exists": true,
+    "postgres_connections": 4
+  },
+  "pageErrors": []
+}

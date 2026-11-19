@@ -7,27 +7,21 @@ import { api, fetcher } from "@/lib/api";
 import { formatBatchLabel, formatBatchSerial } from "@/lib/batchSerial";
 import FirstGradePackaging from "@/components/FirstGradePackaging";
 import UslugaPackaging from "@/components/UslugaPackaging";
+import PendingPackageWorkflow from "@/components/PendingPackageWorkflow";
 import PackageQrSection from "@/components/PackageQrSection";
 import { postPackageWorkflow, type PackagePrintRun } from "@/lib/packageWorkflow";
 import PageHeader from "@/components/PageHeader";
-import { operationLabel, statusLabel } from "@/components/StagePipeline";
+import { statusLabel } from "@/components/StagePipeline";
 import WorkOrderProductInfo from "@/components/WorkOrderProductInfo";
+import PackageBatchBreakdownEditor from "@/components/PackageBatchBreakdownEditor";
+import { flexibleBatchTraceText, packageBatchTraceText, packageTracePlanKey, traceItems, tracePackagePlans, type BatchTraceDraft } from "@/lib/packageBatchTrace";
+import { packagingAvailabilityText } from "@/lib/packagingAvailabilityText";
 import { can, useMe } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
-import { numberOrFallback, numberOrZero, parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
+import { numberOrFallback, parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
 import { orderReference } from "@/lib/orderRef";
+import { directPackagingDamageText, packagingDamageActionText, multiNastilText, planSelectedNastils, type PackagePlan, type PackagePlanItem, type PackageSourceBalances } from "@/lib/multiNastilPackaging";
 
-type PackagePlanItem = { model_id: number; color: string; size: string; quantity: number };
-type BatchAllocationPlan = { production_batch_id: number; quantity: number; label: string };
-type PackagePlan = { items: PackagePlanItem[]; batch_allocations?: BatchAllocationPlan[] };
-type PackagingRecordForm = {
-  production_batch_id: number;
-  input_qty: NumberInputValue;
-  packed_qty: NumberInputValue;
-  damaged_qty: NumberInputValue;
-  packaging_material_used: string;
-  notes: string;
-};
 type PackageRecipeItem = { size: string; quantity: NumberInputValue };
 
 function trimPackageItemsToQuantity(items: PackagePlanItem[], targetQty: number) {
@@ -50,37 +44,11 @@ function parseOptionalDecimalInput(value: string | number | null | undefined): n
   return Number(normalized);
 }
 
-function allocateDemandBySize(items: Array<{ size: string; planned_quantity: number }>, targetQty: number) {
-  const target = Math.max(0, Math.floor(Number(targetQty || 0)));
-  const total = items.reduce((s, it) => s + Math.max(0, Number(it.planned_quantity || 0)), 0);
-  if (target <= 0 || total <= 0) {
-    return items.map((it) => ({ ...it, planned_quantity: 0 }));
-  }
-  if (target === total) return items;
-
-  const shares = items.map((it, index) => {
-    const planned = Math.max(0, Number(it.planned_quantity || 0));
-    const exact = (target * planned) / total;
-    const base = Math.floor(exact);
-    return { index, size: it.size, planned_quantity: base, remainder: exact - base };
-  });
-  let used = shares.reduce((s, it) => s + it.planned_quantity, 0);
-  let left = target - used;
-  const ranked = [...shares].sort((a, b) => b.remainder - a.remainder);
-  let idx = 0;
-  while (left > 0 && ranked.length > 0) {
-    ranked[idx % ranked.length].planned_quantity += 1;
-    left -= 1;
-    idx += 1;
-  }
-
-  return shares
-    .sort((a, b) => a.index - b.index)
-    .map(({ size, planned_quantity }) => ({ size, planned_quantity }));
-}
-
 export default function PackagingPage() {
-  const { t } = useT();
+  const { t, lang } = useT();
+  const multiCopy = multiNastilText[lang];
+  const damageCopy = directPackagingDamageText[lang];
+  const damageActionCopy = packagingDamageActionText[lang];
   const { me } = useMe();
   const params = useParams<{ id: string }>();
   const id = Number(params.id);
@@ -91,44 +59,38 @@ export default function PackagingPage() {
     wo ? `/api/work-orders/${id}/packaging-batch-progress` : null,
     fetcher,
   );
+  const { data: packageSources, error: packageSourcesError, isLoading: packageSourcesLoading, mutate: mutatePackageSources } = useSWR<PackageSourceBalances>(
+    wo && po?.source_type !== "usluga" && can(me, "packaging.packages") ? `/api/packages/sources/${id}` : null,
+    fetcher,
+  );
   const { data: so } = useSWR<any>(po?.sales_order_id ? `/api/sales-orders/${po.sales_order_id}` : null, fetcher);
   const { data: model } = useSWR<any>(po?.model_id ? `/api/${po.source_type === "usluga" ? "usluga/" : ""}models/${po.model_id}` : null, fetcher);
   const { data: customers = [] } = useSWR<any[]>("/api/customers", fetcher);
   const customerMap = useMemo(() => new Map(customers.map((c) => [c.id, c.name])), [customers]);
 
-  const [rec, setRec] = useState<PackagingRecordForm>({
-    production_batch_id: 0,
-    input_qty: "",
-    packed_qty: "",
-    damaged_qty: "",
-    packaging_material_used: "",
-    notes: "",
-  });
+  const [selectedBatchId, setSelectedBatchId] = useState(0);
   const [pkgItems, setPkgItems] = useState<PackageRecipeItem[]>([{ size: "M", quantity: 60 }]);
-  const [overrideCap, setOverrideCap] = useState(false);
   const [capacity, setCapacity] = useState<NumberInputValue>(60);
   const [weightKg, setWeightKg] = useState("");
   const [packageWeights, setPackageWeights] = useState<string[]>([]);
-  const [color, setColor] = useState("white");
+  const [chosenColor, setColor] = useState("");
+  const color = chosenColor || String(po?.items?.find((item: any) => item.color)?.color || "");
   const [copies, setCopies] = useState<NumberInputValue>(1);
   const [copiesTouched, setCopiesTouched] = useState(false);
   const [mergeAcrossBatches, setMergeAcrossBatches] = useState(false);
+  const [selectedMergeBatchIds, setSelectedMergeBatchIds] = useState<number[]>([]);
   const [packOnlyFullPackages, setPackOnlyFullPackages] = useState(false);
-  const [recMsg, setRecMsg] = useState("");
   const [pkgNotice, setPkgNotice] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [pkg, setPkg] = useState<any>(null);
   const [packageQrRefreshKey, setPackageQrRefreshKey] = useState(0);
+  const [damagedQty, setDamagedQty] = useState<NumberInputValue>("");
+  const [batchTraceDraft, setBatchTraceDraft] = useState<{ key: string; values: BatchTraceDraft }>({ key: "", values: {} });
   const canEditBreakdown = can(me, "*", "planning.production", "cutting.records", "packaging.records");
   const isAlreadyBatched = Array.isArray(po?.batches) && po.batches.length > 0;
   const batchItems = useMemo(() => (
     Array.isArray(batchProgress?.items) ? batchProgress.items : []
   ), [batchProgress?.items]);
-  const selectedBatchProgress = useMemo(() => {
-    const selectedId = Number(rec.production_batch_id || 0);
-    return batchItems.find((row: any) => Number(row?.id || 0) === selectedId) || null;
-  }, [batchItems, rec.production_batch_id]);
-
   const orderColorItems = useMemo(() => {
     const allItems = po?.items || [];
     const rows = allItems.filter((it: any) => String(it?.color || "").toLowerCase() === String(color || "").toLowerCase());
@@ -142,27 +104,12 @@ export default function PackagingPage() {
     return Array.from(bySize.entries()).map(([size, planned_quantity]) => ({ size, planned_quantity }));
   }, [po?.items, color]);
 
-  const availableInputQty = Math.max(0, Number(
-    (isAlreadyBatched ? selectedBatchProgress : batchProgress)?.available_input_qty ?? 0,
-  ));
-  const packageableColorQty = Math.max(0, Number(
-    (isAlreadyBatched ? selectedBatchProgress : batchProgress)?.available_to_package ?? 0,
-  ));
-
-  const colorOrderItems = useMemo(
-    () => allocateDemandBySize(orderColorItems, packageableColorQty),
-    [orderColorItems, packageableColorQty],
-  );
-
-  const totalColorQty = useMemo(
-    () => colorOrderItems.reduce((s: number, it: any) => s + Number(it?.planned_quantity || 0), 0),
-    [colorOrderItems],
-  );
-
-  const suggestedCopies = useMemo(() => {
-    const cap = Math.max(1, Number(capacity || 0));
-    return totalColorQty > 0 ? Math.max(1, Math.ceil(totalColorQty / cap)) : 1;
-  }, [totalColorQty, capacity]);
+  const selectedSource = isAlreadyBatched
+    ? packageSources?.items.find(row => row.id === selectedBatchId)
+    : packageSources?.unbatched_source;
+  const packageableColorQty = Math.max(0, Number(selectedSource?.available_to_package ?? 0) - Number(damagedQty || 0));
+  const colorOrderItems = orderColorItems;
+  const suggestedCopies = 1;
 
   const autoPackageItems = useMemo(() => {
     const cap = Math.max(1, Number(capacity || 0));
@@ -215,96 +162,27 @@ export default function PackagingPage() {
       for (let i = 0; i < cap; i += 1) ranked[i].quantity += 1;
     }
 
-    return out.map(({ size, quantity }) => ({ size, quantity }));
+    return out.filter(item => item.quantity > 0).map(({ size, quantity }) => ({ size, quantity }));
   }, [colorOrderItems, capacity]);
 
   const packingPreview = useMemo(() => {
-    const perPackage = pkgItems
-      .map((it) => ({ size: String(it.size || "").trim(), qty: Math.max(0, Number(it.quantity || 0)) }))
-      .filter((it) => it.size && it.qty > 0);
-    const perPackageMap = new Map<string, number>();
-    for (const it of perPackage) perPackageMap.set(it.size, (perPackageMap.get(it.size) || 0) + it.qty);
-
-    const demandMap = new Map<string, number>();
-    for (const it of colorOrderItems) demandMap.set(String(it.size || ""), Math.max(0, Number(it.planned_quantity || 0)));
-
-    const packageTotal = perPackage.reduce((s, it) => s + it.qty, 0);
-    if (perPackage.length === 0 || packageTotal <= 0) {
-      return { fullCount: 0, notFullCount: 0, packageTotal: 0, partialPackages: [] as Array<{ index: number; items: Array<{ size: string; qty: number }>; total: number }> };
-    }
-
-    let fullByRecipe = Number.POSITIVE_INFINITY;
-    for (const it of perPackage) {
-      const demand = demandMap.get(it.size) || 0;
-      fullByRecipe = Math.min(fullByRecipe, Math.floor(demand / it.qty));
-    }
-    if (!Number.isFinite(fullByRecipe)) fullByRecipe = 0;
-
-    const targetCopies = Math.max(1, Number(copies || 1));
-    const fullCount = Math.max(0, Math.min(targetCopies, fullByRecipe));
-
-    const remainingMap = new Map<string, number>();
-    for (const [size, demand] of demandMap.entries()) {
-      const used = (perPackageMap.get(size) || 0) * fullCount;
-      remainingMap.set(size, Math.max(0, demand - used));
-    }
-    const remainingTotal = Array.from(remainingMap.values()).reduce((a, b) => a + b, 0);
-    const partialFromDemand = remainingTotal > 0 ? Math.ceil(remainingTotal / packageTotal) : 0;
-    const extraEmpty = Math.max(0, targetCopies - fullCount - partialFromDemand);
-
-    const partialPackages: Array<{ index: number; items: Array<{ size: string; qty: number }>; total: number }> = [];
-    for (let p = 0; p < partialFromDemand; p += 1) {
-      let capLeft = packageTotal;
-      const packItems: Array<{ size: string; qty: number }> = [];
-
-      for (const it of perPackage) {
-        if (capLeft <= 0) break;
-        const rem = remainingMap.get(it.size) || 0;
-        const take = Math.min(rem, it.qty, capLeft);
-        if (take > 0) {
-          packItems.push({ size: it.size, qty: take });
-          remainingMap.set(it.size, rem - take);
-          capLeft -= take;
-        }
-      }
-
-      if (capLeft > 0) {
-        let progress = true;
-        while (capLeft > 0 && progress) {
-          progress = false;
-          for (const it of perPackage) {
-            if (capLeft <= 0) break;
-            const rem = remainingMap.get(it.size) || 0;
-            if (rem > 0) {
-              const idx = packItems.findIndex((x) => x.size === it.size);
-              if (idx >= 0) packItems[idx].qty += 1;
-              else packItems.push({ size: it.size, qty: 1 });
-              remainingMap.set(it.size, rem - 1);
-              capLeft -= 1;
-              progress = true;
-            }
-          }
-        }
-      }
-
-      const total = packItems.reduce((s, x) => s + x.qty, 0);
-      partialPackages.push({ index: p + 1, items: packItems, total });
-    }
-
-    for (let i = 0; i < extraEmpty; i += 1) {
-      partialPackages.push({ index: partialFromDemand + i + 1, items: [], total: 0 });
-    }
-
-    return {
-      fullCount,
-      notFullCount: partialPackages.length,
-      packageTotal,
-      partialPackages,
-    };
-  }, [pkgItems, colorOrderItems, copies]);
+    const perPackage = pkgItems.map(it => ({ size: String(it.size || "").trim(), qty: Number(it.quantity) }));
+    const packageTotal = perPackage.reduce((sum, item) => sum + item.qty, 0);
+    const empty = { fullCount: 0, notFullCount: 0, packageTotal: 0,
+      partialPackages: [] as Array<{ index: number; items: Array<{ size: string; qty: number }>; total: number }> };
+    if (!perPackage.length || perPackage.some(it => !it.size || !Number.isInteger(it.qty) || it.qty <= 0)
+      || !Number.isInteger(Number(copies)) || Number(copies) < 1 || Number(copies) > 200) return empty;
+    const fullCount = Math.min(Number(copies), Math.floor(packageableColorQty / packageTotal));
+    const remaining = packageableColorQty - fullCount * packageTotal;
+    const partialQty = Number(copies) > fullCount ? Math.min(remaining, packageTotal) : 0;
+    const partialItems = trimPackageItemsToQuantity(perPackage.map(it => ({ model_id: 0, color, size: it.size, quantity: it.qty })), partialQty);
+    const partialPackages = partialQty > 0 ? [{ index: fullCount + 1,
+      items: partialItems.map(it => ({ size: it.size, qty: it.quantity })), total: partialQty }] : [];
+    return { fullCount, notFullCount: partialPackages.length, packageTotal, partialPackages };
+  }, [pkgItems, packageableColorQty, copies, color]);
 
   const basePackageItems = useMemo<PackagePlanItem[]>(() => (
-    pkgItems
+    pkgItems.some(item => !item.size.trim() || !Number.isInteger(Number(item.quantity)) || Number(item.quantity) <= 0) ? [] : pkgItems
       .map((i) => ({
         model_id: Number(po?.model_id || 0),
         color,
@@ -332,76 +210,29 @@ export default function PackagingPage() {
         if (items.length > 0) plans.push({ items });
       }
     }
-    if (plans.length === 0 && basePackageItems.length > 0 && !packOnlyFullPackages) plans.push({ items: basePackageItems });
     return plans;
   }, [basePackageItems, color, packOnlyFullPackages, packingPreview.fullCount, packingPreview.partialPackages, po?.model_id]);
 
   const batchPackageAvailability = useMemo(() => (
-    batchItems
-      .map((row: any) => {
-        const hasPackageAccounting = row?.available_to_package !== undefined || Number(row?.packaged_qty || 0) > 0;
-        const available = hasPackageAccounting
-          ? Math.max(0, Number(row?.available_to_package || 0))
-          : Math.max(0, Number(row?.packed_qty || 0));
+    (Array.isArray(packageSources?.items) ? packageSources.items : [])
+      .map((row) => {
+        const available = Math.max(0, Number(row?.available_to_package || 0));
         return {
           id: Number(row?.id || 0),
           label: formatBatchLabel(row, po?.id),
           available,
+          actualSizeVerified: row.actual_size_verified,
+          sizeBalances: row.size_balances,
         };
       })
-      .filter((row: any) => row.id > 0 && row.available > 0)
-  ), [batchItems, po?.id]);
+      .filter((row) => row.id > 0)
+  ), [packageSources?.items, po?.id]);
 
-  const mergedPackingPlan = useMemo(() => {
-    const packageTotal = basePackageItems.reduce((s, i) => s + Math.max(0, Number(i.quantity || 0)), 0);
-    const totalAvailable = batchPackageAvailability.reduce((s, b) => s + b.available, 0);
-    if (!isAlreadyBatched || packageTotal <= 0 || basePackageItems.length === 0) {
-      return {
-        plans: [] as PackagePlan[],
-        totalAvailable,
-        pendingQty: totalAvailable,
-        pendingAllocations: [] as BatchAllocationPlan[],
-        crossBatchCount: 0,
-        previewLines: [] as string[],
-      };
-    }
-
-    const sources = batchPackageAvailability.map((b) => ({ ...b }));
-    const fullCount = Math.floor(totalAvailable / packageTotal);
-    const plans: PackagePlan[] = [];
-    let sourceIndex = 0;
-
-    for (let i = 0; i < fullCount; i += 1) {
-      let left = packageTotal;
-      const allocations: BatchAllocationPlan[] = [];
-      while (left > 0 && sourceIndex < sources.length) {
-        const source = sources[sourceIndex];
-        const take = Math.min(left, source.available);
-        if (take > 0) {
-          allocations.push({ production_batch_id: source.id, quantity: take, label: source.label });
-          source.available -= take;
-          left -= take;
-        }
-        if (source.available <= 0) sourceIndex += 1;
-      }
-      if (left === 0) {
-        plans.push({ items: basePackageItems, batch_allocations: allocations });
-      }
-    }
-
-    const pendingSources = sources.slice(sourceIndex).filter((b) => Math.max(0, b.available) > 0);
-    const pendingQty = pendingSources.reduce((s, b) => s + Math.max(0, b.available), 0);
-    const pendingAllocations = pendingSources.map((source) => ({
-      production_batch_id: source.id,
-      quantity: Math.max(0, source.available),
-      label: source.label,
-    }));
-    const crossBatchPlans = plans.filter((p) => (p.batch_allocations || []).length > 1);
-    const previewLines = crossBatchPlans.slice(0, 3).map((p) => (
-      (p.batch_allocations || []).map((a) => `${a.label}: ${a.quantity}`).join(" + ")
-    ));
-    return { plans, totalAvailable, pendingQty, pendingAllocations, crossBatchCount: crossBatchPlans.length, previewLines };
-  }, [basePackageItems, batchPackageAvailability, isAlreadyBatched]);
+  const selectedMergeBatchCount = batchPackageAvailability.filter((source) => source.available > 0 && selectedMergeBatchIds.includes(source.id)).length;
+  const mergedPackingPlan = useMemo(() => planSelectedNastils(
+    basePackageItems, batchPackageAvailability, isAlreadyBatched ? selectedMergeBatchIds : [],
+    Math.min(200, Math.max(0, Math.floor(Number(copies || 0)))),
+  ), [basePackageItems, batchPackageAvailability, copies, isAlreadyBatched, selectedMergeBatchIds]);
 
   const mergedPartialItems = useMemo(
     () => trimPackageItemsToQuantity(basePackageItems, mergedPackingPlan.pendingQty),
@@ -409,9 +240,10 @@ export default function PackagingPage() {
   );
 
   const packagePlans = useMemo<PackagePlan[]>(() => {
+    if (!Number.isInteger(Number(copies)) || Number(copies) < 1 || Number(copies) > 200) return [];
     if (!mergeAcrossBatches) return standardPackagePlans;
     if (packOnlyFullPackages || mergedPackingPlan.pendingQty <= 0 || mergedPartialItems.length === 0) {
-      return mergedPackingPlan.plans;
+      return mergedPackingPlan.plans.slice(0, Math.max(0, Math.floor(Number(copies || 0))));
     }
     return [
       ...mergedPackingPlan.plans,
@@ -419,8 +251,9 @@ export default function PackagingPage() {
         items: mergedPartialItems,
         batch_allocations: mergedPackingPlan.pendingAllocations,
       },
-    ];
+    ].slice(0, Math.max(0, Math.floor(Number(copies || 0))));
   }, [
+    copies,
     mergeAcrossBatches,
     mergedPackingPlan.pendingAllocations,
     mergedPackingPlan.pendingQty,
@@ -429,7 +262,25 @@ export default function PackagingPage() {
     packOnlyFullPackages,
     standardPackagePlans,
   ]);
+  const manualMixedAttribution = mergeAcrossBatches && packagePlans.some(plan => traceItems(plan.items).length > 1);
+  const selectedTraceSources = batchPackageAvailability.filter(source => source.available > 0 && selectedMergeBatchIds.includes(source.id));
+  const sourceTraceBudgets = manualMixedAttribution ? Object.fromEntries(selectedTraceSources.map(source => [source.id, source.available])) : undefined;
+  const sourceSizeTraceBudgets = manualMixedAttribution ? Object.fromEntries(selectedTraceSources.filter(source => source.actualSizeVerified === true).map(source => [source.id,
+    Object.fromEntries((source.sizeBalances ?? []).map(row => [row.size.trim(), row.remaining ?? 0])),
+  ])) : undefined;
+  const attributionPlans = manualMixedAttribution ? packagePlans.map(plan => ({ ...plan,
+    batch_allocations: selectedTraceSources.map(source => ({ production_batch_id: source.id, quantity: source.available, label: source.label })),
+  })) : packagePlans;
+  const tracePlanKey = packageTracePlanKey(attributionPlans);
+  const traceDraft = batchTraceDraft.key === tracePlanKey ? batchTraceDraft.values : {};
+  const tracedPackages = tracePackagePlans(attributionPlans, traceDraft, sourceTraceBudgets, sourceSizeTraceBudgets);
+  const selectedSourcePreview = (tracedPackages.valid ? tracedPackages.plans : []).slice(0, 3).map(plan =>
+    (plan.batch_allocations || []).map(source => `${source.label}: ${source.quantity}`).join(" + "),
+  ).filter(Boolean);
   const packageWeightCount = packagePlans.length;
+  const createsMergedPartial = !packOnlyFullPackages && Number(copies) > mergedPackingPlan.plans.length;
+  const selectedOutputRemaining = Math.max(0, (mergeAcrossBatches ? mergedPackingPlan.totalAvailable : packageableColorQty)
+    - packagePlans.reduce((sum, plan) => sum + plan.items.reduce((quantity, item) => quantity + item.quantity, 0), 0));
 
   useEffect(() => {
     setPkgItems(autoPackageItems);
@@ -446,15 +297,16 @@ export default function PackagingPage() {
   }, [packageWeightCount, weightKg]);
 
   useEffect(() => {
-    if (!isAlreadyBatched || !Array.isArray(po?.batches) || po.batches.length === 0) return;
-    setRec((prev) => {
-      if (prev.production_batch_id) return prev;
-      return { ...prev, production_batch_id: Number(po.batches[0].id || 0) };
-    });
-  }, [isAlreadyBatched, po?.batches]);
+    if (!isAlreadyBatched || !packageSources?.items.length) return;
+    // Revalidation must not move a draft (especially damage) to another Nastil.
+    // A removed selection stays invalid until the operator chooses a new one.
+    setSelectedBatchId(previous => previous || (packageSources.items.find(row => row.available_to_package > 0)?.id ?? packageSources.items[0].id));
+  }, [isAlreadyBatched, packageSources]);
 
   async function refreshPackagingOutputs() {
-    await Promise.all([mutateBatchProgress(), mutateWo(), mutatePo()]);
+    await Promise.all([mutateBatchProgress(), mutatePackageSources(), mutateWo(), mutatePo()]);
+    const sizePath = `/api/packages/first-grade/size-entry/${po?.id}`;
+    await mutateCache((key) => typeof key === "string" && (key === sizePath || key.startsWith(`${sizePath}?`)));
     setPackageQrRefreshKey((prev) => prev + 1);
   }
 
@@ -464,35 +316,42 @@ export default function PackagingPage() {
     await refreshPackagingOutputs();
   }
 
-  async function submitRec(e: React.FormEvent) {
-    e.preventDefault();
-    setRecMsg("");
-    setPkgNotice(null);
-    if (isAlreadyBatched && !rec.production_batch_id) {
-      setRecMsg(t("batch.selectBeforeSaving", { operation: operationLabel("packaging", t).toLowerCase() }));
-      return;
-    }
+  async function recordDamageOnly() {
+    if (isCreating || !me) return;
+    setPkgNotice(null); setIsCreating(true);
     try {
-      await api.post("/api/packaging/records", {
-        work_order_id: id,
-        ...rec,
-        input_qty: numberOrZero(rec.input_qty),
-        packed_qty: numberOrZero(rec.packed_qty),
-        damaged_qty: numberOrZero(rec.damaged_qty),
-        production_batch_id: rec.production_batch_id || null,
-      });
-      await refreshPackagingOutputs();
-      setRecMsg(t("msg.saved"));
-    } catch (e: any) {
-      setRecMsg(e.message);
-    }
+      const quantity = Number(damagedQty || 0);
+      if (mergeAcrossBatches || packageSourcesLoading || packageSourcesError || !selectedSource
+        || !Number.isInteger(quantity) || quantity <= 0 || quantity > selectedSource.available_input_qty) {
+        throw new Error(damageCopy.invalid);
+      }
+      await postPackageWorkflow("/api/packages/record-damage", {
+        work_order_id: id, production_batch_id: selectedBatchId || null, damaged_qty: quantity,
+      }, me.id);
+      setDamagedQty("");
+      setPkgNotice({ type: "success", text: damageActionCopy.saved });
+      try { await refreshPackagingOutputs(); }
+      catch (error: any) { setPkgNotice({ type: "success", text: `${damageActionCopy.saved} ${error.message}` }); }
+    } catch (error: any) {
+      setPkgNotice({ type: "error", text: error.message });
+    } finally { setIsCreating(false); }
   }
 
   async function createPkg(e: React.FormEvent) {
     e.preventDefault();
+    if (isCreating) return;
     setPkgNotice(null);
     setIsCreating(true);
     try {
+      if (!Number.isInteger(Number(copies)) || Number(copies) < 1 || Number(copies) > 200) {
+        throw new Error(multiCopy.packCount);
+      }
+      if (packageSourcesLoading || packageSourcesError || !packageSources) throw new Error(multiCopy.noOutput);
+      if (!mergeAcrossBatches && isAlreadyBatched && !selectedSource) throw new Error(multiCopy.chooseBatch);
+      if (mergeAcrossBatches && selectedMergeBatchCount < 2) throw new Error(multiCopy.chooseTwo);
+      if (!tracedPackages.valid) throw new Error(manualMixedAttribution ? flexibleBatchTraceText[lang].invalid : packageBatchTraceText[lang].invalid);
+      if (!mergeAcrossBatches && (!Number.isInteger(Number(damagedQty || 0)) || Number(damagedQty || 0) < 0
+        || Number(damagedQty || 0) > Number(selectedSource?.available_input_qty || 0))) throw new Error(damageCopy.invalid);
       const weightValues = packagePlans.map((_, index) => {
         return parseOptionalDecimalInput(packageWeights[index]);
       });
@@ -508,76 +367,31 @@ export default function PackagingPage() {
         package_type: "bag",
         capacity: numberOrFallback(capacity, 1),
         weight_kg: null,
-        override_capacity: overrideCap,
-        production_batch_id: mergeAcrossBatches ? null : rec.production_batch_id || null,
+        production_batch_id: mergeAcrossBatches ? null : selectedBatchId || null,
       };
       if (packagePlans.length === 0) {
         throw new Error(localizeError("No package items to create."));
       }
 
-      if (po?.source_type !== "usluga") {
-        const run = await postPackageWorkflow<PackagePrintRun>("/api/packages/print-runs/create-packages", {
-          packages: packagePlans.map((plan, index) => ({
+      const run = await postPackageWorkflow<PackagePrintRun>("/api/packages/print-runs/create-packages", {
+          work_order_id: id,
+          ...(!mergeAcrossBatches && Number(damagedQty) > 0 ? { damaged_qty: Number(damagedQty) } : {}),
+          packages: tracedPackages.plans.map((plan, index) => ({
             ...payloadBase, weight_kg: weightValues[index], items: plan.items,
             batch_allocations: plan.batch_allocations || [],
           })),
         }, me!.id);
         setPkg({ id: run.package_ids[0], package_no: run.run_no, barcode: "bulk" });
+        setDamagedQty("");
+        setBatchTraceDraft({ key: "", values: {} });
         setPkgNotice({ type: "success", text: t("page.packaging.bulkCreatedWithFirst", { count: run.count, no: run.run_no }) });
-        await refreshPackagingOutputs();
         // Creation already succeeded: a blocked print window must not suggest
         // repeating package creation. The saved run remains available below.
-        try { await api.openLabel(`/api/packages/print-runs/${run.id}/label`); }
+        try {
+          await refreshPackagingOutputs();
+          await api.openLabel(`/api/packages/print-runs/${run.id}/label`);
+        }
         catch (printError: any) { setPkgNotice({ type: "success", text: `${run.run_no}: ${printError.message}` }); }
-        return;
-      }
-
-      const createsPartialPackage = !packOnlyFullPackages && packingPreview.partialPackages.some((p) => p.total > 0);
-      if (!mergeAcrossBatches && packagePlans.length > 1 && !createsPartialPackage) {
-        const r = await api.post("/api/packages/bulk", {
-          ...payloadBase,
-          items: packagePlans[0].items,
-          count: packagePlans.length,
-          weight_kg_values: weightValues,
-        });
-        setPkg({ id: r.package_ids?.[0], package_no: r.package_nos?.[0], barcode: "bulk" });
-        const createdCount = Number(r?.count || packagePlans.length || 0);
-        const firstPackageNo = r?.package_nos?.[0];
-        setPkgNotice({
-          type: "success",
-          text: firstPackageNo
-            ? t("page.packaging.bulkCreatedWithFirst", { count: createdCount, no: firstPackageNo })
-            : t("page.packaging.bulkCreated", { count: createdCount }),
-        });
-        await refreshPackagingOutputs();
-        if (r.package_ids?.length) {
-          await api.openLabel(`/api/packages/label-sheet/by-ids?ids=${r.package_ids.join(",")}`);
-        }
-      } else {
-        const created = [];
-        for (let index = 0; index < packagePlans.length; index += 1) {
-          const plan = packagePlans[index];
-          created.push(await api.post("/api/packages", {
-            ...payloadBase,
-            weight_kg: weightValues[index],
-            items: plan.items,
-            batch_allocations: plan.batch_allocations || [],
-          }));
-        }
-        const r = created[0];
-        setPkg(packagePlans.length > 1 ? { id: r?.id, package_no: r?.package_no, barcode: "bulk" } : r);
-        setPkgNotice({
-          type: "success",
-          text: packagePlans.length > 1
-            ? t("page.packaging.bulkCreatedWithFirst", { count: created.length, no: r?.package_no || "#" })
-            : t("page.packaging.singleCreated", { no: r?.package_no || "#" }),
-        });
-        const ids = created.map((p) => p?.id).filter(Boolean);
-        await refreshPackagingOutputs();
-        if (ids.length > 1) {
-          await api.openLabel(`/api/packages/label-sheet/by-ids?ids=${ids.join(",")}`);
-        }
-      }
     } catch (e: any) {
       setPkgNotice({ type: "error", text: e?.message || t("page.packaging.createFailed") });
     } finally {
@@ -614,54 +428,8 @@ export default function PackagingPage() {
         canEditBreakdown={canEditBreakdown}
         onSaveBreakdown={saveBreakdown}
       />
-      <div className={`mb-4 grid gap-4 ${isAlreadyBatched ? "2xl:grid-cols-[360px_minmax(0,1fr)]" : "max-w-3xl"}`}>
-        <form onSubmit={submitRec} className="card p-4">
-          <div className="mb-3 text-base font-semibold">{t("btn.savePackagingRecord")}</div>
-          <div className="grid grid-cols-2 gap-3">
-            {isAlreadyBatched && (
-              <div className="col-span-2">
-                <label className="label">{t("batch.orderBatch")}</label>
-                <select
-                  className="input"
-                  value={rec.production_batch_id}
-                  onChange={(e) => {
-                    setRec({ ...rec, production_batch_id: Number(e.target.value) });
-                    setCopiesTouched(false);
-                  }}
-                >
-                  <option value={0}>{t("batch.selectBatch")}</option>
-                  {batchItems.map((b: any) => (
-                    <option key={b.id} value={b.id}>
-                      {formatBatchLabel(b, po?.id)} ({b.sewing_output_qty})
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-            <div>
-              <label className="label">{t("field.inputQty")}</label>
-              <div className="text-xs text-slate-500">{t("field.available")}: {availableInputQty}</div>
-              <input className="input" type="number" min={0} max={availableInputQty} value={rec.input_qty} onChange={(e) => setRec({ ...rec, input_qty: parseNumberInput(e.target.value) })} />
-            </div>
-            <div>
-              <label className="label">{t("field.output")}</label>
-              <input className="input" type="number" min={0} max={Math.min(availableInputQty, numberOrZero(rec.input_qty))} value={rec.packed_qty} onChange={(e) => setRec({ ...rec, packed_qty: parseNumberInput(e.target.value) })} />
-            </div>
-            <div>
-              <label className="label">{t("field.damaged")}</label>
-              <input className="input" type="number" value={rec.damaged_qty} onChange={(e) => setRec({ ...rec, damaged_qty: parseNumberInput(e.target.value) })} />
-            </div>
-            <div>
-              <label className="label">{t("field.materialUsed")}</label>
-              <input className="input" value={rec.packaging_material_used} onChange={(e) => setRec({ ...rec, packaging_material_used: e.target.value })} />
-            </div>
-          </div>
-          <div className="mt-3 flex items-center gap-3">
-            <button className="btn btn-primary">{t("btn.savePackagingRecord")}</button>
-            {recMsg && <div className="text-sm text-slate-600">{recMsg}</div>}
-          </div>
-        </form>
-
+      <p className="mb-4 text-sm text-slate-600">{multiCopy.directHint}</p>
+      <div className="mb-4">
         {isAlreadyBatched && (
           <div className="card p-4">
             <div className="mb-2 text-base font-semibold">{t("batch.managedInsideWorkOrder")}</div>
@@ -671,7 +439,7 @@ export default function PackagingPage() {
                   <tr>
                     <th>{t("field.batch")}</th>
                     <th>{t("field.sewn")}</th>
-                    <th>{t("field.packed")}</th>
+                    <th>{packagingAvailabilityText[lang].recordedOutput}</th>
                     <th>{t("field.damaged")}</th>
                     <th>{t("field.remaining")}</th>
                     <th>{t("page.processes.progress")}</th>
@@ -687,7 +455,7 @@ export default function PackagingPage() {
                       <td>{row.sewing_output_qty}</td>
                       <td>{row.packed_qty}</td>
                       <td>{row.damaged_qty}</td>
-                      <td>{row.available_input_qty}</td>
+                      <td>{packageSources?.items.find(source => source.id === Number(row.id))?.available_to_package ?? row.available_input_qty}</td>
                       <td>{row.progress_pct}%</td>
                     </tr>
                   ))}
@@ -704,25 +472,41 @@ export default function PackagingPage() {
       </div>
 
       <div className="mb-4">
-        {po && !po.sales_order_id && po.source_type !== "usluga" && <FirstGradePackaging key={`${po.id}:${rec.production_batch_id}:${color}`} productionOrderId={po.id} batchId={rec.production_batch_id || undefined} modelId={po.model_id} color={color} onChanged={async () => { setPackageQrRefreshKey(k => k + 1); await Promise.all([mutatePo(), mutateWo(), mutateBatchProgress()]); }} />}
+        {po && !po.sales_order_id && po.source_type !== "usluga" && !mergeAcrossBatches && (!isAlreadyBatched || selectedSource) && <FirstGradePackaging key={`${po.id}:${selectedBatchId}:${color}`} productionOrderId={po.id} workOrderId={id} batchId={selectedBatchId || undefined} modelId={po.model_id} color={color} onChanged={refreshPackagingOutputs} />}
       </div>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-        <form onSubmit={createPkg} className="card space-y-3 p-6">
+        {can(me, "packaging.packages") && <form onSubmit={createPkg} className="card space-y-3 p-6">
           <h3 className="font-medium">{t("page.packaging.newPackage")}</h3>
+          {isAlreadyBatched && !mergeAcrossBatches && <label className="block text-sm">
+            {t("batch.orderBatch")}
+            <select className="input mt-1" aria-label={t("batch.orderBatch")} value={selectedBatchId} disabled={isCreating || packageSourcesLoading}
+              onChange={event => { setSelectedBatchId(Number(event.target.value)); setDamagedQty(""); setCopiesTouched(false); }}>
+              <option value={0}>{t("batch.selectBatch")}</option>
+              {(packageSources?.items || []).map(source => <option key={source.id} value={source.id}>
+                {formatBatchLabel(source, po?.id)} ({multiCopy.available}: {source.available_to_package})
+              </option>)}
+            </select>
+          </label>}
+          <p className="text-sm">{multiCopy.available}: {mergeAcrossBatches ? mergedPackingPlan.totalAvailable : packageableColorQty}</p>
+          {packageSourcesLoading && <p role="status" className="text-sm">{t("common.loading")}</p>}
+          {packageSourcesError && <p role="alert" className="text-sm text-red-700">{packageSourcesError.message}</p>}
+          {!packageSourcesLoading && !packageSourcesError && packageableColorQty === 0 && !mergeAcrossBatches && <p className="text-sm">{multiCopy.noOutput}</p>}
           <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
             <div>
               <label className="label">{t("field.color")}</label>
-              <input className="input" value={color} onChange={(e) => setColor(e.target.value)} />
+              <input className="input" aria-label={t("field.color")} disabled={isCreating} value={color} onChange={(e) => setColor(e.target.value)} />
             </div>
             <div>
               <label className="label">{t("field.capacity")}</label>
-              <input className="input" type="number" value={capacity} onChange={(e) => setCapacity(parseNumberInput(e.target.value))} />
+              <input className="input" aria-label={t("field.capacity")} disabled={isCreating} type="number" min={1} step={1} value={capacity} onChange={(e) => setCapacity(parseNumberInput(e.target.value))} />
             </div>
             <div>
               <label className="label">{t("page.packaging.defaultWeightKg")}</label>
               <input
                 className="input"
+                aria-label={t("page.packaging.defaultWeightKg")}
+                disabled={isCreating}
                 min={0}
                 step="0.001"
                 type="number"
@@ -730,16 +514,16 @@ export default function PackagingPage() {
                 onChange={(e) => setWeightKg(e.target.value)}
               />
             </div>
-            <label className="mb-2 flex items-end gap-2 text-sm">
-              <input type="checkbox" checked={overrideCap} onChange={(e) => setOverrideCap(e.target.checked)} />
-              {t("page.packaging.adminOverride")}
-            </label>
             <div>
-              <label className="label">{t("page.packaging.copies")}</label>
+              <label className="label">{multiCopy.count}</label>
               <input
                 className="input"
+                aria-label={multiCopy.count}
                 min={1}
+                max={200}
+                step={1}
                 type="number"
+                disabled={isCreating}
                 value={copies}
                 onChange={(e) => {
                   setCopiesTouched(true);
@@ -748,35 +532,22 @@ export default function PackagingPage() {
               />
             </div>
           </div>
+          {!mergeAcrossBatches && <label className="block text-sm">
+            {damageCopy.label}
+            <input className="input mt-1" aria-label={damageCopy.label} type="number" min={0}
+              max={selectedSource?.available_input_qty ?? 0} step={1} disabled={isCreating}
+              value={damagedQty} onChange={event => setDamagedQty(parseNumberInput(event.target.value))} />
+            <span className="mt-1 block text-xs text-slate-500">{damageCopy.hint}</span>
+          </label>}
           <div className="text-xs text-slate-500">
-            {t("page.packaging.autoMixHint")}
+            {multiCopy.sizeHint}
           </div>
-          <div className="rounded-md border border-[#ecebe3] bg-[#faf9f4] px-3 py-2 text-sm">
-            <label className="flex items-start gap-2">
-              <input
-                className="mt-1"
-                type="checkbox"
-                checked={!packOnlyFullPackages}
-                onChange={(e) => setPackOnlyFullPackages(!e.target.checked)}
-              />
-              <span>
-                <span className="font-medium">{t("page.packaging.createPartialPackage")}</span>
-                <span className="mt-1 block text-xs text-slate-500">{t("page.packaging.createPartialPackageHint")}</span>
-              </span>
-            </label>
-            <label className="mt-3 flex items-start gap-2 border-t border-[#ecebe3] pt-3">
-              <input
-                className="mt-1"
-                type="checkbox"
-                checked={packOnlyFullPackages}
-                onChange={(e) => setPackOnlyFullPackages(e.target.checked)}
-              />
-              <span>
-                <span className="font-medium">{t("page.packaging.holdPartialPackage")}</span>
-                <span className="mt-1 block text-xs text-slate-500">{t("page.packaging.packOnlyFullHint")}</span>
-              </span>
-            </label>
-          </div>
+          <p className="text-sm">{multiCopy.remaining}: {selectedOutputRemaining}</p>
+          <label className="flex items-start gap-2 text-sm">
+            <input className="mt-1" type="checkbox" checked={!packOnlyFullPackages}
+              disabled={isCreating} onChange={event => setPackOnlyFullPackages(!event.target.checked)} />
+            <span>{multiCopy.partial}<span className="mt-1 block text-xs text-slate-500">{multiCopy.partialHint}</span></span>
+          </label>
           {isAlreadyBatched && (
             <div className="rounded-md border border-[#ecebe3] bg-[#faf9f4] px-3 py-2 text-sm">
               <label className="flex items-start gap-2">
@@ -784,23 +555,42 @@ export default function PackagingPage() {
                   className="mt-1"
                   type="checkbox"
                   checked={mergeAcrossBatches}
-                  onChange={(e) => setMergeAcrossBatches(e.target.checked)}
+                  disabled={isCreating}
+                  onChange={(e) => { setMergeAcrossBatches(e.target.checked); setDamagedQty(""); }}
                 />
                 <span>
-                  <span className="font-medium">{t("page.packaging.mergeAcrossBatches")}</span>
-                  <span className="mt-1 block text-xs text-slate-500">{t("page.packaging.mergeHint")}</span>
+                  <span className="font-medium">{multiCopy.title}</span>
+                  <span className="mt-1 block text-xs text-slate-500">{multiCopy.hint}</span>
                 </span>
               </label>
+              {mergeAcrossBatches && <>
+              <div className="mt-3 overflow-x-auto"><table className="table text-sm">
+                <thead><tr><th>{multiCopy.select}</th><th>{multiCopy.nastil}</th><th>{multiCopy.available}</th></tr></thead>
+                <tbody>{batchPackageAvailability.map(source => <tr key={source.id}>
+                  <td><input type="checkbox" aria-label={`${multiCopy.select} ${source.label}`}
+                    disabled={isCreating || source.available <= 0} checked={selectedMergeBatchIds.includes(source.id)}
+                    onChange={event => setSelectedMergeBatchIds(previous => event.target.checked
+                      ? [...new Set([...previous, source.id])] : previous.filter(batchId => batchId !== source.id))} /></td>
+                  <td>{source.label}
+                    {source.actualSizeVerified === true && <p className="mt-1 text-xs text-slate-600">{packageBatchTraceText[lang].available}: {(source.sizeBalances ?? []).map(row => `${row.size}: ${row.remaining ?? "?"}`).join(" / ")}</p>}
+                    {source.actualSizeVerified === false && <p className="mt-1 text-xs text-slate-600">{packageBatchTraceText[lang].actualUnknown}</p>}
+                  </td><td>{source.available}</td>
+                </tr>)}</tbody>
+              </table></div>
+              <p className="mt-2 text-xs">{multiCopy.selected}: {selectedMergeBatchCount} · {multiCopy.available}: {mergedPackingPlan.totalAvailable}</p>
+              {selectedMergeBatchCount < 2 && <p className="mt-1 text-xs" role="status">{multiCopy.chooseTwo}</p>}
+              {packageSourcesLoading && <p className="mt-1 text-xs">{t("common.loading")}</p>}
+              {packageSourcesError && <p role="alert" className="mt-1 text-xs text-red-700">{packageSourcesError.message}</p>}
+              {!packageSourcesLoading && !packageSourcesError && !batchPackageAvailability.some(source => source.available > 0) && <p className="mt-1 text-xs">{multiCopy.noOutput}</p>}
               <div className="mt-2 text-xs text-slate-600">
-                {mergedPackingPlan.plans.length > 0
-                  ? `${t("page.packaging.mergeFullPackages", { count: mergedPackingPlan.plans.length })} · ${t("page.packaging.mergePending", { count: mergedPackingPlan.pendingQty })}`
-                  : t("page.packaging.mergeNoPacked")}
+                {`${t("page.packaging.mergeFullPackages", { count: Math.min(packagePlans.length, mergedPackingPlan.plans.length) })} · ${t("page.packaging.mergePending", { count: selectedOutputRemaining })}`}
               </div>
-              {mergedPackingPlan.previewLines.length > 0 && (
+              {selectedSourcePreview.length > 0 && (
                 <div className="mt-1 text-xs text-slate-600">
-                  {t("page.packaging.mergeSources")}: {mergedPackingPlan.previewLines.join(" | ")}
+                  {t("page.packaging.mergeSources")}: {selectedSourcePreview.join(" | ")}
                 </div>
               )}
+              </>}
             </div>
           )}
 
@@ -828,9 +618,14 @@ export default function PackagingPage() {
           <button type="button" className="btn" onClick={() => setPkgItems([...pkgItems, { size: "L", quantity: "" }])}>{t("btn.addSize")}</button>
           <div className="text-sm text-slate-500">{t("page.packaging.totalLine", { n: pkgItems.reduce((s, i) => s + Number(i.quantity || 0), 0) })}</div>
 
-          <button className="btn btn-primary" disabled={isCreating || packagePlans.length === 0}>
-            {isCreating ? t("common.creating") : packagePlans.length > 1 ? t("page.packaging.createCopies", { count: packagePlans.length }) : t("btn.createPackage")}
+          <PackageBatchBreakdownEditor plans={attributionPlans} draft={traceDraft} lang={lang} disabled={isCreating} sourceBudgets={sourceTraceBudgets} sourceSizeBudgets={sourceSizeTraceBudgets}
+            onChange={values => setBatchTraceDraft({ key: tracePlanKey, values })} />
+          <button className="btn btn-primary" disabled={isCreating || packageSourcesLoading || !!packageSourcesError || packagePlans.length === 0 || !tracedPackages.valid}>
+            {isCreating ? t("common.creating") : `${multiCopy.create} (${packagePlans.length})`}
           </button>
+          {!mergeAcrossBatches && Number(damagedQty) > 0 && <button type="button" className="btn" disabled={isCreating || packageSourcesLoading || !!packageSourcesError} onClick={recordDamageOnly}>
+            {damageActionCopy.save}
+          </button>}
           {pkgNotice && (
             <div
               className={`rounded-md border px-3 py-2 text-sm ${
@@ -842,28 +637,28 @@ export default function PackagingPage() {
               {pkgNotice.text}
             </div>
           )}
-        </form>
+        </form>}
 
         <div className="card p-6">
-          <h3 className="font-medium">{t("page.packaging.partialTitle")}</h3>
+          <h3 className="font-medium">{multiCopy.planned}</h3>
           <div className="mt-3 grid grid-cols-3 gap-3 text-sm">
             <div className="rounded-md border border-[#ecebe3] p-3">
-              <div className="text-xs uppercase tracking-wide text-slate-500">{t("page.packaging.fullPackages")}</div>
-              <div className="text-xl font-semibold">{mergeAcrossBatches ? mergedPackingPlan.plans.length : packingPreview.fullCount}</div>
+              <div className="text-xs text-slate-500">{t("page.packaging.fullPackages")}</div>
+              <div className="text-xl font-semibold">{mergeAcrossBatches ? Math.min(packagePlans.length, mergedPackingPlan.plans.length) : packingPreview.fullCount}</div>
             </div>
             <div className="rounded-md border border-[#ecebe3] p-3">
-              <div className="text-xs uppercase tracking-wide text-slate-500">{t("page.packaging.notFullPackages")}</div>
+              <div className="text-xs text-slate-500">{t("page.packaging.notFullPackages")}</div>
               <div className="text-xl font-semibold">
-                {mergeAcrossBatches ? (mergedPackingPlan.pendingQty > 0 ? 1 : 0) : packingPreview.notFullCount}
+                {mergeAcrossBatches ? (createsMergedPartial && mergedPackingPlan.pendingQty > 0 ? 1 : 0) : (packOnlyFullPackages ? 0 : packingPreview.notFullCount)}
               </div>
             </div>
             <div className="rounded-md border border-[#ecebe3] p-3">
-              <div className="text-xs uppercase tracking-wide text-slate-500">{t("page.packaging.packCapacity")}</div>
+              <div className="text-xs text-slate-500">{t("page.packaging.packCapacity")}</div>
               <div className="text-xl font-semibold">{packingPreview.packageTotal}</div>
             </div>
           </div>
           <div className="mt-4 text-xs text-slate-500">
-            {t("page.packaging.previewHint")}
+            {damageCopy.preview}
           </div>
           <div className="mt-3 space-y-2">
             {mergeAcrossBatches ? (
@@ -871,14 +666,14 @@ export default function PackagingPage() {
                 <div className="rounded-md border border-[#ecebe3] px-3 py-2">
                   <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                     <div className="text-sm font-medium">
-                      {packOnlyFullPackages ? t("page.packaging.pendingLeftover") : t("page.packaging.finalPartialPackage")} - {mergedPackingPlan.pendingQty}/{packingPreview.packageTotal}
+                      {!createsMergedPartial ? t("page.packaging.pendingLeftover") : t("page.packaging.finalPartialPackage")} - {mergedPackingPlan.pendingQty}/{packingPreview.packageTotal}
                     </div>
-                    <span className="badge">{packOnlyFullPackages ? t("page.packaging.pendingNotCreated") : t("page.packaging.willBeCreated")}</span>
+                    <span className="badge">{!createsMergedPartial ? t("page.packaging.pendingNotCreated") : t("page.packaging.willBeCreated")}</span>
                   </div>
                   <div className="mt-1 text-xs text-slate-600">
-                    {packOnlyFullPackages ? t("page.packaging.pendingLeftoverHint") : t("page.packaging.partialWarehouseHint")}
+                    {!createsMergedPartial ? t("page.packaging.pendingLeftoverHint") : t("page.packaging.partialWarehouseHint")}
                   </div>
-                  {!packOnlyFullPackages && mergedPartialItems.length > 0 && (
+                  {createsMergedPartial && mergedPartialItems.length > 0 && (
                     <div className="mt-1 text-xs text-slate-600">
                       {mergedPartialItems.map((x) => `${x.size}: ${x.quantity}`).join(" | ")}
                     </div>
@@ -927,7 +722,7 @@ export default function PackagingPage() {
                 {packagePlans.map((plan, index) => {
                   const qty = plan.items.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
                   return (
-                    <label key={index} className="block text-xs font-medium uppercase tracking-wide text-slate-500">
+                    <label key={index} className="block text-xs font-medium text-slate-500">
                       {t("page.packaging.packageWeightN", { n: index + 1 })} ({qty})
                       <input
                         className="input mt-1"
@@ -946,16 +741,16 @@ export default function PackagingPage() {
         </div>
       </div>
 
+      <PendingPackageWorkflow path="/api/packages/record-damage" resultKind="damage" onResolved={refreshPackagingOutputs} />
       <PackageQrSection
         key={`${po?.id || "none"}-${packageQrRefreshKey}`}
         productionOrderId={po?.id}
         onChanged={async () => {
           const sizePath = `/api/packages/first-grade/size-entry/${po?.id}`;
           await Promise.all([
-            mutateBatchProgress(), mutateWo(), mutatePo(),
+            mutateBatchProgress(), mutatePackageSources(), mutateWo(), mutatePo(),
             mutateCache((key) => typeof key === "string" && (key === sizePath || key.startsWith(`${sizePath}?`))),
           ]);
-          setRec((previous) => ({ ...previous, input_qty: "", packed_qty: "", damaged_qty: "" }));
           setCopiesTouched(false);
           setPkg(null);
           setPkgNotice(null);

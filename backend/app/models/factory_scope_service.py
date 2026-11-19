@@ -1,9 +1,17 @@
 from __future__ import annotations
+from typing import TYPE_CHECKING
 
 from fastapi import HTTPException
-from app.models.user_access_service import apply_policy, denied_for, policy_for
+from app.core.ceo_access import is_ceo
+from app.libs.enums.identity import FactoryCode
+from app.libs.enums.production import WorkOrderStatus
+from app.models.identity.access_policy_service import apply_policy, denied_for, policy_for
 
-FACTORY_CODES = ("MIL", "BST", "ECO")
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
+    from app.schemas import WorkOrder
+
+FACTORY_CODES = tuple(code.value for code in FactoryCode)
 FACTORY_LABELS = {"MIL": "Milana", "BST": "Besttex", "ECO": "Eco Cotton"}
 FACTORY_PERMISSION_PREFIX = "factory:"
 DEPARTMENT_FACTORIES = {
@@ -16,14 +24,16 @@ SEWING_DEPARTMENTS = {"MIL": "MIL", "BST": "BST", "ECO": "ECO"}
 PACKAGING_DEPARTMENTS = {"MIL": "PKG", "BST": "BPK", "ECO": "ECP"}
 
 
-def normalize_factory_code(value: str | None, *, default: str | None = None) -> str:
+def normalize_factory_code(value: str | None, *, default: str | None = None) -> FactoryCode:
     code = str(value or default or "").strip().upper()
     if code not in FACTORY_CODES:
         raise HTTPException(400, "Factory must be MIL, BST, or ECO")
-    return code
+    return FactoryCode(code)
 
 
 def user_is_super_admin(user) -> bool:
+    if is_ceo(user):
+        return False
     role = getattr(user, "role", None)
     role_name = str(getattr(role, "name", "") or "").strip().lower()
     permissions = set(getattr(role, "permissions", None) or []) | set(getattr(user, "extra_permissions", None) or [])
@@ -55,11 +65,13 @@ def is_factory_permission_token(value: object) -> bool:
     return isinstance(value, str) and value.strip().startswith(FACTORY_PERMISSION_PREFIX)
 
 
-def assigned_factory_code(user) -> str:
+def assigned_factory_code(user) -> FactoryCode:
     return normalize_factory_code(getattr(user, "factory_code", None), default="MIL")
 
 
 def available_factory_codes(user) -> list[str]:
+    if is_ceo(user):
+        return [assigned_factory_code(user)]
     if user_is_super_admin(user):
         return list(FACTORY_CODES)
     assigned = assigned_factory_code(user)
@@ -70,27 +82,29 @@ def available_factory_codes(user) -> list[str]:
     ]
 
 
-def authorize_login_factory(user, requested: str | None) -> str:
+def authorize_login_factory(user, requested: str | None) -> FactoryCode:
+    if is_ceo(user):
+        return assigned_factory_code(user)
     selected = normalize_factory_code(requested, default="MIL" if user_is_super_admin(user) else assigned_factory_code(user))
     if selected not in available_factory_codes(user):
         raise HTTPException(403, "This account is not assigned to the selected factory")
     return selected
 
 
-def bind_session_factory(user, token_factory: str | None) -> str:
+def bind_session_factory(user, token_factory: str | None) -> FactoryCode:
     selected = authorize_login_factory(user, token_factory)
     setattr(user, "session_factory_code", selected)
     return selected
 
 
-def selected_factory_code(user) -> str:
+def selected_factory_code(user) -> FactoryCode:
     return normalize_factory_code(
         getattr(user, "session_factory_code", None),
         default="MIL" if user_is_super_admin(user) else assigned_factory_code(user),
     )
 
 
-def require_factory_access(user, factory_code: str) -> str:
+def require_factory_access(user, factory_code: str) -> FactoryCode:
     requested = normalize_factory_code(factory_code)
     if requested != selected_factory_code(user):
         raise HTTPException(403, f"Log in to {FACTORY_LABELS[requested]} to access this operation")
@@ -111,6 +125,24 @@ def require_work_order_factory_access(user, db, work_order) -> None:
     from app.schemas import Department
     code = db.query(Department.code).filter(Department.id == work_order.department_id).scalar()
     require_operational_department_access(user, code)
+
+
+def refresh_cutting_work_order_for_write(db: Session, work_order: WorkOrder) -> None:
+    """Serialize a Cutting write with routing, then authorize the refreshed row.
+
+    The caller retains authorization and transaction ownership. Other production
+    stages retain their existing lock behavior; this interlock covers CUT/ECT.
+    """
+    if work_order.operation == "cutting":
+        from app.schemas import ProductionOrder, WorkOrder
+        db.query(ProductionOrder.id).filter_by(id=work_order.production_order_id).with_for_update().one()
+        db.refresh(work_order, with_for_update={"of": WorkOrder})
+        require_cutting_work_order_not_rejected(work_order)
+
+
+def require_cutting_work_order_not_rejected(work_order: WorkOrder) -> None:
+    if work_order.operation == "cutting" and work_order.status == WorkOrderStatus.REJECTED:
+        raise HTTPException(409, "This cutting order has been rejected and cannot be changed")
 
 
 def cutting_department_scope(user, requested: str | None) -> str:

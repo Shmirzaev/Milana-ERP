@@ -246,7 +246,7 @@ export default function AdminUsersPage() {
       <PageHeader title={t("page.admin.users")} />
 
       <form onSubmit={create} autoComplete="off" className="card mb-6 grid grid-cols-1 gap-3 p-4 md:grid-cols-5">
-        <input className="input" placeholder={t("common.name")} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} required />
+        <input className="input" placeholder={t("page.admin.users.personName")} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} required />
         <input className="input" name="new_user_email" autoComplete="off" placeholder={t("auth.email")} type="email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} required />
         <select className="input" value={f.role_id} onChange={(e) => setF({ ...f, role_id: Number(e.target.value) })}>
           <option value={0}>{t("ph.role")}</option>
@@ -293,11 +293,11 @@ export default function AdminUsersPage() {
         <table className="table">
           <thead>
             <tr>
-              <th>{t("common.name")}</th>
+              <th>{t("page.admin.users.personName")}</th>
               <th>{t("auth.email")}</th>
               <th>{t("field.role")}</th>
               <th>{t("field.department")}</th>
-              <th>Factory</th>
+              <th>{t("common.factory")}</th>
               <th>{t("field.active")}</th>
               <th>{t("field.activity")}</th>
               <th>{t("field.actions")}</th>
@@ -360,7 +360,7 @@ export default function AdminUsersPage() {
       <Modal open={!!editing} onClose={() => setEditing(null)} title={t("page.admin.users.editTitle", { email: editing?.email ?? "" })} wide>
         <form onSubmit={saveEdit} className="space-y-3">
           <div>
-            <label className="label">{t("common.name")}</label>
+            <label className="label">{t("page.admin.users.personName")}</label>
             <input className="input" value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} required />
           </div>
           <div>
@@ -394,7 +394,7 @@ export default function AdminUsersPage() {
               </select>
             </div>
             <div>
-              <label className="label">Factory</label>
+              <label className="label">{t("common.factory")}</label>
               <select className="input" value={edit.factory_code} onChange={(e) => setEdit({ ...edit, factory_code: e.target.value as "MIL" | "BST" | "ECO" })}>
                 <option value="MIL">Milana</option><option value="BST">Besttex</option><option value="ECO">Eco Cotton</option>
               </select>

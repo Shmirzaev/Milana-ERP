@@ -107,13 +107,16 @@ def test_production_order_pages_bound_rows_and_preserve_legacy_payload(order_cou
     assert page_two["total"] == order_count
     assert len(page_two["rows"]) == min(max(0, order_count - 50), 50)
     assert set(page["rows"]).isdisjoint(page_two["rows"])
-    assert len(selects) == 3, selects
+    # The additive factory-routing projection is one bounded query per returned
+    # page, independent of order count; it must not become one query per order.
+    assert len(selects) == 4, selects
+    assert sum(" from work_orders " in statement for statement in selects) == 1
     assert " limit ? offset ?" in selects[1]
     assert searched["total"] == order_count
     assert searched["rows"] == legacy
     assert wildcard["total"] == 0
     assert wildcard["rows"] == []
-    assert len([statement for statement in legacy_statements if statement.startswith("select")]) == 2
+    assert len([statement for statement in legacy_statements if statement.startswith("select")]) == 3
     assert writes == []
 
 

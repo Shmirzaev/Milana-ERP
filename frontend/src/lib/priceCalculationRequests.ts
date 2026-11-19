@@ -27,6 +27,7 @@ export type PriceCalculationRequest = {
   gramage: number | null;
   binding_kg_per_piece: number | null;
   fabric_price: number | null;
+  order_no?: string | null;
   sewing_cost: number | null;
   packaging_cost: number;
   accessories: PriceRequestAccessory[];
@@ -45,6 +46,24 @@ export type PriceCalculationRequest = {
   overall_status: PriceRequestStatus;
   created_at: string;
   updated_at: string;
+  workflow_state: "legacy" | "collecting" | "awaiting_finance" | "approved" | "cancelled";
+  factory_code: string | null;
+  catalog_scope: "standard" | "usluga";
+  revision: number;
+  materials: { key: string; name: string; unit: "kg" | "m"; consumption: number | null; rate: number | null; cost: number | null }[];
+  purchasing_submitted_at: string | null;
+  accessories_submitted_at: string | null;
+  no_accessories_reason: string | null;
+  printing_required: boolean;
+  printing_cost: number | null;
+  correction_team: "purchasing" | "accessories" | "cutting" | null;
+  correction_reason: string | null;
+  approved_at: string | null;
+  approved_by_id: number | null;
+  approved_by_name: string | null;
+  can_approve: boolean;
+  margin_percentage: number | null;
+  calculation_issues: string[];
 };
 
 export function priceRequestSurface(status: PriceRequestStatus): string {

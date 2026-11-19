@@ -38,6 +38,10 @@ def _standard_catalog_scope() -> str:
     return "standard"
 
 
+def _typed_standard_catalog_scope() -> CatalogScope:
+    return CatalogScope.STANDARD
+
+
 # ===== Brands =====
 @router.get("/brands", response_model=list[BrandOut])
 def list_brands(db: DbSession, _: CurrentUser):
@@ -199,7 +203,7 @@ def create_model(
     payload: ModelIn,
     db: DbSession,
     current: User = Depends(require_permissions("modeling.models", "*")),
-    catalog_scope: str = Depends(_standard_catalog_scope),
+    catalog_scope: CatalogScope = Depends(_typed_standard_catalog_scope),
 ):
     return models_service.create_model(current, db, payload, catalog_scope)
 
@@ -229,9 +233,10 @@ def get_model(
     mid: int,
     db: DbSession,
     current: CurrentUser,
+    paid_operations_from_model: bool = False,
     catalog_scope: str = Depends(_standard_catalog_scope),
 ):
-    return models_service.get_model(current, db, mid, catalog_scope)
+    return models_service.get_model(current, db, mid, catalog_scope, paid_operations_from_model)
 
 
 @router.post("/models/{mid}/clone", response_model=ModelOut, status_code=201)
@@ -371,13 +376,17 @@ def delete_image(
     return models_service.delete_image(current, db, mid, image_id, catalog_scope)
 
 
+def _standard_size_catalog_scope() -> CatalogScope:
+    return CatalogScope.STANDARD
+
+
 @router.post("/models/{mid}/sizes", status_code=201)
 def add_size(
     mid: int,
     payload: ModelSizeIn,
     db: DbSession,
     current: User = Depends(require_permissions("modeling.models", "*")),
-    catalog_scope: str = Depends(_standard_catalog_scope),
+    catalog_scope: CatalogScope = Depends(_standard_size_catalog_scope),
 ):
     return models_service.add_size(current, db, mid, payload, catalog_scope)
 
@@ -388,9 +397,13 @@ def delete_size(
     size_id: int,
     db: DbSession,
     current: User = Depends(require_permissions("modeling.models", "*")),
-    catalog_scope: str = Depends(_standard_catalog_scope),
+    catalog_scope: CatalogScope = Depends(_typed_standard_catalog_scope),
 ):
     return models_service.delete_size(current, db, mid, size_id, catalog_scope)
+
+
+def _standard_color_catalog_scope() -> CatalogScope:
+    return CatalogScope.STANDARD
 
 
 @router.post("/models/{mid}/colors", status_code=201)
@@ -399,7 +412,7 @@ def add_color(
     payload: ModelColorIn,
     db: DbSession,
     current: User = Depends(require_permissions("modeling.models", "*")),
-    catalog_scope: str = Depends(_standard_catalog_scope),
+    catalog_scope: CatalogScope = Depends(_standard_color_catalog_scope),
 ):
     return models_service.add_color(current, db, mid, payload, catalog_scope)
 
@@ -454,6 +467,6 @@ def delete_model(
     mid: int,
     db: DbSession,
     current: User = Depends(require_permissions("modeling.models", "*")),
-    catalog_scope: str = Depends(_standard_catalog_scope),
+    catalog_scope: CatalogScope = Depends(_typed_standard_catalog_scope),
 ):
     return models_service.delete_model(current, db, mid, catalog_scope)

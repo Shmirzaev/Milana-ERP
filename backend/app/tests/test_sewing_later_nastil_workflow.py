@@ -9,7 +9,7 @@ from app.schemas import AuditLog, Bundle, BundleScanLog, SewingAssignment, Sewin
 from app.tests.conftest import TestSessionLocal
 from app.tests.test_packaging_sewing_output import _create, _pack
 from app.tests.test_production_flow import _issue_required_accessories
-from app.tests.test_sewing_nastil_completion import _sew
+from app.tests.test_sewing_nastil_completion import _approve_eco_accessories, _sew
 from app.tests.test_sewing_band_access import bands  # noqa: F401
 
 
@@ -31,8 +31,11 @@ def first_finished(client, auth_headers, factory):
     cut(client, auth_headers, work, first, factory)
     done = client.post(f"/api/work-orders/{work['cutting']}/complete-cutting-shortage", headers=auth_headers)
     assert done.status_code == 200, done.text
-    _issue_required_accessories(client, auth_headers, po['id'])
     headers = {'Authorization': 'Bearer ' + create_access_token(1, extra={'factory_code': factory})}
+    if factory == 'ECO':
+        _approve_eco_accessories(client, auth_headers, headers, po['id'])
+    else:
+        _issue_required_accessories(client, auth_headers, po['id'])
     assert _sew(client, headers, work['sewing'], first, 128).status_code == 201
     assert _pack(client, headers, work['packaging'], first, 120).status_code == 201
     with TestSessionLocal() as db:
@@ -161,12 +164,15 @@ def test_printing_rejects_do_not_keep_finished_nastil_open(client, auth_headers,
         db.add(printing)
         db.commit()
         print_id = printing.id
-    _issue_required_accessories(client, auth_headers, po['id'])
+    if factory != 'ECO':
+        _issue_required_accessories(client, auth_headers, po['id'])
     printed = client.post('/api/printing/records', headers=auth_headers, json={
         'work_order_id': print_id, 'production_batch_id': first, 'input_qty': 128,
         'printed_qty': 128, 'passed_qty': 100, 'rejected_qty': 28, 'defect_reason': 'Printing rejects'})
     assert printed.status_code == 201, printed.text
     headers = {'Authorization': 'Bearer ' + create_access_token(1, extra={'factory_code': factory})}
+    if factory == 'ECO':
+        _approve_eco_accessories(client, auth_headers, headers, po['id'])
     assert _sew(client, headers, work['sewing'], first, 100).status_code == 201
     state = client.get(f"/api/work-orders/{work['sewing']}", headers=headers).json()
     assert state['status'] == 'completed'

@@ -24,6 +24,23 @@ These links follow business ownership; some point to mixed files in another grou
 or shared core.py. Keep one authoritative mapping per table. Moving individual
 classes out of mixed files is a separate approved change.
 
+`output_persistence.py` inserts the authoritative existing PackagingRecord and
+applies validated work-order counter totals and a service-selected direct start
+transition/timestamp using the supplied Session. It performs
+no business authorization, material consumption, workflow decision or commit. The
+Packaging output service coordinates those existing operations in one outer action.
+The mapping/table remains in `schemas/production/production.py`; no duplicate mapping
+is introduced by that output extraction.
+
+Migration0157 adds nullable JSON `PackageBatchAllocation.item_breakdown`; all old
+rows remain SQL NULL, explicitly unknown. New exact rows are validated as a whole
+by the Packaging allocation service and inserted/replaced by
+`allocation_persistence.py` in the caller's transaction. Scalar and item matrix
+totals are conserved together; no new table or inferred historical backfill.
+Downgrade refuses once exact source evidence exists because dropping the column
+would discard traceability. Source rollback therefore requires a separate reviewed
+data-recovery decision, rather than an automatic destructive downgrade.
+
 ## How to make a file here
 
 1. Trace the approved business operation in [the service guide](../../models/packaging/README.md),

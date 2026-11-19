@@ -119,8 +119,9 @@ def test_bulk_sewing_receipt_checks_shared_accessory_gate_once(mode, bundle_coun
 def test_rejected_shared_accessory_gate_has_no_bundle_or_assignment_writes(monkeypatch, mode):
     case = _bundle_batch(3)
 
-    def reject_gate(_db, production_order_id):
+    def reject_gate(_db, production_order_id, *, sewing_factory_code=None):
         assert production_order_id == case["order_id"]
+        assert sewing_factory_code == "MIL"
         raise HTTPException(409, "Synthetic incomplete accessory gate")
 
     monkeypatch.setattr(inventory, "ensure_accessories_issued_for_sewing", reject_gate)

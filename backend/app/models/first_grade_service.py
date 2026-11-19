@@ -5,9 +5,10 @@ import json
 
 from fastapi import HTTPException
 from sqlalchemy.orm import selectinload
-from sqlalchemy import func
+from sqlalchemy import exists, func
 
 from app.schemas import Package, SewingRecord, WorkOrder, ProductionOrderItem, ProductionOrder, ProductionBatch
+from app.schemas.fulfillment.shipment_review import PackageQuantityAdjustment
 
 
 def _size_evidence(db, production_order_id, batch_id, *, exclude_package_id=None):
@@ -37,20 +38,33 @@ def _size_evidence(db, production_order_id, batch_id, *, exclude_package_id=None
         complete = saved["source_version"] == source_version
         accepted = defaultdict(int, {row["size"]: row["quantity"] for row in saved["sizes"]})
     consumed = defaultdict(int)
-    packages = db.query(Package).options(selectinload(Package.items), selectinload(Package.batch_allocations)).filter(
+    packages = db.query(Package, exists().where(PackageQuantityAdjustment.package_id == Package.id)).options(
+        selectinload(Package.items), selectinload(Package.batch_allocations)).filter(
         Package.production_order_id == production_order_id,
         Package.id != exclude_package_id if exclude_package_id else True,
     ).all()
-    for package in packages:
+    for package, has_adjustments in packages:
         allocations = package.batch_allocations
         batch_ids = {a.production_batch_id for a in allocations}
         if len(batch_ids) > 1 and batch_id in batch_ids:
-            # Historical multi-batch bags have no per-size/per-batch evidence.
-            raise HTTPException(409, "FIRST_GRADE_MIXED_BATCH_EVIDENCE")
+            allocation = next(row for row in allocations if row.production_batch_id == batch_id)
+            if allocation.item_breakdown is None or package.quantity_shortfall:
+                # Historical unknown mixed packages still cannot release sizes.
+                raise HTTPException(409, "FIRST_GRADE_MIXED_BATCH_EVIDENCE")
+            for item in allocation.item_breakdown:
+                consumed[item["size"]] += item["quantity"]
+            continue
         if package.production_batch_id != batch_id and batch_id not in batch_ids:
             continue
-        for item in package.items:
-            consumed[item.size] += item.quantity
+        allocation = next((row for row in allocations if row.production_batch_id == batch_id), None)
+        if has_adjustments and (allocation is None or allocation.item_breakdown is None):
+            raise HTTPException(409, "FIRST_GRADE_SIZE_EVIDENCE_REQUIRED")
+        if allocation is not None and allocation.item_breakdown is not None:
+            for item in allocation.item_breakdown:
+                consumed[item["size"]] += item["quantity"]
+        else:
+            for item in package.items:
+                consumed[item.size] += item.quantity
         if package.quantity_shortfall:
             # A warehouse correction cannot release an unknown size into production.
             raise HTTPException(409, "FIRST_GRADE_SIZE_EVIDENCE_REQUIRED")

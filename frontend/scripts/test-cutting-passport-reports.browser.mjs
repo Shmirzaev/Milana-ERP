@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import http from "node:http";
-import { execFileSync } from "node:child_process";
+import { compileAppCss } from "./lib/compile-app-css.mjs";
 import { build } from "esbuild";
 import { chromium } from "playwright";
 import { runtimeMessages } from "./runtime-locales.mjs";
@@ -14,7 +14,8 @@ fs.mkdirSync(out, { recursive: true });
 const dictionaries = Object.fromEntries(["en", "ru", "uz"].map(lang => [lang, Object.fromEntries(runtimeMessages(lang))]));
 const mocks = {
   "@/lib/i18n": `const dict=${JSON.stringify(dictionaries)};const params=new URLSearchParams(location.search);export const useT=()=>({lang:params.get('lang')||'en',setLang:lang=>{params.set('lang',lang);location.search=params.toString()},t:(key,args={})=>{let text=dict[params.get('lang')||'en'][key]||key;for(const[k,v]of Object.entries(args))text=text.replaceAll('{'+k+'}',String(v));return text;}});`,
-  "@/lib/auth": `const me={id:1,name:'Preview operator',department:'Cutting',department_code:'CUT',role:'Cutting',factory_code:'MIL',available_factories:['MIL'],permissions:new URLSearchParams(location.search).has('denied')?[]:['cutting.records','cutting.bundles']};export const useMe=()=>({me});export const can=(me,...permissions)=>!!me&&permissions.some(p=>me.permissions.includes(p));export const logout=()=>{};`,
+  "@/lib/auth": `const me={id:1,name:'Preview operator',department:'Cutting',department_code:'CUT',role:'Cutting',factory_code:'MIL',available_factories:['MIL'],permissions:new URLSearchParams(location.search).has('denied')?[]:['cutting.records','cutting.bundles']};export const useMe=()=>({me});export const can=(me,...permissions)=>!!me&&permissions.some(p=>me.permissions.includes(p));export const logout=()=>{};
+    export const CEO_DASHBOARD_PATH='/ceo-dashboard';`,
   "@/lib/theme": `export const useTheme=()=>({isNight:false,toggleTheme:()=>{}});`,
   "@/components/DialogProvider": `export const useDialogs=()=>({confirm:async()=>false,alert:async()=>{}});`,
   "next/link": `import React from 'react';export default function Link({children,...props}){return React.createElement('a',props,children)}`,
@@ -25,10 +26,11 @@ const built = await build({ stdin: { contents: `import React from 'react';import
   b.onResolve({ filter: /^(?:@\/lib\/(?:api|auth|i18n|theme)|@\/components\/DialogProvider|next\/(?:link|navigation))$/ }, args => ({ path: args.path, namespace: "fixture" }));
   b.onLoad({ filter: /.*/, namespace: "fixture" }, args => ({ contents: mocks[args.path], loader: "js", resolveDir: root }));
 } }] });
-const css = execFileSync(process.execPath, ["node_modules/tailwindcss/lib/cli.js", "-i", "src/app/globals.css", "--minify"], { encoding: "utf8", maxBuffer: 8 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] });
+const css = await compileAppCss();
 const sample = Array.from({ length: 6 }, (_, index) => ({
   id: index + 1, passport_no: `CP-${String(101 + index).padStart(4, '0')}`, date: `2026-10-${String(12 + index).padStart(2, '0')}T00:00:00Z`,
-  created_at: '2026-10-17T00:00:00Z', updated_at: '2026-10-17T00:00:00Z', production_order_id: null,
+  created_at: '2026-10-17T00:00:00Z', updated_at: '2026-10-17T00:00:00Z',
+  production_order_id: index === 0 ? 450 : null, cutting_work_order_id: index === 0 ? 701 : null,
   operator_id: null, operator_name: 'Aziz', operator_name_manual: 'Aziz', model_code: 'TJ2220', model_name: 'TJ2220', variant: String(6470 + index),
   mold_no: 'TJ-22', size_range: '44, 46, 48, 50, 52', fabric_type: index === 4 ? 'Poplin' : 'Cotton jersey', lot_no: `FAB-${100 + index}`,
   order_no: `PO-0${450 + index}`, has_print: false, meter_mode: index === 4, tepa_pass: index === 5,
@@ -90,6 +92,8 @@ if (!serve) {
     await page.clock.setFixedTime(new Date('2026-10-16T20:00:00Z'));
     await page.goto(url);
     await page.getByText('CP-0106', { exact: true }).waitFor();
+    assert.equal(await page.getByRole('link', { name: 'Open', exact: true }).count(), 1);
+    assert.equal(await page.getByRole('link', { name: 'Open', exact: true }).getAttribute('href'), '/work-orders/701/cutting');
     await page.screenshot({ path: path.join(out, 'passports.png'), fullPage: true });
     await page.getByRole('tab', { name: 'Dashboard', exact: true }).click();
     await page.locator('[data-metric="pieces"]').getByText('2,100', { exact: true }).waitFor();
@@ -111,6 +115,7 @@ if (!serve) {
     await page.getByText(dictionaries.en['passportReport.empty'], { exact: true }).waitFor();
     await page.getByRole('button', { name: 'All time', exact: true }).click();
     await page.getByRole('button', { name: dictionaries.en['page.cuttingPassports.newPassport'], exact: true }).click();
+    assert.equal(await page.locator('form input[type="date"]').inputValue(), '2026-10-17');
     await page.getByRole('button', { name: dictionaries.en['page.cuttingPassports.exampleLoad'], exact: true }).click();
     await page.getByLabel('Tepa pass', { exact: true }).check();
     await page.locator('input[type="number"][placeholder="240"]').fill('300');

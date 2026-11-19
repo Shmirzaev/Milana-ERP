@@ -1,8 +1,11 @@
 from app.api.routes import warehouse_reservations, usluga_packaging
+from app.api.routes import warehouse_reports
 from app.api.routes import besttex_cutting
 from app.api.routes import eco_transfers, sewing_corrections
 from fastapi import APIRouter
 from app.api.routes import sewing_bands
+from app.api.routes import eco_accessories
+from app.api.routes import eco_inventory
 
 from app.api.routes import (
     auth, admin, partners, catalog, inventory, sales, planning, purchasing, production,
@@ -17,6 +20,9 @@ from app.api.routes import (
 )
 
 api_router = APIRouter(prefix="/api")
+api_router.include_router(warehouse_reports.router)
+api_router.include_router(eco_accessories.router)
+api_router.include_router(eco_inventory.router)
 api_router.include_router(sewing_bands.router)
 api_router.include_router(besttex_cutting.router)
 api_router.include_router(auth.router)
@@ -68,3 +74,8 @@ api_router.include_router(sewing_corrections.router)
 
 api_router.include_router(warehouse_reservations.router)
 api_router.include_router(usluga_packaging.router)
+
+from app.api.routes import turnstile_access, turnstile_photos, turnstile_simulator
+api_router.include_router(turnstile_access.router)
+api_router.include_router(turnstile_photos.router)
+api_router.include_router(turnstile_simulator.router)

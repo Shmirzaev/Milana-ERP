@@ -23,6 +23,8 @@ from app.schemas import (
     StockMovement,
 )
 from app.models.inventory_service import available_stock_for_item, stock_summary
+from app.libs.enums.planning import ForecastRecommendationType
+from app.libs.types.planning import ForecastSuggestion
 
 
 ACTIVE_PRODUCTION_STATUSES = (
@@ -278,7 +280,7 @@ def _branded_stock_analysis(
     horizon_weeks: int = 4,
     groups: dict[BrandedKey, dict[str, Any]] | None = None,
     factory_codes: Sequence[str] | None = None,
-) -> list[dict]:
+) -> list[ForecastSuggestion]:
     if groups is None:
         groups = (
             _branded_demand_groups(db)
@@ -361,7 +363,7 @@ def _branded_stock_analysis(
         )
         pipeline[key] += max(0, int(planned_quantity or 0))
 
-    analysis: list[dict] = []
+    analysis: list[ForecastSuggestion] = []
     for (model_id, brand_id, collection_id, color, size), row in groups.items():
         first_at = row["first_at"]
         last_at = row["last_at"]
@@ -382,7 +384,7 @@ def _branded_stock_analysis(
         source_label = "branded-stock sale" if row["source"] == "sales_orders" else "branded production plan"
         analysis.append(
             {
-                "recommendation_type": "branded_stock_production",
+                "recommendation_type": ForecastRecommendationType.BRANDED_STOCK_PRODUCTION,
                 "model_id": model_id,
                 "model_code": model_code,
                 "model_name": model_name,
@@ -419,7 +421,7 @@ def branded_stock_suggestions(
     *,
     horizon_weeks: int = 4,
     factory_codes: Sequence[str] | None = None,
-) -> list[dict]:
+) -> list[ForecastSuggestion]:
     return [
         row
         for row in _branded_stock_analysis(
@@ -534,7 +536,7 @@ def item_reorder_suggestions(
     db: Session,
     *,
     factory_codes: Sequence[str] | None = None,
-) -> list[dict]:
+) -> list[ForecastSuggestion]:
     # Item, stock and movement rows have no factory ownership. Factory-scoped
     # forecasting excludes them until ownership is recorded, even if a BOM
     # for one factory happens to reference the shared item.
@@ -554,7 +556,7 @@ def item_reorder_suggestions(
     planned_demand = _planned_bom_demand(db)
     recent_usage = _recent_usage_by_item(db)
 
-    suggestions: list[dict] = []
+    suggestions: list[ForecastSuggestion] = []
     for item in item_rows:
         stock = stock_rows.get(int(item.id), {})
         available = float((stock["available_quantity"] if "available_quantity" in stock
@@ -581,7 +583,7 @@ def item_reorder_suggestions(
             reason_parts.append(f"recent usage averages {recent_monthly:g} {unit}/month")
         suggestions.append(
             {
-                "recommendation_type": "item_reorder",
+                "recommendation_type": ForecastRecommendationType.ITEM_REORDER,
                 "item_id": int(item.id),
                 "item_sku": item.sku,
                 "item_name": item.name,

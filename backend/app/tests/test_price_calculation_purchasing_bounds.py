@@ -69,11 +69,11 @@ def test_purchasing_price_fields_reject_non_finite_and_storage_overflow(field, v
 
 
 def test_purchasing_price_fields_preserve_none_zero_values_and_storage_maximum():
-    assert PriceCalculationPurchasingIn().model_dump() == {
+    assert PriceCalculationPurchasingIn().model_dump(exclude={'expected_revision', 'materials', 'printing_cost'}) == {
         "fabric_price": None,
         "sewing_cost": None,
     }
-    assert PriceCalculationPurchasingIn(fabric_price=0, sewing_cost="0.1674").model_dump() == {
+    assert PriceCalculationPurchasingIn(fabric_price=0, sewing_cost="0.1674").model_dump(exclude={'expected_revision', 'materials', 'printing_cost'}) == {
         "fabric_price": 0.0,
         "sewing_cost": 0.1674,
     }

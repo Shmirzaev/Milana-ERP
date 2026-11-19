@@ -166,7 +166,7 @@ export default function AuditLogsPage() {
             <div className="flex items-center gap-2 rounded-md border border-[#ded9ca] bg-[#fdfcf8] px-3 shadow-sm">
               <Search className="h-4 w-4 shrink-0 text-[#8a8472]" />
               <input
-                className="h-10 min-w-0 flex-1 bg-transparent text-sm outline-none"
+                className="h-10 min-w-0 flex-1 bg-transparent text-sm outline-hidden"
                 placeholder={t("page.admin.audit.searchPlaceholder")}
                 value={query}
                 onChange={(e) => updateFilter(setQuery, e.target.value)}
@@ -226,15 +226,15 @@ export default function AuditLogsPage() {
                       <span className="badge">{formatWhen(row.created_at)}</span>
                       <span>{row.user?.name || row.user_name || `User #${row.user_id || "-"}`}</span>
                       <span>/</span>
-                      <span>{row.entity_label || row.entity_type} #{row.entity_id || "-"}</span>
+                      <span>{row.action === "switch_factory" ? t("page.admin.audit.user") : (row.entity_label || row.entity_type)} #{row.entity_id || "-"}</span>
                     </div>
-                    <h2 className="mt-2 text-base font-semibold text-[#14110b]">{row.summary || `${row.action} ${row.entity_type}`}</h2>
-                    <p className="mt-1 text-sm text-[#56503f]">{row.root_cause_hint || t("page.admin.audit.defaultHint")}</p>
+                    <h2 className="mt-2 text-base font-semibold text-[#14110b]">{row.action === "switch_factory" ? t("page.admin.audit.factorySwitch", { actor: row.user?.name || row.user_name || t("page.admin.audit.user"), id: row.entity_id || "-" }) : (row.summary || `${row.action} ${row.entity_type}`)}</h2>
+                    <p className="mt-1 text-sm text-[#56503f]">{row.action === "switch_factory" ? t("page.admin.audit.factorySwitchHint") : (row.root_cause_hint || t("page.admin.audit.defaultHint"))}</p>
                     {changes.length ? (
                       <div className="mt-3 flex flex-wrap gap-2">
                         {changes.slice(0, 4).map((change) => (
                           <span key={`${row.id}-${change.field}`} className="badge bg-[#f8f6ef] text-[#2c2920]">
-                            {change.field.replace(/_/g, " ")}: {formatValue(change.from)} -&gt; {formatValue(change.to)}
+                            {row.action === "switch_factory" && change.field === "factory_code" ? t("common.factory") : change.field.replace(/_/g, " ")}: {formatValue(change.from)} -&gt; {formatValue(change.to)}
                           </span>
                         ))}
                         {changes.length > 4 ? <span className="badge">+{changes.length - 4}</span> : null}

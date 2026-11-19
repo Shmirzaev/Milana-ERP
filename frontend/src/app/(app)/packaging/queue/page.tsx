@@ -9,6 +9,7 @@ import { ArrowRight, PackageOpen, RefreshCw, Search } from "lucide-react";
 import useSWR from "swr";
 
 import PageHeader from "@/components/PageHeader";
+import { packagingAvailabilityText } from "@/lib/packagingAvailabilityText";
 import { fetcher } from "@/lib/api";
 import { useMe } from "@/lib/auth";
 import { packagingDepartmentForSession } from "@/lib/access";
@@ -35,7 +36,8 @@ function orderLabel(row: ReceivedOrder) {
 }
 
 export default function PackagingQueuePage() {
-  const { t } = useT();
+  const { t, lang } = useT();
+  const copy = packagingAvailabilityText[lang];
   const searchParams = useSearchParams();
   const { me } = useMe();
   const requestedDepartment = searchParams.get("packaging_department");
@@ -50,7 +52,7 @@ export default function PackagingQueuePage() {
     if (search) params.set("q", search);
     return `/api/packaging/received-orders?${params.toString()}`;
   }, [packagingDepartment, search]);
-  const { data: orders = [], mutate, isLoading } = useSWR<ReceivedOrder[]>(queueUrl, fetcher);
+  const { data: orders = [], mutate, isLoading, error } = useSWR<ReceivedOrder[]>(queueUrl, fetcher);
 
   function submitSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -61,7 +63,7 @@ export default function PackagingQueuePage() {
     <div>
       <PageHeader
         title={`${factoryLabel} - ${t("page.packagingReceive.queueTitle")}`}
-        subtitle={t("page.packagingReceive.queueHint")}
+        subtitle={copy.hint}
         actions={(
           <button type="button" className="btn" onClick={() => mutate()}>
             <RefreshCw className="h-4 w-4" aria-hidden="true" />
@@ -71,6 +73,7 @@ export default function PackagingQueuePage() {
       />
 
       <section className="card p-4">
+        {error && <p role="alert" className="mb-3 text-sm text-red-700">{error.message}</p>}
         <form className="mb-4 flex w-full gap-2 md:max-w-md" onSubmit={submitSearch}>
           <div className="relative flex-1">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8a8472]" />
@@ -91,9 +94,9 @@ export default function PackagingQueuePage() {
                 <th className="w-20">{t("field.picture")}</th>
                 <th>{t("field.orderNo")}</th>
                 <th>{t("page.packagingReceive.modelVariant")}</th>
-                <th className="text-right">{t("field.received")}</th>
-                <th className="text-right">{t("page.packagingReceive.packed")}</th>
-                <th className="text-right">{t("page.packagingReceive.readyToPack")}</th>
+                <th className="text-right">{copy.output}</th>
+                <th className="text-right">{copy.recordedOutput}</th>
+                <th className="text-right">{copy.available}</th>
                 <th>{t("field.actions")}</th>
               </tr>
             </thead>

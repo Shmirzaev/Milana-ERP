@@ -1,10 +1,12 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Literal, Optional
+from typing import Annotated, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.libs.dto.common import ORMModel, SchemaModel
 from app.libs.dto.inventory.item_input import ItemComposition
+from app.libs.enums.production import SewingFactoryCode, CuttingDepartmentCode
+from app.libs.dto.production.fabric_source_input import FabricSourceIn
 
 
 class ProductionOrderItemIn(SchemaModel):
@@ -84,8 +86,7 @@ class ProductionOrderUpdateIn(BaseModel):
         return self
 
 
-class ProductionOrderMaterialIn(BaseModel):
-    stock_batch_id: int
+class ProductionOrderMaterialIn(FabricSourceIn):
     estimated_quantity: float = Field(
         gt=0, le=9_999_999_999.9999, allow_inf_nan=False,
     )
@@ -132,6 +133,7 @@ class ProductionOrderIn(SchemaModel):
     model_id: int
     brand_id: Optional[int] = None
     fabric_batch_id: Optional[int] = None
+    eco_fabric_batch_id: int | None = Field(default=None, gt=0)
     planned_quantity: int = 0
     start_date: Optional[datetime] = None
     deadline: Optional[datetime] = None
@@ -142,10 +144,16 @@ class ProductionOrderIn(SchemaModel):
     printing_instructions: Optional[str] = None
     printing_attachments: list[ProductionOrderPrintingAttachment] = Field(default_factory=list)
     destination_warehouse_id: Optional[int] = None
-    cutting_department_code: str = "CUT"
+    cutting_department_code: CuttingDepartmentCode = CuttingDepartmentCode.MILANA
     sewing_factory_code: Optional[str] = None
     items: list[ProductionOrderItemIn] = Field(default_factory=list, max_length=1000)
     batches: list[ProductionBatchIn] = Field(default_factory=list, max_length=1000)
+
+    @model_validator(mode="after")
+    def one_primary_fabric(self):
+        if self.fabric_batch_id is not None and self.eco_fabric_batch_id is not None:
+            raise ValueError("Select one primary fabric source")
+        return self
 
 
 class ProductionOrderOut(ORMModel):
@@ -193,8 +201,12 @@ class ProductionOrderOut(ORMModel):
 
 
 
+class ProductionOrderListOut(ProductionOrderOut):
+    cutting_department_code: CuttingDepartmentCode | None = None
+
+
 class ProductionOrderPageOut(SchemaModel):
-    rows: list[ProductionOrderOut]
+    rows: list[ProductionOrderListOut]
     total: int
     page: int
     page_size: int
@@ -470,4 +482,15 @@ class PlanningEstimateSubmitIn(BaseModel):
 
 
 class CuttingSewingFactoryIn(BaseModel):
-    sewing_factory_code: Literal["MIL", "BST", "ECO"]
+    model_config = ConfigDict(extra="forbid")
+    sewing_factory_code: SewingFactoryCode
+    production_batch_ids: list[Annotated[int, Field(strict=True, gt=0, le=2147483647)]] | None = Field(default=None, min_length=1, max_length=100)
+
+    @model_validator(mode="after")
+    def distinct_batches(self):
+        if self.production_batch_ids is not None and (
+            any(isinstance(value, bool) or value <= 0 for value in self.production_batch_ids)
+            or len(set(self.production_batch_ids)) != len(self.production_batch_ids)
+        ):
+            raise ValueError("Select distinct positive Nastil IDs")
+        return self

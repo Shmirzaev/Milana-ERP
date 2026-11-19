@@ -10,8 +10,8 @@ from app.schemas import (
     Bundle, BundleScanLog, CuttingRecord, Department, Model, Package,
     ProductionBatch, ProductionOrder, SalesOrder, Shipment, ShipmentPackage, WasteRecord, WorkOrder,
 )
-from app.models.model_images_service import model_preview_image_url, model_print_image_url
-from app.core.signing import sign_path
+from app.models.model_images_service import model_preview_image_url
+from app.models.production.floor_print_images_service import floor_print_image_url
 
 FACTORIES = ("MIL", "BST", "ECO", "UNASSIGNED")
 BUSINESS_TZ = ZoneInfo("Asia/Tashkent")
@@ -31,10 +31,21 @@ def cutting_inventory_condition():
 
 
 def cutting_origin_condition(db, department: str):
+    # A historical order may contain Cutting work from both factories. The
+    # bundle's actual source record is stronger evidence than any other work
+    # order on that production order. Keep the legacy fallback for unlinked
+    # bundles, which have no record-level origin to consult.
+    origins = db.query(CuttingRecord.id).join(
+        WorkOrder, WorkOrder.id == CuttingRecord.work_order_id,
+    ).join(Department, Department.id == WorkOrder.department_id).filter(
+        WorkOrder.operation == "cutting", Department.code.in_(("CUT", "ECT")))
+    matching_origin = Bundle.cutting_record_id.in_(origins.filter(Department.code == department))
+    known_origin = Bundle.cutting_record_id.in_(origins)
     eco_orders = db.query(WorkOrder.production_order_id).join(Department).filter(
         WorkOrder.operation == "cutting", Department.code == "ECT")
-    return (Bundle.production_order_id.in_(eco_orders) if department == "ECT"
-            else Bundle.production_order_id.notin_(eco_orders))
+    fallback = (Bundle.production_order_id.in_(eco_orders) if department == "ECT"
+                else Bundle.production_order_id.notin_(eco_orders))
+    return or_(matching_origin, and_(or_(Bundle.cutting_record_id.is_(None), ~known_origin), fallback))
 
 
 def destination_column():
@@ -93,14 +104,6 @@ def cutting_board(db, department: str, start: date, end: date):
             "updated_at": datetime.now(timezone.utc)}
 
 
-def _image_attachment(attachments):
-    for item in attachments or []:
-        path = str(item.get("file_url") or "")
-        if str(item.get("content_type") or "").startswith("image/") or path.lower().split("?")[0].endswith((".png", ".jpg", ".jpeg", ".webp", ".gif")):
-            return sign_path(path)
-    return None
-
-
 def printing_board(db, *, offset: int = 0, limit: int = 24):
     pending = db.query(Bundle).join(Department, Department.id == Bundle.next_department_id).join(
         ProductionOrder, ProductionOrder.id == Bundle.production_order_id).filter(
@@ -133,7 +136,7 @@ def printing_board(db, *, offset: int = 0, limit: int = 24):
         # Match the work-order source; fallback also handles orders whose print
         # instructions live on the production order rather than the sales order.
         attachments = (so.printing_attachments if so else None) or po.printing_attachments
-        artwork = _image_attachment(attachments) or model_print_image_url(model)
+        artwork = floor_print_image_url(model, attachments)
         output.append({"production_order_id": po.id, "order_no": po.order_no or po.production_no,
                        "production_batch_id": row.production_batch_id, "model_code": model.code if model else None,
                        "batch_label": batch_names.get(row.production_batch_id),

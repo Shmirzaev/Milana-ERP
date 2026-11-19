@@ -11,6 +11,9 @@ import { statusLabel } from "@/components/StagePipeline";
 import { api, fetcher } from "@/lib/api";
 import { can, useMe } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
+import PackageBatchBreakdownEditor from "@/components/PackageBatchBreakdownEditor";
+import { allocationBatchLabel, packageBatchTraceText, packageTracePlanKey, traceDraftFromSaved, tracePackagePlans, type BatchTraceDraft, type SavedBatchAllocation } from "@/lib/packageBatchTrace";
+import type { PackagePlan } from "@/lib/multiNastilPackaging";
 
 type EditForm = {
   color: string;
@@ -23,8 +26,14 @@ type EditForm = {
   notes: string;
   reason: string;
   items: { model_id: number; color: string; size: string; quantity: string }[];
-  batch_allocations: { production_batch_id: number; quantity: string }[];
+  batch_allocations: (Omit<SavedBatchAllocation, "quantity"> & { quantity: string })[];
 };
+
+function editTracePlans(form: EditForm | null, fallback: string): PackagePlan[] {
+  if (!form) return [];
+  return [{ items: form.items.map(item => ({ ...item, size: item.size.trim(), quantity: Number(item.quantity) })),
+    batch_allocations: form.batch_allocations.map(row => ({ ...row, quantity: Number(row.quantity), label: allocationBatchLabel({ ...row, quantity: Number(row.quantity) }, fallback) })) }];
+}
 
 export default function PackageQrSection({
   productionOrderId,
@@ -66,6 +75,13 @@ export default function PackageQrSection({
   const [editLoading, setEditLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [editTrace, setEditTrace] = useState<{ key: string; originalKey: string; values: BatchTraceDraft; touched: boolean }>({ key: "", originalKey: "", values: {}, touched: false });
+  const traceCopy = packageBatchTraceText[lang];
+  const editPlans = editTracePlans(editForm, traceCopy.missing);
+  const editPlanKey = packageTracePlanKey(editPlans);
+  const editTraceValues = editTrace.key === editPlanKey ? editTrace.values : {};
+  const editTraced = tracePackagePlans(editPlans, editTraceValues);
+  const needsEditAttribution = (editForm?.batch_allocations.length ?? 0) > 1 && (editTrace.touched || editTrace.originalKey !== editPlanKey);
 
   const totalPackages = Number(pageData?.total || packages.length);
   const totalQuantity = packages.reduce((sum, row) => sum + Number(row.total_quantity || 0), 0);
@@ -88,7 +104,7 @@ export default function PackageQrSection({
     setEditForm(null);
     try {
       const detail = await api.get<any>(`/api/packages/${pkg.id}`);
-      setEditForm({
+      const form: EditForm = {
         color: String(detail.color || ""),
         package_type: String(detail.package_type || "bag"),
         capacity: String(detail.capacity || 60),
@@ -107,8 +123,15 @@ export default function PackageQrSection({
         batch_allocations: (detail.batch_allocations || []).map((row: any) => ({
           production_batch_id: Number(row.production_batch_id),
           quantity: String(row.quantity || 0),
+          batch_no: row.batch_no,
+          batch_name: row.batch_name,
+          item_breakdown: row.item_breakdown,
         })),
-      });
+      };
+      const plans = editTracePlans(form, traceCopy.missing);
+      const key = packageTracePlanKey(plans);
+      setEditTrace({ key, originalKey: key, values: traceDraftFromSaved(plans), touched: false });
+      setEditForm(form);
     } catch (err: any) {
       setError(err?.message || t("page.packages.editLoadError"));
     } finally {
@@ -123,6 +146,7 @@ export default function PackageQrSection({
     setError("");
     setMessage("");
     try {
+      if (needsEditAttribution && !editTraced.valid) throw new Error(traceCopy.invalid);
       const payload: any = {
         color: editForm.color.trim(),
         package_type: editForm.package_type.trim() || "bag",
@@ -134,15 +158,16 @@ export default function PackageQrSection({
         notes: editForm.notes,
         items: editForm.items.map((item) => ({
           model_id: item.model_id,
-          color: editForm.color.trim(),
+          color: item.color.trim(),
           size: item.size.trim(),
           quantity: Number(item.quantity || 0),
         })),
       };
-      if (editForm.batch_allocations.length > 1) {
-        payload.batch_allocations = editForm.batch_allocations.map((row) => ({
+      if (needsEditAttribution) {
+        payload.batch_allocations = editTraced.plans[0].batch_allocations!.map((row) => ({
           production_batch_id: row.production_batch_id,
-          quantity: Number(row.quantity || 0),
+          quantity: row.quantity,
+          item_breakdown: row.item_breakdown,
         }));
       }
       await api.post(`/api/packages/${editing.id}/change-requests`, {
@@ -378,7 +403,7 @@ export default function PackageQrSection({
             <div className="grid gap-3 md:grid-cols-3">
               <div>
                 <label className="label">{t("common.color")}</label>
-                <input className="input" value={editForm.color} onChange={(e) => setEditForm({ ...editForm, color: e.target.value })} required />
+                <input className="input" value={editForm.color} onChange={(e) => setEditForm({ ...editForm, color: e.target.value, items: editForm.items.map(item => ({ ...item, color: e.target.value })) })} required />
               </div>
               <div>
                 <label className="label">{t("field.packageType")}</label>
@@ -425,13 +450,16 @@ export default function PackageQrSection({
                 <div className="space-y-2">
                   {editForm.batch_allocations.map((row, idx) => (
                     <div key={row.production_batch_id} className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_120px]">
-                      <div className="input flex items-center bg-slate-50 text-slate-600">#{row.production_batch_id}</div>
+                      <div className="input flex items-center bg-slate-50 text-slate-600">{allocationBatchLabel({ ...row, quantity: Number(row.quantity) }, traceCopy.missing)}</div>
                       <input className="input" type="number" min={1} value={row.quantity} onChange={(e) => setBatchQuantity(idx, e.target.value)} required />
                     </div>
                   ))}
                 </div>
               </div>
             )}
+            <PackageBatchBreakdownEditor plans={editPlans} draft={editTraceValues} lang={lang} disabled={busy}
+              allowUnknown={!needsEditAttribution && editForm.batch_allocations.every(row => !row.item_breakdown)}
+              onChange={values => setEditTrace(previous => ({ ...previous, key: editPlanKey, values, touched: true }))} />
 
             <div>
               <label className="label">{t("common.notes")}</label>
@@ -443,7 +471,7 @@ export default function PackageQrSection({
             </div>
             <div className="flex justify-end gap-2">
               <button type="button" className="btn" onClick={() => { setEditing(null); setEditForm(null); }} disabled={busy}>{t("common.cancel")}</button>
-              <button type="submit" className="btn btn-primary" disabled={busy}>{busy ? t("common.saving") : t("page.packages.requestApproval")}</button>
+              <button type="submit" className="btn btn-primary" disabled={busy || (needsEditAttribution && !editTraced.valid)}>{busy ? t("common.saving") : t("page.packages.requestApproval")}</button>
             </div>
           </form>
         )}

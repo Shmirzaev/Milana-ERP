@@ -17,15 +17,17 @@ const javascript = ts.transpileModule(handler, { compilerOptions: { target: ts.S
 const operation = { id: "sew", sewingFactory: "milana", rate: "50.125", selected: true };
 const hidden = { id: "besttex", sewingFactory: "besttex", rate: "75", selected: true };
 
-function fixture({ fail = false, switchVariant = false, stale = false, eco = false } = {}) {
+function fixture({ fail = false, switchVariant = false, switchCatalog = false, stale = false, eco = false, wrongLoadedCatalog = false } = {}) {
   const writes = [];
   const refreshed = [];
   const state = { dirty: true };
   const selectedModelIdRef = { current: 8048 };
+  const modelApiBaseRef = { current: eco ? "/api/usluga" : "/api" };
   const context = vm.createContext({
     modelApiBase: eco ? "/api/usluga" : "/api",
     selectedModel: { id: stale ? 8051 : 8048, code: "PJ1236-V-6120" },
     selectedModelId: 8048, loadedOperationsModelId: 8048, selectedModelIdRef,
+    loadedOperationsApiBase: wrongLoadedCatalog ? "/api/other" : eco ? "/api/usluga" : "/api", modelApiBaseRef,
     selectedProcess: undefined, factoryOperations: [operation], operations: [operation, hidden],
     printPaidOperationFactory: "milana", serializePaidOperations: rows => structuredClone(rows),
     modelVariantOption: () => ({ modelNo: "PJ1236" }),
@@ -39,12 +41,13 @@ function fixture({ fail = false, switchVariant = false, stale = false, eco = fal
     api: { patch: async (path, body) => {
       writes.push({ path, body });
       if (switchVariant) selectedModelIdRef.current = 8051;
+      if (switchCatalog) modelApiBaseRef.current = "/api/usluga";
       if (fail) throw new Error("Save rejected");
     } },
     mutateModelCache: async (matches, data, options) => {
       assert.equal(data, undefined, "remove cached variant data before the next load");
       assert.equal(options.revalidate, true);
-      for (const key of ["/api/models/8048", "/api/models/8051", "/api/usluga/models/8048", "/api/usluga/models/8051", "/api/models/8051/process-qr-sizes", "/api/payroll/qr-labels", null]) {
+      for (const key of ["/api/models/8048", "/api/models/8051", "/api/usluga/models/8048", "/api/usluga/models/8051", "/api/models/8048?paid_operations_from_model=true", "/api/usluga/models/8048?paid_operations_from_model=true", "/api/models/8051/process-qr-sizes", "/api/payroll/qr-labels", null]) {
         if (matches(key)) refreshed.push(key);
       }
     },
@@ -59,7 +62,7 @@ assert.equal(success.writes.length, 1);
 assert.equal(success.writes[0].path, "/api/models/8048/paid-operations");
 assert.equal(success.writes[0].body.sewing_factory, "milana");
 assert.deepEqual(success.writes[0].body.paid_operations, [operation]);
-assert.deepEqual(success.refreshed, ["/api/models/8048", "/api/models/8051"]);
+assert.deepEqual(success.refreshed, ["/api/models/8048", "/api/models/8051", "/api/models/8048?paid_operations_from_model=true"]);
 assert.equal(success.state.dirty, false);
 assert.equal(success.state.saving, false);
 assert.equal(JSON.parse(success.state.message).values.model, "PJ1236");
@@ -75,7 +78,7 @@ assert.match(rejected.state.message, /Save rejected/);
 const ecoSave = fixture({ eco: true });
 await ecoSave.run();
 assert.equal(ecoSave.writes[0].path, "/api/usluga/models/8048/paid-operations");
-assert.deepEqual(ecoSave.refreshed, ["/api/usluga/models/8048", "/api/usluga/models/8051"]);
+assert.deepEqual(ecoSave.refreshed, ["/api/usluga/models/8048", "/api/usluga/models/8051", "/api/usluga/models/8048?paid_operations_from_model=true"]);
 
 for (const fail of [false, true]) {
   const switched = fixture({ switchVariant: true, fail });
@@ -88,4 +91,13 @@ for (const fail of [false, true]) {
 const stale = fixture({ stale: true });
 await stale.run();
 assert.equal(stale.writes.length, 0, "loading a variant must never save another variant's cached operations");
+for (const fail of [false, true]) {
+  const switched = fixture({ switchCatalog: true, fail });
+  await switched.run();
+  assert.equal(switched.state.operations, undefined, "same-ID catalog switch rejects late responses");
+  assert.equal(switched.state.message, "");
+}
+const wrongCatalog = fixture({ wrongLoadedCatalog: true });
+await wrongCatalog.run();
+assert.equal(wrongCatalog.writes.length, 0, "cannot save operations loaded from another catalog");
 console.log("Process QR family-save payload, cache refresh, error and late-response checks passed.");

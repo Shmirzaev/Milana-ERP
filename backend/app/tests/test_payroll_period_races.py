@@ -203,7 +203,7 @@ def test_postgres_record_writer_serializes_before_period_lock(payroll_postgres_s
     writer_ready = Event()
     release_writer = Event()
     pids = Queue()
-    original_assert = payroll._assert_period_accepts_records
+    original_assert = payroll.payroll_records_service._assert_period_accepts_records
 
     def pause_after_status_check(period, current):
         original_assert(period, current)
@@ -211,6 +211,7 @@ def test_postgres_record_writer_serializes_before_period_lock(payroll_postgres_s
         assert release_writer.wait(10), "Writer was not released"
 
     monkeypatch.setattr(payroll, "_assert_period_accepts_records", pause_after_status_check)
+    monkeypatch.setattr(payroll.payroll_records_service, "_assert_period_accepts_records", pause_after_status_check)
 
     def write_record():
         with sessions() as db:
@@ -394,14 +395,14 @@ def test_postgres_adjustment_writer_serializes_before_period_lock(payroll_postgr
     writer_ready = Event()
     release_writer = Event()
     pids = Queue()
-    original_assert = payroll._assert_period_accepts_adjustments
+    original_assert = payroll.payroll_adjustments_service._assert_period_accepts_adjustments
 
     def pause_after_status_check(period):
         original_assert(period)
         writer_ready.set()
         assert release_writer.wait(10), "Adjustment writer was not released"
 
-    monkeypatch.setattr(payroll, "_assert_period_accepts_adjustments", pause_after_status_check)
+    monkeypatch.setattr(payroll.payroll_adjustments_service, "_assert_period_accepts_adjustments", pause_after_status_check)
 
     def write_adjustment():
         with sessions() as db:

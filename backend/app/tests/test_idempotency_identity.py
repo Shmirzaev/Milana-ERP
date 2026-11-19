@@ -16,6 +16,7 @@ from app.api.routes.finance import create_payment
 from app.core.security import create_access_token
 from app.db.base import Base
 from app.db.session import SessionLocal
+from app.libs.dto.sales.payment_output import PaymentOut
 from app.schemas import AuditLog, IdempotencyRecord, Invoice, Payment, SalesOrder, User
 from app.libs.dto.sales.sales import PaymentIn
 from app.models import payments_service as low_level_payments
@@ -242,17 +243,29 @@ def test_postgres_concurrent_payment_retries(postgres_sessions, case, monkeypatc
             holder.rollback()
         results = [f.result(timeout=25) for f in futures]
     if case == "same":
-        assert all(isinstance(r, dict) for r in results) and results[0] == results[1], results
+        assert all(isinstance(result, PaymentOut) for result in results), results
+        snapshots = [result.model_dump(mode="json") for result in results]
+        assert snapshots[0] == snapshots[1], snapshots
     elif case == "changed_payload":
-        assert sum(isinstance(r, dict) for r in results) == 1, results
+        receipts = [result for result in results if isinstance(result, PaymentOut)]
+        assert len(receipts) == 1, results
         assert sum(isinstance(r, HTTPException) and r.status_code == 409 for r in results) == 1, results
+        snapshots = [receipts[0].model_dump(mode="json")]
     else:
-        assert all(isinstance(r, dict) for r in results) and results[0]["id"] != results[1]["id"], results
+        assert all(isinstance(result, PaymentOut) for result in results), results
+        snapshots = [result.model_dump(mode="json") for result in results]
+        assert results[0].id != results[1].id, results
     expected = 2 if case in {"other_user", "other_factory"} else 1
     assert processed.qsize() == expected, "Retries must replay before entering the business write path"
     with sessions() as db:
         assert db.query(Payment).filter_by(invoice_id=invoice_id).count() == expected
-        assert db.query(IdempotencyRecord).filter_by(key=key).count() == expected
+        records = db.query(IdempotencyRecord).filter_by(key=key).all()
+        assert len(records) == expected
+        assert {record.response_json["id"] for record in records} == {
+            snapshot["id"] for snapshot in snapshots
+        }
+        if case == "same":
+            assert records[0].response_json == snapshots[0]
 
 
 def test_postgres_other_users_key_does_not_wait_for_first_user(postgres_sessions):
@@ -314,7 +327,10 @@ def test_postgres_rollback_releases_retry_lock_without_committing_business_write
         finally:
             failed.rollback()
         result = future.result(timeout=25)
+    assert isinstance(result, PaymentOut)
+    snapshot = result.model_dump(mode="json")
     with sessions() as db:
         rows = db.query(Payment).filter_by(invoice_id=invoice_id).all()
-        assert len(rows) == 1 and rows[0].id == result["id"]
-        assert db.query(IdempotencyRecord).filter_by(key=key).count() == 1
+        assert len(rows) == 1 and rows[0].id == result.id
+        record = db.query(IdempotencyRecord).filter_by(key=key).one()
+        assert record.response_json == snapshot

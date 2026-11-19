@@ -15,6 +15,7 @@ from app.schemas import (
 from app.models.audit_service import log_action
 from app.models.cutting_batch_guard_service import require_cutting_batch_mutable
 from app.models.inventory_service import _set_reservation_status
+from app.models.production.ect_passport_fabric_service import cutting_eco_consumption, reverse_cutting_eco_consumption
 
 
 def _snapshot(row):
@@ -147,11 +148,15 @@ def _delete_cutting_batch(db, work, batch_id, current):
         if movement.movement_type != "consume" or movement.created_at < rec.created_at:
             raise HTTPException(409, "Fabric movement history needs review before deleting this batch")
         actual[(rec.id, movement.batch_id, movement.unit)] += Decimal(str(movement.quantity))
+    eco_actual, eco_movements = cutting_eco_consumption(db, record_ids, lock=True)
+    central_actual = dict(actual)
+    for key, quantity in eco_actual.items():
+        actual[key] += quantity
     if dict(actual) != dict(expected):
         raise HTTPException(409, "Fabric usage does not match stock movements; review this batch before deletion")
 
     returns = defaultdict(Decimal)
-    for (_, stock_id, unit), quantity in actual.items():
+    for (_, stock_id, unit), quantity in central_actual.items():
         returns[(stock_id, unit)] += quantity
     stocks = {row.id: row for row in db.query(StockBatch).filter(
         StockBatch.id.in_([key[0] for key in returns]),
@@ -225,6 +230,7 @@ def _delete_cutting_batch(db, work, batch_id, current):
          "beika_materials": [_snapshot(x) for x in row.beika_materials]} for row in records
     ], "bundles": [{**_snapshot(row), "scans": [_snapshot(x) for x in row.scan_logs]} for row in bundles],
         "assignments": [_snapshot(row) for row in assignments], "waste": [_snapshot(row) for row in waste_rows]}
+    reverse_cutting_eco_consumption(db, eco_movements, current)
     for (stock_id, unit), quantity in returns.items():
         stock = stocks[stock_id]
         stock.quantity = Decimal(str(stock.quantity)) + quantity
@@ -256,6 +262,8 @@ def _delete_cutting_batch(db, work, batch_id, current):
         "deleted": True, "returned_fabric": [{"stock_batch_id": sid, "unit": unit, "quantity": str(q)}
                                             for (sid, unit), q in returns.items()],
         "restored_reservations": reservation_changes,
+        "returned_eco_fabric": [{"movement_id": row.id, "eco_batch_id": row.batch_id,
+                                 "quantity": str(row.quantity)} for row in eco_movements],
         "reversed_sewing_receipts": receipt_changes,
     })
     return {"deleted": True, "batch_no": batch.batch_no, "deleted_bundle_count": len(bundles)}

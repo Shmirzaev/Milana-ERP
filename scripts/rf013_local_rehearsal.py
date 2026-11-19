@@ -25,7 +25,6 @@ import urllib.request
 
 
 ROOT = Path(__file__).resolve().parents[1]
-FRONTEND_DOCKERFILE = ROOT / "scripts/rf013_frontend.Dockerfile"
 SLOTCTL_PATH = ROOT / "deploy/slotctl.py"
 HAPROXY_IMAGE = "haproxy:3.1-alpine"
 POSTGRES_IMAGE = "postgres:16-alpine"
@@ -236,6 +235,8 @@ class Rehearsal:
         module.BASE = self.dir
         module.RUNTIME = self.dir
         module.PROXY_PATH = self.dir / "haproxy.cfg"
+        module.FRONTEND_ERROR_PATH = self.dir / "frontend-503.http"
+        module.API_ERROR_PATH = self.dir / "api-503.http"
         module.ROLES = self.roles
         module.container_name = self.name
         module.atomic_write = local_write
@@ -289,13 +290,23 @@ backend rf013_backend_active
 
 frontend rf013_frontend
     bind :3000
+    acl api_route path -i /api
+    acl api_route path_beg /api/
+    use_backend rf013_api_active if api_route
     default_backend rf013_frontend_active
 
 backend rf013_frontend_active
     option httpchk GET /login
     http-check expect status 200
+    errorfile 503 /cfg/frontend-503.http
     http-response set-header X-RF013-Release {RELEASES[active["frontend"]]}
     http-response set-header X-RF013-Slot {active["frontend"]}
+    server active {frontend_name}:3000 check inter 2s fall 3 rise 2
+
+backend rf013_api_active
+    option httpchk GET /login
+    http-check expect status 200
+    errorfile 503 /cfg/api-503.http
     server active {frontend_name}:3000 check inter 2s fall 3 rise 2
 """
 
@@ -385,7 +396,12 @@ backend rf013_frontend_active
         image = self.image(role, release)
         build = ["docker", "build", "-t", image]
         if role == "frontend":
-            build += ["-f", str(FRONTEND_DOCKERFILE), str(source)]
+            # Rewrites are baked at build time; keep them on this run's local network.
+            build += [
+                "-f", str(source / "frontend/Dockerfile"),
+                "--build-arg", f"API_URL=http://{self.proxy_name}:8000",
+                "--build-arg", "NEXT_PUBLIC_API_URL=", str(source),
+            ]
         else:
             build += [str(source / "backend")]
         log = self.dir / f"build-{role}-{release}.log"
@@ -393,6 +409,20 @@ backend rf013_frontend_active
             result = subprocess.run(build, stdout=stream, stderr=subprocess.STDOUT)
         if result.returncode:
             raise RuntimeError(f"{image} build failed; see {log}")
+        inspected = json.loads(docker("image", "inspect", image))[0]
+        config = inspected["Config"]
+        if role == "frontend" and (
+            "NODE_ENV=production" not in config.get("Env", [])
+            or config.get("Cmd") != ["node", "server.js"]
+        ):
+            raise RuntimeError(f"{image} is not the standalone production frontend")
+        self.evidence.setdefault("images", []).append({
+            "role": role, "release": release, "image": image, "id": inspected["Id"],
+            "dockerfile": str(source / ("frontend/Dockerfile" if role == "frontend" else "backend/Dockerfile")),
+            "command": config.get("Cmd"), "entrypoint": config.get("Entrypoint"),
+            "user": config.get("User"),
+            "node_env": next((item for item in config.get("Env", []) if item.startswith("NODE_ENV=")), None),
+        })
         self.event("image_built", image)
 
     def prepare(self) -> None:
@@ -417,7 +447,8 @@ backend rf013_frontend_active
                     "SEED_SAMPLE_DATA=false",
                     "IMPORT_LEGACY_MODELS=false",
                     "GLOBAL_RATE_LIMIT_ENABLED=false",
-                    f"CORS_ORIGINS=http://127.0.0.1:{self.roles['frontend']['stable']}",
+                    f"CORS_ORIGINS=http://127.0.0.1:{self.roles['frontend']['stable']},"
+                    f"http://localhost:{self.roles['frontend']['stable']}",
                 ]
             )
             + "\n"
@@ -479,6 +510,7 @@ backend rf013_frontend_active
             temp.replace(link)
 
     def start_proxy(self) -> None:
+        self.slotctl.write_errorfiles()
         content = self.proxy_config("frontend", "blue")
         self.validate_proxy(content)
         self.slotctl.atomic_write(self.dir / "haproxy.cfg", content)
@@ -630,6 +662,24 @@ backend rf013_frontend_active
             time.sleep(1)
         raise RuntimeError(f"stable routes did not settle on {expected}: {results}")
 
+    def assert_failed_switch_pages(self) -> None:
+        base = f"http://127.0.0.1:{self.roles['frontend']['stable']}"
+        for path, content_type, marker in (
+            ("/login", "text/html", "Back in a moment"),
+            ("/api/auth/me", "application/json", '{"detail":"Service unavailable"}'),
+        ):
+            try:
+                urllib.request.urlopen(base + path, timeout=PROBE_TIMEOUT)
+            except urllib.error.HTTPError as exc:
+                body = exc.read().decode("utf-8", "replace")
+                if exc.code != 503 or exc.headers.get_content_type() != content_type or marker not in body:
+                    raise RuntimeError(f"wrong failed-switch response for {path}") from exc
+                if path == "/login" and ('content="10"' not in body or 'lang="ru"' not in body or 'lang="uz"' not in body):
+                    raise RuntimeError("failed-switch page lacks automatic retry or translations")
+                self.event("failed_switch_response", f"{path}: 503 {content_type}")
+            else:
+                raise RuntimeError(f"failed-switch route {path} did not return 503")
+
     def run(self) -> None:
         self.prepare()
         self.stage("backend", "blue")
@@ -687,6 +737,7 @@ backend rf013_frontend_active
         else:
             raise RuntimeError("injected frontend post-reload failure did not fail activation")
         self.snapshot("failed_frontend_switch")
+        self.assert_failed_switch_pages()
         if self.state("frontend").get("active_slot") != "blue":
             raise RuntimeError("expected frontend state to remain blue after failed activation")
         if f"server active {self.name('frontend', 'green')}:3000" not in (self.dir / "haproxy.cfg").read_text():
@@ -709,6 +760,8 @@ backend rf013_frontend_active
                 )
         self.set_current("old")
         self.assert_routes("old", "old")
+        if request(self.urls["login"])["status"] != 200:
+            raise RuntimeError("frontend page did not return after reconciliation")
         opener = self.authenticated_opener()
         if self.setting(opener)["financial"]["default_currency"] != "USD":
             raise RuntimeError("reconciled old pair could not read persisted data")

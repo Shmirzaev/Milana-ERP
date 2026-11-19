@@ -1,8 +1,10 @@
+from app.libs.enums.production import SewingFactoryCode
 from datetime import datetime
 from typing import Literal, Optional
-from pydantic import BaseModel, Field, field_serializer
+from pydantic import BaseModel, Field, field_serializer, model_serializer
 
 from app.libs.dto.common import ORMModel, SchemaModel
+from app.libs.dto.packaging.package_allocation_items import PackageAllocationItem
 
 
 class BundleIn(SchemaModel):
@@ -89,6 +91,14 @@ class PackageItemOut(ORMModel):
 class PackageBatchAllocationIn(BaseModel):
     production_batch_id: int
     quantity: int = Field(le=2_147_483_647)
+    item_breakdown: list[PackageAllocationItem] | None = Field(default=None, min_length=1, max_length=1000)
+
+    @model_serializer(mode="wrap")
+    def preserve_legacy_fingerprint(self, handler):
+        value = handler(self)
+        if self.item_breakdown is None:
+            value.pop("item_breakdown", None)
+        return value
 
 
 class PackageBatchAllocationOut(ORMModel):
@@ -96,6 +106,9 @@ class PackageBatchAllocationOut(ORMModel):
     package_id: int
     production_batch_id: int
     quantity: int
+    item_breakdown: list[PackageAllocationItem] | None = None
+    batch_no: str | None = None
+    batch_name: str | None = None
 
 
 class PackageIn(SchemaModel):
@@ -180,6 +193,10 @@ class PackageChangeDecisionIn(BaseModel):
 
 
 class PackageOut(ORMModel):
+    model_no: Optional[str] = None
+    variant_no: Optional[str] = None
+    sewing_factory_codes: list[SewingFactoryCode] = Field(default_factory=list)
+    sewing_factory_code: Optional[SewingFactoryCode] = None
     stock_kind: str = "standard"
     manual_receipt_id: Optional[int] = None
     id: int
@@ -198,7 +215,7 @@ class PackageOut(ORMModel):
     order_type: Optional[str] = None
     brand_id: Optional[int] = None
     collection_id: Optional[int] = None
-    model_id: int
+    model_id: Optional[int] = None
     model_code: Optional[str] = None
     model_name: Optional[str] = None
     model_image_url: Optional[str] = None

@@ -161,7 +161,7 @@ export function HrWorkspaceNav() {
   ];
   return (
     <nav className="card mb-6 overflow-x-auto p-2" aria-label={t("hrWorkspace.navigation")}>
-      <div className="flex min-w-max gap-1">
+      <div className="flex flex-wrap gap-1">
         {links.map(([label, href]) => {
           const active = href === "/hr" ? pathname === href : pathname === href || pathname.startsWith(`${href}/`);
           return <Link className={`rounded-md px-3 py-2 text-sm transition ${active ? "bg-[#14110b] text-white" : "text-[#56503f] hover:bg-[#f1efe8]"}`} href={href} key={href}>{t(`hrWorkspace.${label}`)}</Link>;

@@ -9,10 +9,15 @@ from sqlalchemy.orm import Session, object_session
 from app.schemas import (
     Package, PackageItem, PackageBatchAllocation, PackageScanLog, PackageChangeRequest,
     ProductionOrder, FinishedGoodsStock, Warehouse, ModelBOM, StockBatch,
-    ProductionBatch, StockReservation, ShipmentPackage, User, Notification,
+    ProductionBatch, StockReservation, ShipmentPackage, User,
     PackagingRecord, WorkOrder, PackagePrintRunMember, WarehousePackReservation,
 )
+from app.models.packaging.allocation_items_service import (
+    allocation_payload, enforce_source_sizes, item_totals, normalize_matrix,
+)
+from app.schemas.packaging.allocation_persistence import insert_allocations, replace_allocations
 from app.core.deps import user_permissions
+from app.schemas.core_persistence import add_notification_row
 from app.models.barcode_service import generate_barcode_value, save_qr_image, save_barcode_image
 from app.models.finished_goods_service import infer_brand_and_collection
 from app.models.numbering_service import next_package_no, next_package_nos
@@ -305,6 +310,7 @@ def package_snapshot(pkg: Package) -> dict:
             {
                 "production_batch_id": int(alloc.production_batch_id),
                 "quantity": int(alloc.quantity or 0),
+                **({"item_breakdown": alloc.item_breakdown} if alloc.item_breakdown is not None else {}),
             }
             for alloc in sorted((pkg.batch_allocations or []), key=lambda row: row.id)
         ],
@@ -344,11 +350,12 @@ def _compute_cost(db: Session, model_id: int) -> float:
 
 
 def _packaging_record_totals_by_batch(db: Session, production_order_id: int) -> dict[int | None, int]:
+    record_batch = func.coalesce(PackagingRecord.production_batch_id, WorkOrder.production_batch_id)
     rows = (
-        db.query(PackagingRecord.production_batch_id, func.coalesce(func.sum(PackagingRecord.packed_qty), 0))
+        db.query(record_batch, func.coalesce(func.sum(PackagingRecord.packed_qty), 0))
         .join(WorkOrder, WorkOrder.id == PackagingRecord.work_order_id)
         .filter(WorkOrder.production_order_id == production_order_id)
-        .group_by(PackagingRecord.production_batch_id)
+        .group_by(record_batch)
         .all()
     )
     return {int(batch_id) if batch_id is not None else None: int(qty or 0) for batch_id, qty in rows}
@@ -394,6 +401,16 @@ def _existing_package_totals_by_batch(
         key = int(batch_id) if batch_id is not None else None
         totals[key] = totals.get(key, 0) + int(qty or 0)
     return totals
+
+
+def packaged_quantity_balances_by_batch(
+    db: Session, production_order_id: int,
+) -> tuple[dict[int | None, int], dict[int | None, int]]:
+    """Read the same source-output and consumption ledgers package creation uses."""
+    return (
+        _packaging_record_totals_by_batch(db, production_order_id),
+        _existing_package_totals_by_batch(db, production_order_id),
+    )
 
 
 def prime_package_batch_memberships(
@@ -652,6 +669,7 @@ def create_package(
     elif has_batches:
         raise HTTPException(400, "Select a production batch for this package")
 
+    normalized_allocations = normalize_matrix(normalized_allocations, items, raw_allocations=batch_allocations)
     _enforce_packaged_quantity_available(
         db,
         production_order_id=production_order_id,
@@ -672,6 +690,9 @@ def create_package(
             raise HTTPException(409, "Save Packaging output before creating packages")
     from app.models.first_grade_service import enforce_size_allocation
     enforce_size_allocation(db, po, batch_id, items, normalized_allocations, first_grade=stock_kind in {"first_grade", "second_grade"}, cache=_write_context.size_allocation if _write_context is not None else None)
+
+    enforce_source_sizes(db, po, normalized_allocations, items,
+                         cache=_write_context.size_allocation if _write_context is not None else None)
 
     resolved_sales_order_id = sales_order_id if sales_order_id is not None else po.sales_order_id
     resolved_brand_id, resolved_collection_id = infer_brand_and_collection(
@@ -727,12 +748,7 @@ def create_package(
             quantity=int(it["quantity"]),
         ))
 
-    for alloc in normalized_allocations:
-        db.add(PackageBatchAllocation(
-            package_id=pkg.id,
-            production_batch_id=alloc["production_batch_id"],
-            quantity=alloc["quantity"],
-        ))
+    insert_allocations(db, pkg.id, normalized_allocations)
 
     qr_payload = f"PACKAGE:{pkg_no}|{barcode_value}"
     pkg.qr_code_url = save_qr_image(qr_payload, f"package_qr_{pkg_no}")
@@ -974,8 +990,18 @@ def _validate_batch_allocations(
     if sum(batch_totals.values()) != total:
         raise HTTPException(400, "Batch allocation quantity must equal package total quantity")
 
+    breakdowns = {}
+    for row in raw_allocations:
+        batch = int(row["production_batch_id"])
+        incoming = row.get("item_breakdown")
+        if batch in breakdowns:
+            if (breakdowns[batch] is None) != (incoming is None):
+                raise HTTPException(400, "Every repeated source row requires its item breakdown")
+            breakdowns[batch] = breakdowns[batch] + incoming if incoming is not None else None
+        else:
+            breakdowns[batch] = incoming
     return [
-        {"production_batch_id": batch_id, "quantity": quantity}
+        {"production_batch_id": batch_id, "quantity": quantity, "item_breakdown": breakdowns[batch_id]}
         for batch_id, quantity in sorted(batch_totals.items())
     ]
 
@@ -1004,11 +1030,11 @@ def _normalize_package_batch_allocations(
         return []
 
     current = [
-        {"production_batch_id": int(alloc.production_batch_id), "quantity": int(alloc.quantity or 0)}
+        allocation_payload(alloc)
         for alloc in sorted((pkg.batch_allocations or []), key=lambda row: row.id)
     ]
     if len(current) == 1:
-        return [{"production_batch_id": current[0]["production_batch_id"], "quantity": total}]
+        return [{**current[0], "quantity": total}]
     if len(current) > 1:
         if sum(int(row["quantity"] or 0) for row in current) != total:
             raise HTTPException(400, "Update batch allocation quantities when changing package total quantity")
@@ -1056,6 +1082,22 @@ def normalize_package_edit_payload(db: Session, pkg: Package, payload: dict | No
         raise HTTPException(400, f"Package quantity {total} exceeds capacity {capacity}")
 
     batch_allocations = _normalize_package_batch_allocations(db, pkg, payload, total)
+    old_allocations = [allocation_payload(row) for row in pkg.batch_allocations]
+    old_items = [{"model_id": row.model_id or pkg.model_id, "color": row.color,
+                  "size": row.size, "quantity": row.quantity} for row in pkg.items]
+    old_totals = {row["production_batch_id"]: row["quantity"] for row in old_allocations}
+    new_totals = {row["production_batch_id"]: row["quantity"] for row in batch_allocations}
+    same_contents = item_totals(old_items) == item_totals(items) and old_totals == new_totals
+    if same_contents:
+        old_by_batch = {row["production_batch_id"]: row for row in old_allocations}
+        batch_allocations = [{**row, "item_breakdown": row.get("item_breakdown")
+            if row.get("item_breakdown") is not None else old_by_batch.get(row["production_batch_id"], {}).get("item_breakdown")}
+            for row in batch_allocations]
+    elif len(batch_allocations) == 1 and "batch_allocations" not in payload:
+        # Source is uniquely attributable; old contents cannot be copied into
+        # a changed single-source package.
+        batch_allocations = [{**batch_allocations[0], "item_breakdown": None}]
+    batch_allocations = normalize_matrix(batch_allocations, items, preserve_unknown=same_contents)
     production_batch_id = batch_allocations[0]["production_batch_id"] if len(batch_allocations) == 1 else None
     if pkg.production_order_id is not None:
         _enforce_packaged_quantity_available(
@@ -1137,13 +1179,9 @@ def _notify_package_change_approvers(
             continue
         if not _is_package_change_approver(user):
             continue
-        db.add(
-            Notification(
-                user_id=user.id,
-                title=f"Package {request_type} approval needed",
-                message=f"{package_no} has a pending {request_type} request.",
-                link="/packages",
-            )
+        add_notification_row(
+            db, user_id=user.id, title=f"Package {request_type} approval needed",
+            message=f"{package_no} has a pending {request_type} request.", link="/packages",
         )
         created += 1
     return created
@@ -1158,14 +1196,8 @@ def _notify_package_requester(
 ) -> None:
     if not request.requested_by:
         return
-    db.add(
-        Notification(
-            user_id=request.requested_by,
-            title=title,
-            message=message,
-            link="/packages",
-        )
-    )
+    add_notification_row(db, user_id=request.requested_by, title=title,
+                         message=message, link="/packages")
 
 
 def create_package_change_request(
@@ -1256,7 +1288,9 @@ def _apply_package_edit_request(db: Session, request: PackageChangeRequest, user
         raise HTTPException(404, "Package not found")
     _ensure_package_can_change(db, pkg, allow_printed=allow_printed)
 
-    target = request.payload_json or {}
+    # Pending requests may predate the matrix contract. Revalidate after the
+    # production lock, including attribution and current size/quantity budgets.
+    target = normalize_package_edit_payload(db, pkg, request.payload_json or {})
     items = list(target.get("items") or [])
     allocations = list(target.get("batch_allocations") or [])
     if not items:
@@ -1276,6 +1310,7 @@ def _apply_package_edit_request(db: Session, request: PackageChangeRequest, user
         if old_items != new_items or int(target["capacity"]) != 1 or target.get("production_batch_id") != pkg.production_batch_id:
             raise HTTPException(409, "FIRST_GRADE_CONTENTS_IMMUTABLE")
     if pkg.production_order_id:
+        enforce_source_sizes(db, po, allocations, items, exclude_package_id=pkg.id)
         from app.models.first_grade_service import enforce_size_allocation
         enforce_size_allocation(db, po, target.get("production_batch_id"), items, allocations, exclude_package_id=pkg.id)
 
@@ -1301,7 +1336,6 @@ def _apply_package_edit_request(db: Session, request: PackageChangeRequest, user
         pkg.storage_placed_at = None
 
     db.query(PackageItem).filter(PackageItem.package_id == pkg.id).delete(synchronize_session=False)
-    db.query(PackageBatchAllocation).filter(PackageBatchAllocation.package_id == pkg.id).delete(synchronize_session=False)
     db.flush()
 
     for item in items:
@@ -1314,14 +1348,7 @@ def _apply_package_edit_request(db: Session, request: PackageChangeRequest, user
                 quantity=int(item["quantity"]),
             )
         )
-    for alloc in allocations:
-        db.add(
-            PackageBatchAllocation(
-                package_id=pkg.id,
-                production_batch_id=int(alloc["production_batch_id"]),
-                quantity=int(alloc["quantity"]),
-            )
-        )
+    replace_allocations(db, pkg.id, allocations)
 
     _replace_finished_goods_for_package(db, pkg, items)
     db.add(
@@ -1591,8 +1618,21 @@ def ship_package(
     if shipment_context is None:
         pkg = (db.query(Package).filter(Package.id == pkg.id)
                .with_for_update(of=Package).populate_existing().one())
+        from app.models.fulfillment.package_customer_service import package_customer_policies, package_reservation_error
+        policy = package_customer_policies(db, [pkg])[pkg.id]
+        if policy.customers and not policy.released:
+            raise HTTPException(409, "Dispatch customer-assigned packs through their scanned customer shipment")
+        if policy.released and (package_reservation_error(db, None, pkg) or db.query(FinishedGoodsStock.id).filter(
+                FinishedGoodsStock.package_id == pkg.id, FinishedGoodsStock.reserved_qty > 0).first()):
+            raise HTTPException(409, "Dispatch reserved packs through their scanned sales shipment")
         if db.query(WarehousePackReservation.id).filter_by(package_id=pkg.id).first():
             raise HTTPException(409, "Prepare this customer reservation for shipment first")
+        from app.libs.enums.fulfillment import ShipmentStatus
+        from app.schemas import Shipment
+        if db.query(ShipmentPackage.id).join(Shipment, Shipment.id == ShipmentPackage.shipment_id).filter(
+                ShipmentPackage.package_id == pkg.id, Shipment.deleted_at.is_(None),
+                Shipment.status.in_((ShipmentStatus.DRAFT, ShipmentStatus.CREATED))).first():
+            raise HTTPException(409, "Dispatch allocated pieces through their scanned shipment")
         _require_warehouse_package(db, pkg)
     else:
         if (shipment_context.session is not db

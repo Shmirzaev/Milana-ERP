@@ -10,6 +10,12 @@ import subprocess
 import sys
 import xml.etree.ElementTree as ET
 
+from refactor_pg_evidence import (
+    add_provenance as add_provenance,
+    check_supplement_report,
+    junit_nodeid as junit_nodeid,
+)
+
 
 MANIFEST = Path(__file__).with_name("refactor_pg_required_cases.json")
 EXPECTED_COUNT = 17
@@ -62,49 +68,8 @@ def require_ci_instance() -> None:
         raise ValueError("MILANA_TEST_PG_INSTANCE does not identify this job's approved PG17 target")
 
 
-def junit_nodeid(case: ET.Element) -> str:
-    module = case.get("classname", "").rsplit(".", 1)[-1]
-    name = case.get("name", "")
-    if not module or not name:
-        raise ValueError("JUnit case is missing classname or name")
-    return f"backend/app/tests/{module}.py::{name}"
-
-
 def check_report(report: Path, expected: list[str]) -> dict[str, object]:
-    root = ET.parse(report).getroot()
-    cases = list(root.iter("testcase"))
-    if len(cases) != EXPECTED_COUNT:
-        raise ValueError(f"supplemental JUnit contains {len(cases)} cases; expected exactly {EXPECTED_COUNT}")
-    actual = [junit_nodeid(case) for case in cases]
-    if len(set(actual)) != EXPECTED_COUNT:
-        raise ValueError("supplemental JUnit contains duplicate case identities")
-    expected_set = set(expected)
-    actual_set = set(actual)
-    if actual_set != expected_set:
-        raise ValueError(
-            f"supplemental JUnit identities differ; missing={sorted(expected_set - actual_set)}, "
-            f"extra={sorted(actual_set - expected_set)}"
-        )
-    for case in cases:
-        if any(case.find(tag) is not None for tag in ("skipped", "failure", "error")):
-            raise ValueError(f"supplemental PG case did not pass: {junit_nodeid(case)}")
-    return {"case_count": len(cases), "nodeids": actual}
-
-
-def add_provenance(report: Path, source_commit: str, manifest_sha256: str) -> None:
-    root = ET.parse(report).getroot()
-    suites = [root] if root.tag == "testsuite" else list(root.iter("testsuite"))
-    if not suites:
-        raise ValueError("supplemental JUnit contains no testsuite")
-    for suite in suites:
-        properties = suite.find("properties")
-        if properties is None:
-            properties = ET.Element("properties")
-            suite.insert(0, properties)
-        ET.SubElement(properties, "property", name="source_commit", value=source_commit)
-        ET.SubElement(properties, "property", name="required_cases_manifest_sha256", value=manifest_sha256)
-    ET.indent(root, space="  ")
-    ET.ElementTree(root).write(report, encoding="utf-8", xml_declaration=True)
+    return check_supplement_report(report, expected, EXPECTED_COUNT)
 
 
 def main() -> int:

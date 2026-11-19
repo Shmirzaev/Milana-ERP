@@ -1,4 +1,4 @@
-"""Read-only branded-order workbook matching the owner's 19-column production form."""
+"""Read-only branded-order workbook with cutting destinations per production."""
 from io import BytesIO
 import base64
 from decimal import Decimal
@@ -10,11 +10,13 @@ from openpyxl.utils import get_column_letter
 from PIL import Image as PillowImage
 from sqlalchemy.orm import selectinload
 
+from app.libs.enums.production import CuttingDepartmentCode
 from app.schemas import BrandedPlanningOrder, Department, Model, ProductionOrder, ProductionOrderMaterial, StockBatch
 from app.models.model_identity_service import model_number_fields
-from app.models.label_images_service import model_label_image_src, material_label_image_src
+from app.models.factory_scope_service import FACTORY_LABELS, factory_for_department
+from app.models.label_images_service import model_label_image_src, material_label_image_src, print_label_image_src
 
-HEADERS = ['No', 'Model №', 'Rasm', 'Model qolip №', 'Variant №', 'Material', 'Material eni', 'Rangi', 'Partiya №', 'Pechat', 'Vishevka', 'Model razmeri', 'Gramaj material', 'Umumiy ish soni', 'Potok', 'Mini postal', 'Aksesuar', 'Izoh', 'Foto izoh']
+HEADERS = ['No', 'Model №', 'Rasm', 'Model qolip №', 'Variant №', 'Material', 'Material eni', 'Rangi', 'Partiya №', 'Pechat', 'Vishevka', 'Model razmeri', 'Gramaj material', 'Umumiy ish soni', 'Potok', 'Mini postal', 'Aksesuar', 'Izoh', 'Foto izoh', 'Bichish fabrikasi']
 
 
 def append(sheet, values):
@@ -64,12 +66,18 @@ def build_branded_order_workbook(db, order: BrandedPlanningOrder):
         Model.id.in_([p.model_id for p in productions])).all()}
     batches = {b.id: b for b in db.query(StockBatch).filter(StockBatch.id.in_([
         p.fabric_batch_id for p in productions if p.fabric_batch_id])).all()}
-    departments = dict(db.query(Department.id, Department.name).filter(Department.id.in_(
-        {w.department_id for p in productions for w in p.work_orders})).all())
+    department_rows = db.query(Department.id, Department.code, Department.name).filter(Department.id.in_(
+        {w.department_id for p in productions for w in p.work_orders})).all()
+    departments = {department_id: name for department_id, _, name in department_rows}
+    cutting_factories = {
+        department_id: FACTORY_LABELS[factory_for_department(code)]
+        if code in (CuttingDepartmentCode.MILANA, CuttingDepartmentCode.ECO_COTTON) else name
+        for department_id, code, name in department_rows
+    }
     book = Workbook()
     form = book.active
     form.title = 'Buyurtma'
-    form.merge_cells('A1:S1')
+    form.merge_cells(f'A1:{get_column_letter(len(HEADERS))}1')
     append(form, HEADERS)
     form['A1'] = f'Milana Textile — {order.order_no} — {order.ordered_for_name} — {order.created_at:%d.%m.%Y}'
     form['A1'].data_type = 's'
@@ -100,20 +108,25 @@ def build_branded_order_workbook(db, order: BrandedPlanningOrder):
         accessories = '\n'.join(f'{b.material_name or (b.item.name if b.item else "")} — {b.quantity_per_piece} {b.unit}'
                                 for b in model.bom if b.item and b.item.category in {'accessory', 'packaging'}) if model else ''
         sewing = [departments[w.department_id] for w in p.work_orders if w.operation == 'sewing' and w.department_id in departments]
+        cutting = sorted({cutting_factories[w.department_id] for w in p.work_orders
+                          if w.operation == 'cutting' and w.status not in {'cancelled', 'rejected'}
+                          and w.department_id in cutting_factories})
         notes = '\n'.join(str(v) for v in [p.order_no, p.printing_instructions, order.notes] if v)
         append(form, [index, identity['model_no'], None,
                       first(general, 'qolip_no', 'qolipNo', 'mold_no', 'moldNo', 'pattern_no', 'patternNo'),
                       identity['variant_no'], fabric, joined('width'), joined('color'), joined('batch_no'),
-                      'Ha' if any(i.printing_required for i in p.items) else 'Yo‘q',
+                      'Ha' if any(w.operation == 'printing' and w.status != 'cancelled' for w in p.work_orders) else 'Yo‘q',
                       ('Ha' if first(general, 'embroidery', 'legacy_master_embroidery') is True else
                        'Yo‘q' if first(general, 'embroidery', 'legacy_master_embroidery') is False else
                        first(general, 'embroidery', 'legacy_master_embroidery')),
                       ', '.join(dict.fromkeys(i.size for i in p.items if i.size)), joined('gsm'), p.planned_quantity,
-                      ', '.join(dict.fromkeys(sewing)), first(general, 'mini_postal'), accessories, notes, None])
+                      ', '.join(dict.fromkeys(sewing)), first(general, 'mini_postal'), accessories, notes, None,
+                      ', '.join(cutting)])
         row = form.max_row
         form.row_dimensions[row].height = 120
         picture(form, f'C{row}', model_label_image_src(model))
         picture(form, f'H{row}', material_label_image_src(model))
+        picture(form, f'J{row}', print_label_image_src(model))
         form[f'H{row}'].alignment = Alignment(vertical='bottom', wrap_text=True)
         for item in p.items:
             append(sizes, [p.order_no, identity['model_no'], identity['variant_no'], item.color, item.size, item.planned_quantity, item.printing_required])

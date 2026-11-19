@@ -43,8 +43,10 @@ from app.schemas import (
     ProductionOrderItem, Bundle, Item, Model, ModelImage, ModelBOM, StockBatch,
 )
 from app.libs.dto.inventory.material_reservation_output import MaterialReservationOut, MaterialReservationStatusOut
+from app.libs.dto.planning.production_cutting_factory import ProductionCuttingFactoryIn, ProductionCuttingFactoryOut
+from app.models.planning.cutting_factory_service import cutting_factory_options, change_cutting_factory
 from app.libs.dto.production.production import (
-    ProductionOrderIn, ProductionOrderUpdateIn, ProductionOrderOut, ProductionOrderDetail, ProductionOrderPageOut,
+    ProductionOrderIn, ProductionOrderUpdateIn, ProductionOrderOut, ProductionOrderListOut, ProductionOrderDetail, ProductionOrderPageOut,
     WorkOrderOut, WorkOrderUpdate,
     CuttingMaterialUsageIn, CuttingRecordIn, PrintingRecordIn, SewingRecordIn, PackagingRecordIn,
     QualityCheckIn, QualityCheckOut,
@@ -89,7 +91,6 @@ from app.models.sewing_input_service import sync_sewing_input
 from app.models.workflow_service import (
     WORKFLOW_SEQUENCE,
     advance_workflow,
-    consume_packaging_materials_from_bom,
     create_waste_record,
     notify_department,
     processed_work_order_qty,
@@ -100,10 +101,15 @@ from app.models.model_identity_service import model_number_fields
 from app.models.model_images_service import material_preview_image_url, model_preview_image_url
 from app.models.cutting_sheet_service import render_cutting_sheet_html
 from app.models.passport_nastil_service import pending_work_order_passport_batches
+from app.models.production.batch_number_service import new_batch_number
 from app.libs.dto.production.production import CuttingSewingFactoryIn
 from app.models.cutting_batch_guard_service import require_cutting_batch_mutable, sewing_output_batch_query
 from app.models.factory_scope_service import require_factory_access, selected_factory_code, factory_for_department
 from app.models.factory_scope_service import require_work_order_factory_access
+from app.models.factory_scope_service import refresh_cutting_work_order_for_write
+from app.models.factory_scope_service import require_cutting_work_order_not_rejected
+from app.libs.dto.production.work_order_rejection_input import CuttingWorkOrderRejectIn
+from app.models.production.cutting_rejection_service import reject_cutting_order
 
 router = APIRouter(tags=["production"])
 _MAX_SEWING_SIZE_QUANTITY_ROWS = 1000
@@ -169,6 +175,7 @@ def _authorize_work_order_command(db: DbSession, current: User, work_order: Work
     if source_type == "usluga":
         require_factory_access(current, "ECO")
     require_work_order_factory_access(current, db, work_order)
+    require_cutting_work_order_not_rejected(work_order)
 
 
 def _notify_accessory_issue_block(db: DbSession, wo: WorkOrder, plan: dict, stage: str) -> None:
@@ -363,12 +370,15 @@ def _ordered_batches_for_work_order(
     )
     if not po:
         raise HTTPException(404, "Production order not found")
-    batches = (
+    batch_query = (
         db.query(ProductionBatch)
         .filter(ProductionBatch.production_order_id == po.id)
         .order_by(ProductionBatch.batch_index.asc(), ProductionBatch.id.asc())
-        .all()
     )
+    if wo.operation in {"sewing", "packaging"}:
+        from app.models.production.batch_scope_service import filter_work_order_batches
+        batch_query = filter_work_order_batches(batch_query, ProductionBatch.id, wo)
+    batches = batch_query.all()
     return po, batches
 
 
@@ -388,8 +398,36 @@ def _resolve_record_batch_id(
             raise HTTPException(400, f"This work order is bound to batch #{expected}")
         return expected
 
+    if wo.operation in {"sewing", "packaging"}:
+        from app.models.production.batch_scope_service import dedicated_batch_ids, batch_owned_by_work_order
+        if not db.get(ProductionOrder, wo.production_order_id):
+            raise HTTPException(404, "Production order not found")
+        # One read distinguishes a legacy order without Nastils from a shared
+        # work order whose Nastils have all moved to dedicated work orders.
+        rows = db.query(ProductionBatch.id, ProductionBatch.id.notin_(
+            dedicated_batch_ids(wo.production_order_id, wo.operation))).filter(
+                ProductionBatch.production_order_id == wo.production_order_id).all()
+        if not rows:
+            if normalized is not None and not batch_owned_by_work_order(db, wo, normalized):
+                raise HTTPException(409, "This Nastil belongs to its dedicated work order")
+            return None
+        owned = {batch_id for batch_id, available in rows if available}
+        if not owned:
+            raise HTTPException(409, "This work order has no assigned Nastils")
+        if normalized is None:
+            raise HTTPException(400, f"Select a production batch for this {operation_name} record")
+        if normalized not in {batch_id for batch_id, _ in rows}:
+            raise HTTPException(404, "Production batch not found for this production order")
+        if normalized not in owned:
+            raise HTTPException(409, "This Nastil belongs to its dedicated work order")
+        return normalized
+
     po, batches = _ordered_batches_for_work_order(db, wo)
     if not batches:
+        if normalized is not None:
+            from app.models.production.batch_scope_service import batch_owned_by_work_order
+            if not batch_owned_by_work_order(db, wo, normalized):
+                raise HTTPException(409, "This Nastil belongs to its dedicated work order")
         return None
 
     if normalized is None:
@@ -401,19 +439,23 @@ def _resolve_record_batch_id(
     ).first()
     if not exists:
         raise HTTPException(404, "Production batch not found for this production order")
+    from app.models.production.batch_scope_service import batch_owned_by_work_order
+    if not batch_owned_by_work_order(db, wo, normalized):
+        raise HTTPException(409, "This Nastil belongs to its dedicated work order")
     return normalized
 
 
-def _context_work_order(db: DbSession, source_wo: WorkOrder, operation: str) -> WorkOrder | None:
+def _context_work_order(db: DbSession, source_wo: WorkOrder, operation: str, batch_id: int | None = None) -> WorkOrder | None:
     qry = db.query(WorkOrder).filter(
         WorkOrder.production_order_id == source_wo.production_order_id,
         WorkOrder.operation == operation,
     )
-    if source_wo.production_batch_id is None:
-        qry = qry.filter(WorkOrder.production_batch_id.is_(None))
-    else:
-        qry = qry.filter(WorkOrder.production_batch_id == source_wo.production_batch_id)
-    return qry.order_by(WorkOrder.id.asc()).first()
+    target_batch = batch_id if batch_id is not None else source_wo.production_batch_id
+    if target_batch is not None:
+        return qry.filter(or_(WorkOrder.production_batch_id == target_batch,
+            WorkOrder.production_batch_id.is_(None))).order_by(
+                case((WorkOrder.production_batch_id == target_batch, 0), else_=1), WorkOrder.id).first()
+    return qry.filter(WorkOrder.production_batch_id.is_(None)).order_by(WorkOrder.id.asc()).first()
 
 
 
@@ -432,6 +474,7 @@ def _upstream_work_order_for_start(db: DbSession, wo: WorkOrder) -> WorkOrder | 
 
 def _gate_record_submission(wo: WorkOrder) -> None:
     """Reject record submission when the work order is explicitly blocked."""
+    require_cutting_work_order_not_rejected(wo)
     if wo.is_blocked:
         raise HTTPException(409, f"Work order is blocked: {wo.block_reason or 'no reason given'}")
 
@@ -493,7 +536,7 @@ def _flow_committed_today(db: DbSession, flow_id: int, now: datetime) -> int:
 
 
 # ===== Production Orders =====
-@router.get("/production-orders", response_model=list[ProductionOrderOut] | ProductionOrderPageOut)
+@router.get("/production-orders", response_model=list[ProductionOrderListOut] | ProductionOrderPageOut)
 def list_pos(
     db: DbSession,
     _: User = Depends(require_permissions(*PRODUCTION_READ_PERMISSIONS)),
@@ -534,10 +577,12 @@ def list_pos(
         )
     total = qry.order_by(None).count() if include_total else 0
     rows = qry.order_by(ProductionOrder.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
+    from app.models.production.order_routing_read_service import production_order_list_output
+    output = production_order_list_output(db, rows)
     if not include_total:
-        return rows
+        return output
     return {
-        "rows": rows,
+        "rows": output,
         "total": total,
         "page": page,
         "page_size": page_size,
@@ -547,6 +592,8 @@ def list_pos(
 
 @router.post("/production-orders", response_model=ProductionOrderDetail, status_code=201)
 def create_po(payload: ProductionOrderIn, db: DbSession, current: User = Depends(require_permissions("planning.production", "*"))):
+    from app.models.production.eco_fabric_source_service import require_planning_for_eco_selection
+    require_planning_for_eco_selection(payload)
     printing_attachments = printing_attachments_for_storage(payload.printing_attachments)
     po = create_production_order(
         db,
@@ -927,6 +974,9 @@ def _received_sewing_work_order_payloads(
         batches_by_po.setdefault(int(batch.production_order_id), []).append(batch)
 
     out: list[dict] = []
+    dedicated = set(db.query(WorkOrder.production_order_id, WorkOrder.production_batch_id).filter(
+        WorkOrder.production_order_id.in_(po_ids), WorkOrder.operation == "sewing",
+        WorkOrder.production_batch_id.is_not(None), WorkOrder.status != "cancelled").all())
     for wo in rows:
         po_id = int(wo.production_order_id)
         wo_id = int(wo.id)
@@ -966,6 +1016,8 @@ def _received_sewing_work_order_payloads(
             unscoped_assigned_remaining = int(assigned_by_scope.get((wo_id, None), 0))
             for batch in po_batches:
                 batch_id = int(batch.id)
+                if (po_id, batch_id) in dedicated:
+                    continue
                 received = received_by_scope.get((po_id, batch_id), {})
                 received_qty = int(received.get("received_bundle_qty") or 0)
                 if received_qty <= 0:
@@ -1159,6 +1211,21 @@ async def upload_production_printing_attachment(
         "file_name": file.filename or safe_name,
         "content_type": content_type,
     }
+
+
+@router.get("/production-orders/{pid}/cutting-factory", response_model=ProductionCuttingFactoryOut)
+def get_production_cutting_factory(
+    pid: int, db: DbSession, current: User = Depends(require_permissions("planning.production")),
+):
+    return cutting_factory_options(db, pid, current)
+
+
+@router.patch("/production-orders/{pid}/cutting-factory", response_model=ProductionCuttingFactoryOut)
+def patch_production_cutting_factory(
+    pid: int, payload: ProductionCuttingFactoryIn, db: DbSession,
+    current: User = Depends(require_permissions("planning.production")),
+):
+    return change_cutting_factory(db, pid, payload, current)
 
 
 @router.get("/production-orders/{pid}", response_model=ProductionOrderDetail)
@@ -1828,6 +1895,7 @@ def get_wo(wid: int, db: DbSession, current: User = Depends(require_permissions(
 def update_wo(wid: int, payload: WorkOrderUpdate, db: DbSession, current: User = Depends(require_permissions(*_WORK_ORDER_COMMAND_PERMS))):
     wo = db.get(WorkOrder, wid)
     if not wo: raise HTTPException(404, "Work order not found")
+    refresh_cutting_work_order_for_write(db, wo)
     _authorize_work_order_command(db, current, wo)
     changes = payload.model_dump(exclude_unset=True)
     if "status" in changes:
@@ -1879,10 +1947,21 @@ def update_wo(wid: int, payload: WorkOrderUpdate, db: DbSession, current: User =
     return wo
 
 
+@router.post("/work-orders/{wid}/reject-cutting", response_model=WorkOrderOut)
+def reject_cutting_wo(
+    wid: int,
+    payload: CuttingWorkOrderRejectIn,
+    db: DbSession,
+    current: User = Depends(require_permissions("cutting.records", "planning.production", "*")),
+):
+    return reject_cutting_order(db, wid, payload, current)
+
+
 @router.post("/work-orders/{wid}/start", response_model=WorkOrderOut)
 def start_wo(wid: int, db: DbSession, current: User = Depends(require_permissions(*_WORK_ORDER_COMMAND_PERMS))):
     wo = db.get(WorkOrder, wid)
     if not wo: raise HTTPException(404, "Work order not found")
+    refresh_cutting_work_order_for_write(db, wo)
     _authorize_work_order_command(db, current, wo)
     if wo.operation == "storage_transfer":
         raise HTTPException(400, "Storage transfer starts automatically when packages are received into storage.")
@@ -1929,7 +2008,7 @@ def start_wo(wid: int, db: DbSession, current: User = Depends(require_permission
         db.commit()
         raise HTTPException(400, "Material reservation is incomplete. Reserve required materials before starting cutting.")
     if wo.operation == "sewing":
-        ensure_accessories_issued_for_sewing(db, int(wo.production_order_id))
+        ensure_accessories_issued_for_sewing(db, int(wo.production_order_id), production_batch_id=wo.production_batch_id)
     wo.status = "in_progress"
     wo.start_time = datetime.now(timezone.utc)
     reservation_status = None
@@ -2127,6 +2206,7 @@ def split_cutting_work_order_batches(
     wo = db.get(WorkOrder, wid)
     if not wo:
         raise HTTPException(404, "Work order not found")
+    refresh_cutting_work_order_for_write(db, wo)
     require_work_order_factory_access(current, db, wo)
     if wo.operation != "cutting":
         raise HTTPException(400, "Only cutting work orders can be split into batches")
@@ -2200,6 +2280,7 @@ def add_extra_cutting_batch(
     wo = db.get(WorkOrder, wid)
     if not wo:
         raise HTTPException(404, "Work order not found")
+    refresh_cutting_work_order_for_write(db, wo)
     require_work_order_factory_access(current, db, wo)
     if wo.operation != "cutting":
         raise HTTPException(400, "Only cutting work orders can add cutting batches")
@@ -2221,7 +2302,7 @@ def add_extra_cutting_batch(
         or 0
     )
     batch_index = max_index + 1
-    proposed_no = f"{int(po.id):04d}-{batch_index:02d}"
+    proposed_no = new_batch_number(po, batch_index)
     batch_no = proposed_no
     suffix = 2
     while db.query(ProductionBatch.id).filter(
@@ -2286,7 +2367,7 @@ def update_cutting_sewing_factory(
         raise HTTPException(404, "Cutting work order not found")
     require_work_order_factory_access(current, db, wo)
     from app.models.cutting_sewing_factory_service import change_sewing_factory
-    result = change_sewing_factory(db, wo, payload.sewing_factory_code, current)
+    result = change_sewing_factory(db, wo, payload.sewing_factory_code, current, payload.production_batch_ids)
     db.commit()
     return result
 
@@ -2907,12 +2988,13 @@ def sewing_size_progress(
 
 
 @router.get("/work-orders/{wid}/packaging-batch-progress")
-def packaging_batch_progress(wid: int, db: DbSession, _: User = Depends(require_permissions(*PRODUCTION_READ_PERMISSIONS))):
+def packaging_batch_progress(wid: int, db: DbSession, _: User = Depends(require_permissions("packaging.packages", *PRODUCTION_READ_PERMISSIONS))):
     wo = db.get(WorkOrder, wid)
     if not wo:
         raise HTTPException(404, "Work order not found")
     if wo.operation != "packaging":
         raise HTTPException(400, "Work order is not a packaging operation")
+    require_packaging_work_order_access(_, db, wo)
 
     _, batches = _ordered_batches_for_work_order(db, wo)
     input_budgets = _packaging_input_budgets(db, wo)
@@ -3006,6 +3088,7 @@ def packaging_batch_progress(wid: int, db: DbSession, _: User = Depends(require_
             "packed_qty": packed,
             "packaged_qty": packaged,
             "available_to_package": max(0, packed - packaged),
+            "direct_available_to_package": max(0, packed - packaged) + int(budget.get("available_input_qty", 0)),
             "damaged_qty": damaged,
             "remaining_quantity": max(0, planned - processed),
             "progress_pct": round((100.0 * processed / planned), 1) if planned > 0 else 0.0,
@@ -3020,7 +3103,8 @@ def packaging_batch_progress(wid: int, db: DbSession, _: User = Depends(require_
         packed = sum(int(packed_sum or 0) for batch_id, _, packed_sum, _ in rows if batch_id is None)
         packaged = _existing_package_totals_by_batch(db, wo.production_order_id).get(None, 0)
         scope_labels = {"packed_qty": packed, "packaged_qty": packaged,
-                        "available_to_package": max(0, packed - packaged)}
+                        "available_to_package": max(0, packed - packaged),
+                        "direct_available_to_package": max(0, packed - packaged) + int(scope_budget.get("available_input_qty", 0))}
     return {"work_order_id": wo.id, "items": items, **scope_budget, **scope_labels}
 
 
@@ -3476,6 +3560,7 @@ def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depend
     if not wo: raise HTTPException(404, "Work order not found")
     from app.models.factory_scope_service import require_work_order_factory_access
     require_work_order_factory_access(current, db, wo)
+    authorized_department_id = wo.department_id
     if wo.operation != "cutting": raise HTTPException(400, "Work order is not a cutting operation")
     _gate_record_submission(wo)
     po = db.query(ProductionOrder).filter(ProductionOrder.id == wo.production_order_id).with_for_update(of=ProductionOrder).first()
@@ -3483,6 +3568,10 @@ def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depend
         raise HTTPException(404, "Production order not found")
     db.refresh(wo, with_for_update=True)
     _gate_record_submission(wo)
+    # Planning can correct routing while this request waits for the order lock.
+    # Reuse the established grant only while the authorized department is unchanged.
+    if wo.department_id != authorized_department_id:
+        require_work_order_factory_access(current, db, wo)
     if po.source_type == "usluga" and (payload.fabric_batch_id is not None or payload.materials):
         raise HTTPException(400, "Usluga material usage is recorded without an inventory batch")
     usluga_material = _usluga_cutting_material(db, po, payload.model_bom_id) if po.source_type == "usluga" else None
@@ -3506,7 +3595,7 @@ def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depend
         if po.source_type == "usluga":
             raise HTTPException(400, "Usluga material usage is recorded without an inventory batch")
         from app.models.cutting_passport_usage_service import passport_material_usage
-        raw_materials = passport_material_usage(db, po, payload.cutting_passport_id)
+        raw_materials = passport_material_usage(db, po, payload.cutting_passport_id, current)
     if not raw_materials and payload.fabric_batch_id and float(payload.input_quantity or 0) > 0:
         raw_materials = [{
             "stock_batch_id": int(payload.fabric_batch_id),
@@ -3551,7 +3640,8 @@ def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depend
         raise HTTPException(400, "Enter cutting details for every fabric")
     primary_material = cutting_materials[0] if cutting_materials else None
     if detailed_materials:
-        details = detailed_materials[0]["details"]
+        from app.models.production.passport_material_allocation_service import primary_material_details
+        details = primary_material_details(detailed_materials)
         for field in ("layer_material_kg", "beika_kg", "material_rolls_used", "layup_operator_name", "waste_quantity", "waste_unit"):
             setattr(payload, field, details[field])
 
@@ -3563,6 +3653,8 @@ def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depend
     )
     require_cutting_batch_mutable(db, wo, batch_id)
 
+    from app.models.production.passport_material_allocation_service import require_grouped_passport_submission
+    require_grouped_passport_submission(db, batch_id, payload.cutting_passport_id, payload.use_passport_materials)
     bundle_specs = _parse_cutting_bundle_specs(payload.bundles or [])
     if po.source_type == "usluga":
         if any(spec["next_code"] == "PRT" for spec in bundle_specs):
@@ -3593,6 +3685,12 @@ def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depend
     elif report_piece_count:
         raise HTTPException(400, "Report-only pieces can be recorded only for secondary Usluga fabric")
 
+    # Lock shared material sources before inserting CuttingRecord/Usage foreign
+    # keys. Two orders otherwise both hold KEY SHARE then deadlock upgrading
+    # the same source to FOR UPDATE during consumption.
+    material_consumption_context = prepare_cutting_material_consumption(
+        db, production_order_id=int(wo.production_order_id), lines=cutting_materials,
+    )
     rec = CuttingRecord(
         cutting_passport_id=payload.cutting_passport_id,
         work_order_id=payload.work_order_id,
@@ -3640,9 +3738,6 @@ def post_cutting(payload: CuttingRecordIn, db: DbSession, current: User = Depend
         wo.passed_qty += passed_pieces
         wo.failed_qty += defective_pieces
     pending_materials = []
-    material_consumption_context = prepare_cutting_material_consumption(
-        db, production_order_id=int(wo.production_order_id), lines=cutting_materials,
-    )
     require_full_material_reservation = require_material_reservation_before_cutting(db) if cutting_materials else False
     for material in cutting_materials:
         try:
@@ -4079,6 +4174,8 @@ def update_cutting_record_details(
     from app.models.factory_scope_service import require_work_order_factory_access
     require_work_order_factory_access(current, db, wo)
     require_cutting_batch_mutable(db, wo, rec.production_batch_id)
+    from app.models.production.passport_material_allocation_service import require_grouped_cutting_notes_only
+    require_grouped_cutting_notes_only(rec, payload.model_fields_set)
 
     numeric_fields = ("layer_material_kg", "beika_kg", "material_rolls_used")
     for field in numeric_fields:
@@ -5056,7 +5153,12 @@ def update_cutting_bundle_quantities(
 # ===== Printing =====
 @router.post("/printing/records", status_code=201)
 def post_printing(payload: PrintingRecordIn, db: DbSession, current: User = Depends(require_permissions("printing.records", "*"))):
-    wo = db.get(WorkOrder, payload.work_order_id)
+    # Printing also flushes Sewing accessory state before advancing the parent.
+    # Serialize before either child write, as scans and direct Packaging do.
+    source_order = db.query(WorkOrder.production_order_id).filter(
+        WorkOrder.id == payload.work_order_id).scalar_subquery()
+    db.query(ProductionOrder.id).filter(ProductionOrder.id == source_order).with_for_update(of=ProductionOrder).first()
+    wo = db.query(WorkOrder).filter(WorkOrder.id == payload.work_order_id).with_for_update(of=WorkOrder).populate_existing().first()
     if not wo: raise HTTPException(404, "Work order not found")
     from app.models.factory_scope_service import require_work_order_factory_access
     require_work_order_factory_access(current, db, wo)
@@ -5139,7 +5241,7 @@ def post_printing(payload: PrintingRecordIn, db: DbSession, current: User = Depe
         allow_next_stage_start=accessories_ready,
     )
     if int(payload.passed_qty or 0) > 0:
-        sew_wo = _context_work_order(db, wo, "sewing")
+        sew_wo = _context_work_order(db, wo, "sewing", batch_id)
         sewing_department_code = sewing_department_code_for_bundle_route(db, wo.production_order_id, batch_id)
         if not accessories_ready and accessory_plan:
             _notify_accessory_issue_block(db, wo, accessory_plan, "printing")
@@ -5265,14 +5367,16 @@ def post_sewing(payload: SewingRecordIn, db: DbSession, current: User = Depends(
     replay = replay_idempotent_response(db, scope="sewing:output", key=idempotency_key, payload=payload.model_dump())
     if replay is not None:
         return replay
-    wo = db.query(WorkOrder).filter(WorkOrder.id == payload.work_order_id).with_for_update().first()
+    # Packaging output/label actions hold PO before Sewing WO. Take the same
+    # order here: inserting defect waste later needs the PO foreign-key lock.
+    source_order = db.query(WorkOrder.production_order_id).filter(
+        WorkOrder.id == payload.work_order_id).scalar_subquery()
+    db.query(ProductionOrder.id).filter(ProductionOrder.id == source_order).with_for_update(of=ProductionOrder).first()
+    wo = db.query(WorkOrder).filter(WorkOrder.id == payload.work_order_id).with_for_update(of=WorkOrder).populate_existing().first()
     if not wo: raise HTTPException(404, "Work order not found")
     from app.models.factory_scope_service import require_work_order_factory_access
     require_work_order_factory_access(current, db, wo)
     if wo.operation != "sewing": raise HTTPException(400, "Work order is not a sewing operation")
-    ensure_accessories_issued_for_sewing(db, int(wo.production_order_id))
-    _gate_record_submission(wo)
-
     assignment = None
     if payload.sewing_assignment_id:
         assignment = db.get(SewingAssignment, payload.sewing_assignment_id)
@@ -5311,6 +5415,11 @@ def post_sewing(payload: SewingRecordIn, db: DbSession, current: User = Depends(
         payload_batch_id,
         operation_name="sewing",
     )
+    from app.models.inventory.eco_accessory_service import direct_sewing_factory, sewing_assignment_factory
+    factory = sewing_assignment_factory(db, wo.id, assignment.id) if assignment else direct_sewing_factory(db, wo.id)
+    ensure_accessories_issued_for_sewing(db, int(wo.production_order_id),
+        sewing_factory_code=factory, production_batch_id=batch_id)
+    _gate_record_submission(wo)
     size_quantities = _validated_sewing_size_quantities(db, wo, batch_id, payload)
 
     # Rule: sewing cannot receive more than cutting/printing passed
@@ -5475,31 +5584,8 @@ def get_sewing(rid: int, db: DbSession, _: User = Depends(require_permissions(*P
 
 # ===== Packaging =====
 def _packaging_input_budgets(db: DbSession, wo: WorkOrder) -> dict[int | None, dict[str, int]]:
-    """Passed Sewing output is the ceiling; physical receipts can narrow it."""
-    sewing_batch = func.coalesce(SewingRecord.production_batch_id, WorkOrder.production_batch_id)
-    sewn = dict(db.query(sewing_batch, func.sum(SewingRecord.passed_qty)).join(
-        WorkOrder, WorkOrder.id == SewingRecord.work_order_id,
-    ).filter(
-        WorkOrder.production_order_id == wo.production_order_id,
-        WorkOrder.operation == "sewing",
-        WorkOrder.status != "cancelled",
-    ).group_by(sewing_batch).all())
-    receipts = dict(db.query(PackagingReceipt.production_batch_id, func.sum(PackagingReceipt.quantity)).filter(
-        PackagingReceipt.work_order_id == wo.id,
-    ).group_by(PackagingReceipt.production_batch_id).all())
-    inputs = dict(db.query(PackagingRecord.production_batch_id, func.sum(PackagingRecord.input_qty)).filter(
-        PackagingRecord.work_order_id == wo.id,
-    ).group_by(PackagingRecord.production_batch_id).all())
-    budgets = {}
-    for batch_id in sewn.keys() | receipts.keys() | inputs.keys():
-        output = int(sewn.get(batch_id) or 0)
-        limit = min(output, int(receipts.get(batch_id) or 0)) if receipts else output
-        budgets[batch_id] = {
-            "sewing_output_qty": output,
-            "input_limit_qty": limit,
-            "available_input_qty": max(0, limit - int(inputs.get(batch_id) or 0)),
-        }
-    return budgets
+    from app.models.packaging.sewing_availability_service import input_budgets
+    return input_budgets(db, wo)
 
 
 def _packaging_source_work_order(
@@ -5884,42 +5970,20 @@ def packaging_receipts(
 @router.get("/packaging/received-orders")
 def packaging_received_orders(
     db: DbSession,
-    current: User = Depends(require_permissions("packaging.records", "planning.production", "*")),
+    current: User = Depends(require_permissions("packaging.packages", "packaging.records", "planning.production", "*")),
     q: str | None = None,
     limit: int = 200,
     packaging_department_code: str | None = None,
 ):
     department_code = packaging_department_scope(current, packaging_department_code)
-    receipt_rows = (
-        db.query(
-            PackagingReceipt.work_order_id,
-            PackagingReceipt.production_order_id,
-            func.coalesce(func.sum(PackagingReceipt.quantity), 0).label("received_quantity"),
-            func.max(PackagingReceipt.created_at).label("last_received_at"),
-        )
-        .filter(PackagingReceipt.packaging_department_code == department_code)
-        .group_by(PackagingReceipt.work_order_id, PackagingReceipt.production_order_id)
-        .all()
-    )
+    from app.libs.enums.packaging import PackagingDepartment
+    from app.models.packaging.sewing_availability_service import available_orders
+    receipt_rows = available_orders(db, PackagingDepartment(department_code))
     work_order_ids = sorted({int(row.work_order_id) for row in receipt_rows})
     production_order_ids = sorted({int(row.production_order_id) for row in receipt_rows})
     if not work_order_ids:
         return []
 
-    record_rows = (
-        db.query(
-            PackagingRecord.work_order_id,
-            func.coalesce(func.sum(PackagingRecord.input_qty), 0).label("packing_input_quantity"),
-            func.coalesce(func.sum(PackagingRecord.packed_qty), 0).label("packed_quantity"),
-        )
-        .filter(PackagingRecord.work_order_id.in_(work_order_ids))
-        .group_by(PackagingRecord.work_order_id)
-        .all()
-    )
-    records_by_work_order = {
-        int(row.work_order_id): (int(row.packing_input_quantity or 0), int(row.packed_quantity or 0))
-        for row in record_rows
-    }
     production_orders = db.query(ProductionOrder).filter(ProductionOrder.id.in_(production_order_ids)).all()
     po_by_id = {int(po.id): po for po in production_orders}
     model_ids = sorted({int(po.model_id) for po in production_orders if po.model_id})
@@ -5933,8 +5997,8 @@ def packaging_received_orders(
         work_order_id = int(row.work_order_id)
         production_order_id = int(row.production_order_id)
         received_quantity = int(row.received_quantity or 0)
-        packing_input_quantity, packed_quantity = records_by_work_order.get(work_order_id, (0, 0))
-        remaining_quantity = max(0, received_quantity - packing_input_quantity)
+        packing_input_quantity, packed_quantity = row.packing_input_quantity, row.packed_quantity
+        remaining_quantity = row.remaining_quantity
         if remaining_quantity <= 0:
             continue
         po = po_by_id.get(production_order_id)
@@ -6005,7 +6069,9 @@ def receive_packaging_from_sewing(
     require_packaging_work_order_access(current, db, target, department_code)
     if quantity <= 0:
         raise HTTPException(400, "Receiving quantity must be greater than zero")
-    # Serialize handoff against edits/deletion of the source sewing ledger.
+    # Direct Packaging and Sewing writers serialize on PO before source WOs.
+    # Receipt insertion also takes the PO FK lock; taking it last deadlocks.
+    db.query(ProductionOrder.id).filter_by(id=target.production_order_id).with_for_update().one()
     db.query(WorkOrder).filter_by(id=source.id).with_for_update().populate_existing().one()
     db.refresh(target, with_for_update=True)
     require_packaging_work_order_access(current, db, target, department_code)
@@ -6027,7 +6093,9 @@ def receive_packaging_from_sewing(
         notes=payload.notes,
     )
     db.add(receipt)
-    target.actual_input_qty = int(target.actual_input_qty or 0) + quantity
+    recorded_input = db.query(func.sum(PackagingRecord.input_qty)).filter_by(work_order_id=target.id).scalar()
+    target.actual_input_qty = (int(recorded_input) if recorded_input is not None
+                               else int(target.actual_input_qty or 0) + quantity)
     if target.status in {"new", "planning", "waiting", "pending", "ready"}:
         target.status = "collected"
     db.flush()
@@ -6076,61 +6144,15 @@ def post_packaging(payload: PackagingRecordIn, db: DbSession, current: User = De
         payload.production_batch_id,
         operation_name="packaging",
     )
-    uses_receipts = bool(
-        db.query(PackagingReceipt.id)
-        .filter(PackagingReceipt.work_order_id == wo.id)
-        .first()
-    )
 
     budget = _packaging_input_budgets(db, wo).get(batch_id, {})
     available = int(budget.get("available_input_qty", 0))
     if int(payload.input_qty or 0) > available:
-        source = "received from sewing" if uses_receipts else "sewing passed output"
+        source = "sewing passed output"
         raise HTTPException(400, f"Packaging input exceeds {source} {budget.get('input_limit_qty', 0)}; available {available} for this batch")
 
-    rec_data = payload.model_dump()
-    rec_data["production_batch_id"] = batch_id
-    rec = PackagingRecord(**rec_data)
-    rec.operator_id = payload.operator_id or current.id
-    db.add(rec)
-    db.flush()
-    if not uses_receipts:
-        wo.actual_input_qty += payload.input_qty
-    wo.actual_output_qty += payload.packed_qty
-    wo.passed_qty += payload.packed_qty
-    wo.failed_qty += payload.damaged_qty
-    consume_packaging_materials_from_bom(
-        db,
-        production_order_id=wo.production_order_id,
-        packed_qty=int(payload.packed_qty or 0),
-        reference_type="PackagingRecord",
-        reference_id=rec.id,
-        user_id=current.id,
-    )
-    create_waste_record(
-        db,
-        production_order_id=wo.production_order_id,
-        work_order_id=wo.id,
-        source_department_id=wo.department_id,
-        item_id=None,
-        batch_id=None,
-        waste_type="packaging_damage",
-        quantity=float(payload.damaged_qty or 0),
-        unit="pcs",
-        reason="Auto-created from packaging record",
-        created_by=current.id,
-    )
-    advance_workflow(db, wo, trigger_output_qty=int(payload.packed_qty or 0))
-    production_order = db.get(ProductionOrder, wo.production_order_id)
-    if int(payload.packed_qty or 0) > 0 and getattr(production_order, "source_type", "standard") != "usluga":
-        notify_department(
-            db,
-            department_code="FGS",
-            title="Packed goods ready",
-            message=f"Order {wo.order_no or wo.id} packed {payload.packed_qty} pcs and is ready for storage intake.",
-            link="/packages/scan",
-        )
-    log_action(db, current, "create", "PackagingRecord", rec.id, new_value={"work_order_id": wo.id})
+    from app.models.packaging.output_service import record_output
+    rec = record_output(db, current, wo, payload.model_copy(update={"production_batch_id": batch_id}))
     db.commit(); db.refresh(rec)
     return {"id": rec.id}
 
@@ -6141,7 +6163,12 @@ def post_quality(payload: QualityCheckIn, db: DbSession, current: User = Depends
     work_order = db.get(WorkOrder, payload.work_order_id)
     if not work_order:
         raise HTTPException(404, "Work order not found")
+    if work_order.operation == "cutting":
+        # Serialize Cutting evidence with Planning's PO -> WO routing lock.
+        db.query(ProductionOrder.id).filter_by(id=work_order.production_order_id).with_for_update().one()
+        db.refresh(work_order, with_for_update={"of": WorkOrder})
     require_work_order_factory_access(current, db, work_order)
+    require_cutting_work_order_not_rejected(work_order)
     q = QualityCheck(**payload.model_dump(), checked_by=current.id, checked_at=datetime.now(timezone.utc))
     db.add(q); db.flush()
     log_action(db, current, "create", "QualityCheck", q.id)

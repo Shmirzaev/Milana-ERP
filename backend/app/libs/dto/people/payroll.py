@@ -5,6 +5,13 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.libs.dto.common import ORMModel
+from app.libs.enums.identity import FactoryCode
+from app.libs.enums.people import (
+    PayrollAdjustmentType,
+    PayrollPeriodStatus,
+    PayrollQrLabelStatus,
+    PayrollRecordStatus,
+)
 
 
 PayrollQrStoredAmount = Annotated[
@@ -33,12 +40,12 @@ class PayrollPeriodUpdate(BaseModel):
 
 class PayrollPeriodOut(ORMModel):
     id: int
-    factory_code: str
+    factory_code: FactoryCode
     period_no: str
     name: str
     start_date: datetime
     end_date: datetime
-    status: str
+    status: PayrollPeriodStatus
     created_by: int | None = None
     approved_by: int | None = None
     approved_at: datetime | None = None
@@ -114,7 +121,7 @@ class PayrollScanSplitIn(BaseModel):
 
 class PayrollRecordOut(ORMModel):
     id: int
-    factory_code: str
+    factory_code: FactoryCode
     payroll_period_id: int | None = None
     scan_uid: str | None = None
     original_scan_uid: str | None = None
@@ -144,7 +151,7 @@ class PayrollRecordOut(ORMModel):
     source: str
     raw_employee_json: dict | None = None
     raw_work_json: dict | None = None
-    status: str
+    status: PayrollRecordStatus
     notes: str | None = None
     created_at: datetime
     updated_at: datetime
@@ -230,7 +237,7 @@ class PayrollQrLabelSplitIn(PayrollQrLabelEditIn):
 class PayrollQrLabelOut(ORMModel):
     closure_details: dict | None = None
     id: int
-    factory_code: str
+    factory_code: FactoryCode
     label_uid: str
     qr_token: str
     payload: str | None = None
@@ -256,12 +263,12 @@ class PayrollQrLabelOut(ORMModel):
     quantity: Decimal
     rate_per_piece: Decimal
     currency: str
-    status: str
+    status: PayrollQrLabelStatus
     payroll_record_id: int | None = None
     employee_id: int | None = None
     employee_name: str | None = None
     department_name: str | None = None
-    payroll_status: str | None = None
+    payroll_status: PayrollRecordStatus | None = None
     issued_at: datetime
     last_scanned_at: datetime | None = None
     returned_at: datetime | None = None
@@ -489,11 +496,11 @@ class PayrollRecordReversalIn(BaseModel):
 
 class PayrollAdjustmentOut(ORMModel):
     id: int
-    factory_code: str
+    factory_code: FactoryCode
     payroll_period_id: int | None = None
     source_payroll_record_id: int | None = None
     employee_id: int
-    adjustment_type: str
+    adjustment_type: PayrollAdjustmentType
     amount: Decimal
     signed_amount: Decimal
     currency: str

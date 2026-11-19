@@ -14,6 +14,26 @@ services still own the legal states, the allowed inputs and the errors.
 from enum import Enum
 
 
+class WasteDisposalRequestStatus(str, Enum):
+    """Lifecycle values recognized for waste disposal requests."""
+
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    DISPOSED = "disposed"
+
+
+class WasteStatus(str, Enum):
+    """Lifecycle values recognized for waste records."""
+
+    RECORDED = "recorded"
+    RECEIVED_BY_WASTE_DEPARTMENT = "received_by_waste_department"
+    PENDING_DISPOSAL_APPROVAL = "pending_disposal_approval"
+    DISPOSAL_APPROVED = "disposal_approved"
+    SOLD = "sold"
+    DISPOSED = "disposed"
+
+
 class WarehouseType(str, Enum):
     """Source-recognized warehouse kinds; membership does not permit creation.
 
@@ -85,8 +105,7 @@ class MaterialReservationStatus(str, Enum):
     """`material_reservations.status` - the lifecycle state of a reservation.
 
     The five members are exactly the values the column's CHECK constraint
-    allows. The reservation plan's own readiness status ("ready", "shortage",
-    "partial") is a different concept and stays a plain string.
+    allows. Reservation plan readiness is a separate, non-persisted concept.
     """
 
     RESERVED = "reserved"
@@ -94,6 +113,23 @@ class MaterialReservationStatus(str, Enum):
     CONSUMED = "consumed"
     RELEASED = "released"
     CANCELLED = "cancelled"
+
+
+class ReservationPlanRowStatus(str, Enum):
+    """Readiness of one material requirement, not reservation lifecycle."""
+
+    READY = "ready"
+    SHORTAGE = "shortage"
+    PARTIAL = "partial"
+
+
+class ReservationPlanStatus(str, Enum):
+    """Aggregate readiness; no BOM is meaningful only for the whole plan."""
+
+    READY = ReservationPlanRowStatus.READY.value
+    SHORTAGE = ReservationPlanRowStatus.SHORTAGE.value
+    PARTIAL = ReservationPlanRowStatus.PARTIAL.value
+    NO_BOM = "no_bom"
 
 
 class MaterialReservationType(str, Enum):
@@ -124,3 +160,10 @@ class FabricScanDepartment(str, Enum):
 
     CUT = "CUT"
     ECT = "ECT"
+
+
+class MaterialReservationAutoMode(str, Enum):
+    """Request modes for automatically reserving production materials."""
+
+    SHORTAGE_ONLY = "shortage_only"
+    FULL_REMAINING = "full_remaining"

@@ -567,7 +567,7 @@ def test_sewing_daily_report_exports_saved_rows_for_chosen_dates(client, auth_he
         "KR-EXPORT-29",
         48,
     ]
-    assert entries_sheet.max_column == 5
+    assert entries_sheet.max_column == 8
 
     pdf_response = client.get(
         (
@@ -612,3 +612,28 @@ def test_linked_two_part_reports_follow_actual_cut_quantity(client, auth_headers
     assert second.status_code == 201, second.text
     over_bottom = client.patch(f"/api/sewing-daily-reports/{second.json()['id']}", json={**payload, "top_qty": 0, "bottom_qty": 13, "sewn_qty": 13}, headers=auth_headers)
     assert over_bottom.status_code == 400, over_bottom.text
+
+
+@pytest.mark.parametrize("lang", ["en", "ru", "uz"])
+@pytest.mark.parametrize(("top", "bottom", "part"), [(24, 0, "Top"), (0, 16, "Bottom"), (18, 10, "Top / Bottom"), (None, None, "-")])
+def test_sewing_excel_preserves_saved_garment_parts(client, auth_headers, top, bottom, part, lang):
+    flow = next(flow for flow in client.get("/api/sewing-flows", headers=auth_headers).json() if flow["code"] == "SEW-01")
+    quantity = (top or 0) + (bottom or 0) if top is not None else 12
+    payload = {"report_date": "2099-11-07", "sewing_flow_id": flow["id"],
+               "manual_model_no": "PART-EXPORT", "section_no": 1, "sewn_qty": quantity,
+               "top_qty": top, "bottom_qty": bottom}
+    saved = client.post("/api/sewing-daily-reports", json=payload, headers=auth_headers)
+    assert saved.status_code == 201, saved.text
+    response = client.get(f"/api/sewing-daily-reports/export.xlsx?report_date=2099-11-07&lang={lang}", headers=auth_headers)
+    assert response.status_code == 200, response.text
+    sheet = load_workbook(BytesIO(response.content), data_only=True)["Entries"]
+    headers = {"en": ["Garment part", "Top qty", "Bottom qty"],
+               "ru": ["Часть изделия", "Количество верха", "Количество низа"],
+               "uz": ["Kiyim qismi", "Tepa miqdori", "Past miqdori"]}
+    labels = {"en": ("Top", "Bottom"), "ru": ("Верх", "Низ"), "uz": ("Tepa", "Past")}
+    part = part.replace("Top", labels[lang][0]).replace("Bottom", labels[lang][1])
+    assert [sheet.cell(5, col).value for col in range(6, 9)] == headers[lang]
+    assert [sheet.cell(6, col).value for col in range(5, 9)] == [quantity, part, top, bottom]
+    assert sheet.max_row == 6  # One logical saved entry; part quantities never create duplicate rows.
+    assert sum(sheet.cell(row, 5).value for row in range(6, sheet.max_row + 1)) == quantity
+    assert sheet.auto_filter.ref == "A5:H6"

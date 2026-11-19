@@ -16,7 +16,7 @@ def test_package_label_shows_sizes_without_piece_counts():
             SimpleNamespace(size="M-46", quantity=12),
             SimpleNamespace(size="L-48", quantity=48),
         ],
-        batch_allocations=[SimpleNamespace(production_batch_id=7, quantity=60)],
+        batch_allocations=[SimpleNamespace(production_batch_id=7, quantity=60, item_breakdown=None)],
         production_batch_id=None,
         total_quantity=60,
     )
@@ -35,7 +35,8 @@ def test_package_label_shows_sizes_without_piece_counts():
             return SimpleNamespace(batch_no="0075-01", name="Batch 1")
 
     batch_html = _batch_allocations_html(FakeDb(), package)
-    assert batch_html == "0075-01 - Batch 1"
+    # Source totals remain visible; the main size list still omits piece counts.
+    assert batch_html == "0075-01 - Batch 1 (60)"
     assert ": 60" not in batch_html
 
     card_source = inspect.getsource(_package_label_card_html)

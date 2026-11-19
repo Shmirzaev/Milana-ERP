@@ -723,3 +723,31 @@ def test_hr_document_upload_commits_its_row(upload_postgres, tmp_path, monkeypat
             AuditLog.entity_type == "HrEmployeeDocument",
             AuditLog.entity_id == row.id,
         ).one().entry_hash
+
+
+def test_model_image_upload_primary_replacement_is_scoped(upload_postgres, tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "MODEL_FILES_DIR", str(tmp_path))
+    model_id, user_id = _seed_model(upload_postgres)
+    other_id, _ = _seed_model(upload_postgres)
+    with upload_postgres() as db:
+        old = ModelImage(model_id=model_id, file_url="/old", image_type="model", is_primary=True)
+        other = ModelImage(model_id=other_id, file_url="/other", image_type="model", is_primary=True)
+        db.add_all([old, other])
+        db.commit()
+        old_id, other_image_id = old.id, other.id
+    with upload_postgres() as request_db:
+        current = request_db.get(User, user_id)
+        material = asyncio.run(models_service.upload_image(
+            current, request_db, model_id, file=_upload(), image_type="material",
+        ))
+        with upload_postgres() as check_db:
+            assert check_db.get(ModelImage, old_id).is_primary is True
+        replacement = asyncio.run(models_service.upload_image(
+            current, request_db, model_id, file=_upload(), image_type="model",
+        ))
+    with upload_postgres() as db:
+        assert db.get(ModelImage, old_id).is_primary is False
+        assert db.get(ModelImage, other_image_id).is_primary is True
+        assert db.get(ModelImage, material["id"]).is_primary is False
+        assert db.get(ModelImage, replacement["id"]).is_primary is True
+        assert db.get(ModelImage, replacement["id"]).file_data is None

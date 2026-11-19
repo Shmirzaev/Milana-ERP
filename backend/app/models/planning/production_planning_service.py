@@ -16,6 +16,8 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.libs.dto.production.production import ProductionOrderIn
+from app.libs.enums.planning import BrandedPlanningOrderStatus, BrandedPlanningOrderType
+from app.models.production.eco_fabric_source_service import resolve_eco_fabric_sources, planning_eco_balances
 from app.models.audit_service import log_action
 from app.models.numbering_service import next_branded_planning_order_no
 from app.models.planning.branded_orders_service import BRANDED_ORDER_PARTIES
@@ -26,9 +28,28 @@ from app.models.production_service import (
     printing_attachments_for_storage,
 )
 from app.schemas import BrandedPlanningOrder, SalesOrder, User
+from app.schemas.planning.branded_order_persistence import (
+    BrandedPlanningOrderInsert,
+    insert_branded_planning_order,
+)
 
 
 CLIENT_ORDER_STATUSES = {"confirmed", "pending_sales_approval", "planning_approved"}
+
+
+def _planning_fabric_sources(db: Session, payload: ProductionOrderIn, current: User):
+    materials = [row.model_dump() for row in payload.materials]
+    primary = ({"eco_material_batch_id": payload.eco_fabric_batch_id} if payload.eco_fabric_batch_id
+               else {"stock_batch_id": payload.fabric_batch_id})
+    # The existing production operation makes its first material authoritative.
+    # Do not assign an unused primary receipt's identity as an incidental write.
+    rows = materials or ([primary] if any(primary.values()) else [])
+    resolved = resolve_eco_fabric_sources(db, rows, current, cutting_code=payload.cutting_department_code, planning=True)
+    fabric_batch_id = resolved[0]["stock_batch_id"] if resolved else None
+    materials = resolved if materials else []
+    ids = {row["stock_batch_id"] for row in materials} | ({fabric_batch_id} if fabric_batch_id else set())
+    available = planning_eco_balances(db, ids, current, payload.cutting_department_code)
+    return fabric_batch_id, materials, available
 
 
 def create_client_order_production(db: Session, payload: ProductionOrderIn, current: User):
@@ -40,13 +61,14 @@ def create_client_order_production(db: Session, payload: ProductionOrderIn, curr
         raise HTTPException(404, "Sales order not found")
     if so.status not in CLIENT_ORDER_STATUSES:
         raise HTTPException(400, f"Sales order must be confirmed before creating production (current: '{so.status}')")
+    fabric_batch_id, materials, eco_available = _planning_fabric_sources(db, payload, current)
     printing_attachments = printing_attachments_for_storage(payload.printing_attachments)
     po = create_production_order(
         db,
         production_type="client_order",
         model_id=payload.model_id,
         brand_id=payload.brand_id,
-        fabric_batch_id=payload.fabric_batch_id,
+        fabric_batch_id=fabric_batch_id,
         sales_order_id=payload.sales_order_id,
         planned_quantity=payload.planned_quantity,
         start_date=payload.start_date,
@@ -54,7 +76,8 @@ def create_client_order_production(db: Session, payload: ProductionOrderIn, curr
         estimated_material_code=payload.estimated_material_code,
         estimated_material_amount=payload.estimated_material_amount,
         estimated_material_unit=payload.estimated_material_unit,
-        materials=[row.model_dump() for row in payload.materials],
+        materials=materials,
+        eco_fabric_available=eco_available,
         printing_instructions=payload.printing_instructions,
         printing_attachments=printing_attachments,
         destination_warehouse_id=payload.destination_warehouse_id,
@@ -90,17 +113,21 @@ def create_branded_stock_production(db: Session, payload: ProductionOrderIn, cur
     if payload.planning_order_id and not planning_order:
         raise HTTPException(404, "Branded planning order not found")
     if not planning_order:
-        planning_order = BrandedPlanningOrder(
-            order_no=next_branded_planning_order_no(db),
-            ordered_for_type="milana",
-            ordered_for_name=BRANDED_ORDER_PARTIES["milana"],
-            status="open",
-            created_by=current.id,
+        planning_order = insert_branded_planning_order(
+            db,
+            BrandedPlanningOrderInsert(
+                order_no=next_branded_planning_order_no(db),
+                ordered_for_type=BrandedPlanningOrderType.MILANA,
+                customer_id=None,
+                ordered_for_name=BRANDED_ORDER_PARTIES[BrandedPlanningOrderType.MILANA],
+                status=BrandedPlanningOrderStatus.OPEN,
+                notes=None,
+                created_by=current.id,
+            ),
         )
-        db.add(planning_order)
-        db.flush()
-    if planning_order.status != "open":
+    if planning_order.status != BrandedPlanningOrderStatus.OPEN.value:
         raise HTTPException(400, "Branded planning order is not open")
+    fabric_batch_id, materials, eco_available = _planning_fabric_sources(db, payload, current)
     printing_attachments = printing_attachments_for_storage(payload.printing_attachments)
     po = create_production_order(
         db,
@@ -108,7 +135,7 @@ def create_branded_stock_production(db: Session, payload: ProductionOrderIn, cur
         planning_order_id=planning_order.id,
         model_id=payload.model_id,
         brand_id=payload.brand_id,
-        fabric_batch_id=payload.fabric_batch_id,
+        fabric_batch_id=fabric_batch_id,
         sales_order_id=None,
         collection_id=payload.collection_id,
         planned_quantity=payload.planned_quantity,
@@ -117,7 +144,8 @@ def create_branded_stock_production(db: Session, payload: ProductionOrderIn, cur
         estimated_material_code=payload.estimated_material_code,
         estimated_material_amount=payload.estimated_material_amount,
         estimated_material_unit=payload.estimated_material_unit,
-        materials=[row.model_dump() for row in payload.materials],
+        materials=materials,
+        eco_fabric_available=eco_available,
         printing_instructions=payload.printing_instructions,
         printing_attachments=printing_attachments,
         destination_warehouse_id=payload.destination_warehouse_id,

@@ -12,8 +12,8 @@ const requiredPageFragments = [
   "employee_no: string | null",
   "function effectiveEmployeeNumber",
   't("field.employeeNo")',
-  'pattern="[0-9]+"',
-  "employee_no: edit.employee_no.trim() || null",
+  'pattern={editingLegacyNumber ? undefined : "[0-9]+"}',
+  "employeeNumberPayload(originalNumber, edit.employee_no)",
   'String(employee.id).padStart(4, "0")',
 ];
 

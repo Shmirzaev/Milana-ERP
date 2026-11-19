@@ -1,0 +1,9 @@
+# Catalog family approval candidate
+
+Base: `febe73c69434032737bcca1f5f305aa7702e3ba8`. Owner Ismail; reviewer Mirshoir; business acceptance Shavkat. Status: candidate, required independent review, PostgreSQL locking, visual and persisted-data acceptance BLOCKED/pending.
+
+Standard POST `/api/models/{mid}/approve` requires `modeling.approve` or wildcard; Usluga POST `/api/usluga/models/{mid}/approve` requires `usluga.manage` or wildcard plus ECO access. Both call the same scope-aware service. The service retains family lookup, scope and legacy isolation, PostgreSQL advisory transaction lock, Usluga whole-family main-fabric validation, one shared timestamp, audit per pending row, outer commit and refresh. Each mapped assignment now uses the supplied-session schema helper immediately before the existing audit; the helper does not flush or commit. SQLite fault injection confirms rollback after a prior flushed audit. PostgreSQL advisory and audit semantics still need independent testing.
+
+`Model.status` is an unresolved vocabulary, not approved free text: creation, variant inheritance, update, clone and seed/import writers plus DTOs and consumers require separate inventory and reconciliation before canonical enum adoption. This change does not claim those writers or the table complete. Variant creation inherits existing approvals; planning and other downstream consumers read approved state. Existing tests document route permissions and future variant behavior; those full-stack tests are not run in this narrow check.
+
+The shared `models_service.py` also overlaps frozen PR #388 and #394. Integrator must reconcile and test the exact combined revision before any source integration. Required actual website desktop/phone, role denial, Usluga BOM refusal, persisted readback, downstream planning, PostgreSQL concurrency/stress/recovery and independent source review remain pending. No deployment or human acceptance is implied.

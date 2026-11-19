@@ -1,3 +1,5 @@
+from app.schemas.identity import user_persistence
+from app.models.identity import users_service
 """Account removal must preserve historical audit identities and hash chains."""
 
 from concurrent.futures import ThreadPoolExecutor
@@ -151,7 +153,7 @@ def test_delete_unused_user_keeps_other_users_audit_history(client, auth_headers
 def test_failed_user_delete_rolls_back_reference_cleanup_and_audit(client, auth_headers, monkeypatch, error_kind):
     user_id, references = _create_target()
     before = _snapshot(references)
-    original_log_action = admin.log_action
+    original_log_action = users_service.log_action
     error = (RuntimeError("synthetic deletion failure after audit flush") if error_kind == "runtime"
              else IntegrityError("synthetic deletion failure", {}, ValueError("unrelated constraint")))
 
@@ -159,7 +161,7 @@ def test_failed_user_delete_rolls_back_reference_cleanup_and_audit(client, auth_
         original_log_action(*args, **kwargs)
         raise error
 
-    monkeypatch.setattr(admin, "log_action", fail_after_audit_flush)
+    monkeypatch.setattr(users_service, "log_action", fail_after_audit_flush)
     with pytest.raises(type(error), match="synthetic deletion failure"):
         client.delete(f"/api/users/{user_id}", headers=auth_headers)
 
@@ -175,7 +177,7 @@ def test_reference_cleanup_never_rewrites_audit_actors():
         entry_id = entry.id
         before = export_audit_hash_chain(db, start_id=entry_id)
 
-        admin._detach_user_references(db, user_id)
+        user_persistence.detach_user_references(db, user_id)
         db.expire_all()
 
         assert export_audit_hash_chain(db, start_id=entry_id) == before
@@ -219,14 +221,14 @@ def test_postgres_audit_committed_after_delete_guard_preserves_history(user_hist
         actor_id = actor.id
     guard_passed = Event()
     audit_committed = Event()
-    original_detach = admin._detach_user_references
+    original_detach = user_persistence.detach_user_references
 
     def detach_after_concurrent_audit(db, target_id):
         guard_passed.set()
         assert audit_committed.wait(10), "Concurrent audit did not commit"
         original_detach(db, target_id)
 
-    monkeypatch.setattr(admin, "_detach_user_references", detach_after_concurrent_audit)
+    monkeypatch.setattr(users_service, "detach_user_references", detach_after_concurrent_audit)
 
     def remove_user():
         with session_factory() as db:

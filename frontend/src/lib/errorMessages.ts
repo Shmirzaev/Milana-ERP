@@ -21,6 +21,19 @@ export function systemLanguage(): Lang {
   return "en";
 }
 const messages: Record<string, [string, string]> = {
+  "Finance must enter the printing cost before confirmation": ["Финансовый отдел должен указать стоимость печати перед подтверждением.", "Tasdiqlashdan oldin moliya bo‘limi bosma narxini kiritishi kerak."],
+  "Invalid source item breakdown": ["Проверьте состав по настилам, цветам и размерам.", "Nastil, rang va o‘lcham bo‘yicha tarkibni tekshiring."],
+  "Every repeated source row requires its item breakdown": ["Для каждой строки настила укажите состав по цветам и размерам.", "Nastilning har bir qatori uchun rang va o‘lcham tarkibini kiriting."],
+  "Source item breakdown must match package contents": ["Состав настила должен совпадать с содержимым упаковки.", "Nastil tarkibi qadoq tarkibiga mos bo‘lishi kerak."],
+  "Source item breakdown must equal its batch quantity": ["Сумма по цветам и размерам должна совпадать с количеством настила.", "Rang va o‘lcham yig‘indisi nastil miqdoriga teng bo‘lishi kerak."],
+  "Source item breakdowns must conserve every package model, color and size": ["Проверьте суммы по моделям, цветам и размерам во всех настилах упаковки.", "Qadoqning barcha nastillarida model, rang va o‘lcham yig‘indilarini tekshiring."],
+  "Package size quantity exceeds actual passed Sewing for this batch; legacy unknown allocations may reserve its size balance": ["Не хватает подтверждённого выпуска этого размера в выбранном настиле. Проверьте старые смешанные упаковки без состава по размерам.", "Tanlangan nastilda bu o‘lchamning tasdiqlangan tikuv miqdori yetarli emas. O‘lcham tarkibi qayd etilmagan eski aralash qadoqlarni tekshiring."],
+  "Authentication is temporarily unavailable. Try again later.": ["Вход и восстановление пароля временно недоступны. Повторите попытку позже.", "Tizimga kirish va parolni tiklash vaqtincha mavjud emas. Keyinroq qayta urinib ko‘ring."],
+  "Admin access required": ["Требуется доступ администратора.", "Administrator ruxsati talab qilinadi."],
+  "Shipment customer must match the sales order customer": ["Клиент отгрузки должен совпадать с клиентом заказа.", "Jo‘natma mijozi buyurtma mijoziga mos kelishi kerak."],
+  "Dispatch customer-assigned packs through their scanned customer shipment": ["Отгружайте упаковки клиента через отсканированную отгрузку этому клиенту.", "Mijozga biriktirilgan qadoqlarni shu mijozning skanerlangan jo‘natmasi orqali jo‘nating."],
+  "Dispatch reserved packs through their scanned sales shipment": ["Отгружайте зарезервированные упаковки через отсканированную отгрузку их заказа.", "Band qilingan qadoqlarni o‘z buyurtmasining skanerlangan jo‘natmasi orqali jo‘nating."],
+  "Remove active reservations and open shipment allocations before releasing packs": ["Сначала снимите действующие резервы и распределения по открытым отгрузкам.", "Avval faol bandlovlar va ochiq jo‘natmalarga ajratilgan miqdorlarni olib tashlang."],
   "Brand already exists": ["Этот бренд уже существует.", "Bu brend allaqachon mavjud."],
   "Could not create brand.": ["Не удалось создать бренд.", "Brendni yaratib bo‘lmadi."],
   "Record Cutting output before entering Sewing input or output": ["Сначала внесите выпуск раскроя, затем вводите приём или выпуск пошива.", "Tikuv kirimi yoki natijasini kiritishdan oldin bichish natijasini kiriting."],
@@ -127,6 +140,13 @@ const fallback: Record<Lang, Record<string, string>> = {
   uz: { default: "Amalni bajarib bo‘lmadi.", "400": "Kiritilgan ma’lumotlarni tekshiring.", "401": "Tizimga qayta kiring.", "403": "Ushbu amal uchun ruxsatingiz yo‘q.", "404": "Yozuv topilmadi.", "409": "Yozuvning joriy holati ushbu amalni bajarishga yo‘l qo‘ymaydi. Ma’lumotlar va bog‘langan yozuvlarni tekshiring.", "422": "Majburiy maydonlar va kiritilgan qiymatlarni tekshiring.", "429": "So‘rovlar juda ko‘p. Keyinroq qayta urinib ko‘ring.", server: "Server so‘rovni bajara olmadi. Keyinroq qayta urinib ko‘ring." },
 };
 const workflowErrors: Record<string, Record<"en" | "ru" | "uz", string>> = {
+  MIXED_PACKAGE_ITEM_BREAKDOWN_REQUIRED: { en: "Enter the actual quantities by Nastil, color and size for this mixed package.", ru: "Введите фактические количества по настилам, цветам и размерам смешанной упаковки.", uz: "Aralash qadoqning haqiqiy miqdorlarini nastil, rang va o‘lcham bo‘yicha kiriting." },
+  MIXED_PACKAGE_QUANTITY_REQUIRES_PACKAGING_CORRECTION: { en: "Return this mixed package to Packaging and correct its quantities by Nastil and size before changing the quantity.", ru: "Верните смешанную упаковку в упаковочный отдел и исправьте количества по настилам и размерам перед изменением количества.", uz: "Miqdorni o‘zgartirishdan oldin aralash qadoqni qadoqlash bo‘limiga qaytaring va nastil hamda o‘lcham miqdorlarini tuzating." },
+  "ecoAccessories.approvalRequired": {
+    en: "Approve the current ECO accessory requirements before the sewing handoff or issue.",
+    ru: "Утвердите актуальную потребность ECO до передачи в пошив или выдачи.",
+    uz: "Tikishga uzatish yoki berishdan oldin joriy ECO furnitura talabini tasdiqlang.",
+  },
   FIRST_GRADE_VARIANT_EVIDENCE: { en: "Select the production model and color. Singles require a production order with one verified color.", ru: "Выберите модель и цвет производства. Для поштучных изделий нужен заказ с одним подтверждённым цветом.", uz: "Ishlab chiqarish modeli va rangini tanlang. Donalab mahsulot uchun bitta tasdiqlangan rangli buyurtma kerak." },
   FIRST_GRADE_SIZE_EVIDENCE_REQUIRED: { en: "Enter the accepted quantities by size in Packaging before allocating singles.", ru: "Перед поштучной упаковкой укажите принятые количества по размерам здесь, в упаковке.", uz: "Donalab ajratishdan oldin qabul qilingan o‘lcham miqdorlarini shu yerda, qadoqlashda kiriting." },
   FIRST_GRADE_BATCH_REQUIRED: { en: "Select a production batch first.", ru: "Сначала выберите производственную партию.", uz: "Avval ishlab chiqarish partiyasini tanlang." },
@@ -155,6 +175,14 @@ export function localizeError(detail: string, status = 0, lang = systemLanguage(
   const index = lang === "ru" ? 0 : 1;
   const plain = detail.replace(/^\d{3}:\s*/, "").trim();
   if (messages[plain]) return messages[plain][index];
+  const customerPack = plain.match(/^Package (.+) is assigned to customer (.+)\. An admin must release it before shipping to another customer\.$/);
+  if (customerPack) return lang === "ru"
+    ? `Упаковка ${customerPack[1]} назначена клиенту ${customerPack[2]}. Для отгрузки другому клиенту требуется разрешение администратора.`
+    : `${customerPack[1]} qadoq ${customerPack[2]} mijozga biriktirilgan. Boshqa mijozga jo‘natish uchun administrator ruxsati kerak.`;
+  const unbalancedPack = plain.match(/^Package (.+) must have available, balanced warehouse stock$/);
+  if (unbalancedPack) return lang === "ru" ? `Проверьте доступный складской остаток упаковки ${unbalancedPack[1]}.` : `${unbalancedPack[1]} qadoqning mavjud ombor qoldig‘ini tekshiring.`;
+  const reservedPack = plain.match(/^Package (.+) is reserved for another order\.$/);
+  if (reservedPack) return lang === "ru" ? `Упаковка ${reservedPack[1]} зарезервирована для другого заказа.` : `${reservedPack[1]} qadoq boshqa buyurtma uchun band qilingan.`;
   const fabric = plain.match(/^Insufficient fabric for passport: batch (.+); available ([\d.]+) kg; required ([\d.]+) kg$/);
   if (fabric) return lang === "ru"
     ? `Недостаточно ткани для паспорта: партия ${fabric[1]}. Доступно ${fabric[2]} кг, требуется ${fabric[3]} кг.`

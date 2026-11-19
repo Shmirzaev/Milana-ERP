@@ -74,3 +74,25 @@ Recommended weekly checks:
 2. Treat high/critical advisories as urgent.
 3. Run CI before merging.
 4. If a patch breaks compatibility, document the temporary risk acceptance and owner.
+
+## Shared-counter store outage (3 November policy)
+
+The approved mixed policy keeps ordinary authenticated API requests working:
+permissions, credential/session cutoffs and other request checks still run.
+If the global counter operation fails, its limiter is skipped for that request
+and logs `Shared counter store unavailable; global rate limiting skipped` without
+including backend exception details. Distributed global throttling is unavailable
+until recovery; this is the explicit availability tradeoff.
+
+Login, password-reset requests and reset completion instead return HTTP 503 with
+JSON detail `Authentication is temporarily unavailable. Try again later.` They
+must not issue a session, change a password or consume a reset token on failure.
+The reset-completion availability probe does not increment a counter; SQLite's
+TTL operation may purge expired counters. Existing healthy-store 429 behavior is
+unchanged. Restore the underlying store; operations retry on subsequent requests
+without an application restart. Do not replace the database or disable auth gates.
+
+See [candidate and isolated evidence](archive/SHARED_STORE_MIXED_OUTAGE_2026-11-03.md).
+This is not deployment or human acceptance. Current `clone_main` readiness probes
+PostgreSQL only; a future #311 store-sensitive readiness/router change must avoid
+removing every serving slot during this deliberately tolerated outage.

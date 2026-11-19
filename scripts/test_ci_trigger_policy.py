@@ -1,0 +1,88 @@
+"""Focused contracts for duplicate-run prevention and protected release/QA events."""
+import ast
+from pathlib import Path
+import unittest
+
+import yaml
+
+ROOT = Path(__file__).resolve().parents[1]
+WORKFLOWS = ("ci.yml", "refactor-operation-postgres.yml")
+QA_BRANCHES = {
+    "codex/ismail-finance-pilot-20261025",
+    "codex/ismail-brand-feedback-20261028",
+    "codex/ismail-combined-review-20261028",
+}
+
+
+def workflow(name):
+    return yaml.load((ROOT / ".github/workflows" / name).read_text(), Loader=yaml.BaseLoader)
+
+
+class CITriggerPolicyTests(unittest.TestCase):
+    def test_worktree_pushes_validate_on_hosted_runners_and_qa_refs_stay_authorized(self):
+        self.assertEqual(set(workflow("ci.yml")["on"]["push"]["branches"]), {"main", "clone_main", "codex/**"} | QA_BRANCHES)
+
+    def test_qa_push_exceptions_match_the_existing_artifact_authorization(self):
+        tree = ast.parse((ROOT / "frontend/scripts/stage_qa_runtime.py").read_text())
+        assignment = next(node for node in tree.body if isinstance(node, ast.Assign)
+                          and any(isinstance(target, ast.Name) and target.id == "EXPECTED_REFS" for target in node.targets))
+        authorized = set(ast.literal_eval(assignment.value.args[0]))
+        self.assertEqual(authorized, {f"refs/heads/{branch}" for branch in QA_BRANCHES})
+
+    def test_pg_pushes_are_only_integration_branches(self):
+        self.assertEqual(workflow("refactor-operation-postgres.yml")["on"]["push"]["branches"], ["main", "clone_main"])
+
+    def test_both_workflows_retain_pr_and_manual_events(self):
+        for name in WORKFLOWS:
+            with self.subTest(workflow=name):
+                self.assertIn("pull_request", workflow(name)["on"])
+                self.assertIn("workflow_dispatch", workflow(name)["on"])
+
+    def test_concurrency_shares_only_workflow_pr_and_never_replaces_pending_pushes(self):
+        expected = "${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('{0}-{1}', github.ref, github.run_id) }}"
+        for name in WORKFLOWS:
+            with self.subTest(workflow=name):
+                policy = workflow(name)["concurrency"]
+                self.assertEqual(policy["group"], expected)
+                self.assertEqual(policy["cancel-in-progress"], "${{ github.event_name == 'pull_request' }}")
+
+    def test_policy_regression_check_is_wired_into_both_workflows(self):
+        for name in WORKFLOWS:
+            commands = [step.get("run", "") for job in workflow(name)["jobs"].values() for step in job.get("steps", [])]
+            self.assertIn("python scripts/test_ci_trigger_policy.py", commands)
+
+    def test_candidate_publication_is_opt_in_and_rollback_qa_keeps_its_separate_push(self):
+        self.assertEqual(workflow("ci.yml")["jobs"]["release"]["if"], "needs.release-plan.outputs.enabled == 'true' && !inputs.security_scan_only")
+        rollback = workflow("rollback-image-qa.yml")
+        self.assertEqual(rollback["on"]["push"]["branches"], ["codex/pack-customer-fg-rollback-20261103"])
+        self.assertNotIn("concurrency", rollback)
+
+    def test_release_waits_for_every_backend_job_and_all_shard_manifests(self):
+        jobs = workflow("ci.yml")["jobs"]
+        backend = jobs["backend"]
+        self.assertEqual(set(backend["needs"]), {
+            "backend-bootstrap", "backend-operations", "backend-locking", "backend-schema", "backend-regression",
+        })
+        self.assertEqual(jobs["release"]["needs"], ["release-plan", "backend", "frontend", "security-scan"])
+        self.assertTrue(backend["if"].startswith("always() && "))
+        required = backend["steps"][0]
+        self.assertEqual(set(required["env"].values()), {
+            f"${{{{ needs.{job}.result }}}}" for job in backend["needs"]
+        })
+        self.assertIn('if [ "$result" != success ]', required["run"])
+        self.assertIn("exit 1", required["run"])
+        self.assertTrue(all(jobs[key]["runs-on"] == "ubuntu-latest" for key in backend["needs"]))
+
+        regression = jobs["backend-regression"]
+        shards = regression["strategy"]["matrix"]["shard"]
+        self.assertEqual(shards, [str(index) for index in range(1, 9)])
+        shard_step = next(step for step in regression["steps"] if step.get("name") == "Run backend regression shard")
+        self.assertIn(f"--count {len(shards)}", shard_step["run"])
+        self.assertTrue(any(
+            step.get("name") == "Verify regression coverage"
+            and f"--count {len(shards)}" in step["run"] for step in backend["steps"]
+        ))
+
+
+if __name__ == "__main__":
+    unittest.main()

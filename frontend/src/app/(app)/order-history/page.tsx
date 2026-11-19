@@ -475,7 +475,7 @@ export default function OrderHistoryPage() {
           <div className="flex h-9 min-w-[280px] items-center gap-2 rounded-md border border-[#ded9ca] bg-[#fdfcf8] px-3">
             <Search className="h-4 w-4 text-[#8a8472]" />
             <input
-              className="w-full bg-transparent text-sm text-[#14110b] placeholder:text-[#8a8472] focus:outline-none"
+              className="w-full bg-transparent text-sm text-[#14110b] placeholder:text-[#8a8472] focus:outline-hidden"
               placeholder={t("page.orderHistory.searchPlaceholder")}
               value={query}
               onChange={(e) => {

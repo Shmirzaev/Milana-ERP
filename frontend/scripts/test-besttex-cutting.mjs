@@ -31,7 +31,7 @@ function load(file) {
       };
       if (name === "next/link") return { default: props => runtime.jsx("a", props) };
       if (name === "lucide-react") return icons;
-      if (name === "@/lib/auth") return { can, useMe: () => ({ me, loading: false, hasToken: true }) };
+      if (name === "@/lib/auth") return { can, isCeo: () => false, CEO_DASHBOARD_PATH: "/ceo-dashboard", useMe: () => ({ me, loading: false, hasToken: true }) };
       if (name === "@/lib/i18n") return { useT: () => ({ lang: "en", t }) };
       if (name === "@/lib/api") return { fetcher: () => {}, api: { openLabel: async url => opened.push(url) } };
       if (name === "@/lib/priceCalculationRequests") return { isAbbosbekPricingUser: () => false, isAccessoryPricingUser: () => false };

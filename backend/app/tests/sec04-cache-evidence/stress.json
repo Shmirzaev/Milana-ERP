@@ -1,0 +1,82 @@
+{
+  "candidate_commit": "9f6895a9d84e7049c535a5fe498d16e1303bdc3b",
+  "stack_project": "milana-sec04-local-d359c821",
+  "limits": {
+    "concurrency": 8,
+    "requests_per_phase": 80,
+    "phases": [
+      "active",
+      "revoked",
+      "recovery"
+    ],
+    "request_timeout_seconds": 5,
+    "max_run_seconds": 45,
+    "p95_limit_ms": 2500,
+    "p99_limit_ms": 4000,
+    "unexpected_5xx_limit": 0,
+    "post_revocation_200_limit": 0,
+    "max_postgres_connections": 20,
+    "fixture_dimensions_px": [
+      160,
+      160
+    ]
+  },
+  "elapsed_seconds": 2.83,
+  "baseline_postgres_connections": 2,
+  "phases": [
+    {
+      "phase": "active",
+      "expected_status": 200,
+      "statuses": {
+        "200": 80
+      },
+      "requests": 80,
+      "seconds": 0.28,
+      "requests_per_second": 281.2,
+      "p50_ms": 25.4,
+      "p95_ms": 39.5,
+      "p99_ms": 43.9,
+      "max_ms": 43.9,
+      "max_postgres_connections": 4
+    },
+    {
+      "phase": "revoked",
+      "expected_status": 401,
+      "statuses": {
+        "401": 80
+      },
+      "requests": 80,
+      "seconds": 0.25,
+      "requests_per_second": 323.4,
+      "p50_ms": 20.4,
+      "p95_ms": 24.0,
+      "p99_ms": 34.9,
+      "max_ms": 34.9,
+      "max_postgres_connections": 4
+    },
+    {
+      "phase": "recovery",
+      "expected_status": 200,
+      "statuses": {
+        "200": 80
+      },
+      "requests": 80,
+      "seconds": 0.3,
+      "requests_per_second": 265.7,
+      "p50_ms": 23.1,
+      "p95_ms": 30.4,
+      "p99_ms": 38.0,
+      "max_ms": 38.0,
+      "max_postgres_connections": 4
+    }
+  ],
+  "readback": {
+    "user": "sec04-viewer@example.com",
+    "is_active": false,
+    "model": "SEC04-VERIFY-001",
+    "image_records": 1,
+    "file_exists": true,
+    "postgres_connections": 4
+  },
+  "ready_after_load": true
+}
