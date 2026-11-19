@@ -236,3 +236,21 @@ worker remains stopped and disabled. The attempted CEO deployment is not complet
 - Automatic deployment stays stopped and disabled after guarded recovery. Review its pinned
   recipe policy against the new sharded CI, baseline and owned reservation before
   separately restoring unattended polling. Do not bypass protected journals.
+
+## Worktrees and handoff
+
+The legacy `C:\ERP` checkout and its unrelated local work were preserved.
+
+| Dedicated worktree under `C:\ERP\.codex-work\` | Branch / Git state |
+| --- | --- |
+| `deploy-ismoiljon-20261119` | `codex/deploy-ismoiljon-20261119`, initial `a46eba5e8`; observation output only, no source commit/merge |
+| `ceo-rollback-compat-20261119` | `codex/ceo-rollback-compat-20261119`, `437523dbd`; pushed, not merged; compatibility backend deployed |
+| `record-ceo-release-20261119` | `codex/record-ceo-release-20261119`; documentation/baseline record pushed, not merged |
+
+The record worktree is clean after explicit-path commits. The observer's twelve
+stdlib tests and `git diff --check` pass. Final fresh internal backend/frontend
+and public health/login checks all return200, with health identifying030500.
+The Obsidian mirror's current section names the recovery release; surrounding
+existing note bytes were preserved. The integration branch still holds the
+rejected application source and its earlier baseline until the record is merged;
+automation stays disabled and future work must reconcile this explicitly.
