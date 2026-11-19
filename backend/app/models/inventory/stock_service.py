@@ -77,6 +77,7 @@ from app.schemas import (
 from app.schemas.inventory import item_persistence
 from app.schemas.inventory import stock_movement_persistence
 from app.schemas.inventory import batch_restore_persistence
+from app.schemas.inventory import batch_roll_weights_persistence
 from app.schemas.inventory import stock_receipt_persistence
 from app.schemas.inventory import warehouse_persistence
 from app.schemas.inventory.eco_transfer import EcoFabricRoll
@@ -1046,8 +1047,9 @@ def save_batch_roll_weights(db, batch_id: int, payload: StockBatchRollWeightsIn,
     )
     if batch.roll_lengths_m and piece_count != batch.piece_count:
         raise HTTPException(409, "Cannot change roll count after individual roll lengths have been recorded")
-    batch.roll_weights_kg = roll_weights
-    batch.piece_count = piece_count
+    batch_roll_weights_persistence.replace_roll_weights(
+        db, batch, roll_weights=roll_weights, piece_count=piece_count
+    )
     log_action(
         db,
         current,
