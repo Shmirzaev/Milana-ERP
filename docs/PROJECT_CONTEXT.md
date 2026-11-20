@@ -15,12 +15,17 @@ Last updated 2026-11-20. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
-## Cutting to Sewing and BSO pattern validation (20 November, local candidate)
+## Cutting to Sewing and BSO pattern validation (20 November, deployed)
 
 - Bundle Inventory shows Besttex and Milana storage by displayed order. Cutting can dispatch approved, Sewing-ready Nastils to their assigned factory. Dispatch removes the labels from Cutting stock and keeps the Nastil in transit until Sewing accepts it. The Tashkent-date CSV includes dispatched, accepted, and in-transit quantities. New dispatches snapshot their quantities in the audit log and block Cutting deletion of the dispatched Nastil.
 - Direct Packaging keeps package-level sizes and per-Nastil totals. Operators can adjust total pieces by Nastil. Verified Sewing sizes can determine the split automatically. A mixed package with ambiguous size origin keeps that origin unknown and available Sewing sizes still constrain creation. Existing exact attributions and physical correction rules remain available.
 - A new BSO and its first production save together. Every model used in branded production requires a Qolip number and pattern attachment. Planning reports the missing information in English, Russian, and Uzbek.
-- The candidate is based on clone_main and the verified live release 20261120_050400. It requires no schema migration and has not been deployed.
+- Both hosts now serve `20261120_092044` in green. Blue `20261120_050400` is running as rollback. Exact runtime source is `6ebfc7a31f1500e0699779b23266948f8638b50f`, merged to clone_main in [PR 576](https://github.com/Shmirzaev/Milana-ERP/pull/576) at `f05b5828a` with the identical tree. [Build-only Actions run](https://github.com/Shmirzaev/Milana-ERP/actions/runs/44709940639) published the immutable images.
+- Source manifest SHA-256 `12a6fb2cee87e73a87f6ca19b747f668d6bc500edb018511d22d1a74837191c9`. Backend image `ghcr.io/shmirzaev/milana-erp-backend@sha256:5f04dd52f99c27584046e657e696208b403681f690ae39758105a951cf2af45b`. Frontend image `ghcr.io/shmirzaev/milana-erp-frontend@sha256:fb559bdebf9716605a1a8c7f3e13a4b563a3cd215fed9108dc8e52a8e6a3e01b`.
+- The backend switched at 12:33:54 UTC and the frontend at 12:33:56 UTC. All four health endpoints returned HTTP 200. Both routers validated. The backend had two workers and zero candidate restarts. PostgreSQL recorded 32/100 connections and zero invalid indexes. The schema stayed `0159_ceo_balance_snapshots` and the deploy performed no intentional business writes.
+- Fresh PostgreSQL backup `/opt/milana-erp/shared/backups/auto_pre_20261120_092044.dump` has 135,292,542 bytes and 1,403 restore-list objects. Dump SHA-256 `b4eb7ee97b7faed68b06e9a633b58ed949a65796ef8018fe4e6e33abc77f3339` and restore-list SHA-256 `7676afc06c1abd774e67d197288fdbfa22c8a189e233acbe91830d0f746ae66d` were verified. A full restore was not performed.
+- The owner's no-test instruction applied to this release. The automatic PR validation runs were canceled, earlier CI failures remain recorded, and no new browser QA, performance sampling, or timed observation was performed. Immediate operational verification passed and both deployment reservations were released.
+- The ERP backend virtual system disk grew online from 200 to 250 GiB to clear the staging limit. Closing measured disk use was 74.55% on the backend and 78.22% on the frontend. The old UzumPilot rollback copy was retained and its public service on the dedicated VM returned HTTP 200.
 
 ## Accessories: four-digit batch numbers and QC UI deployed (20 November)
 
@@ -32,7 +37,7 @@ Further tests/CI, browser QA, scans, performance gates, QA-master review and tim
 observation were skipped, not passed. Earlier inherited CI failures and blocked
 preview evidence remain in the archive. No human acceptance is claimed.
 
-The accessories release, now green rollback, is `20261120_045400`, runtime source
+The accessories release was `20261120_045400`, runtime source
 `78c8aa5b086d056966d21f1d01fa56eb15ab2f65`, manifest
 `c7d955135511446f23665748b33b83ffa167e2c8afcae268dce00a507012c692`.
 PR574 merged to clone_main at3a33b7c5e with the identical source tree, preserving
@@ -57,11 +62,11 @@ recorded downstream work even without acceptance. Quantity reconciliation,
 receipt history, permissions and business data stay unchanged. The audit snapshot
 has69,563 pieces /1,095 labels (MIL22,908/334; BST46,655/761); live counts follow records.
 
-Both hosts serve blue `20261120_050400`, runtime source `e44d7930c`, manifest
+At that cutover both hosts served blue `20261120_050400`, runtime source `e44d7930c`, manifest
 `65d84faa62e71781e2f48d590add0d71662d84f713d8586625a11f2923c419dd`.
 PR575 merged to clone_main at `f2a1b39e4` with the identical tree. Backend switched
 05:06:29UTC, frontend05:06:43UTC. All four operational health endpoints returned200;
-two backend workers, zero restarts/OOM/tracebacks. Green045400 remains running as
+two backend workers, zero restarts/OOM/tracebacks. Green045400 provided that cutover's
 rollback, preserving the accessories update. Immutable hosted build succeeded;
 only the balance service changed over the exact live backend image. No migration,
 production business writes or production-host build/install. Schema0159 unchanged.
