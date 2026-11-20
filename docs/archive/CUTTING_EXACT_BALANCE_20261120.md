@@ -184,3 +184,43 @@ c7d955135511446f23665748b33b83ffa167e2c8afcae268dce00a507012c692. After its rese
 were released and record cba1e1944 was pushed, this worktree fast-forwarded to that
 baseline, preserving only the six scoped Cutting edits. deploy/production-base.json
 and both actual source pointers agree. No overlapping cutover or older-source rollback.
+
+### Display follow-up deployed
+
+Release `20261120_050400` is active blue on both hosts, green045400 retained running
+as rollback. Exact runtime source `e44d7930cae4c88aa51404ab1ac4759d03f2c5ce`, merged
+in [PR575](https://github.com/Shmirzaev/Milana-ERP/pull/575) at `f2a1b39e4`, identical
+tree. Build-only run [44678306845](https://github.com/Shmirzaev/Milana-ERP/actions/runs/44678306845)
+succeeded; queued validation was cancelled, with no further test/QA pass claimed.
+Independent source review reconfirmed the exact candidate against cba1e1944.
+The publication helper branch `codex/cutting-labels-publish-20261120`, commit
+`5df259e51`, is pushed and unmerged, in the existing separate worktree
+`C:\ERP\.codex-work\cutting-owner-publish-20261120`.
+
+Archive6,848,005bytes SHA256
+`667fad03d1e437474196c4d923940df2e34d501c6c305842ba71927b0762cccc`.
+Manifest `65d84faa62e71781e2f48d590add0d71662d84f713d8586625a11f2923c419dd`.
+Backend `ghcr.io/shmirzaev/milana-erp-backend@sha256:db36b617873cf9bddd379fb69095c08fa5377fa5f7d98f3afced5439f3580c68`.
+Frontend `ghcr.io/shmirzaev/milana-erp-frontend@sha256:f63107b2ff4906a2bae04260e362ac1a60f3e9de280098df95ff815101dda7dd`.
+Backend changes only the balance service over exact live backend133472684c6c;
+all four Cutting application hashes match the immutable source. Frontend uses
+locked dependencies and the real Next production build, bypassing test scripts.
+Default commands/strict startup settings remain; no migration or intentional
+production business writes, builds, installations or cleanup.
+
+Fresh mode0600 backup `/opt/milana-erp/shared/backups/auto_pre_20261120_050400.dump`,
+133,738,751bytes/1,403 restore objects. SHA256
+`d5f215b81329bbadaeb9db2f6ed5a82ca4cc7034772e23424e2fc80be59df7aa`;
+restore-list `648f5f21e634b8c3b430d77068ef3e28ceff8fad6dcb93454fcd5b7adc92bbfb`.
+Hash/list verified, not fully restored. Schema0159 and fingerprintc1830a0f... unchanged.
+Backend router switched05:06:29UTC, frontend05:06:43UTC. All four internal/public
+health/login endpoints returned200; backend health identifies050400. Both runtime
+source/router/container identities agree; two backend workers started without
+tracebacks, zero candidate/rollback restarts or OOM. Timed observation, functional
+API/browser QA, scans and benchmarks remain skipped under the owner's instruction.
+
+Owned keepers held both real deployment flocks; reservations/leases released.
+Protected plan/completed journals are on both hosts under
+`/opt/milana-erp/shared/deployment-evidence/20261120_050400/`. Existing disk exception
+retained (10.6GB backend/14.5GB frontend free before staging). No overlapping release.
+Automatic deployment remains inactive. The legacy checkout and business data remain.

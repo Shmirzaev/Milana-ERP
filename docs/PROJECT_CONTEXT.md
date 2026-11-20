@@ -25,7 +25,7 @@ Further tests/CI, browser QA, scans, performance gates, QA-master review and tim
 observation were skipped, not passed. Earlier inherited CI failures and blocked
 preview evidence remain in the archive. No human acceptance is claimed.
 
-Both hosts now serve green `20261120_045400`, runtime source
+The accessories release, now green rollback, is `20261120_045400`, runtime source
 `78c8aa5b086d056966d21f1d01fa56eb15ab2f65`, manifest
 `c7d955135511446f23665748b33b83ffa167e2c8afcae268dce00a507012c692`.
 PR574 merged to clone_main at3a33b7c5e with the identical source tree, preserving
@@ -35,49 +35,38 @@ Build-only Actions44677453647 published immutable images outside production.
 Fresh133,690,585-byte backup hash/list verified (1,403 objects), not fully restored.
 No migration or intentional business write. Schema0159 is unchanged. Backend
 activated04:58:06UTC; frontend04:58:33UTC. All four health endpoints returned200.
-Blue `20261120_044200` remains running as rollback; owned leases/reservations are
-released and automatic deployment remains inactive. Existing disk exception retained.
+At that cutover blue044200 provided rollback; blue has since been replaced by the
+050400 Cutting display release. Owned leases/reservations were released and automatic
+deployment remains inactive. Existing disk exception retained.
 See [exact images, evidence and skipped gates](archive/ACCESSORY_BATCH_NUMBERS_QC_20261120.md).
 
 ## Cutting remaining-balance fix deployed (20 November)
 
-Follow-up: the owner rejected "Needs count" and explicitly chose "Show pieces and
-original label count". The candidate shows exact remaining pieces beside distinct
-unaccepted original labels for batches that still have pieces. Original labels are
-clearly distinguished from physical bundles. Snapshot:69,563 pieces and1,095 labels
-(MIL22,908/334; BST46,655/761). Quantities, acceptance and reconciliation stay unchanged.
-Source-only independent review passed; no further tests under the owner's direct
-deployment instruction. Baseline is the completed accessories release045400 above.
-This display follow-up is prepared for deployment; the evidence below belongs to
-the earlier Cutting release.
+The owner replaced Needs count with "Show pieces and original label count".
+Cutting now shows remaining pieces alongside distinct unaccepted source labels in
+batches with a remainder. Original labels are explicitly distinguished from
+physical bundles. Fully processed batches stay excluded; partial pieces deduct
+recorded downstream work even without acceptance. Quantity reconciliation,
+receipt history, permissions and business data stay unchanged. The audit snapshot
+has69,563 pieces /1,095 labels (MIL22,908/334; BST46,655/761); live counts follow records.
 
-The owner requested removal of sewn/packed unaccepted work, including partial
-batches, and chose "Needs count" for uncertain physical bundle counts. The read-only
-projection reconciles actual stage ledgers and package source allocations at exact
-order/Nastil scope, without fabricating receipts or altering labels. Ambiguous
-receipt/output overlap remains a range rather than an invented exact amount.
-The frozen live-data oracle and PostgreSQL projection agree on MIL 22,908 and
-BST 46,655 remaining pieces; label counts need reconciliation in 1 MIL/21 BST
-batches. These are audit-snapshot figures; live balances follow current records.
-129 handoff regressions, frontend build and independent calculation review passed.
-Visual inspection was skipped by owner instruction after preview startup was
-blocked; full backend collection fails in an unchanged identity test. The candidate
-was not fully AI-verified. The owner then explicitly requested "deploy deirectly
-without test". Further tests/CI, browser QA, scans, performance gates and timed
-observation were skipped, not passed. PR #573 is merged at `03e14d02e`.
-The Cutting release, now blue rollback, is `20261120_044200`, runtime source `ac83508db`, manifest
-`af2c5f2520ecb8be476d2d34e0fa6e13e677921046585b1c2df01ad1842f502f`.
-Backend switched04:46:24UTC, frontend04:46:41UTC. All four deployment health
-checks returned200; two backend workers started, zero candidate restarts/OOM.
-Green `20261120_042800` remains running as rollback. Schema0159/fingerprint
-unchanged; no migration or intentional production business writes. Fresh
-133,632,935-byte backup hash/list verified (1,403 objects), not fully restored.
-Immutable images were built on hosted Actions, with only the four changed backend
-files over the exact live image; no builds/installations on production VMs.
-Deployment reservations/leases are released; automatic deployment stays inactive.
-Existing owner disk exception retained; retention dry-run only, no release deletion.
-See
-[scope, evidence and remaining gates](archive/CUTTING_EXACT_BALANCE_20261120.md).
+Both hosts serve blue `20261120_050400`, runtime source `e44d7930c`, manifest
+`65d84faa62e71781e2f48d590add0d71662d84f713d8586625a11f2923c419dd`.
+PR575 merged to clone_main at `f2a1b39e4` with the identical tree. Backend switched
+05:06:29UTC, frontend05:06:43UTC. All four operational health endpoints returned200;
+two backend workers, zero restarts/OOM/tracebacks. Green045400 remains running as
+rollback, preserving the accessories update. Immutable hosted build succeeded;
+only the balance service changed over the exact live backend image. No migration,
+production business writes or production-host build/install. Schema0159 unchanged.
+Fresh133,738,751-byte backup hash/list verified (1,403 objects), not fully restored.
+
+Independent source-only review passed. Further tests/CI, browser QA, security scans,
+performance and timed observation remain skipped under the owner's direct-deploy
+instruction; no QA-master acceptance or AI_VERIFIED claim. The earlier129 workflow
+tests belong to the preceding Cutting source; its unrelated full-suite collection
+error and missing visual evidence remain recorded. Both leases/reservations are
+released; automatic deployment stays inactive. Existing disk exception retained.
+See [exact images, scope, history and skipped gates](archive/CUTTING_EXACT_BALANCE_20261120.md).
 
 ## CEO dashboard access/presentation deployed (20 November)
 
