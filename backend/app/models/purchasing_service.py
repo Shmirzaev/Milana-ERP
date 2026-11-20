@@ -22,6 +22,7 @@ from app.schemas import (
 from app.libs.dto.purchasing.purchase_quantity import MAX_PURCHASE_QUANTITY
 from app.libs.enums.inventory import StockBatchQcStatus
 from app.libs.enums.purchasing import PurchaseOrderStatus, PurchaseRequestStatus
+from app.libs.types.planning import MaterialRequirementRow
 from app.libs.types.purchasing import (
     PurchaseOrderCreateCommand,
     PurchaseOrderReceiptCommand,
@@ -325,7 +326,7 @@ def create_purchase_request_from_sales_order(db: Session, *, sales_order_id: int
     if not sales_order:
         raise HTTPException(404, "Sales order not found")
 
-    requirement_rows = material_requirements_for_sales_order(db, sales_order_id)
+    requirement_rows: list[MaterialRequirementRow] = material_requirements_for_sales_order(db, sales_order_id)
     shortage_lines: list[PurchaseRequestLineCommand] = []
     for row in requirement_rows:
         shortage = _num(row.get("shortage"))

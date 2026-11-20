@@ -14,18 +14,23 @@ the same materials, and fails when the larger order costs materially more.
 Correctness is pinned separately by `test_*_matches_recorded_output`, which
 compares the response against the payload recorded from the pre-fix code.
 
-Requires real PostgreSQL. Set STABILIZATION_POSTGRES_URL to run it.
+Requires an identity-pinned approved disposable PostgreSQL instance.
 """
 
-import os
-from uuid import uuid4
+from pathlib import Path
 
 import pytest
-from sqlalchemy import create_engine, event
-from sqlalchemy.engine import make_url
+import sqlalchemy as sa
+from alembic import command
+from alembic.config import Config
+from sqlalchemy import event
 from sqlalchemy.orm import sessionmaker
 
-from app.db.base import Base
+from app.core.config import settings
+from app.tests.pg_approved_instance import (
+    ApprovedInstanceUnavailable, create_target_database, finalize_target,
+    load_approved_instance, require_or_skip, target_engine,
+)
 from app.schemas import (
     Item,
     MaterialReservation,
@@ -231,44 +236,23 @@ EXPECTED_QUANTITY_REQUIREMENTS = [
 
 @pytest.fixture(scope="module")
 def planning_postgres():
-    raw_url = os.environ.get("STABILIZATION_POSTGRES_URL")
-    if not raw_url:
-        pytest.skip("Set STABILIZATION_POSTGRES_URL for real PostgreSQL planning query-growth coverage")
-    url = make_url(raw_url)
-    if url.get_backend_name() != "postgresql" or url.host not in {"127.0.0.1", "localhost", "::1"} or url.query:
-        pytest.fail("Planning query-growth tests require a loopback PostgreSQL URL without connection overrides")
-    schema = f"planning_growth_{uuid4().hex}"
-    engine = create_engine(url, connect_args={"options": f"-csearch_path={schema}"}, future=True)
-    assert engine.dialect.name == "postgresql"
-    with engine.begin() as connection:
-        connection.exec_driver_sql(f'CREATE SCHEMA "{schema}"')
+    """Use a guarded disposable database migrated to the current schema."""
     try:
-        tables = {
-            Item.__table__,
-            MaterialReservation.__table__,
-            Model.__table__,
-            ModelBOM.__table__,
-            # MaterialReservation.production_order_id is NOT NULL.
-            ProductionOrder.__table__,
-            SalesOrder.__table__,
-            SalesOrderItem.__table__,
-            StockBatch.__table__,
-            StockMovement.__table__,
-            Warehouse.__table__,
-        }
-        pending = list(tables)
-        while pending:
-            for foreign_key in pending.pop().foreign_keys:
-                target = foreign_key.column.table
-                if target not in tables:
-                    tables.add(target)
-                    pending.append(target)
-        Base.metadata.create_all(engine, tables=list(tables))
+        instance = load_approved_instance()
+    except ApprovedInstanceUnavailable as error:
+        require_or_skip(error)
+    target = create_target_database(instance)
+    engine = None
+    try:
+        engine = target_engine(target, options="-c statement_timeout=20000 -c lock_timeout=10000")
+        ini = Path(__file__).resolve().parents[2] / "alembic.ini"
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(settings, "DATABASE_URL", engine.url.render_as_string(hide_password=False).replace("%", "%%"))
+            patch.setattr(sa, "engine_from_config", lambda *args, **kwargs: engine)
+            command.upgrade(Config(str(ini)), "head")
         yield engine
     finally:
-        with engine.begin() as connection:
-            connection.exec_driver_sql(f'DROP SCHEMA "{schema}" CASCADE')
-        engine.dispose()
+        finalize_target(target, engine)
 
 
 def _counted(engine, fn):
@@ -458,3 +442,37 @@ def test_quantity_requirements_match_recorded_output(planning_postgres, small_or
         )
     assert rows == EXPECTED_QUANTITY_REQUIREMENTS
 
+
+
+def test_requirements_read_real_stock_and_nullable_bom_without_writes(planning_postgres):
+    """Characterize the legacy null-item row and real availability arithmetic."""
+    factory = sessionmaker(bind=planning_postgres, autoflush=False, expire_on_commit=False)
+    order_id = _seed(factory, "contract", 1)
+    with factory.begin() as db:
+        model = db.query(Model).filter_by(code="PERF15-contract-M0").one()
+        db.add(ModelBOM(model_id=model.id, item_id=None, material_name="legacy",
+                        quantity_per_piece=0.25, unit="kg"))
+
+    statements = []
+    def record_statement(conn, cursor, statement, parameters, context, executemany):
+        statements.append(statement.strip().upper())
+
+    event.listen(planning_postgres, "before_cursor_execute", record_statement)
+    try:
+        with factory() as db:
+            rows = material_requirements_for_sales_order(db, order_id)
+    finally:
+        event.remove(planning_postgres, "before_cursor_execute", record_statement)
+
+    by_sku = {row["sku"]: row for row in rows}
+    # 100 batch + 5 produce - 2 consume - (40 reserved - 5 consumed - 3 released).
+    assert by_sku["PERF15-contract-I0"]["required_quantity"] == 12.5
+    assert by_sku["PERF15-contract-I0"]["available_quantity"] == 71.0
+    assert by_sku["PERF15-contract-I0"]["shortage"] == 0.0
+    assert by_sku["PERF15-contract-I1"]["required_quantity"] == 30.0
+    assert by_sku["PERF15-contract-I1"]["available_quantity"] == 114.0
+    assert by_sku["PERF15-contract-I1"]["shortage"] == 0.0
+    assert by_sku[""] == {"item_id": None, "sku": "", "name": "", "composition": [],
+                          "unit": "kg", "required_quantity": 2.5,
+                          "available_quantity": 0.0, "shortage": 2.5}
+    assert statements and all(statement.startswith("SELECT") for statement in statements)
