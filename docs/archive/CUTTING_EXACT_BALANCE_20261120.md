@@ -47,7 +47,8 @@ do not establish a unique count. Search and pagination do not recompute consumpt
 Original label counts must not be represented as remaining stock or reprinted as
 if their physical contents were known.
 
-Evidence and status: IMPLEMENTED; verification incomplete. Read-only production snapshot confirms screenshot
+Evidence and status: DEPLOYED by explicit owner instruction; verification incomplete.
+The following pre-deployment evidence retains its original scope. Read-only production snapshot confirms screenshot
 MIL 516/35,878 and BST 1,395/97,304; 1,911 pending labels, no mixed accepted/pending
 source batches, no mixed-factory source batches in this snapshot. 204/207 Sewing
 records lack size breakdowns, so partial label identities cannot be established.
@@ -112,3 +113,49 @@ again in 54.36 seconds; the complete `npm run build` (including formatter and
 existing contract checks) passed and generated 104 routes. Ruff and diff whitespace
 checks passed. Independent reviewer reconfirmed no new findings on this baseline.
 Visual inspection remains owner-skipped and full-suite collection remains blocked.
+
+## Owner-requested direct deployment
+
+On 20 November the owner explicitly instructed "deploy deirectly without test".
+This overrides the remaining repository/skill verification gates for this release;
+it does not turn skipped gates into passes or constitute recorded QA-master testing.
+Further tests/CI, browser QA, security scans, performance sampling and timed
+observation were skipped. Previously queued validation jobs were cancelled.
+
+PR [#573](https://github.com/Shmirzaev/Milana-ERP/pull/573) merged to clone_main at
+`03e14d02e24baa21cada828a6e740027bef7e3b4`, whose tree exactly matches runtime source
+`ac83508dbbacc1608e80b6422159b51985d9d35d`. Build-only Actions run
+[44676083062](https://github.com/Shmirzaev/Milana-ERP/actions/runs/44676083062)
+published release `20261120_044200`. Helper branch
+`codex/cutting-owner-publish-20261120`, commit `cabb5fef8`, remains separate and is
+not merged. Its isolated worktree is `C:\ERP\.codex-work\cutting-owner-publish-20261120`.
+
+Archive6,835,987bytes, SHA256
+`a5b9c7e313cb0dd23815269d52679a50f163122c4221cdb2497a31794c7e2b15`.
+Manifest `af2c5f2520ecb8be476d2d34e0fa6e13e677921046585b1c2df01ad1842f502f`.
+Backend `ghcr.io/shmirzaev/milana-erp-backend@sha256:c1fd9e68a76bb03d1bcce4941b4fd4930dc40291b238d37bd344cf12c392d0d9`.
+Frontend `ghcr.io/shmirzaev/milana-erp-frontend@sha256:e7ec0c15cda1d6be248e054e91a4521a8e9e737762bcd3f1e890f333750ed4df`.
+Backend changes only the four reviewed Python application files over exact live
+image `712de119...`; staged hashes match the source archive. Frontend uses locked
+dependencies and the actual Next production build, bypassing test scripts.
+No build or dependency installation on serving VMs; default image commands and
+strict production/startup-write settings preserved. No migration. Schema0159 and
+fingerprint `c1830a0f72eddbcf82a76da559bf04da16477ffce29625574a9d28e6e450ca9f` unchanged.
+
+Fresh mode0600 backup `/opt/milana-erp/shared/backups/auto_pre_20261120_044200.dump`,
+133,632,935bytes,1,403 restore objects, SHA256
+`3b5bd95030a5357b14126912f2e8648cbc0ac532d95765f546fa74dc1ea6fbf3`;
+restore-list SHA256 `16a58a05ba2b472a20d85f185dbc14cbe2f79c5b954b0a1f4105b0b6c8af5e91`.
+Hash/list verified, not fully restored. No intentional production business writes.
+
+Both hosts active blue `20261120_044200`, green `20261120_042800` running rollback.
+Backend router switched04:46:24UTC and frontend04:46:41UTC. Internal backend health,
+internal frontend login, public health and public login returned200; both health
+responses identify the release. Actual router/source/container identities agree;
+two backend workers started without tracebacks; both candidates have zero restarts/OOM.
+Owned keepers held the real deployment flocks; both reservations and leases released.
+Protected plan/completed journals are under
+`/opt/milana-erp/shared/deployment-evidence/20261120_044200/` on both hosts.
+The existing owner disk exception remains: backend95%, frontend81% at preflight,
+with11GB/15GB available. Protected retention dry-run only; no release/image blanket
+cleanup. Automatic deployment remains inactive. The legacy checkout is preserved.

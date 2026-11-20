@@ -15,21 +15,34 @@ Last updated 2026-11-20. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
-## Cutting remaining-balance candidate (20 November; not deployed)
+## Cutting remaining-balance fix deployed (20 November)
 
 The owner requested removal of sewn/packed unaccepted work, including partial
 batches, and chose "Needs count" for uncertain physical bundle counts. The read-only
-candidate reconciles actual stage ledgers and package source allocations at exact
+projection reconciles actual stage ledgers and package source allocations at exact
 order/Nastil scope, without fabricating receipts or altering labels. Ambiguous
 receipt/output overlap remains a range rather than an invented exact amount.
 The frozen live-data oracle and PostgreSQL projection agree on MIL 22,908 and
 BST 46,655 remaining pieces; label counts need reconciliation in 1 MIL/21 BST
-batches. These are audit-snapshot figures, not an applied production change.
+batches. These are audit-snapshot figures; live balances follow current records.
 129 handoff regressions, frontend build and independent calculation review passed.
 Visual inspection was skipped by owner instruction after preview startup was
 blocked; full backend collection fails in an unchanged identity test. The candidate
-is not merged, deployed or fully AI-verified. Source is based on the verified CEO release below,
-including its deployed material-collapse follow-up. See
+was not fully AI-verified. The owner then explicitly requested "deploy deirectly
+without test". Further tests/CI, browser QA, scans, performance gates and timed
+observation were skipped, not passed. PR #573 is merged at `03e14d02e`.
+Both hosts now serve blue `20261120_044200`, runtime source `ac83508db`, manifest
+`af2c5f2520ecb8be476d2d34e0fa6e13e677921046585b1c2df01ad1842f502f`.
+Backend switched04:46:24UTC, frontend04:46:41UTC. All four deployment health
+checks returned200; two backend workers started, zero candidate restarts/OOM.
+Green `20261120_042800` remains running as rollback. Schema0159/fingerprint
+unchanged; no migration or intentional production business writes. Fresh
+133,632,935-byte backup hash/list verified (1,403 objects), not fully restored.
+Immutable images were built on hosted Actions, with only the four changed backend
+files over the exact live image; no builds/installations on production VMs.
+Deployment reservations/leases are released; automatic deployment stays inactive.
+Existing owner disk exception retained; retention dry-run only, no release deletion.
+See
 [scope, evidence and remaining gates](archive/CUTTING_EXACT_BALANCE_20261120.md).
 
 ## CEO dashboard access/presentation deployed (20 November)
@@ -40,7 +53,7 @@ deployment "directly without any tests". Further tests/CI validation, browser QA
 scans, performance gates and timed observation are skipped for this release,
 not recorded as passed. Earlier access-only checks predate the presentation edits.
 The owner's follow-up made the material detail/search/filter/list collapsible,
-closed by default, with unit totals visible. Both hosts now serve green
+closed by default, with unit totals visible. Its release, now green rollback, is
 `20261120_042800`, source `9f64146d4d5b8e523d71fb6c3483c02118d32acb`, manifest
 `413aa746515609a15a16ee4ce1d94beb3af58768f30fda051fcca565b8438544`.
 Backend switched04:31:43UTC, frontend04:32:12UTC. All four operational health checks
