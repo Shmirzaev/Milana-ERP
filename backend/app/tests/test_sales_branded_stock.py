@@ -1,5 +1,6 @@
 from uuid import uuid4
 
+from app.tests.branded_production_fixture import attach_test_qolip_for_model
 from app.db.session import SessionLocal
 from app.schemas import (
     FinishedGoodsStock,
@@ -325,6 +326,7 @@ def test_branded_stock_sale_lists_and_reserves_unbranded_branded_production_stoc
     )
     assert r.status_code == 201, r.text
     model_id = int(r.json()["id"])
+    attach_test_qolip_for_model(model_id)
 
     r = client.post(
         "/api/planning/create-branded-production",
@@ -566,6 +568,7 @@ def test_branded_stock_sale_can_reserve_not_full_package(client, auth_headers):
     )
     assert r.status_code == 201, r.text
     model_id = int(r.json()["id"])
+    attach_test_qolip_for_model(model_id)
 
     r = client.post(
         "/api/planning/create-branded-production",
@@ -638,6 +641,7 @@ def test_branded_stock_sale_reserves_exact_and_then_whole_packages_only(client, 
     )
     assert r.status_code == 201, r.text
     model_id = int(r.json()["id"])
+    attach_test_qolip_for_model(model_id)
 
     r = client.post(
         "/api/planning/create-branded-production",
@@ -1130,6 +1134,7 @@ def test_shipment_scan_accepts_unreserved_same_model_package_and_blocks_other_mo
     )
     assert r.status_code == 201, r.text
     other_model_id = int(r.json()["id"])
+    attach_test_qolip_for_model(other_model_id)
     brand_id, collection_id = _create_brand_and_collection(client, auth_headers)
 
     def _create_ready_package(package_model_id: int, color: str) -> tuple[int, str]:

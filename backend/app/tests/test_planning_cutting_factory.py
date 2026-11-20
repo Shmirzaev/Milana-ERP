@@ -19,6 +19,7 @@ from app.schemas import (
     PrintingRecord, ProductionBatch, ProductionOrder, QualityCheck, Role,
     SewingAssignment, SewingDailyReport, SewingFlow, SewingRecord, User, WasteRecord, WorkOrder,
 )
+from app.tests.branded_production_fixture import attach_test_qolip
 from app.tests.conftest import TestSessionLocal
 
 
@@ -312,7 +313,7 @@ def test_moved_to_ect_matches_created_at_ect_cutting_and_sewing_handoff(client, 
         sewing_role = Role(name=f"QA MIL sewing {marker}", permissions=["sewing.bundles", "sewing.flows"])
         eco_actor = User(name="QA ECT operator", email=f"ect-{marker}@example.invalid", password_hash="unused", factory_code="ECO", role=cutting_role)
         sewing_actor = User(name="QA MIL receiver", email=f"sew-{marker}@example.invalid", password_hash="unused", factory_code="MIL", role=sewing_role)
-        db.add_all([model, eco_actor, sewing_actor]); db.commit()
+        db.add_all([model, eco_actor, sewing_actor]); attach_test_qolip(db, model); db.commit()
         model_id, eco_id, sewing_id = model.id, eco_actor.id, sewing_actor.id
     eco_headers = {"Authorization": f"Bearer {create_access_token(eco_id, extra={'factory_code': 'ECO'})}"}
     sewing_headers = headers(sewing_id)

@@ -6,6 +6,7 @@ from openpyxl import load_workbook
 from sqlalchemy.dialects import postgresql
 
 from app.api.routes.cutting_passports import _compute, _size_count_from_range
+from app.tests.branded_production_fixture import attach_test_qolip_for_model
 from app.models.inventory.stock_service import (
     _delete_stock_batch_receipt_movements,
     _locked_active_batch_reservations_statement,
@@ -642,6 +643,7 @@ def test_material_receive_gramaj_fills_cutting_passport_defaults(client, auth_he
     )
     assert model.status_code == 201, model.text
     model_id = model.json()["id"]
+    attach_test_qolip_for_model(model_id)
 
     bom = client.post(
         f"/api/models/{model_id}/bom",
@@ -758,6 +760,7 @@ def test_cutting_passport_defaults_use_order_batch_without_gramaj(client, auth_h
     )
     assert model.status_code == 201, model.text
     model_id = model.json()["id"]
+    attach_test_qolip_for_model(model_id)
 
     bom = client.post(
         f"/api/models/{model_id}/bom",

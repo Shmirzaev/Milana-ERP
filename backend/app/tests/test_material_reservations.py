@@ -1,5 +1,7 @@
 from uuid import uuid4
 
+from app.tests.branded_production_fixture import attach_test_qolip_for_model
+
 
 def test_cutting_can_correct_batch_before_consumption(client, auth_headers):
     from app.db.session import SessionLocal
@@ -166,6 +168,8 @@ def _planning_headers(client) -> dict[str, str]:
 
 
 def _create_branded_po(client, headers, qty: int = 100, model_id: int = 1) -> dict:
+    if model_id != 1:
+        attach_test_qolip_for_model(model_id)
     r = client.post(
         "/api/planning/create-branded-production",
         json={
