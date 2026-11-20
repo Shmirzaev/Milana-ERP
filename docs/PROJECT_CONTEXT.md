@@ -22,11 +22,13 @@ day/week/month controls and clearer Material stock, then explicitly instructed
 deployment "directly without any tests". Further tests/CI validation, browser QA,
 scans, performance gates and timed observation are skipped for this release,
 not recorded as passed. Earlier access-only checks predate the presentation edits.
-Both hosts now serve blue `20261120_040300`, source `98130821354f487767a9b79f56482f1788ac4c40`,
-manifest `7e888254a16e7c8ff277d99c4eff29a8a0f40c149aa3229987074232badcabb7`.
-Backend switched04:08:19UTC, frontend04:08:49UTC. All four operational health checks
-returned200; zero candidate restarts/OOM. Green `20261119_122457_44523647780_1`
-remains running as rollback. Schema0159 is unchanged. Fresh133,352,664-byte backup
+The owner's follow-up made the material detail/search/filter/list collapsible,
+closed by default, with unit totals visible. Both hosts now serve green
+`20261120_042800`, source `9f64146d4d5b8e523d71fb6c3483c02118d32acb`, manifest
+`413aa746515609a15a16ee4ce1d94beb3af58768f30fda051fcca565b8438544`.
+Backend switched04:31:43UTC, frontend04:32:12UTC. All four operational health checks
+returned200; zero candidate restarts/OOM. Blue `20261120_040300` remains running
+as rollback. Schema0159 is unchanged. Fresh133,536,381-byte backup
 hash/list verified (1,403 objects), not fully restored. No migration or intentional
 business writes/users/role assignments/snapshots. Both reservations/leases released;
 automatic deploy stays disabled. Runtime source is pushed/merged to clone_main.
@@ -40,7 +42,7 @@ completed; latest presentation is untested by owner request. See
 
 ## Latency repair: deployed and observed (19 November)
 
-The previous release, now green rollback, was `20261119_122457_44523647780_1`, source
+The 19 November latency release was `20261119_122457_44523647780_1`, source
 `65c861c8369d3f966bac69d1b9980aff796744c5`, manifest
 `fd7428c089dba546e4b89db784614f9bf8ac44b80bc9a7b1491a7445ce7c8917`.
 Backend activated at 12:51:32 UTC; frontend at 12:51:52 UTC. Rollback release
