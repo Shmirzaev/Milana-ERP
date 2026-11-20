@@ -12,6 +12,7 @@ from app.schemas import (
 )
 from app.models.model_images_service import model_preview_image_url
 from app.models.production.floor_print_images_service import floor_print_image_url
+from app.models.production.cutting_balance_service import balance_totals, cutting_balances
 
 FACTORIES = ("MIL", "BST", "ECO", "UNASSIGNED")
 BUSINESS_TZ = ZoneInfo("Asia/Tashkent")
@@ -68,15 +69,11 @@ def inventory_totals(db, query):
 def cutting_board(db, department: str, start: date, end: date):
     lower, upper = period_bounds(start, end)
     base = db.query(Bundle).filter(cutting_origin_condition(db, department), Bundle.status != "cancelled")
-    current = base.filter(cutting_inventory_condition())
+    balances = [group for group in cutting_balances(db) if group.department == department]
     destination = destination_column()
-    grouped = current.with_entities(destination, func.count(Bundle.id), func.sum(Bundle.quantity),
-                                    func.count(func.distinct(Bundle.production_order_id))).group_by(destination).all()
-    by_factory = {code: {"factory": code, "bundles": 0, "pieces": 0, "orders": 0,
+    by_factory = {code: {"factory": code, **balance_totals([group for group in balances if group.factory == code]),
                          "created_bundles": 0, "created_pieces": 0,
                          "transferred_bundles": 0, "transferred_pieces": 0} for code in FACTORIES}
-    for code, count, pieces, orders in grouped:
-        by_factory[code].update(bundles=int(count), pieces=int(pieces or 0), orders=int(orders))
     created = base.filter(Bundle.created_at >= lower, Bundle.created_at < upper).with_entities(
         destination, func.count(Bundle.id), func.sum(Bundle.quantity)).group_by(destination).all()
     # First physical receipt is the exit from Cutting. Repeated scans and the
@@ -97,7 +94,7 @@ def cutting_board(db, department: str, start: date, end: date):
         Department.code == department, WasteRecord.waste_type.in_(("cutting_waste", "fabric")),
         WasteRecord.created_at >= lower, WasteRecord.created_at < upper,
     ).group_by(WasteRecord.unit).all()
-    return {"totals": inventory_totals(db, current), "factories": list(by_factory.values()),
+    return {"totals": balance_totals(balances), "factories": list(by_factory.values()),
             "waste": [{"unit": unit, "records": int(count), "quantity": float(quantity or 0)}
                       for unit, count, quantity in wastes],
             "start": start, "end": end, "timezone": str(BUSINESS_TZ),

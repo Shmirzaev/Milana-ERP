@@ -4,6 +4,7 @@ These reports preserve what was observed at their recorded date. They are not
 current implementation instructions or proof of today's production state.
 Start with [current context](../PROJECT_CONTEXT.md) for active work.
 
+- [Cutting remaining-balance candidate, 20 November 2026](CUTTING_EXACT_BALANCE_20261120.md): exact ledger pieces, honest partial bundle counts, read-only evidence and remaining gates.
 - [CEO dashboard access/presentation, 20 November 2026](CEO_SUPERADMIN_DASHBOARD_20261120.md): superadmin access and requested UI corrections; explicit no-tests release instruction and actual release state.
 
 - [Shared-counter latency repair, 19 November 2026](RATE_LIMIT_LATENCY_20261119.md): confirmed resource bottleneck, fix, equal-load evidence and production validation.
