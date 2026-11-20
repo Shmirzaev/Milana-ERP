@@ -15,6 +15,8 @@ import { api, fetcher } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import { orderReference, rawOrderReference } from "@/lib/orderRef";
 import CuttingFactorySummary from "@/components/dashboard/CuttingFactorySummary";
+import CuttingStorageByOrder from "@/components/CuttingStorageByOrder";
+import CuttingSewingHandoff from "@/components/CuttingSewingHandoff";
 import { departmentMessages } from "@/components/dashboard/departmentMessages";
 import { cuttingLabelsText, cuttingPiecesText, type CuttingBalance } from "@/lib/cuttingBalance";
 
@@ -220,6 +222,8 @@ export default function CuttingInventoryPage() {
       />
 
       <CuttingFactorySummary department={cuttingDepartment} />
+      <CuttingStorageByOrder department={cuttingDepartment} />
+      <CuttingSewingHandoff key={cuttingDepartment} department={cuttingDepartment} onDispatch={() => { void mutate(); }} />
       <div className="mb-4 grid gap-3 md:grid-cols-4">
         <div className="card p-4">
           <div className="text-sm text-slate-500">{t("page.cuttingInventory.orders")}</div>

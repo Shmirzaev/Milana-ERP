@@ -13,14 +13,16 @@ import { postPackageWorkflow, type PackagePrintRun } from "@/lib/packageWorkflow
 import PageHeader from "@/components/PageHeader";
 import { statusLabel } from "@/components/StagePipeline";
 import WorkOrderProductInfo from "@/components/WorkOrderProductInfo";
-import PackageBatchBreakdownEditor from "@/components/PackageBatchBreakdownEditor";
-import { flexibleBatchTraceText, packageBatchTraceText, packageTracePlanKey, traceItems, tracePackagePlans, type BatchTraceDraft } from "@/lib/packageBatchTrace";
+import { packageBatchTraceText } from "@/lib/packageBatchTrace";
 import { packagingAvailabilityText } from "@/lib/packagingAvailabilityText";
 import { can, useMe } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
 import { numberOrFallback, parseNumberInput, type NumberInputValue } from "@/lib/numberInput";
 import { orderReference } from "@/lib/orderRef";
-import { directPackagingDamageText, packagingDamageActionText, multiNastilText, planSelectedNastils, type PackagePlan, type PackagePlanItem, type PackageSourceBalances } from "@/lib/multiNastilPackaging";
+import {
+  applyNastilQuantities, directPackagingDamageText, multiNastilText, nastilQuantityText, packagingDamageActionText,
+  planSelectedNastils, type NastilQuantityDraft, type PackagePlan, type PackagePlanItem, type PackageSourceBalances,
+} from "@/lib/multiNastilPackaging";
 
 type PackageRecipeItem = { size: string; quantity: NumberInputValue };
 
@@ -85,7 +87,8 @@ export default function PackagingPage() {
   const [pkg, setPkg] = useState<any>(null);
   const [packageQrRefreshKey, setPackageQrRefreshKey] = useState(0);
   const [damagedQty, setDamagedQty] = useState<NumberInputValue>("");
-  const [batchTraceDraft, setBatchTraceDraft] = useState<{ key: string; values: BatchTraceDraft }>({ key: "", values: {} });
+  const [sourceDraft, setSourceDraft] = useState<{ key: string; values: NastilQuantityDraft }>({ key: "", values: {} });
+  const [editPackageIndex, setEditPackageIndex] = useState(0);
   const canEditBreakdown = can(me, "*", "planning.production", "cutting.records", "packaging.records");
   const isAlreadyBatched = Array.isArray(po?.batches) && po.batches.length > 0;
   const batchItems = useMemo(() => (
@@ -262,19 +265,17 @@ export default function PackagingPage() {
     packOnlyFullPackages,
     standardPackagePlans,
   ]);
-  const manualMixedAttribution = mergeAcrossBatches && packagePlans.some(plan => traceItems(plan.items).length > 1);
-  const selectedTraceSources = batchPackageAvailability.filter(source => source.available > 0 && selectedMergeBatchIds.includes(source.id));
-  const sourceTraceBudgets = manualMixedAttribution ? Object.fromEntries(selectedTraceSources.map(source => [source.id, source.available])) : undefined;
-  const sourceSizeTraceBudgets = manualMixedAttribution ? Object.fromEntries(selectedTraceSources.filter(source => source.actualSizeVerified === true).map(source => [source.id,
-    Object.fromEntries((source.sizeBalances ?? []).map(row => [row.size.trim(), row.remaining ?? 0])),
-  ])) : undefined;
-  const attributionPlans = manualMixedAttribution ? packagePlans.map(plan => ({ ...plan,
-    batch_allocations: selectedTraceSources.map(source => ({ production_batch_id: source.id, quantity: source.available, label: source.label })),
-  })) : packagePlans;
-  const tracePlanKey = packageTracePlanKey(attributionPlans);
-  const traceDraft = batchTraceDraft.key === tracePlanKey ? batchTraceDraft.values : {};
-  const tracedPackages = tracePackagePlans(attributionPlans, traceDraft, sourceTraceBudgets, sourceSizeTraceBudgets);
-  const selectedSourcePreview = (tracedPackages.valid ? tracedPackages.plans : []).slice(0, 3).map(plan =>
+  const selectedSources = batchPackageAvailability.filter(source => source.available > 0 && selectedMergeBatchIds.includes(source.id));
+  const sourcesKey = JSON.stringify([packagePlans, selectedSources]);
+  const editedSourceQuantities = sourceDraft.key === sourcesKey ? sourceDraft.values : {};
+  const packageSourcesPlan = mergeAcrossBatches
+    ? applyNastilQuantities(packagePlans, selectedSources, editedSourceQuantities) : { plans: packagePlans, valid: true };
+  const sourceCopy = nastilQuantityText[lang];
+  const packageIndex = Math.min(editPackageIndex, Math.max(0, packagePlans.length - 1));
+  const sourcePackage = packageSourcesPlan.plans[packageIndex];
+  const plannedSourceQuantities = Object.fromEntries((sourcePackage?.batch_allocations ?? []).map(row =>
+    [row.production_batch_id, String(row.quantity)]));
+  const selectedSourcePreview = packageSourcesPlan.plans.slice(0, 3).map(plan =>
     (plan.batch_allocations || []).map(source => `${source.label}: ${source.quantity}`).join(" + "),
   ).filter(Boolean);
   const packageWeightCount = packagePlans.length;
@@ -349,7 +350,7 @@ export default function PackagingPage() {
       if (packageSourcesLoading || packageSourcesError || !packageSources) throw new Error(multiCopy.noOutput);
       if (!mergeAcrossBatches && isAlreadyBatched && !selectedSource) throw new Error(multiCopy.chooseBatch);
       if (mergeAcrossBatches && selectedMergeBatchCount < 2) throw new Error(multiCopy.chooseTwo);
-      if (!tracedPackages.valid) throw new Error(manualMixedAttribution ? flexibleBatchTraceText[lang].invalid : packageBatchTraceText[lang].invalid);
+      if (!packageSourcesPlan.valid) throw new Error(sourceCopy.invalid);
       if (!mergeAcrossBatches && (!Number.isInteger(Number(damagedQty || 0)) || Number(damagedQty || 0) < 0
         || Number(damagedQty || 0) > Number(selectedSource?.available_input_qty || 0))) throw new Error(damageCopy.invalid);
       const weightValues = packagePlans.map((_, index) => {
@@ -376,14 +377,14 @@ export default function PackagingPage() {
       const run = await postPackageWorkflow<PackagePrintRun>("/api/packages/print-runs/create-packages", {
           work_order_id: id,
           ...(!mergeAcrossBatches && Number(damagedQty) > 0 ? { damaged_qty: Number(damagedQty) } : {}),
-          packages: tracedPackages.plans.map((plan, index) => ({
+          packages: packageSourcesPlan.plans.map((plan, index) => ({
             ...payloadBase, weight_kg: weightValues[index], items: plan.items,
             batch_allocations: plan.batch_allocations || [],
           })),
         }, me!.id);
         setPkg({ id: run.package_ids[0], package_no: run.run_no, barcode: "bulk" });
         setDamagedQty("");
-        setBatchTraceDraft({ key: "", values: {} });
+        setSourceDraft({ key: "", values: {} });
         setPkgNotice({ type: "success", text: t("page.packaging.bulkCreatedWithFirst", { count: run.count, no: run.run_no }) });
         // Creation already succeeded: a blocked print window must not suggest
         // repeating package creation. The saved run remains available below.
@@ -618,9 +619,27 @@ export default function PackagingPage() {
           <button type="button" className="btn" onClick={() => setPkgItems([...pkgItems, { size: "L", quantity: "" }])}>{t("btn.addSize")}</button>
           <div className="text-sm text-slate-500">{t("page.packaging.totalLine", { n: pkgItems.reduce((s, i) => s + Number(i.quantity || 0), 0) })}</div>
 
-          <PackageBatchBreakdownEditor plans={attributionPlans} draft={traceDraft} lang={lang} disabled={isCreating} sourceBudgets={sourceTraceBudgets} sourceSizeBudgets={sourceSizeTraceBudgets}
-            onChange={values => setBatchTraceDraft({ key: tracePlanKey, values })} />
-          <button className="btn btn-primary" disabled={isCreating || packageSourcesLoading || !!packageSourcesError || packagePlans.length === 0 || !tracedPackages.valid}>
+          {mergeAcrossBatches && sourcePackage && <details className="border-t border-[#ecebe3] pt-3">
+            <summary className="cursor-pointer text-sm font-medium">{sourceCopy.adjust}</summary>
+            <div className="mt-2 flex flex-wrap items-end gap-2">
+              <select className="input w-auto" aria-label={multiCopy.planned} value={packageIndex} disabled={isCreating}
+                onChange={event => setEditPackageIndex(Number(event.target.value))}>
+                {packagePlans.map((_, index) => <option key={index} value={index}>
+                  {t("page.packaging.packageN", { n: index + 1 })}
+                </option>)}
+              </select>
+              {selectedSources.map(source => <label key={source.id} className="text-sm">
+                {source.label}
+                <input className="input w-28" type="number" aria-label={source.label} min={0} max={source.available}
+                  step={1} disabled={isCreating} value={editedSourceQuantities[packageIndex]?.[source.id] ?? plannedSourceQuantities[source.id] ?? "0"}
+                  onChange={event => setSourceDraft({ key: sourcesKey, values: { ...editedSourceQuantities,
+                    [packageIndex]: { ...(editedSourceQuantities[packageIndex] ?? plannedSourceQuantities),
+                      [source.id]: event.target.value } } })} />
+              </label>)}
+            </div>
+            {!packageSourcesPlan.valid && <p className="mt-2 text-sm text-red-700" role="status">{sourceCopy.invalid}</p>}
+          </details>}
+          <button className="btn btn-primary" disabled={isCreating || packageSourcesLoading || !!packageSourcesError || packagePlans.length === 0 || !packageSourcesPlan.valid}>
             {isCreating ? t("common.creating") : `${multiCopy.create} (${packagePlans.length})`}
           </button>
           {!mergeAcrossBatches && Number(damagedQty) > 0 && <button type="button" className="btn" disabled={isCreating || packageSourcesLoading || !!packageSourcesError} onClick={recordDamageOnly}>

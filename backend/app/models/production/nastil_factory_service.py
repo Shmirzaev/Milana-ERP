@@ -36,6 +36,9 @@ def change_nastil_factories(db, work, factory, batch_ids, current):
         raise HTTPException(409, "Select Nastils with saved cutting bundles")
     if any(b.status not in {"created", "sent_to_printing", "received_printing", "sent_to_sewing", "received_sewing"} for b in bundles):
         raise HTTPException(409, "SEWING_FACTORY_HISTORY_LOCKED")
+    if any(b.status == "sent_to_sewing" and b.current_department_id is None
+           and b.sewing_factory_code != factory for b in bundles):
+        raise HTTPException(409, "A Nastil in transit cannot change Sewing destination.")
     # Refuse selected or unattributed downstream evidence. Other Nastils' history
     # must not prevent an independent destination correction.
     for model in (Package, PayrollQrLabel, PayrollRecord, PackagingReceipt):

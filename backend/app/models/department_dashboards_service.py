@@ -12,7 +12,7 @@ from app.schemas import (
 )
 from app.models.model_images_service import model_preview_image_url
 from app.models.production.floor_print_images_service import floor_print_image_url
-from app.models.production.cutting_balance_service import balance_totals, cutting_balances
+from app.models.production.cutting_balance_service import balance_totals, cutting_balances, cutting_storage_condition
 
 FACTORIES = ("MIL", "BST", "ECO", "UNASSIGNED")
 BUSINESS_TZ = ZoneInfo("Asia/Tashkent")
@@ -26,9 +26,7 @@ def period_bounds(start: date, end: date):
 
 
 def cutting_inventory_condition():
-    received_printing = Bundle.scan_logs.any(BundleScanLog.scan_type == "received_printing")
-    return or_(Bundle.status.in_(("created", "sent_to_printing")),
-               and_(Bundle.status == "sent_to_sewing", ~received_printing))
+    return cutting_storage_condition()
 
 
 def cutting_origin_condition(db, department: str):
@@ -76,11 +74,13 @@ def cutting_board(db, department: str, start: date, end: date):
                          "transferred_bundles": 0, "transferred_pieces": 0} for code in FACTORIES}
     created = base.filter(Bundle.created_at >= lower, Bundle.created_at < upper).with_entities(
         destination, func.count(Bundle.id), func.sum(Bundle.quantity)).group_by(destination).all()
-    # First physical receipt is the exit from Cutting. Repeated scans and the
-    # later Printing -> Sewing receipt must never count the same bundle twice.
+    # A Sewing dispatch or downstream receipt records the Cutting exit once.
     first_receipt = db.query(BundleScanLog.bundle_id.label("bundle_id"),
                              func.min(BundleScanLog.scanned_at).label("received_at")).filter(
-        BundleScanLog.scan_type.in_(("received_printing", "received_sewing")),
+        or_(BundleScanLog.scan_type.in_(("received_printing", "received_sewing")),
+            and_(BundleScanLog.scan_type == "sent_sewing",
+                 BundleScanLog.to_department_id.in_(db.query(Department.id).filter(
+                     Department.code.in_(("MIL", "BST", "SEW")))))),
     ).group_by(BundleScanLog.bundle_id).subquery()
     transferred = base.join(first_receipt, first_receipt.c.bundle_id == Bundle.id).filter(
         first_receipt.c.received_at >= lower, first_receipt.c.received_at < upper).with_entities(

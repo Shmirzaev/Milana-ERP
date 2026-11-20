@@ -10,7 +10,7 @@ Contract per operation:
   audit row on creation. The mapped row insert is schema-owned
   (`app.schemas.planning.branded_order_persistence`); this service decides the
   values and owns the transaction
-* transaction owner: `create_branded_order`
+* transaction owner: branded production creation
 """
 from fastapi import HTTPException
 from sqlalchemy.orm import Session, joinedload, selectinload
@@ -141,12 +141,14 @@ def branded_order_payload(
 
 
 def list_branded_orders(
-    db: Session, status: BrandedPlanningOrderStatus | None
+    db: Session, status: BrandedPlanningOrderStatus | None, *, order_id: int | None = None
 ) -> list[BrandedPlanningOrderOut]:
     """Return the branded planning orders with their model and cutting state."""
     query = db.query(BrandedPlanningOrder).options(joinedload(BrandedPlanningOrder.production_orders))
     if status:
         query = query.filter(BrandedPlanningOrder.status == status.value)
+    if order_id is not None:
+        query = query.filter(BrandedPlanningOrder.id == order_id)
     rows = query.order_by(BrandedPlanningOrder.id.desc()).all()
     model_ids = {
         int(production.model_id)
@@ -217,9 +219,9 @@ def branded_order_customers(db: Session, q: str) -> list[BrandedOrderCustomerOut
     return [BrandedOrderCustomerOut(id=row.id, name=row.name) for row in query.order_by(Customer.name, Customer.id).limit(50)]
 
 
-def create_branded_order(
+def open_branded_order(
     db: Session, payload: BrandedPlanningOrderIn, current: User
-) -> BrandedPlanningOrderOut:
+) -> BrandedPlanningOrder:
     """Open one branded planning order for a company party or a customer."""
     ordered_for_type = payload.ordered_for_type
     customer_id = payload.customer_id
@@ -250,9 +252,7 @@ def create_branded_order(
         db, current, "create", "BrandedPlanningOrder", order.id,
         new_value={"order_no": order.order_no, "ordered_for": order.ordered_for_name},
     )
-    db.commit()
-    db.refresh(order)
-    return branded_order_payload(order)
+    return order
 
 
 def export_branded_order_workbook(db: Session, order_id: int) -> bytes:

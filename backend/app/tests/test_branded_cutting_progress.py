@@ -5,8 +5,12 @@ from openpyxl import load_workbook
 
 
 def test_branded_history_uses_cutting_progress_across_all_productions(client, auth_headers):
-    created = client.post("/api/planning/branded-orders", json={}, headers=auth_headers)
-    assert created.status_code == 201
+    production = {
+        "production_type": "branded_stock", "model_id": 1, "planned_quantity": 24,
+        "items": [{"model_id": 1, "color": "white", "size": "M", "planned_quantity": 24}],
+    }
+    created = client.post("/api/planning/branded-orders", json={"production": production}, headers=auth_headers)
+    assert created.status_code == 201, created.text
     group_id = created.json()["id"]
 
     def history():
@@ -15,18 +19,11 @@ def test_branded_history_uses_cutting_progress_across_all_productions(client, au
         return next(row for row in response.json() if row["id"] == group_id)
 
     assert history()["cutting_status"] == "not_started"
-    production_ids = []
-    for department in ("CUT", "ECT"):
-        response = client.post("/api/planning/create-branded-production", headers=auth_headers, json={
-            "planning_order_id": group_id,
-            "production_type": "branded_stock",
-            "model_id": 1,
-            "planned_quantity": 24,
-            "cutting_department_code": department,
-            "items": [{"model_id": 1, "color": "white", "size": "M", "planned_quantity": 24}],
-        })
-        assert response.status_code == 201, response.text
-        production_ids.append(response.json()["id"])
+    response = client.post("/api/planning/create-branded-production", headers=auth_headers, json={
+        **production, "planning_order_id": group_id, "cutting_department_code": "ECT",
+    })
+    assert response.status_code == 201, response.text
+    production_ids = [created.json()["productions"][0]["id"], response.json()["id"]]
     assert history()["cutting_status"] == "not_started"
     assert [row["cutting_departments"][0]["code"] for row in history()["productions"]] == ["CUT", "ECT"]
 

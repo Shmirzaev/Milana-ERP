@@ -81,6 +81,10 @@ def setup_db():
     # Seed minimal data
     from app.db.seed import seed
     seed()
+    from app.schemas import Model
+    from app.tests.branded_production_fixture import attach_test_qolip
+    with TestSessionLocal.begin() as db:
+        attach_test_qolip(db, db.get(Model, 1))
     test_engine.dispose()
     _original_engine.dispose()
     shutil.copyfile(_test_db_path, _baseline_db_path)

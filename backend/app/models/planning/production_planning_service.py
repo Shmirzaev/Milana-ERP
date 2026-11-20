@@ -15,12 +15,14 @@ Contract per operation:
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
+from app.libs.dto.planning.branded_planning_order_input import BrandedPlanningOrderIn
+from app.libs.dto.planning.branded_production_input import BrandedOrderWithProductionIn
+from app.libs.dto.planning.branded_planning_order_output import BrandedPlanningOrderOut
 from app.libs.dto.production.production import ProductionOrderIn
-from app.libs.enums.planning import BrandedPlanningOrderStatus, BrandedPlanningOrderType
+from app.libs.enums.planning import BrandedPlanningOrderStatus
 from app.models.production.eco_fabric_source_service import resolve_eco_fabric_sources, planning_eco_balances
 from app.models.audit_service import log_action
-from app.models.numbering_service import next_branded_planning_order_no
-from app.models.planning.branded_orders_service import BRANDED_ORDER_PARTIES
+from app.models.planning.branded_orders_service import list_branded_orders, open_branded_order
 from app.models.production_service import (
     create_production_batches,
     create_production_order,
@@ -28,10 +30,6 @@ from app.models.production_service import (
     printing_attachments_for_storage,
 )
 from app.schemas import BrandedPlanningOrder, SalesOrder, User
-from app.schemas.planning.branded_order_persistence import (
-    BrandedPlanningOrderInsert,
-    insert_branded_planning_order,
-)
 
 
 CLIENT_ORDER_STATUSES = {"confirmed", "pending_sales_approval", "planning_approved"}
@@ -105,26 +103,28 @@ def create_client_order_production(db: Session, payload: ProductionOrderIn, curr
     return po
 
 
-def create_branded_stock_production(db: Session, payload: ProductionOrderIn, current: User):
-    """Open a production order for branded stock on an open branded planning order."""
+def create_branded_order(db: Session, payload: BrandedOrderWithProductionIn, current: User) -> BrandedPlanningOrderOut:
+    if payload.production is None or payload.production.planning_order_id is not None:
+        raise HTTPException(409, "Select a model with a Qolip number and file to create a BSO.")
+    order = BrandedPlanningOrderIn(
+        ordered_for_type=payload.ordered_for_type, customer_id=payload.customer_id, notes=payload.notes,
+    )
+    production = create_branded_stock_production(db, payload.production, current, branded_order=order)
+    return list_branded_orders(db, None, order_id=production.planning_order_id)[0]
+
+
+def create_branded_stock_production(db: Session, payload: ProductionOrderIn, current: User, *,
+                                    branded_order: BrandedPlanningOrderIn | None = None):
+    """Open branded production and its planning order in one transaction."""
     if payload.production_type != "branded_stock":
         raise HTTPException(400, "production_type must be branded_stock")
+    if payload.planning_order_id is not None and branded_order is not None:
+        raise HTTPException(400, "Choose either an existing or a new BSO")
     planning_order = db.get(BrandedPlanningOrder, payload.planning_order_id) if payload.planning_order_id else None
     if payload.planning_order_id and not planning_order:
         raise HTTPException(404, "Branded planning order not found")
     if not planning_order:
-        planning_order = insert_branded_planning_order(
-            db,
-            BrandedPlanningOrderInsert(
-                order_no=next_branded_planning_order_no(db),
-                ordered_for_type=BrandedPlanningOrderType.MILANA,
-                customer_id=None,
-                ordered_for_name=BRANDED_ORDER_PARTIES[BrandedPlanningOrderType.MILANA],
-                status=BrandedPlanningOrderStatus.OPEN,
-                notes=None,
-                created_by=current.id,
-            ),
-        )
+        planning_order = open_branded_order(db, branded_order or BrandedPlanningOrderIn(), current)
     if planning_order.status != BrandedPlanningOrderStatus.OPEN.value:
         raise HTTPException(400, "Branded planning order is not open")
     fabric_batch_id, materials, eco_available = _planning_fabric_sources(db, payload, current)

@@ -242,10 +242,12 @@ def test_order_history_includes_planning_created_stock_orders(client, auth_heade
 
 def test_branded_planning_order_groups_multiple_productions_and_is_searchable(client, auth_headers):
     model_id = _find_model_id(client, auth_headers)
+    def production(color):
+        return {"production_type": "branded_stock", "model_id": model_id, "planned_quantity": 10,
+                "items": [{"model_id": model_id, "color": color, "size": "M", "planned_quantity": 10}]}
     created_order = client.post(
-        "/api/planning/branded-orders",
-        headers=auth_headers,
-        json={"ordered_for_type": "besttex"},
+        "/api/planning/branded-orders", headers=auth_headers,
+        json={"ordered_for_type": "besttex", "production": production("Black")},
     )
     assert created_order.status_code == 201, created_order.text
     planning_order = created_order.json()
@@ -253,36 +255,16 @@ def test_branded_planning_order_groups_multiple_productions_and_is_searchable(cl
     assert planning_order["ordered_for_name"] == "Besttex"
 
     next_order = client.post(
-        "/api/planning/branded-orders",
-        headers=auth_headers,
-        json={},
+        "/api/planning/branded-orders", headers=auth_headers, json={"production": production("Black")},
     )
     assert next_order.status_code == 201, next_order.text
     assert int(next_order.json()["order_no"]) == int(planning_order["order_no"]) + 1
     assert next_order.json()["ordered_for_name"] == "Milana"
 
-    production_ids = []
-    for color in ("Black", "White"):
-        created = client.post(
-            "/api/planning/create-branded-production",
-            headers=auth_headers,
-            json={
-                "production_type": "branded_stock",
-                "planning_order_id": planning_order["id"],
-                "model_id": model_id,
-                "planned_quantity": 10,
-                "items": [
-                    {
-                        "model_id": model_id,
-                        "color": color,
-                        "size": "M",
-                        "planned_quantity": 10,
-                    }
-                ],
-            },
-        )
-        assert created.status_code == 201, created.text
-        production_ids.append(int(created.json()["id"]))
+    created = client.post("/api/planning/create-branded-production", headers=auth_headers,
+                          json={**production("White"), "planning_order_id": planning_order["id"]})
+    assert created.status_code == 201, created.text
+    production_ids = [planning_order["productions"][0]["id"], created.json()["id"]]
 
     grouped = client.get("/api/planning/branded-orders", headers=auth_headers)
     assert grouped.status_code == 200, grouped.text
@@ -319,7 +301,7 @@ def test_branded_order_history_includes_linked_model_metadata_when_picker_exclud
             "status": "approved",
             "details_json": {
                 "legacy_import": True,
-                "general": {"variant_fabric": "History fabric / Navy"},
+                "general": {"variant_fabric": "History fabric / Navy", "qolip_no": "QA-42"},
             },
         },
     )
@@ -343,30 +325,24 @@ def test_branded_order_history_includes_linked_model_metadata_when_picker_exclud
         )
         assert image.status_code == 201, image.text
 
+    attachment = client.post(
+        f"/api/models/{model_id}/images", headers=auth_headers,
+        json={"file_url": f"/storage/model-files/history-pattern-{suffix}.dxf", "image_type": "pattern"},
+    )
+    assert attachment.status_code == 201, attachment.text
+
     picker = client.get("/api/models?status=approved", headers=auth_headers)
     assert picker.status_code == 200, picker.text
     assert all(int(row["id"]) != model_id for row in picker.json())
 
     planning_order = client.post(
-        "/api/planning/branded-orders",
-        headers=auth_headers,
-        json={"ordered_for_type": "milana"},
+        "/api/planning/branded-orders", headers=auth_headers,
+        json={"ordered_for_type": "milana", "production": {
+            "production_type": "branded_stock", "model_id": model_id, "planned_quantity": 10,
+            "items": [{"model_id": model_id, "color": "Navy", "size": "M", "planned_quantity": 10}],
+        }},
     )
     assert planning_order.status_code == 201, planning_order.text
-    production = client.post(
-        "/api/planning/create-branded-production",
-        headers=auth_headers,
-        json={
-            "production_type": "branded_stock",
-            "planning_order_id": planning_order.json()["id"],
-            "model_id": model_id,
-            "planned_quantity": 10,
-            "items": [
-                {"model_id": model_id, "color": "Navy", "size": "M", "planned_quantity": 10},
-            ],
-        },
-    )
-    assert production.status_code == 201, production.text
 
     history = client.get("/api/planning/branded-orders", headers=auth_headers)
     assert history.status_code == 200, history.text

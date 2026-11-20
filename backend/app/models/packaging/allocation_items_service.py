@@ -1,5 +1,5 @@
 """Conserve operator-confirmed source contents without inventing legacy evidence."""
-from collections import Counter, defaultdict
+from collections import Counter, defaultdict, deque
 from dataclasses import dataclass
 import hashlib
 import json
@@ -72,8 +72,8 @@ def allocation_read_payloads(db: Session, package_ids: list[int], *, packages: l
 
 def normalize_matrix(allocations: list[dict], items: list[dict], *,
                      raw_allocations: list[dict] | None = None,
-                     preserve_unknown: bool = False) -> list[dict]:
-    """Single source is unique; every new mixed source needs explicit evidence."""
+                     preserve_unknown: bool = False, allow_unattributed: bool = False) -> list[dict]:
+    """Keep exact evidence when supplied and preserve uncertainty for direct mixed packages."""
     if not allocations:
         return []
     raw_by_batch = {}
@@ -88,6 +88,7 @@ def normalize_matrix(allocations: list[dict], items: list[dict], *,
         else:
             raw_by_batch[batch] = row
     result, combined = [], Counter()
+    unique_items = normalized_items(items) if allow_unattributed else []
     for allocation in allocations:
         batch = int(allocation["production_batch_id"])
         raw = raw_by_batch.get(batch, {})
@@ -97,8 +98,10 @@ def normalize_matrix(allocations: list[dict], items: list[dict], *,
             if breakdown is not None and item_totals(breakdown) != item_totals(inferred):
                 raise HTTPException(400, "Source item breakdown must match package contents")
             breakdown = inferred
+        elif breakdown is None and len(unique_items) == 1:
+            breakdown = [{**unique_items[0], "quantity": allocation["quantity"]}]
         elif breakdown is None:
-            if not preserve_unknown:
+            if not (preserve_unknown or allow_unattributed):
                 raise HTTPException(409, "MIXED_PACKAGE_ITEM_BREAKDOWN_REQUIRED")
             result.append({**allocation, "item_breakdown": None})
             continue
@@ -185,8 +188,87 @@ def source_size_state(db: Session, order: ProductionOrder, *, exclude_package_id
     return SourceSizeState(actual, dict(consumed), dict(unknown))
 
 
+def _can_change_size_assignment(residual, batch: int, size: str) -> bool:
+    # A reroute plus the reverse edge makes a cycle that changes two or more cells.
+    start, finish = ("batch", batch), ("size", size)
+    visited = {start}
+    queue = deque([start])
+    while queue:
+        node = queue.popleft()
+        for neighbor, capacity in residual[node].items():
+            if capacity <= 0 or neighbor[0] not in {"batch", "size"} or neighbor in visited:
+                continue
+            if node == start and neighbor == finish:
+                continue
+            if neighbor == finish:
+                return True
+            visited.add(neighbor)
+            queue.append(neighbor)
+    return False
+
+
+def feasible_mixed_sizes(state: SourceSizeState, allocations: list[dict], items: list[dict],
+                         *, check_uniqueness: bool) -> tuple[dict[int, Counter], bool]:
+    """Find one feasible assignment and identify exactly determined sizes."""
+    demand = Counter()
+    for item in items:
+        demand[item["size"]] += item["quantity"]
+    source, sink = ("start",), ("finish",)
+    residual = defaultdict(Counter)
+
+    def edge(left, right, capacity):
+        residual[left][right] = capacity
+        residual[right][left] = 0
+
+    for size, quantity in demand.items():
+        edge(("size", size), sink, quantity)
+    for allocation in allocations:
+        batch, quantity = allocation["production_batch_id"], allocation["quantity"]
+        edge(source, ("batch", batch), quantity)
+        for size, required in demand.items():
+            remaining = quantity
+            if batch in state.actual:
+                remaining = max(0, state.actual[batch][size] - state.consumed.get(batch, Counter())[size]
+                                - state.unknown.get(batch, Counter())[size])
+            edge(("batch", batch), ("size", size), min(remaining, quantity, required))
+
+    left = sum(demand.values())
+    while left:
+        parents = {source: None}
+        queue = deque([source])
+        while queue and sink not in parents:
+            node = queue.popleft()
+            for neighbor, capacity in residual[node].items():
+                if capacity > 0 and neighbor not in parents:
+                    parents[neighbor] = node
+                    queue.append(neighbor)
+        if sink not in parents:
+            raise HTTPException(409, "The selected Nastil quantities cannot supply the package sizes.")
+        path = []
+        node = sink
+        while node != source:
+            parent = parents[node]
+            path.append((parent, node))
+            node = parent
+        quantity = min(residual[parent][child] for parent, child in path)
+        for parent, child in path:
+            residual[parent][child] -= quantity
+            residual[child][parent] += quantity
+        left -= quantity
+    assigned = {}
+    for row in allocations:
+        batch = row["production_batch_id"]
+        assigned[batch] = Counter({
+            size: quantity for size in demand if (quantity := residual[("size", size)][("batch", batch)]) > 0
+        })
+    unique = check_uniqueness and not any(_can_change_size_assignment(residual, batch, size)
+                                         for batch, quantities in assigned.items() for size in quantities)
+    return assigned, unique
+
+
 def enforce_source_sizes(db: Session, order: ProductionOrder, allocations: list[dict], items: list[dict], *,
-                         exclude_package_id: int | None = None, cache: dict | None = None) -> None:
+                         exclude_package_id: int | None = None, cache: dict | None = None,
+                         validate_unattributed: bool = False) -> None:
     key = ("source_item_sizes", order.id)
     state = cache.get(key) if cache is not None else None
     if state is None:
@@ -197,8 +279,26 @@ def enforce_source_sizes(db: Session, order: ProductionOrder, allocations: list[
     if allocations:
         for allocation in allocations:
             if allocation.get("item_breakdown") is None:
-                # Metadata-only historical edits do not spend new size budgets.
-                return
+                if not validate_unattributed:
+                    # Metadata-only historical edits spend no new size budget.
+                    return
+                batches = {row["production_batch_id"] for row in allocations}
+                unresolved_in_run = cache.setdefault(("unattributed_source_batches", order.id), set()) if cache is not None else set()
+                exact_items = normalized_items(items)
+                by_size = {item["size"]: item for item in exact_items}
+                check_uniqueness = (len(by_size) == len(exact_items) and batches <= state.actual.keys()
+                                    and not (batches & unresolved_in_run)
+                                    and not any(state.unknown.get(batch) for batch in batches))
+                requested, unique = feasible_mixed_sizes(state, allocations, items, check_uniqueness=check_uniqueness)
+                if unique:
+                    for row in allocations:
+                        row["item_breakdown"] = [
+                            {**by_size[size], "quantity": quantity}
+                            for size, quantity in sorted(requested[row["production_batch_id"]].items())
+                        ]
+                else:
+                    unresolved_in_run.update(batches)
+                break
             for item in allocation["item_breakdown"]:
                 requested[allocation["production_batch_id"]][item["size"]] += item["quantity"]
     else:
@@ -210,8 +310,8 @@ def enforce_source_sizes(db: Session, order: ProductionOrder, allocations: list[
         for size, quantity in quantities.items():
             remaining = (state.actual[batch][size] - state.consumed.get(batch, Counter())[size]
                          - state.unknown.get(batch, Counter())[size])
-            if quantity > remaining:
-                raise HTTPException(409, "Package size quantity exceeds actual passed Sewing for this batch; legacy unknown allocations may reserve its size balance")
+            if quantity and quantity > remaining:
+                raise HTTPException(409, "Package size quantity exceeds actual passed Sewing for this batch; unknown allocations may reserve its size balance")
     # The transaction-local state also accounts for earlier packages in this run.
     for batch, quantities in requested.items():
         state.consumed.setdefault(batch, Counter()).update(quantities)

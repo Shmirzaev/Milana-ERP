@@ -6,6 +6,7 @@ from uuid import uuid4
 from app.core.security import create_access_token
 from app.schemas import Brand, Department, Item, Model, ModelSize, Role, User, Warehouse
 from app.schemas.inventory.eco_inventory import EcoMaterialBatch, EcoMaterialMovement
+from app.tests.branded_production_fixture import attach_test_qolip
 
 
 def make_eco_fabric_case(sessions):
@@ -29,6 +30,7 @@ def make_eco_fabric_case(sessions):
         model = Model(code=f"QA-ECO-{marker}", name=f"QA Eco Planning {marker}", status="approved", brand_id=brand.id,
                       catalog_scope="standard", factory_code="MIL")
         db.add(model); db.flush()
+        attach_test_qolip(db, model)
         db.add(ModelSize(model_id=model.id, size="46"))
         receipt = EcoMaterialBatch(item_id=item.id, kind="fabric", batch_no=f"ECO-DIRECT-{marker}", color="white",
             quantity=Decimal("100"), reserved_quantity=Decimal("10"), unit="kg", created_by=actors[1].id,

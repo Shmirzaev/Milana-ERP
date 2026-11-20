@@ -4,9 +4,9 @@ from fastapi.responses import Response
 from app.core.deps import DbSession, require_permissions
 from app.libs.dto.planning.branded_order_parties_output import BrandedOrderCustomerOut, BrandedOrderPartiesOut
 from app.libs.dto.planning.branded_planning_order_input import (
-    BrandedPlanningOrderIn,
     BrandedStatusFilter,
 )
+from app.libs.dto.planning.branded_production_input import BrandedOrderWithProductionIn, BrandedProductionIn
 from app.libs.dto.planning.material_requirement_output import MaterialRequirement
 from app.libs.dto.planning.branded_planning_order_output import BrandedPlanningOrderOut
 from app.libs.dto.production.production import ProductionOrderIn, ProductionOrderOut
@@ -61,11 +61,11 @@ def branded_order_customers(db: DbSession,
 
 @router.post("/branded-orders", response_model=BrandedPlanningOrderOut, status_code=201)
 def create_branded_order(
-    payload: BrandedPlanningOrderIn,
+    payload: BrandedOrderWithProductionIn,
     db: DbSession,
     current: User = Depends(require_permissions("planning.production", "*")),
 ) -> BrandedPlanningOrderOut:
-    return branded_orders_service.create_branded_order(db, payload, current)
+    return production_planning_service.create_branded_order(db, payload, current)
 
 
 @router.get("/material-requirements/{sales_order_id}", response_model=list[MaterialRequirement])
@@ -84,5 +84,5 @@ def create_for_client_order(payload: ProductionOrderIn, db: DbSession, current: 
 
 
 @router.post("/create-branded-production", response_model=ProductionOrderOut, status_code=201)
-def create_for_branded(payload: ProductionOrderIn, db: DbSession, current: User = Depends(require_permissions("planning.production", "*"))):
-    return production_planning_service.create_branded_stock_production(db, payload, current)
+def create_for_branded(payload: BrandedProductionIn, db: DbSession, current: User = Depends(require_permissions("planning.production", "*"))):
+    return production_planning_service.create_branded_stock_production(db, payload, current, branded_order=payload.branded_order)

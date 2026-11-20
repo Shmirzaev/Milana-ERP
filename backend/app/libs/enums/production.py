@@ -21,6 +21,11 @@ class SewingFactoryCode(StrEnum):
     ECO_COTTON = "ECO"
 
 
+class CuttingHandoffFactory(StrEnum):
+    BESTTEX = SewingFactoryCode.BESTTEX
+    MILANA = SewingFactoryCode.MILANA
+
+
 class CuttingDepartmentCode(StrEnum):
     MILANA = "CUT"
     ECO_COTTON = "ECT"

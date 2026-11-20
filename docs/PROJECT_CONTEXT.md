@@ -15,6 +15,13 @@ Last updated 2026-11-20. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
+## Cutting to Sewing and BSO pattern validation (20 November, local candidate)
+
+- Bundle Inventory shows Besttex and Milana storage by displayed order. Cutting can dispatch approved, Sewing-ready Nastils to their assigned factory. Dispatch removes the labels from Cutting stock and keeps the Nastil in transit until Sewing accepts it. The Tashkent-date CSV includes dispatched, accepted, and in-transit quantities. New dispatches snapshot their quantities in the audit log and block Cutting deletion of the dispatched Nastil.
+- Direct Packaging keeps package-level sizes and per-Nastil totals. Operators can adjust total pieces by Nastil. Verified Sewing sizes can determine the split automatically. A mixed package with ambiguous size origin keeps that origin unknown and available Sewing sizes still constrain creation. Existing exact attributions and physical correction rules remain available.
+- A new BSO and its first production save together. Every model used in branded production requires a Qolip number and pattern attachment. Planning reports the missing information in English, Russian, and Uzbek.
+- The candidate is based on clone_main and the verified live release 20261120_050400. It requires no schema migration and has not been deployed.
+
 ## Accessories: four-digit batch numbers and QC UI deployed (20 November)
 
 All759 opening-import batches have unique four-digit labels1000–1818, with

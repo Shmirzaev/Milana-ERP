@@ -117,3 +117,15 @@ for (const lang of ["en", "ru", "uz"]) {
   if (lang !== "en") assert.notEqual(error.message, new ApiError(503, "Unknown backend detail").message);
 }
 console.log("Authentication outage messages preserve the specific reason in EN/RU/UZ.");
+
+
+for (const detail of [
+  "Select a model with a Qolip number and file to create a BSO.",
+  "Enter the Qolip number and attach the Qolip file to this model before creating a BSO.",
+  "Enter the Qolip number on this model before creating a BSO.",
+  "Attach the Qolip file to this model before creating a BSO.",
+]) {
+  assert.equal(localizeError(detail, 409, "en"), detail);
+  assert.match(localizeError(detail, 409, "ru"), /лекал/);
+  assert.match(localizeError(detail, 409, "uz"), /qolip/);
+}

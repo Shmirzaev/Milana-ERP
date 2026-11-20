@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from urllib.parse import quote
 from uuid import uuid4
 
+from app.tests.branded_production_fixture import attach_test_qolip_for_model
 from app.db.session import SessionLocal
 from app.schemas import PackagingRecord, WorkOrder
 
@@ -355,6 +356,7 @@ def test_printable_bundle_and_package_qr_labels_include_material_picture(client,
     )
     assert model.status_code == 201, model.text
     model_id = int(model.json()["id"])
+    attach_test_qolip_for_model(model_id)
 
     upload = client.post(
         f"/api/models/{model_id}/images/upload",
@@ -1062,6 +1064,7 @@ def test_process_tracking_keeps_missing_model_picture_blank(client, auth_headers
     )
     assert model.status_code == 201, model.text
     model_id = int(model.json()["id"])
+    attach_test_qolip_for_model(model_id)
 
     item = client.post(
         "/api/inventory/items",
@@ -1137,6 +1140,7 @@ def test_department_inbox_uses_variant_material_picture_before_shared_bom_pictur
     )
     assert model.status_code == 201, model.text
     model_id = int(model.json()["id"])
+    attach_test_qolip_for_model(model_id)
 
     old_image = client.post(
         f"/api/models/{model_id}/images",
@@ -1347,6 +1351,7 @@ def test_production_detail_keeps_variant_picture_and_batch_scoped_work_uses_batc
     )
     assert model.status_code == 201, model.text
     model_id = int(model.json()["id"])
+    attach_test_qolip_for_model(model_id)
 
     stale_material = client.post(
         f"/api/models/{model_id}/images",
@@ -2070,6 +2075,7 @@ def test_sewing_flow_active_work_order_includes_model_number_and_fabric_picture(
     )
     assert model.status_code == 201, model.text
     model_id = int(model.json()["id"])
+    attach_test_qolip_for_model(model_id)
 
     item = client.post(
         "/api/inventory/items",
