@@ -274,6 +274,8 @@ export default {
     "nav.menu": "Menu",
     "nav.closeMenu": "Close menu",
     "nav.dashboard": "Dashboard",
+    "nav.ceoDashboard": "CEO dashboard",
+    "nav.backToErp": "Back to ERP",
     "nav.hrDashboard": "HR Dashboard",
     "nav.processes": "Process Tracking",
     "nav.traceability": "Traceability",

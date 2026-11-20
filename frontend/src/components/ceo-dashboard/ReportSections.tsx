@@ -1,5 +1,5 @@
 import { useId, useState, type ReactNode } from "react";
-import { Archive, ArrowRight, Boxes, ChevronDown, GitPullRequest, PackageCheck, Scissors, Shirt, Truck } from "lucide-react";
+import { Archive, Boxes, ChevronDown, PackageCheck, Scissors, Shirt, Truck } from "lucide-react";
 import { type DashboardCopy } from "./messages";
 import {
   countTotals, factoryCodes, stageKeys, stageTotals, type ActivityBucket, type BalanceBucket,
@@ -42,8 +42,6 @@ function Metric({ value, label, unit }: { value: string; label: ReactNode; unit?
     <dd>{value}{unit && <span className={styles.metricUnit}>{unit}</span>}</dd>
   </div>;
 }
-
-const handoffsId = "ceo-handoffs";
 
 function Panel({ title, description, icon, children, className, anchor }: {
   title: string; description: string; icon?: ReactNode; children: ReactNode; className?: string; anchor?: string;
@@ -199,48 +197,22 @@ export function Activity({ report, copy, format }: CopyAndFormat & { report: Ceo
   </section>;
 }
 
-export function HandoffSummary({ point, copy, format }: CopyAndFormat & { point: BalanceBucket }) {
-  const waiting = point.values?.waiting;
-  const asOf = point.as_of ? Date.parse(point.as_of) : NaN;
-  let oldest: NonNullable<typeof waiting>[number] | undefined;
-  let earliest = Infinity;
-  for (const row of waiting ?? []) {
-    if (!row.oldest_since) continue;
-    const stamp = Date.parse(row.oldest_since);
-    if (stamp <= asOf && stamp < earliest) {
-      oldest = row;
-      earliest = stamp;
-    }
-  }
-  const text = waiting ? waiting.length ? copy.waitUnknown : copy.noHandoff : copy.unavailable;
-
-  return <div className={styles.handoffSummary}>
-    <GitPullRequest size={19} className={styles.handoffSummaryIcon} aria-hidden="true" />
-    <div className={styles.handoffSummaryBody}>
-      <strong>{oldest ? copy.longestWait : copy.handoffs}</strong>
-      {oldest ? <span className={styles.summaryRoute}>
-        {departmentName(oldest.source, copy)}<ArrowRight size={13} aria-hidden="true" />
-        <span className="sr-only">{copy.to} </span>{departmentName(oldest.destination, copy)}
-      </span> : <span>{text}</span>}
-      {point.status !== "current" && <small>{format.range({ start: point.end, end: point.end })}</small>}
-    </div>
-    {oldest && <span className={styles.waitDuration}>{format.duration(Math.floor((asOf - earliest) / 60_000))}</span>}
-    {Boolean(waiting?.length) && <a className={styles.handoffLink} href={`#${handoffsId}`}>{copy.viewHandoffs}<ArrowRight size={14} aria-hidden="true" /></a>}
-  </div>;
-}
-
 export function Balances({ balances, chosen, onDateChange, factory, copy, format }: CopyAndFormat & {
   balances: BalanceBucket[]; chosen: BalanceBucket; onDateChange: (end: string) => void; factory: Factory;
 }) {
   const id = useId();
   const { values, as_of: asOf, status } = chosen;
-  const unitLabel = (unit: string) => unit.toLowerCase() === "kg" ? copy.kg : unit;
+  const unitLabel = (unit: string) => unit.toUpperCase() === "UNASSIGNED" ? copy.UNASSIGNED : unit.toLowerCase() === "kg" ? copy.kg : unit;
   const warehouse = values?.warehouse;
-  const waiting = [...(values?.waiting ?? [])].sort((a, b) =>
-    (a.oldest_since ? Date.parse(a.oldest_since) : Infinity) - (b.oldest_since ? Date.parse(b.oldest_since) : Infinity));
   const materialVarieties = values?.material_varieties ?? [];
-  const topMaterials = materialVarieties.filter(row => row.unit.toLowerCase() === "kg" && Number(row.quantity) > 0)
-    .sort((a, b) => Number(b.quantity) - Number(a.quantity)).slice(0, 5);
+  const [materialQuery, setMaterialQuery] = useState("");
+  const [materialUnit, setMaterialUnit] = useState("");
+  const [materialLimit, setMaterialLimit] = useState(25);
+  const selectedUnit = values?.material_totals.some(row => row.unit === materialUnit) ? materialUnit : "";
+  const filteredMaterials = materialVarieties.filter(row =>
+    (!selectedUnit || row.unit === selectedUnit)
+    && `${row.item} ${row.sku}`.toLocaleLowerCase().includes(materialQuery.trim().toLocaleLowerCase()))
+    .sort((a, b) => a.unit.localeCompare(b.unit) || Number(b.quantity) - Number(a.quantity) || a.item.localeCompare(b.item));
 
   return <section className={styles.reportSection} aria-labelledby={id}>
     <div className={styles.sectionHeader}>
@@ -257,19 +229,6 @@ export function Balances({ balances, chosen, onDateChange, factory, copy, format
     </div>
 
     <div className={styles.balanceGrid}>
-      <Panel title={copy.handoffs} anchor={handoffsId} description={copy.handoffHint} icon={<GitPullRequest size={19} aria-hidden="true" />}>
-        {waiting.length ? <DataTable label={copy.handoffs} headings={[copy.transfer, copy.pieces, copy.bundles, copy.packs, copy.longestAge]}
-          rows={waiting.map(row => [<div key="route" className={styles.handoffRoute}>
-            <span>{departmentName(row.source, copy)}<ArrowRight size={13} aria-hidden="true" /><span className="sr-only"> {copy.to} </span>{departmentName(row.destination, copy)}</span>
-            <small>{copy[row.factory]}</small>
-          </div>, format.count(row.pieces), format.count(row.bundles), format.count(row.packs),
-          row.oldest_since && asOf && Date.parse(row.oldest_since) <= Date.parse(asOf)
-            ? <time key="oldest" dateTime={row.oldest_since} title={format.timestamp(row.oldest_since)}>
-              {format.duration(Math.floor((Date.parse(asOf) - Date.parse(row.oldest_since)) / 60_000))}
-            </time> : "—"])} /> :
-          <p className={styles.empty}>{values ? copy.noHandoff : copy.unavailable}</p>}
-      </Panel>
-
       <Panel title={copy.stock} description={copy.stockHint} icon={<Archive size={19} aria-hidden="true" />}>
         {warehouse ? <>
           <PieceMetrics totals={warehouse} copy={copy} format={format} />
@@ -293,34 +252,38 @@ export function Balances({ balances, chosen, onDateChange, factory, copy, format
 
     <Panel title={copy.materials} description={copy.materialsHint} icon={<Boxes size={19} aria-hidden="true" />}>
       {values?.material_totals.length ? <>
-        <div className={styles.materialTotals}>
-          {values.material_totals.map(row => <dl key={row.unit} className={styles.metricGrid}>
-            <Metric label={copy.quantity} value={format.count(row.quantity)} unit={unitLabel(row.unit)} />
-            <Metric label={copy.batches} value={format.count(row.active_batches)} />
-            <Metric label={copy.varieties} value={format.count(row.varieties)} />
-          </dl>)}
-        </div>
-        {topMaterials.length > 0 && <div className={styles.materialPreview}>
-          <h4>{copy.topMaterials}</h4>
-          <ul>
-            {topMaterials.map((row, index) => <li key={`${row.sku}/${row.item}/${index}`}>
-              <div><span>{row.item}</span><strong>{format.count(row.quantity)} {copy.kg}</strong></div>
-              <div className={`${styles.bar} ${styles.sewing}`} aria-hidden="true">
-                <span style={{ width: `${Number(row.quantity) / Number(topMaterials[0].quantity) * 100}%` }} />
-              </div>
-            </li>)}
-          </ul>
-        </div>}
+        <DataTable label={copy.materials} headings={[copy.unit, copy.quantity, copy.batches, copy.varieties]}
+          rows={values.material_totals.map(row => [unitLabel(row.unit), format.count(row.quantity),
+            format.count(row.active_batches), format.count(row.varieties)])} />
+        {materialVarieties.length > 0 && <>
+          <div className={styles.materialTools}>
+            <label className={styles.materialSearch}>{copy.searchMaterials}
+              <input type="search" value={materialQuery} onChange={event => { setMaterialQuery(event.target.value); setMaterialLimit(25); }} />
+            </label>
+            <label className={styles.inlineSelect}><span>{copy.unit}</span>
+              <select value={selectedUnit} onChange={event => { setMaterialUnit(event.target.value); setMaterialLimit(25); }}>
+                <option value="">{copy.allUnits}</option>
+                {values.material_totals.map(row => <option key={row.unit} value={row.unit}>{unitLabel(row.unit)}</option>)}
+              </select>
+            </label>
+          </div>
+          {filteredMaterials.length ? <DataTable label={copy.byVariety} headings={[copy.material, copy.unit, copy.quantity, copy.batches]}
+            rows={filteredMaterials.slice(0, materialLimit).map(row => [<div key="name" className={styles.materialName}>
+              {row.item}{row.sku && <small>{row.sku}</small>}
+            </div>, unitLabel(row.unit), format.count(row.quantity), format.count(row.active_batches)])} /> :
+            <p className={styles.empty}>{copy.noMatchingMaterials}</p>}
+          <div className={styles.materialFooter}>
+            <span>{format.count(Math.min(materialLimit, filteredMaterials.length))} / {format.count(filteredMaterials.length)}</span>
+            {materialLimit < filteredMaterials.length && <button type="button" className={styles.applyButton}
+              onClick={() => setMaterialLimit(limit => limit + 25)}>{copy.showMore}</button>}
+          </div>
+        </>}
         <Details label={copy.materialBreakdown}>
           <DataTable label={copy.materialBreakdown} headings={[copy.warehouse, copy.factory, copy.quantity, copy.batches, copy.varieties]}
             rows={values.materials.map(row => [row.warehouse === "ECO_LEDGER" ? copy.ecoLedger : row.warehouse === "UNASSIGNED" ? copy.UNASSIGNED : row.warehouse,
               copy[row.factory], `${format.count(row.quantity)} ${unitLabel(row.unit)}`,
               format.count(row.active_batches), format.count(row.varieties)])} />
         </Details>
-        {materialVarieties.length > 0 && <Details label={copy.byVariety}>
-          <DataTable label={copy.byVariety} headings={[copy.material, "SKU", copy.quantity, copy.batches]}
-            rows={materialVarieties.map(row => [row.item, row.sku || "—", `${format.count(row.quantity)} ${unitLabel(row.unit)}`, format.count(row.active_batches)])} />
-        </Details>}
       </> : <p className={styles.empty}>{values ? copy.noMaterials : copy.unavailable}</p>}
       {factory !== "ALL" && <p className={styles.panelNote}>{copy.sharedOnly}</p>}
     </Panel>

@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Clock3, RefreshCw, SlidersHorizontal } from "lucide-react";
 import { fetchResponse } from "@/lib/api";
-import { isCeo, useMe } from "@/lib/auth";
+import { canViewCeoDashboard, useMe } from "@/lib/auth";
 import { ApiError } from "@/lib/errorMessages";
 import { useT } from "@/lib/i18n";
 import { messages } from "./messages";
@@ -11,7 +11,7 @@ import {
   businessDate, factories, groupings, presetRange, timezone,
   type CeoReport, type DateRange, type Factory, type Grouping, type Preset,
 } from "./report";
-import { Activity, Balances, HandoffSummary, type ReportFormatting } from "./ReportSections";
+import { Activity, Balances, type ReportFormatting } from "./ReportSections";
 import { ReportDatePicker } from "./ReportDatePicker";
 import styles from "./dashboard.module.css";
 
@@ -27,10 +27,8 @@ function Segmented<T extends string>({ label, options, chosen, onChange, childre
   return <fieldset className={styles.field}>
     <legend>{label}</legend>
     <div className={styles.segments}>
-      {options.map(option => <label key={option}>
-        <input type="radio" name={label} value={option} checked={chosen === option} onChange={() => onChange(option)} />
-        <span>{children(option)}</span>
-      </label>)}
+      {options.map(option => <button key={option} type="button" aria-pressed={chosen === option}
+        onClick={() => onChange(option)}>{children(option)}</button>)}
     </div>
   </fieldset>;
 }
@@ -138,7 +136,7 @@ function useCeoReport(url: string, refreshIdentity: () => Promise<unknown>) {
 
 export default function CeoDashboard() {
   const { me, refresh } = useMe();
-  return me && isCeo(me) ? <DashboardView key={me.id} refreshIdentity={refresh} /> : null;
+  return me && canViewCeoDashboard(me) ? <DashboardView key={me.id} refreshIdentity={refresh} /> : null;
 }
 
 function DashboardView({ refreshIdentity }: { refreshIdentity: () => Promise<unknown> }) {
@@ -159,6 +157,21 @@ function DashboardView({ refreshIdentity }: { refreshIdentity: () => Promise<unk
   const chosenBalance = (balanceSelection?.reportKey === balanceKey
     ? data?.balances.find(point => point.end === balanceSelection.end)
     : undefined) ?? data?.balances.at(-1);
+
+  function changeGrouping(next: Grouping) {
+    setGrouping(next);
+    if (preset === "thisWeek" && next === "monthly") setPreset("thisMonth");
+    // A single-day preset otherwise makes every aggregation look identical.
+    // Explicit custom ranges remain exactly as selected in the calendar.
+    if (preset === "today" || preset === "yesterday") {
+      if (next === "weekly" || next === "monthly") {
+        const end = range.end;
+        const expanded = presetRange(next === "weekly" ? "thisWeek" : "thisMonth", end);
+        setCustomRange(expanded);
+        setPreset(preset === "today" ? (next === "weekly" ? "thisWeek" : "thisMonth") : "custom");
+      }
+    }
+  }
 
   useEffect(() => {
     const clock = () => setToday(businessDate());
@@ -225,7 +238,7 @@ function DashboardView({ refreshIdentity }: { refreshIdentity: () => Promise<unk
         </button>
       </div>
       <div id="ceo-report-filters" className={styles.controls} data-open={filtersOpen}>
-        <Segmented<Grouping> label={copy.grouping} options={groupings} chosen={grouping} onChange={setGrouping}>{option => copy[option]}</Segmented>
+        <Segmented<Grouping> label={copy.grouping} options={groupings} chosen={grouping} onChange={changeGrouping}>{option => copy[option]}</Segmented>
         <Segmented<Factory> label={copy.factory} options={factories} chosen={factory} onChange={setFactory}>{option => copy[option]}</Segmented>
       </div>
     </div>
@@ -237,7 +250,6 @@ function DashboardView({ refreshIdentity }: { refreshIdentity: () => Promise<unk
         {!denied && <button type="button" className={styles.applyButton} onClick={refresh} disabled={pending}>{copy.retry}</button>}
       </div> : null}
       {data && <>
-        {chosenBalance && <HandoffSummary point={chosenBalance} copy={copy} format={format} />}
         <Activity key={`${data.start}/${data.end}/${data.grouping}`} report={data} copy={copy} format={format} />
         {chosenBalance && <Balances balances={data.balances} chosen={chosenBalance}
           onDateChange={end => setBalanceSelection({ reportKey: balanceKey, end })}

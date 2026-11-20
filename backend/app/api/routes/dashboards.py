@@ -10,7 +10,7 @@ from app.core.deps import (
     DbSession,
     INVENTORY_READ_PERMISSIONS,
     PRODUCTION_READ_PERMISSIONS,
-    require_ceo,
+    require_ceo_dashboard_access,
     require_permissions,
 )
 from app.core.dt import as_utc
@@ -32,7 +32,7 @@ router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 def ceo_dashboard(
     db: DbSession,
     response: Response,
-    _: Annotated[User, Depends(require_ceo)],
+    _: Annotated[User, Depends(require_ceo_dashboard_access)],
     start: date,
     end: date,
     grouping: ReportGrouping = ReportGrouping.DAILY,

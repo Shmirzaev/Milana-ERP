@@ -262,6 +262,8 @@ export default {
     "nav.menu": "Меню",
     "nav.closeMenu": "Закрыть меню",
     "nav.dashboard": "Главная",
+    "nav.ceoDashboard": "Дашборд руководителя",
+    "nav.backToErp": "Вернуться в ERP",
     "nav.hrDashboard": "Кадры",
     "nav.processes": "Отслеживание процессов",
     "nav.traceability": "Прослеживаемость",

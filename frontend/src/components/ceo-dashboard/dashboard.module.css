@@ -137,9 +137,7 @@
   background: var(--erp-surface-muted);
 }
 
-.segments label { position: relative; display: block; cursor: pointer; }
-.segments input { position: absolute; opacity: 0; inset: 0; width: 100%; height: 100%; cursor: pointer; }
-.segments span {
+.segments button {
   display: flex;
   align-items: center;
   min-height: 32px;
@@ -149,11 +147,13 @@
   font-size: 13px;
   font-weight: 550;
   white-space: nowrap;
+  border: 0;
+  cursor: pointer;
+  background: transparent;
 }
 
-.segments label:hover span { color: var(--erp-text); }
-.segments input:checked + span { color: var(--ceo-accent); background: var(--erp-surface); box-shadow: 0 0 0 1px var(--ceo-line); font-weight: 670; }
-.segments input:focus-visible + span { outline: 2px solid var(--ceo-accent); outline-offset: 2px; }
+.segments button:hover { color: var(--erp-text); }
+.segments button[aria-pressed="true"] { color: var(--ceo-accent); background: var(--erp-surface); box-shadow: 0 0 0 1px var(--ceo-line); font-weight: 670; }
 
 .inlineSelect select {
   min-height: 38px;
@@ -256,7 +256,7 @@
 
 .activityGrid, .balanceGrid, .paired { display: grid; gap: 14px; }
 .activityGrid { grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); align-items: start; }
-.balanceGrid { grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); }
+.balanceGrid { grid-template-columns: minmax(0, 1fr); }
 .paired { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 
 .panel {
@@ -363,6 +363,12 @@
 .notes { display: grid; gap: 3px; margin: 0 var(--ceo-inset) 14px; list-style: none; }
 .panelNote { margin: 0 var(--ceo-inset) 14px; }
 .materialTotals { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 350px), 1fr)); }
+.materialTools { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; padding: 10px var(--ceo-inset) 14px; border-top: 1px solid var(--ceo-line); }
+.materialSearch { display: grid; gap: 5px; flex: 1 1 240px; color: var(--ceo-subtle); font-size: 12px; font-weight: 600; }
+.materialSearch input { width: 100%; min-height: 40px; border: 1px solid var(--ceo-line); border-radius: 6px; padding: 7px 10px; color: var(--erp-text); background: var(--erp-surface); font: inherit; font-size: 14px; }
+.materialName { min-width: 160px; overflow-wrap: anywhere; }
+.materialName small { display: block; margin-top: 3px; color: var(--ceo-subtle); font-size: 11px; font-weight: 400; }
+.materialFooter { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px var(--ceo-inset) 15px; color: var(--ceo-subtle); font-size: 13px; }
 
 .state { display: flex; align-items: center; gap: 10px 16px; flex-wrap: wrap; padding: 16px; border: 1px solid var(--ceo-line); border-radius: 9px; font-size: 14px; color: var(--ceo-subtle); background: var(--erp-surface); }
 
@@ -393,7 +399,7 @@
   .controls[data-open="false"] { display: none; }
   .field { flex: 1 0 100%; }
   .segments { width: fit-content; gap: 8px; }
-  .segments span { min-height: 44px; min-width: 44px; justify-content: center; padding-inline: 8px; }
+  .segments button { min-height: 44px; min-width: 44px; justify-content: center; padding-inline: 8px; }
   .report { margin-top: 14px; gap: 18px; }
   .handoffSummary { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 4px 8px; padding: 8px 10px; }
   .handoffSummaryIcon { align-self: start; margin-top: 3px; }

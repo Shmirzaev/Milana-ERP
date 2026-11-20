@@ -11,9 +11,19 @@ this checkout, a new combined candidate or deployed production. Inspect current
 code and the operation ledger before advancing a gate. Schema-owned writers,
 system-wide enum/type adoption and human acceptance remain incomplete.
 
-Last updated 2026-11-19. Keep this file short: current decisions, release pointers and
+Last updated 2026-11-20. Keep this file short: current decisions, release pointers and
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
+
+## CEO dashboard access/presentation candidate (20 November; not yet deployed)
+
+The owner requested superadmin access, removal of Waiting for handoff, repaired
+day/week/month controls and clearer Material stock, then explicitly instructed
+deployment "directly without any tests". Further tests/CI validation, browser QA,
+scans, performance gates and timed observation are skipped for this release,
+not recorded as passed. Earlier access-only checks predate the presentation edits.
+Production is still the green latency release below. No migration or business-data
+write is included. See [scope and release record](archive/CEO_SUPERADMIN_DASHBOARD_20261120.md).
 
 ## Latency repair: deployed and observed (19 November)
 

@@ -163,9 +163,13 @@ CurrentUser = Annotated[User, Depends(get_current_user)]
 DbSession = Annotated[Session, Depends(get_db)]
 
 
-def require_ceo(user: CurrentUser) -> User:
-    if not is_ceo(user):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="CEO access required")
+def can_view_ceo_dashboard(user: User) -> bool:
+    return is_ceo(user) or is_super_admin(user)
+
+
+def require_ceo_dashboard_access(user: CurrentUser) -> User:
+    if not can_view_ceo_dashboard(user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="CEO or superadmin access required")
     return user
 
 

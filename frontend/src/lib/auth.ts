@@ -13,6 +13,7 @@ export type Me = {
   department_code?: string;
   permissions: string[];
   access_configured?: boolean;
+  can_view_ceo_dashboard?: boolean;
   factory_code: "MIL" | "BST" | "ECO";
   assigned_factory_code: "MIL" | "BST" | "ECO";
   available_factories: ("MIL" | "BST" | "ECO")[];
@@ -22,6 +23,10 @@ export const CEO_DASHBOARD_PATH = "/ceo-dashboard";
 
 export function isCeo(me: Me | undefined): boolean {
   return me?.role === "CEO";
+}
+
+export function canViewCeoDashboard(me: Me | undefined): boolean {
+  return isCeo(me) || me?.can_view_ceo_dashboard === true;
 }
 
 function isSessionRejected(error: unknown): boolean {

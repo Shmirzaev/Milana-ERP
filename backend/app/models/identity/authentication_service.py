@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.ceo_access import is_ceo
 from app.core.config import settings
-from app.core.deps import user_permissions
+from app.core.deps import can_view_ceo_dashboard, user_permissions
 from app.core.dt import as_utc, utcnow
 from app.core.security import hash_password, is_legacy_default_admin_login, normalize_email, validate_password_strength, verify_password
 from app.core.shared_store import SharedCounterStore
@@ -216,6 +216,7 @@ def _user_me(user: User) -> UserMe:
         extra_permissions=[] if is_ceo(user) else user.extra_permissions or [],
         permissions=user_permissions(user),
         access_configured=selected_factory_code(user) in (user.access_policy or {}),
+        can_view_ceo_dashboard=can_view_ceo_dashboard(user),
         factory_code=selected_factory_code(user),
         assigned_factory_code=assigned_factory_code(user),
         available_factories=available_factory_codes(user),

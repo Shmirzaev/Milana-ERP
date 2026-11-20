@@ -21,7 +21,7 @@ const en = {
   receipts: "Finished goods received", receiptsHint: "Finished packs accepted into warehouse stock in this period.",
   shipped: "Shipments", shippedHint: "Dispatched pieces and the packs they came from, counted per dispatch.",
   breakdown: "By interval", unassignedIncluded: "Unassigned activity included", unassignedExcluded: "Unassigned activity outside this filter",
-  legacyExcluded: "Legacy imports excluded", interval: "Date range", balances: "Inventory and handoffs", balanceDate: "Balance date",
+  legacyExcluded: "Legacy imports excluded", interval: "Date range", balances: "Inventory balances", balanceDate: "Balance date",
   current: "Live balance", snapshot: "Recorded balance", unavailable: "No recorded balance for this date.", asOf: "As of",
   handoffs: "Waiting for handoff", handoffHint: "Pending transfers between departments.", transfer: "Handoff", oldest: "Oldest pending",
   noHandoff: "No transfers waiting.", stock: "Physical warehouse stock", stockHint: "Stock by physical warehouse location.",
@@ -32,6 +32,7 @@ const en = {
   selected: "Selected factory", allStages: "Compare all stages", finishedWarehouse: "Finished goods warehouse",
   byVariety: "Breakdown by material", material: "Material", byLocation: "Breakdown by location", dateLimit: "Choose a range of up to 366 days.",
   ecoLedger: "Eco Cotton · Warehouse unassigned",
+  searchMaterials: "Search material or SKU", allUnits: "All units", noMatchingMaterials: "No matching materials.", showMore: "Show more",
 };
 
 export type DashboardCopy = typeof en;
@@ -57,7 +58,7 @@ const ru: DashboardCopy = {
   receipts: "Поступление готовой продукции", receiptsHint: "Упаковки готовой продукции, принятые на склад за период.",
   shipped: "Отгрузки", shippedHint: "Изделия и упаковки, из которых их отгрузили. Счёт отдельно по каждой отгрузке.",
   breakdown: "По интервалам", unassignedIncluded: "Включены операции без привязки", unassignedExcluded: "Операции без привязки вне фильтра",
-  legacyExcluded: "Импорт прошлых данных исключён", interval: "Диапазон дат", balances: "Остатки и передачи", balanceDate: "Дата остатков",
+  legacyExcluded: "Импорт прошлых данных исключён", interval: "Диапазон дат", balances: "Остатки на складах", balanceDate: "Дата остатков",
   current: "Текущие остатки", snapshot: "Зафиксированные остатки", unavailable: "За эту дату остатки не зафиксированы.", asOf: "На",
   handoffs: "Ожидают передачи", handoffHint: "Незавершённые передачи между подразделениями.", transfer: "Передача", oldest: "Дата самой ранней передачи",
   noHandoff: "Нет ожидающих передач.", stock: "Фактические остатки на складе", stockHint: "Остатки по фактическому местонахождению склада.",
@@ -68,6 +69,7 @@ const ru: DashboardCopy = {
   selected: "Выбранная фабрика", allStages: "Сравнить все этапы", finishedWarehouse: "Склад готовой продукции",
   byVariety: "Разбивка по материалам", material: "Материал", byLocation: "Разбивка по местонахождению", dateLimit: "Выберите период до 366 дней.",
   ecoLedger: "Eco Cotton · Склад не указан",
+  searchMaterials: "Поиск по материалу или артикулу", allUnits: "Все единицы", noMatchingMaterials: "Материалы не найдены.", showMore: "Показать ещё",
 };
 
 const uz: DashboardCopy = {
@@ -91,7 +93,7 @@ const uz: DashboardCopy = {
   receipts: "Omborga qabul qilingan tayyor mahsulot", receiptsHint: "Davr ichida omborga qabul qilingan tayyor mahsulot qadoqlari.",
   shipped: "Jo‘natmalar", shippedHint: "Jo‘natilgan donalar va ular olingan qadoqlar har bir jo‘natma bo‘yicha hisoblanadi.",
   breakdown: "Oraliqlar bo‘yicha", unassignedIncluded: "Biriktirilmagan harakatlar kiritilgan", unassignedExcluded: "Biriktirilmagan harakatlar filtrdan tashqarida",
-  legacyExcluded: "Eski importlar kiritilmagan", interval: "Sanalar oralig‘i", balances: "Qoldiqlar va topshirishlar", balanceDate: "Qoldiq sanasi",
+  legacyExcluded: "Eski importlar kiritilmagan", interval: "Sanalar oralig‘i", balances: "Ombor qoldiqlari", balanceDate: "Qoldiq sanasi",
   current: "Joriy qoldiq", snapshot: "Qayd etilgan qoldiq", unavailable: "Bu sana uchun qoldiq qayd etilmagan.", asOf: "Holat sanasi",
   handoffs: "Topshirishni kutmoqda", handoffHint: "Bo‘limlar o‘rtasida yakunlanmagan topshirishlar.", transfer: "Topshirish", oldest: "Eng erta kutilayotgan topshirish",
   noHandoff: "Kutilayotgan topshirishlar yo‘q.", stock: "Ombordagi haqiqiy qoldiq", stockHint: "Omborning haqiqiy joylashuvi bo‘yicha qoldiq.",
@@ -102,6 +104,7 @@ const uz: DashboardCopy = {
   selected: "Tanlangan fabrika", allStages: "Barcha bosqichlarni taqqoslash", finishedWarehouse: "Tayyor mahsulot ombori",
   byVariety: "Materiallar bo‘yicha tafsilotlar", material: "Material", byLocation: "Joylashuv bo‘yicha tafsilotlar", dateLimit: "366 kungacha bo‘lgan davrni tanlang.",
   ecoLedger: "Eco Cotton · Ombor biriktirilmagan",
+  searchMaterials: "Material yoki artikulni qidirish", allUnits: "Barcha birliklar", noMatchingMaterials: "Materiallar topilmadi.", showMore: "Yana ko‘rsatish",
 };
 
 export const messages: Record<Lang, DashboardCopy> = { en, ru, uz };

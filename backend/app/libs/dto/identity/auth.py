@@ -53,3 +53,4 @@ class UserMe(BaseModel):
     assigned_factory_code: FactoryCode = FactoryCode.MILANA
     available_factories: list[FactoryCode] = Field(default_factory=list)
     access_configured: bool = False
+    can_view_ceo_dashboard: bool = False

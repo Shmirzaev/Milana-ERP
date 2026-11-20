@@ -36,11 +36,89 @@ def _bearer(user_id, **claims):
     return {"Authorization": f"Bearer {create_access_token(user_id, extra=claims)}"}
 
 
-@pytest.mark.parametrize("role", ["Admin", "Super Admin", "Wildcard", "Management", "ceo"])
-def test_report_requires_the_persisted_ceo_role(client, role):
+@pytest.mark.parametrize("role", ["Admin", "Wildcard", "Management", "ceo"])
+def test_report_refuses_ordinary_roles_even_with_forged_ceo_claim(client, role):
     user_id, _ = _account(role, permissions=["*"] if role == "Wildcard" else [])
     assert client.get(REPORT_PATH, headers=_bearer(user_id, role=CEO_ROLE_NAME)).status_code == 403
     assert client.get(REPORT_PATH).status_code == 401
+
+
+@pytest.mark.parametrize("role,permissions,policy,allowed", [
+    ("Super Admin", [], None, True),
+    ("Admin", ["admin.super"], None, True),
+    ("Admin", [], {"MIL": {"allow": ["admin.super"]}}, True),
+    ("Super Admin", ["*"], {"MIL": {"deny": ["admin.super"]}}, False),
+    ("Admin", ["admin.super"], {"MIL": {"deny": ["admin.super"]}}, False),
+    ("Admin", ["*"], None, False),
+])
+def test_report_superadmin_access_matches_server_identity(client, role, permissions, policy, allowed):
+    user_id, _ = _account(role, permissions=permissions, access_policy=policy)
+    headers = _bearer(user_id)
+    identity = client.get("/api/auth/me", headers=headers)
+    assert identity.status_code == 200, identity.text
+    assert identity.json()["can_view_ceo_dashboard"] is allowed
+    report = client.get(REPORT_PATH, headers=headers)
+    assert report.status_code == (200 if allowed else 403), report.text
+    if allowed:
+        assert report.headers["cache-control"] == "private, no-store"
+
+
+@pytest.mark.parametrize("factory", ["MIL", "BST", "ECO"])
+def test_superadmin_retains_operations_and_all_factory_report_filters(client, factory):
+    user_id, _ = _account("Super Admin", permissions=["*", "admin.super"])
+    headers = _bearer(user_id, factory_code=factory)
+    identity = client.get("/api/session/me", headers=headers)
+    assert identity.status_code == 200, identity.text
+    assert identity.json()["role"] == "Super Admin"
+    assert identity.json()["factory_code"] == factory
+    assert identity.json()["can_view_ceo_dashboard"] is True
+    assert client.get("/api/users", headers=headers).status_code == 200
+    for report_factory in ("ALL", "MIL", "BST", "ECO"):
+        response = client.get(f"{REPORT_PATH}&factory={report_factory}", headers=headers)
+        assert response.status_code == 200, response.text
+    assert client.post(REPORT_PATH, headers=headers).status_code == 405
+
+
+@pytest.mark.parametrize("transport", ["cookie", "bearer"])
+def test_superadmin_factory_switch_keeps_report_access(client, transport):
+    user_id, email = _account("Super Admin", permissions=["*", "admin.super"])
+    headers = _bearer(user_id) if transport == "bearer" else {}
+    if transport == "cookie":
+        login = client.post("/api/auth/login-json", json={
+            "email": email, "password": PASSWORD, "factory_code": "MIL",
+        })
+        assert login.status_code == 200, login.text
+    for factory in ("BST", "ECO", "MIL"):
+        switched = client.post("/api/session/switch-factory", headers=headers, json={"factory_code": factory})
+        assert switched.status_code == 200, switched.text
+        # Switching issues a new cookie, including when the request used bearer auth.
+        identity = client.get("/api/session/me")
+        assert identity.status_code == 200, identity.text
+        assert identity.json()["factory_code"] == factory
+        assert identity.json()["can_view_ceo_dashboard"] is True
+        assert client.get(REPORT_PATH).status_code == 200
+        assert client.get("/api/users").status_code == 200
+
+
+def test_superadmin_primary_policy_revocation_applies_to_same_selected_factory_token(client):
+    user_id, _ = _account("Super Admin", permissions=["*", "admin.super", "factory:ECO:storage.items"])
+    headers = _bearer(user_id, factory_code="ECO")
+    assert client.get(REPORT_PATH, headers=headers).status_code == 200
+    with TestSessionLocal() as db:
+        account = db.get(User, user_id)
+        account.access_policy = {"MIL": {"deny": ["admin.super"]}}
+        db.commit()
+    identity = client.get("/api/session/me", headers=headers)
+    assert identity.status_code == 200, identity.text
+    assert identity.json()["factory_code"] == "ECO"
+    assert identity.json()["can_view_ceo_dashboard"] is False
+    assert client.get(REPORT_PATH, headers=headers).status_code == 403
+    with TestSessionLocal() as db:
+        db.get(User, user_id).extra_permissions = ["*", "admin.super"]
+        db.commit()
+    # Without a remaining ECO grant, existing factory-scope policy rejects the whole session.
+    assert client.get("/api/session/me", headers=headers).status_code == 403
+    assert client.get(REPORT_PATH, headers=headers).status_code == 403
 
 
 @pytest.mark.parametrize("transport", ["cookie", "bearer"])
@@ -65,6 +143,7 @@ def test_ceo_session_has_no_operational_access_even_with_grants(client, transpor
         assert identity.headers["cache-control"] == "private, no-store"
         assert identity.json()["id"] == user_id
         assert identity.json()["role"] == CEO_ROLE_NAME
+        assert identity.json()["can_view_ceo_dashboard"] is True
         assert identity.json()["permissions"] == identity.json()["extra_permissions"] == []
         assert identity.json()["available_factories"] == ["ECO"]
         for method, suffix, payload in (

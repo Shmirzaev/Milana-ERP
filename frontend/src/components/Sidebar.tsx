@@ -90,6 +90,7 @@ const SECTIONS: Section[] = [
     titleKey: "section.overview",
     items: [
       { href: "/", labelKey: "nav.dashboard", icon: BarChart3 },
+      { href: "/ceo-dashboard", labelKey: "nav.ceoDashboard", icon: BarChart3 },
       { href: "/processes", labelKey: "nav.processes", icon: ClipboardList },
       { href: "/traceability", labelKey: "nav.traceability", perms: ["traceability.view", "*"], icon: FileSearch },
     ],
@@ -370,6 +371,7 @@ export default function Sidebar() {
     () =>
       SECTIONS.filter((sec) => {
         const factory = me?.factory_code || "MIL";
+        if (sec.titleKey === "section.overview" && me?.can_view_ceo_dashboard) return true;
         if (sec.titleKey === "section.besttexTextile" && can(me, "*")) return true;
         if (factory === "BST") return sec.titleKey === "section.besttexTextile" || sec.titleKey === "section.hr" || sec.titleKey === "section.payroll";
         const ecoSections = new Set([
@@ -388,6 +390,8 @@ export default function Sidebar() {
       }).map((sec) => ({
         ...sec,
         items: sec.items.filter((i) => {
+          if (i.href === "/ceo-dashboard") return me?.can_view_ceo_dashboard === true;
+          if (sec.titleKey === "section.overview" && (me?.factory_code || "MIL") !== "MIL") return false;
           if (sec.titleKey === "section.besttexTextile" && me?.factory_code !== "BST") return i.href === "/besttex/cutting-orders" && can(me, "*");
           if (i.href === "/besttex/cutting-orders") return can(me, "besttex.cutting_sheets");
           if (!hasInventoryPathAccess(me, i.href)) return false;

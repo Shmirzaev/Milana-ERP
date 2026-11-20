@@ -3,7 +3,7 @@ import { factoryWorkspaceHome, hasInventoryPathAccess, packagingDepartmentForSes
 import { useEffect, useState } from "react";
 import { SWRConfig } from "swr";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { can, CEO_DASHBOARD_PATH, isCeo, useMe } from "@/lib/auth";
+import { can, canViewCeoDashboard, CEO_DASHBOARD_PATH, isCeo, useMe } from "@/lib/auth";
 import { api } from "@/lib/api";
 import { isSewingRole, isSewingWorkspacePath, sewingWorkspaceHome } from "@/lib/access";
 import { useT } from "@/lib/i18n";
@@ -215,7 +215,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   }
   if (!hasToken || redirectCeo) return null;
   if (ceoDashboard) {
-    return ceo ? <>{children}</> : <div className="p-6 text-slate-600">{t("auth.accessDenied")}</div>;
+    return canViewCeoDashboard(me) ? <>{children}</> : <div className="p-6 text-slate-600">{t("auth.accessDenied")}</div>;
   }
   if (redirectRestrictedSewingRole) return null;
   if (redirectNonMilanaHome) return null;

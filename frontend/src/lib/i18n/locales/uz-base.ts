@@ -262,6 +262,8 @@ export default {
     "nav.menu": "Menyu",
     "nav.closeMenu": "Menyuni yopish",
     "nav.dashboard": "Boshqaruv paneli",
+    "nav.ceoDashboard": "Rahbar paneli",
+    "nav.backToErp": "ERP ga qaytish",
     "nav.hrDashboard": "Kadrlar paneli",
     "nav.processes": "Jarayonlarni kuzatish",
     "nav.traceability": "Kuzatuv",
