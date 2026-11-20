@@ -15,23 +15,37 @@ Last updated 2026-11-20. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
-## CEO dashboard access/presentation candidate (20 November; not yet deployed)
+## CEO dashboard access/presentation deployed (20 November)
 
 The owner requested superadmin access, removal of Waiting for handoff, repaired
 day/week/month controls and clearer Material stock, then explicitly instructed
 deployment "directly without any tests". Further tests/CI validation, browser QA,
 scans, performance gates and timed observation are skipped for this release,
 not recorded as passed. Earlier access-only checks predate the presentation edits.
-Production is still the green latency release below. No migration or business-data
-write is included. See [scope and release record](archive/CEO_SUPERADMIN_DASHBOARD_20261120.md).
+Both hosts now serve blue `20261120_040300`, source `98130821354f487767a9b79f56482f1788ac4c40`,
+manifest `7e888254a16e7c8ff277d99c4eff29a8a0f40c149aa3229987074232badcabb7`.
+Backend switched04:08:19UTC, frontend04:08:49UTC. All four operational health checks
+returned200; zero candidate restarts/OOM. Green `20261119_122457_44523647780_1`
+remains running as rollback. Schema0159 is unchanged. Fresh133,352,664-byte backup
+hash/list verified (1,403 objects), not fully restored. No migration or intentional
+business writes/users/role assignments/snapshots. Both reservations/leases released;
+automatic deploy stays disabled. Runtime source is pushed/merged to clone_main.
+
+Superadmins have a server-derived capability, menu link in all three factories and
+Back to ERP; CEO isolation remains. Waiting presentation is removed. Week/month
+expand narrow presets, custom dates stay fixed; material totals remain per unit,
+with search/filter and bounded visible rows. Source-only independent review
+completed; latest presentation is untested by owner request. See
+[scope, exact images and release record](archive/CEO_SUPERADMIN_DASHBOARD_20261120.md).
 
 ## Latency repair: deployed and observed (19 November)
 
-Both hosts serve release `20261119_122457_44523647780_1`, source
+The previous release, now green rollback, was `20261119_122457_44523647780_1`, source
 `65c861c8369d3f966bac69d1b9980aff796744c5`, manifest
 `fd7428c089dba546e4b89db784614f9bf8ac44b80bc9a7b1491a7445ce7c8917`.
 Backend activated at 12:51:32 UTC; frontend at 12:51:52 UTC. Rollback release
-`20261119_030500` / `437523dbd2` remains running in the blue standby slot.
+`20261119_030500` / `437523dbd2` was then retained in blue; that inactive container
+was replaced by the 20 November dashboard candidate after fresh preparation.
 Schema `0159_ceo_balance_snapshots` and fingerprint `c1830a0f…` are unchanged.
 CEO assignments/snapshots remain zero. Blue lacks the CEO guard: keep CEO
 unassigned or revoke future CEO accounts before rollback.
