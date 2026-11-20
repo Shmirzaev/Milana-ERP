@@ -16,6 +16,7 @@ import { useT } from "@/lib/i18n";
 import { orderReference, rawOrderReference } from "@/lib/orderRef";
 import CuttingFactorySummary from "@/components/dashboard/CuttingFactorySummary";
 import { departmentMessages } from "@/components/dashboard/departmentMessages";
+import { cuttingBundlesText, cuttingPiecesText, type CuttingBalance } from "@/lib/cuttingBalance";
 
 type Department = { id: number; name: string; code: string };
 
@@ -38,12 +39,17 @@ type BundleRow = {
   status: string;
   next_department_id?: number | null;
   sewing_factory_code?: string | null;
+  cutting_balance?: CuttingBalance;
 };
 
 type InventoryResponse = {
   rows: BundleRow[];
   total: number;
-  total_quantity: number;
+  total_quantity: number | null;
+  total_quantity_min: number;
+  total_quantity_max: number;
+  total_bundle_count: number | null;
+  unresolved_batches: number;
   total_orders: number;
   total_work_orders: number;
   page: number;
@@ -61,6 +67,7 @@ type Group = {
   toPrinting: number;
   toSewing: number;
   factory: string;
+  balance?: CuttingBalance;
 };
 
 const SEWING_CODES = new Set(["SEW", "MIL", "BST", "ECO"]);
@@ -142,6 +149,7 @@ export default function CuttingInventoryPage() {
         map.set(key, {
           key,
           factory,
+          balance: row.cutting_balance,
           orderNo,
           productionBatchId,
           batchLabel,
@@ -187,7 +195,9 @@ export default function CuttingInventoryPage() {
   }
 
   const totalBundles = Number(pageData?.total || 0);
-  const totalQuantity = Number(pageData?.total_quantity || 0);
+  const totalQuantity = pageData ? cuttingPiecesText({ pieces: pageData.total_quantity,
+    pieces_min: pageData.total_quantity_min, pieces_max: pageData.total_quantity_max }) : "—";
+  const physicalBundles = pageData ? cuttingBundlesText({ bundles: pageData.total_bundle_count }, copy.needsCount) : "—";
   const totalOrders = Number(pageData?.total_orders || 0);
 
   return (
@@ -218,11 +228,12 @@ export default function CuttingInventoryPage() {
         </div>
         <div className="card p-4">
           <div className="text-sm text-slate-500">{t("page.cuttingInventory.bundles")}</div>
-          <div className="mt-1 text-2xl font-semibold text-slate-900">{totalBundles.toLocaleString()}</div>
+          <div className="mt-1 text-2xl font-semibold text-slate-900">{physicalBundles}</div>
         </div>
         <div className="card p-4">
           <div className="text-sm text-slate-500">{t("page.cuttingInventory.pieces")}</div>
-          <div className="mt-1 text-2xl font-semibold text-slate-900">{totalQuantity.toLocaleString()}</div>
+          <div className="mt-1 text-2xl font-semibold text-slate-900">{totalQuantity}</div>
+          {!!pageData?.unresolved_batches && <div className="text-xs text-slate-500">{copy.needsReconciliation}</div>}
         </div>
         <div className="card p-4"><div className="text-sm text-slate-500">{copy.works}</div><div className="mt-1 text-2xl font-semibold">{Number(pageData?.total_work_orders || 0).toLocaleString()}</div></div>
       </div>
@@ -303,21 +314,24 @@ export default function CuttingInventoryPage() {
                           />
                           <div className="min-w-0">
                             <div className="truncate font-medium">{group.items[0]?.model_code || group.items[0]?.model_id || "-"}</div>
-                            <div className="text-xs text-slate-500">{group.items.length} {t("nav.bundles")}</div>
+                            <div className="text-xs text-slate-500">{group.balance ? cuttingBundlesText(group.balance, copy.needsCount) : group.items.length} {group.balance?.bundles === null ? "" : t("nav.bundles")}</div>
                           </div>
                         </div>
                       </td>
-                      <td>{group.totalQty}</td>
+                      <td>{group.balance ? cuttingPiecesText(group.balance) : group.totalQty}
+                        {group.balance?.adjusted && <div className="text-xs text-slate-500">{copy.remainingBatch}</div>}
+                        {group.balance?.pieces === null && <div className="text-xs text-slate-500">{copy.needsReconciliation}</div>}
+                      </td>
                       <td>
                         <div className="flex flex-wrap gap-1">
                           {group.toPrinting > 0 && <span className="badge">{t("page.cuttingInventory.toPrinting")}: {group.toPrinting}</span>}
                           {group.toSewing > 0 && <span className="badge">{t("page.cuttingInventory.toSewing")}: {group.toSewing}</span>}
                         </div>
                       </td>
-                      <td>{t("page.cuttingInventory.waitingForReceive")}</td>
+                      <td>{group.balance?.adjusted ? copy.originalLabels : t("page.cuttingInventory.waitingForReceive")}</td>
                       <td>
                         <button type="button" className="text-brand-600 hover:underline" onClick={() => printGroupLabels(group)}>
-                          {t("page.packaging.printAllLabels")}
+                          {group.balance?.adjusted ? copy.originalLabels : t("page.packaging.printAllLabels")}
                         </button>
                       </td>
                     </tr>
@@ -339,7 +353,7 @@ export default function CuttingInventoryPage() {
                             <span>{formatModelVariantCode(row.model_code) || row.model_id}</span>
                           </div>
                         </td>
-                        <td>{row.quantity}</td>
+                        <td>{row.quantity}{group.balance?.adjusted && <div className="text-xs text-slate-500">{copy.labelQuantity}</div>}</td>
                         <td>{destinationLabel(row, departmentById, t)}</td>
                         <td>
                           <div className="flex flex-col gap-1">

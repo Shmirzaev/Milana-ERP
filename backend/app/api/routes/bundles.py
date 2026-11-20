@@ -49,7 +49,8 @@ from app.models.label_images_service import is_preview_model_image, material_lab
 from app.models.model_images_service import material_preview_image_url
 from app.models.audit_service import log_action
 from app.models.sewing_scope_service import sewing_line_factory_scope
-from app.models.department_dashboards_service import cutting_inventory_condition, cutting_origin_condition, destination_column, inventory_totals
+from app.models.department_dashboards_service import cutting_inventory_condition, cutting_origin_condition, destination_column
+from app.models.production.cutting_balance_service import inventory_balance_selection
 from typing import Literal
 
 from app.libs.dto.production.sewing_manual_receive import SewingManualReceiveIn
@@ -586,12 +587,12 @@ def cutting_inventory(
         SalesOrder, SalesOrder.id == ProductionOrder.sales_order_id
     ).outerjoin(
         Model, Bundle.model_id == Model.id
-    ).filter(
-        cutting_inventory_condition()
     )
     qry = _scope_to_cutting_department(qry, db, current, cutting_department_code)
     if destination_factory != "ALL":
         qry = qry.filter(destination_column() == destination_factory)
+    scoped_query = qry
+    qry = qry.filter(cutting_inventory_condition())
     search = str(q or "").strip()
     if search:
         like = f"%{search}%"
@@ -608,8 +609,8 @@ def cutting_inventory(
             )
         )
 
-    totals = inventory_totals(db, qry)
-    total = totals["bundles"]
+    qry, totals, balance_by_bundle = inventory_balance_selection(db, qry, scoped_query)
+    total = len(balance_by_bundle)
     total_quantity = totals["pieces"]
     total_orders = totals["orders"]
     safe_page = max(1, page)
@@ -636,11 +637,17 @@ def cutting_inventory(
             model_code=model_code,
         )
         payload["material_image_url"] = material_images.get(int(bundle.model_id))
+        payload["cutting_balance"] = balance_by_bundle[bundle.id].payload()
         out.append(payload)
     return {
         "rows": out,
         "total": total,
         "total_quantity": total_quantity,
+        "total_quantity_min": totals["pieces_min"],
+        "total_quantity_max": totals["pieces_max"],
+        "total_bundle_count": totals["bundles"],
+        "unconfirmed_batches": totals["unconfirmed_batches"],
+        "unresolved_batches": totals["unresolved_batches"],
         "total_orders": total_orders,
         "total_work_orders": totals["work_orders"],
         "page": safe_page,

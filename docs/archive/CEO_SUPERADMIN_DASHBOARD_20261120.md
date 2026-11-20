@@ -108,4 +108,30 @@ Two JSX wrapper tags change; no styles, API, permission, database or quantities
 change. The same task worktree/owners/source reviewer and prior no-further-tests
 deployment instruction apply. Fresh origin/production/baseline reconciliation
 agreed at `97259b9de` integration / `981308213` live source, blue040300, before
-this edit. Build-only publication and follow-up deployment are pending.
+this edit. Source-only independent review found no blocker; no tests or browser
+QA were run for this follow-up, continuing the owner's instruction.
+
+Deployed green `20261120_042800`, source `9f64146d4d5b8e523d71fb6c3483c02118d32acb`,
+pushed/merged to clone_main. Build-only run
+[44674451985](https://github.com/Shmirzaev/Milana-ERP/actions/runs/44674451985)
+passed; helper branch `codex/ceo-collapse-publish-20261120`, commit `051721fcb`,
+is pushed and not merged. Backend filesystem is unchanged on the previous live
+image; only the source revision label changes. Frontend rebuild uses locked
+dependencies and bypasses test scripts. No build/install on production VMs.
+
+Archive6,824,840bytes SHA256 `09f2b25b0d57e44603e44e31ffc9fb7cf68265e4ed4b9a358879b92c6fd4beff`;
+manifest `413aa746515609a15a16ee4ce1d94beb3af58768f30fda051fcca565b8438544`.
+Backend `ghcr.io/shmirzaev/milana-erp-backend@sha256:712de119f15634879a75b196c379832136c8ac4648f76d6d9b30b30571a76898`;
+frontend `ghcr.io/shmirzaev/milana-erp-frontend@sha256:5b3c5d138fdc891300667d9007c10d68e4cdbed8ab9528920011d5851b2d07d3`.
+
+Fresh backup133,536,381bytes/1,403 objects at
+`/opt/milana-erp/shared/backups/auto_pre_20261120_042800.dump`, SHA256
+`97994bb57bc466c1cfe56c15022bec5bb8559da43f6c970fca9a50988bd75a95`;
+list SHA256 `ec2873b42ebfa7618e672e33f7dd7f35307a02c05baba1549cdf0781df95a45b`.
+Hash/list verified, not fully restored. No migration or intentional business write;
+schema0159/fingerprint unchanged. Backend switched04:31:43UTC, frontend04:32:12UTC.
+All four operational health endpoints returned200; actual source/router/container
+identities agree, zero restart/OOM. Blue040300 remains running as rollback.
+Both leases/reservations released; completed journals/plan are protected on both
+hosts under `/opt/milana-erp/shared/deployment-evidence/20261120_042800/`.
+Automatic deployment remains disabled; existing disk exception retained.

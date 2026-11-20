@@ -23,9 +23,9 @@ items, movements, reservations, QC and provenance were preserved;760 linked
 audit rows verified, completion292390. Full backup, restored-copy refusal/
 rollback/apply/readback/retry QA, independent review, actual Edge readback and
 four HTTP200 health checks passed. The correction ran on20261120_040300.
-During follow-up, another task released20261120_042800, commit
-9f64146d4d5b8e523d71fb6c3483c02118d32acb, manifest
-413aa746515609a15a16ee4ce1d94beb3af58768f30fda051fcca565b8438544.
+The current baseline is20261120_044200, source
+ac83508dbbacc1608e80b6422159b51985d9d35d, manifest
+af2c5f2520ecb8be476d2d34e0fa6e13e677921046585b1c2df01ad1842f502f.
 Both fresh source links/manifests agree; schema0159 unchanged. This accessories
 task has made no application deployment or shared-branch merge.
 Accessory QC controls/labels are removed in the candidate and its payloads omit
@@ -37,8 +37,41 @@ CEO capability export; unchanged backend auth characterization expectations also
 fail. Actual candidate-browser verification is BLOCKED: the owner could not start
 the preview, and an explicitly authorized retry was again rejected by automatic
 approval review as “blocked by policy”. The temporary fixture server is stopped.
-No candidate-browser pass, feature completion or deployment is claimed. See
+The owner now explicitly requests “deploy fast without test”. Further tests/CI,
+browser QA, scans, performance gates, QA-master review and timed observation are
+skipped for this release, not passed. Immutable builds, source reconciliation,
+backup and operational health checks remain. Deployment is in progress. See
 [evidence and open gates](archive/ACCESSORY_BATCH_NUMBERS_QC_20261120.md).
+
+## Cutting remaining-balance fix deployed (20 November)
+
+The owner requested removal of sewn/packed unaccepted work, including partial
+batches, and chose "Needs count" for uncertain physical bundle counts. The read-only
+projection reconciles actual stage ledgers and package source allocations at exact
+order/Nastil scope, without fabricating receipts or altering labels. Ambiguous
+receipt/output overlap remains a range rather than an invented exact amount.
+The frozen live-data oracle and PostgreSQL projection agree on MIL 22,908 and
+BST 46,655 remaining pieces; label counts need reconciliation in 1 MIL/21 BST
+batches. These are audit-snapshot figures; live balances follow current records.
+129 handoff regressions, frontend build and independent calculation review passed.
+Visual inspection was skipped by owner instruction after preview startup was
+blocked; full backend collection fails in an unchanged identity test. The candidate
+was not fully AI-verified. The owner then explicitly requested "deploy deirectly
+without test". Further tests/CI, browser QA, scans, performance gates and timed
+observation were skipped, not passed. PR #573 is merged at `03e14d02e`.
+Both hosts now serve blue `20261120_044200`, runtime source `ac83508db`, manifest
+`af2c5f2520ecb8be476d2d34e0fa6e13e677921046585b1c2df01ad1842f502f`.
+Backend switched04:46:24UTC, frontend04:46:41UTC. All four deployment health
+checks returned200; two backend workers started, zero candidate restarts/OOM.
+Green `20261120_042800` remains running as rollback. Schema0159/fingerprint
+unchanged; no migration or intentional production business writes. Fresh
+133,632,935-byte backup hash/list verified (1,403 objects), not fully restored.
+Immutable images were built on hosted Actions, with only the four changed backend
+files over the exact live image; no builds/installations on production VMs.
+Deployment reservations/leases are released; automatic deployment stays inactive.
+Existing owner disk exception retained; retention dry-run only, no release deletion.
+See
+[scope, evidence and remaining gates](archive/CUTTING_EXACT_BALANCE_20261120.md).
 
 ## CEO dashboard access/presentation deployed (20 November)
 
@@ -47,16 +80,18 @@ day/week/month controls and clearer Material stock, then explicitly instructed
 deployment "directly without any tests". Further tests/CI validation, browser QA,
 scans, performance gates and timed observation are skipped for this release,
 not recorded as passed. Earlier access-only checks predate the presentation edits.
-The initial deployment served blue `20261120_040300`, source `98130821354f487767a9b79f56482f1788ac4c40`,
-manifest `7e888254a16e7c8ff277d99c4eff29a8a0f40c149aa3229987074232badcabb7`.
-Backend switched04:08:19UTC, frontend04:08:49UTC. All four operational health checks
-returned200; zero candidate restarts/OOM. Green `20261119_122457_44523647780_1`
-remains running as rollback. Schema0159 is unchanged. Fresh133,352,664-byte backup
+The owner's follow-up made the material detail/search/filter/list collapsible,
+closed by default, with unit totals visible. Its release, now green rollback, is
+`20261120_042800`, source `9f64146d4d5b8e523d71fb6c3483c02118d32acb`, manifest
+`413aa746515609a15a16ee4ce1d94beb3af58768f30fda051fcca565b8438544`.
+Backend switched04:31:43UTC, frontend04:32:12UTC. All four operational health checks
+returned200; zero candidate restarts/OOM. Blue `20261120_040300` remains running
+as rollback. Schema0159 is unchanged. Fresh133,536,381-byte backup
 hash/list verified (1,403 objects), not fully restored. No migration or intentional
 business writes/users/role assignments/snapshots. Both reservations/leases released;
 automatic deploy stays disabled. Runtime source is pushed/merged to clone_main.
-The later042800 follow-up is the current release recorded above; this paragraph
-retains the initial040300 deployment evidence.
+The later044200 Cutting release is current; this section retains the CEO
+follow-up release evidence.
 
 Superadmins have a server-derived capability, menu link in all three factories and
 Back to ERP; CEO isolation remains. Waiting presentation is removed. Week/month
@@ -67,7 +102,7 @@ completed; latest presentation is untested by owner request. See
 
 ## Latency repair: deployed and observed (19 November)
 
-The previous release, now green rollback, was `20261119_122457_44523647780_1`, source
+The 19 November latency release was `20261119_122457_44523647780_1`, source
 `65c861c8369d3f966bac69d1b9980aff796744c5`, manifest
 `fd7428c089dba546e4b89db784614f9bf8ac44b80bc9a7b1491a7445ce7c8917`.
 Backend activated at 12:51:32 UTC; frontend at 12:51:52 UTC. Rollback release

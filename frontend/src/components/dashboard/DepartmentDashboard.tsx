@@ -9,16 +9,17 @@ import { fetcher } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import { departmentMessages } from "./departmentMessages";
 import { businessDate } from "./types";
+import { cuttingBundlesText, cuttingPiecesText, type CuttingBalanceTotals } from "@/lib/cuttingBalance";
 
 type Totals = { bundles: number; pieces: number; orders: number; work_orders: number };
-type FactoryBalance = { factory: string; bundles: number; pieces: number; orders: number; created_bundles: number; created_pieces: number; transferred_bundles: number; transferred_pieces: number };
-type Cutting = { totals: Totals; factories: FactoryBalance[]; waste: { unit: string; records: number; quantity: number }[]; updated_at: string };
+type FactoryBalance = CuttingBalanceTotals & { factory: string; created_bundles: number; created_pieces: number; transferred_bundles: number; transferred_pieces: number };
+type Cutting = { totals: CuttingBalanceTotals; factories: FactoryBalance[]; waste: { unit: string; records: number; quantity: number }[]; updated_at: string };
 type PrintRow = { production_order_id: number; order_no: string; production_batch_id: number | null; batch_label?: string | null; model_code: string | null; model_image_url: string | null; print_image_url: string | null; bundles: number; pieces: number; deadline: string | null };
 type Printing = { totals: Totals; rows: PrintRow[]; total: number; has_more: boolean; updated_at: string };
 type Warehouse = { inventory_packages: number; inventory_pieces: number; inventory_models: number; shipment_count: number; shipped_packages: number; shipped_pieces: number; hot_products: { model_id: number | null; model_code: string | null; model_image_url: string | null; shipped_pieces: number }[]; updated_at: string };
 type Mode = "cutting" | "printing" | "warehouse";
 const names: Record<string, string> = { MIL: "Milana", BST: "Besttex", ECO: "Eco Cotton" };
-const format = (value: number | undefined) => value === undefined ? "—" : value.toLocaleString(undefined, { maximumFractionDigits: 4 });
+const format = (value: number | string | undefined) => value === undefined ? "—" : typeof value === "string" ? value : value.toLocaleString(undefined, { maximumFractionDigits: 4 });
 
 function Picture({ src, label, empty, fitted = false }: { src: string | null; label: string; empty: string; fitted?: boolean }) {
   const [failed, setFailed] = useState(false);
@@ -29,7 +30,7 @@ function Picture({ src, label, empty, fitted = false }: { src: string | null; la
   </div>;
 }
 
-function Metric({ label, value, note, accent = false, compact = false }: { label: string; value: number | undefined; note: string; accent?: boolean; compact?: boolean }) {
+function Metric({ label, value, note, accent = false, compact = false }: { label: string; value: number | string | undefined; note: string; accent?: boolean; compact?: boolean }) {
   return <div className={`min-w-0 rounded-lg border border-[#e3dfd3] bg-[#fdfcf8] ${compact ? "p-2.5" : "p-5"}`}>
     <div className={`${compact ? "text-xs" : "text-sm"} text-[#6c6556]`}>{label}</div><div className={`break-words font-semibold tracking-tight tabular-nums ${compact ? "mt-1 text-2xl xl:text-3xl" : "mt-2 text-4xl xl:text-5xl"} ${accent ? "text-[#c2410c]" : "text-[#211c13]"}`}>{format(value)}</div>
     <div className={`${compact ? "mt-1 text-[10px]" : "mt-3 text-xs"} text-[#8a8472]`}>{note}</div>
@@ -114,13 +115,13 @@ export default function DepartmentDashboard({ mode }: { mode: Mode }) {
     {isLoading && !data && <p role="status" className="mb-5 text-[#6c6556]">{c.loading}</p>}
     {mode === "cutting" && <>
       <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <Metric label={c.bundles} value={cutting?.totals.bundles} note={c.current} accent /><Metric label={c.pieces} value={cutting?.totals.pieces} note={c.current} />
+        <Metric label={c.bundles} value={cuttingBundlesText(cutting?.totals, c.needsCount)} note={c.current} accent /><Metric label={c.pieces} value={cuttingPiecesText(cutting?.totals)} note={cutting?.totals.unresolved_batches ? c.needsReconciliation : c.current} />
         <Metric label={c.orders} value={cutting?.totals.orders} note={c.current} /><Metric label={c.works} value={cutting?.totals.work_orders} note={c.current} />
       </div>
       <section className="mb-5 overflow-x-auto rounded-lg border border-[#e3dfd3] bg-[#fdfcf8]">
         <div className="p-5"><h2 className="text-xl font-semibold">{c.factory}</h2><p className="mt-2 text-sm text-[#6c6556]">{c.balanceHelp}</p></div>
         <table className="table min-w-[750px]"><thead><tr><th>{c.factory}</th><th>{c.current} · {c.bundles}</th><th>{c.current} · {c.pieces}</th><th>{c.orders}</th><th>{c.created} · {c.period}</th><th>{c.transferred} · {c.period}</th></tr></thead>
-          <tbody>{cutting?.factories.map(row => <tr key={row.factory}><td className="font-semibold"><Link className="hover:underline" href={`/cutting-inventory?cutting_department=${department}&destination_factory=${row.factory}`}>{names[row.factory] || c.unassigned}</Link></td><td className="text-2xl font-semibold tabular-nums">{format(row.bundles)}</td><td className="text-2xl font-semibold tabular-nums">{format(row.pieces)}</td><td>{format(row.orders)}</td><td>{format(row.created_bundles)} {c.bundles} / {format(row.created_pieces)} {c.pieces}</td><td>{format(row.transferred_bundles)} {c.bundles} / {format(row.transferred_pieces)} {c.pieces}</td></tr>)}</tbody></table>
+          <tbody>{cutting?.factories.map(row => <tr key={row.factory}><td className="font-semibold"><Link className="hover:underline" href={`/cutting-inventory?cutting_department=${department}&destination_factory=${row.factory}`}>{names[row.factory] || c.unassigned}</Link></td><td className="text-2xl font-semibold tabular-nums">{cuttingBundlesText(row, c.needsCount)}</td><td className="text-2xl font-semibold tabular-nums">{cuttingPiecesText(row)}{row.unresolved_batches > 0 && <div className="text-xs font-normal">{c.needsReconciliation}</div>}</td><td>{format(row.orders)}</td><td>{format(row.created_bundles)} {c.bundles} / {format(row.created_pieces)} {c.pieces}</td><td>{format(row.transferred_bundles)} {c.bundles} / {format(row.transferred_pieces)} {c.pieces}</td></tr>)}</tbody></table>
       </section>
       <section className="rounded-lg border border-[#e3dfd3] bg-[#fdfcf8] p-5"><h2 className="text-xl font-semibold">{c.waste}</h2><p className="mt-2 text-sm text-[#6c6556]">{c.wasteHelp}</p>
         <div className="mt-5 flex flex-wrap gap-8">{cutting?.waste.map(row => <div key={row.unit}><div className="text-4xl font-semibold tabular-nums">{format(row.quantity)} <span className="text-xl text-[#6c6556]">{row.unit}</span></div><p className="mt-2 text-xs text-[#8a8472]">{row.records} {c.records}</p></div>)}{cutting && !cutting.waste.length && <p>{c.noWaste}</p>}</div>

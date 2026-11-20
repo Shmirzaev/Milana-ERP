@@ -184,3 +184,17 @@ Remaining gates are actual candidate Edge receipt/return/edit verification,
 resolution or explicit disposition of the inherited CI failures, QA-master
 review and separate application deployment authorization. The production batch
 renumbering is complete independently of these QC UI gates.
+
+
+## Owner-requested direct deployment
+
+On20 November the owner explicitly instructed “deploy fast without test”.
+Further tests/CI, browser QA, scans, performance sampling, QA-master review and
+timed observation are skipped for this release, not passed. Earlier failures
+and blocked preview evidence remain recorded. Operational source identity,
+immutable builds outside production, backup, blue/green and health checks remain.
+Fresh production is20261120_044200, source ac83508dbbacc1608e80b6422159b51985d9d35d,
+manifest af2c5f2520ecb8be476d2d34e0fa6e13e677921046585b1c2df01ad1842f502f.
+The candidate merges current clone_main348948478 to preserve the deployed Cutting
+changes; only the project-context document conflicted. Existing owner disk
+exception remains; no blanket cleanup is authorized by this deployment.
