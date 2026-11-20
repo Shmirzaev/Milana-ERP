@@ -15,6 +15,34 @@ Last updated 2026-11-20. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
+## Accessories: four-digit batch labels applied; QC UI candidate (20 November)
+
+Owner-authorized correction renamed all759 opening-import batches to unique
+four-digit labels1000–1818, skipping60 occupied batch/internal labels. Stock,
+items, movements, reservations, QC and provenance were preserved;760 linked
+audit rows verified, completion292390. Full backup, restored-copy refusal/
+rollback/apply/readback/retry QA, independent review, actual Edge readback and
+four HTTP200 health checks passed. The correction ran on20261120_040300.
+The current baseline is20261120_044200, source
+ac83508dbbacc1608e80b6422159b51985d9d35d, manifest
+af2c5f2520ecb8be476d2d34e0fa6e13e677921046585b1c2df01ad1842f502f.
+Both fresh source links/manifests agree; schema0159 unchanged. This accessories
+task has made no application deployment or shared-branch merge.
+Accessory QC controls/labels are removed in the candidate and its payloads omit
+QC; fabric QC and existing stored statuses remain. This UI change is not live.
+Exact-dependency form/payload checks, lint, full/strict typing and optimized
+production build passed. Source candidate f0790b056 is pushed, unmerged.
+CI44675585763 has failed: the unchanged sewing browser auth mock lacks the new
+CEO capability export; unchanged backend auth characterization expectations also
+fail. Actual candidate-browser verification is BLOCKED: the owner could not start
+the preview, and an explicitly authorized retry was again rejected by automatic
+approval review as “blocked by policy”. The temporary fixture server is stopped.
+The owner now explicitly requests “deploy fast without test”. Further tests/CI,
+browser QA, scans, performance gates, QA-master review and timed observation are
+skipped for this release, not passed. Immutable builds, source reconciliation,
+backup and operational health checks remain. Deployment is in progress. See
+[evidence and open gates](archive/ACCESSORY_BATCH_NUMBERS_QC_20261120.md).
+
 ## Cutting remaining-balance fix deployed (20 November)
 
 The owner requested removal of sewn/packed unaccepted work, including partial
@@ -62,6 +90,8 @@ as rollback. Schema0159 is unchanged. Fresh133,536,381-byte backup
 hash/list verified (1,403 objects), not fully restored. No migration or intentional
 business writes/users/role assignments/snapshots. Both reservations/leases released;
 automatic deploy stays disabled. Runtime source is pushed/merged to clone_main.
+The later044200 Cutting release is current; this section retains the CEO
+follow-up release evidence.
 
 Superadmins have a server-derived capability, menu link in all three factories and
 Back to ERP; CEO isolation remains. Waiting presentation is removed. Week/month

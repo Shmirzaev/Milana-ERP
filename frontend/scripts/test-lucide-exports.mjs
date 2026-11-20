@@ -32,7 +32,11 @@ function inspect(file) {
       assert(ts.isImportDeclaration(node) && moduleSpecifier.text === 'lucide-react', `Review unsupported Lucide import: ${location}`);
       const clause = node.importClause;
       if (clause?.namedBindings && ts.isNamespaceImport(clause.namedBindings)) {
-        assert.equal(location, 'frontend/scripts/test-besttex-cutting.mjs:8', `Review namespace import: ${location}`);
+        const fixtureLocation = location.split(path.sep).join('/');
+        assert([
+          'frontend/scripts/test-besttex-cutting.mjs:8',
+          'frontend/scripts/test-ceo-superadmin-access.mjs:7',
+        ].includes(fixtureLocation), `Review namespace import: ${location}`);
         entries.push({ name: '*', local: clause.namedBindings.name.text, type: false, location });
         return;
       }
