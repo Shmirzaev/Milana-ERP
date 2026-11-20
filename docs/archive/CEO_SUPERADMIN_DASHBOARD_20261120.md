@@ -12,8 +12,8 @@ Worktree `C:\ERP\.codex-work\ceo-superadmin-20261120`, branch
 Both hosts freshly reconciled to green `20261119_122457_44523647780_1`, source
 `65c861c8369d3f966bac69d1b9980aff796744c5`, manifest
 `fd7428c089dba546e4b89db784614f9bf8ac44b80bc9a7b1491a7445ce7c8917`.
-Schema `0159_ceo_balance_snapshots` is unchanged. This initial record describes
-an uncommitted candidate; deployment is pending.
+Schema `0159_ceo_balance_snapshots` is unchanged. This was the verified baseline;
+the deployed result is recorded below.
 
 Named shared-auth/frontend owners: Dilmurod engineer / Mirshoir reviewer;
 Shavkat business acceptance. Actual implementer root Codex agent; independent
@@ -56,7 +56,56 @@ Week/Month expansion and custom date aggregation; absence of waiting section;
 material search/unit/load-more; ordinary-role denial and CEO isolation. This is
 retained for later acceptance, not a new permission request.
 
-Next: build-only immutable artifacts; stage blue with current green as rollback,
-then backend/frontend activation and all four operational health checks. Automatic
-deployment stays disabled. Exact commit/images/manifests and actual cutover will
-be recorded after deployment. This candidate is not yet live or source-merged.
+## Deployed and source-merged
+
+Both hosts serve blue `20261120_040300`, exact runtime commit
+`98130821354f487767a9b79f56482f1788ac4c40`, pushed on the task branch and merged
+to `clone_main`. Build-only Actions run
+[44671704830](https://github.com/Shmirzaev/Milana-ERP/actions/runs/44671704830)
+succeeded. Separate helper branch `codex/ceo-owner-publish-20261120`, commit
+`9449c0710610d7f1d205be0b2aba1b70dd4c19ee`, is pushed, not source-merged. Its
+disposable clean worktree was removed after publication to recover local disk;
+the task worktree remains. No further tests/QA/scans/benchmarks/observer ran.
+Independent source review's stale unit-selection issue was fixed before commit.
+
+Archive6,822,681bytes SHA256 `9af25b7ce15e38de4bbac155f5a9f3fe7068ece448c03298a5e46b5c6c1df87d`.
+Manifest `7e888254a16e7c8ff277d99c4eff29a8a0f40c149aa3229987074232badcabb7`.
+Backend `ghcr.io/shmirzaev/milana-erp-backend@sha256:a54facae08c6c3cfe9e4e5d9985e719bfb2bc274a6dbc736bb6619192fd928c3`.
+Frontend `ghcr.io/shmirzaev/milana-erp-frontend@sha256:ff49b4c5020b6686be55f98d966c7ca4d5f0da0cf8d6b0c67ec461902444f9cf`.
+Backend replaces only four reviewed Python files on the exact live image; running
+file hashes match the source archive. Frontend uses locked dependencies and the
+real Next production build, bypassing test scripts. Both revision labels/default
+commands match; startup seeding and schema bootstrap stay disabled. No production
+VM builds/installations or migration. Schema fingerprint `c1830a0f72eddbcf82a76da559bf04da16477ffce29625574a9d28e6e450ca9f`.
+
+Fresh backup `/opt/milana-erp/shared/backups/auto_pre_20261120_040300.dump`,
+133,352,664bytes,1,403 restore objects, SHA256
+`7307e6ac9c57eba56b6c0adc17d317a7384ff302cc39d8ec0baee147e9a98b34`;
+list SHA256 `b4ed789366e20a513d883ecd18f5191b72ae17dcaf9ce88dbb08463807fd50d1`.
+Hash/list verification only, not a full restore. No intentional business-data write.
+
+Backend activated04:08:19UTC, frontend04:08:49UTC. Internal backend health,
+internal frontend login, public health and public login returned200; health
+identifies the new release. Both candidates have zero restart/OOM; source,
+actual router, active/rollback and strict schema identities agree. Green
+`20261119_122457_44523647780_1` remains running as rollback with its CEO guard.
+Protected plan/completed journals are on both hosts under
+`/opt/milana-erp/shared/deployment-evidence/20261120_040300/`.
+
+Both owned leases/reservations released. Initial background lock keepers exited
+with their helper containers before source/staging mutation; successful V2 keepers
+held both real locks through closing. This is coordination evidence, not a test.
+The existing owner disk exception is retained; no blanket cleanup. Automatic
+deployment remains disabled. Legacy checkout and business data are preserved.
+
+## Follow-up: collapse material detail
+
+The owner identified the expanded search/unit/material-row block and requested it
+be collapsible. Reuse the existing native Details component, closed by default,
+labelled with the existing EN/RU/UZ material-breakdown text. Unit totals remain
+visible; search/filter/load-more and warehouse details retain their behavior.
+Two JSX wrapper tags change; no styles, API, permission, database or quantities
+change. The same task worktree/owners/source reviewer and prior no-further-tests
+deployment instruction apply. Fresh origin/production/baseline reconciliation
+agreed at `97259b9de` integration / `981308213` live source, blue040300, before
+this edit. Build-only publication and follow-up deployment are pending.

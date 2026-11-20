@@ -255,7 +255,7 @@ export function Balances({ balances, chosen, onDateChange, factory, copy, format
         <DataTable label={copy.materials} headings={[copy.unit, copy.quantity, copy.batches, copy.varieties]}
           rows={values.material_totals.map(row => [unitLabel(row.unit), format.count(row.quantity),
             format.count(row.active_batches), format.count(row.varieties)])} />
-        {materialVarieties.length > 0 && <>
+        {materialVarieties.length > 0 && <Details label={copy.byVariety}>
           <div className={styles.materialTools}>
             <label className={styles.materialSearch}>{copy.searchMaterials}
               <input type="search" value={materialQuery} onChange={event => { setMaterialQuery(event.target.value); setMaterialLimit(25); }} />
@@ -277,7 +277,7 @@ export function Balances({ balances, chosen, onDateChange, factory, copy, format
             {materialLimit < filteredMaterials.length && <button type="button" className={styles.applyButton}
               onClick={() => setMaterialLimit(limit => limit + 25)}>{copy.showMore}</button>}
           </div>
-        </>}
+        </Details>}
         <Details label={copy.materialBreakdown}>
           <DataTable label={copy.materialBreakdown} headings={[copy.warehouse, copy.factory, copy.quantity, copy.batches, copy.varieties]}
             rows={values.materials.map(row => [row.warehouse === "ECO_LEDGER" ? copy.ecoLedger : row.warehouse === "UNASSIGNED" ? copy.UNASSIGNED : row.warehouse,
