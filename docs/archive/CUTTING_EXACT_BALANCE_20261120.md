@@ -159,3 +159,28 @@ Protected plan/completed journals are under
 The existing owner disk exception remains: backend95%, frontend81% at preflight,
 with11GB/15GB available. Protected retention dry-run only; no release/image blanket
 cleanup. Automatic deployment remains inactive. The legacy checkout is preserved.
+
+## Follow-up: exact pieces and original labels
+
+The owner rejected Needs count and explicitly selected "Show pieces and original
+label count". Remaining pieces stay authoritative. Original labels count distinct
+unaccepted source-label IDs in groups with remaining pieces; they are not relabelled
+as physical bundles. Fully processed groups remain excluded. This reuses the existing
+per-group source_bundles field and adds its distinct total to the dashboard payload.
+Inventory uses its existing unpaginated label-row total. EN/RU/UZ headings/help and
+batch rows use Original labels, with remaining pieces prominent. No quantity,
+acceptance, allocation, permission, migration or write behavior changes.
+
+Frozen snapshot:1,095 original labels /69,563 remaining pieces; MIL334/22,908 and
+BST761/46,655. These are recorded facts for that snapshot, not live physical counts.
+Independent reviewer /root/balance_review found no issues in the six-file source
+diff. No further tests, browser QA, scans, benchmarks or observer are run, continuing
+the owner's direct-deploy-without-test instruction. Production build, fresh backup,
+immutable identity checks and operational health checks remain.
+
+The accessories deployment held both reservations while this source was prepared.
+It completed green045400, source78c8aa5b0, manifest
+c7d955135511446f23665748b33b83ffa167e2c8afcae268dce00a507012c692. After its reservations
+were released and record cba1e1944 was pushed, this worktree fast-forwarded to that
+baseline, preserving only the six scoped Cutting edits. deploy/production-base.json
+and both actual source pointers agree. No overlapping cutover or older-source rollback.

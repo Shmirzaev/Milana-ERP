@@ -5,6 +5,7 @@ export type CuttingBalance = {
   pieces_min: number;
   pieces_max: number;
   adjusted?: boolean;
+  source_bundles?: number;
 };
 
 export type CuttingBalanceTotals = CuttingBalance & {
@@ -24,4 +25,8 @@ export function cuttingPiecesText(balance: Partial<Pick<CuttingBalance, "pieces"
 export function cuttingBundlesText(balance: Partial<Pick<CuttingBalance, "bundles">> | undefined, needsCount: string): string {
   if (!balance || balance.bundles === undefined) return "—";
   return balance.bundles === null ? needsCount : balance.bundles.toLocaleString();
+}
+
+export function cuttingLabelsText(balance: { source_bundles?: number } | undefined): string {
+  return balance?.source_bundles == null ? "—" : balance.source_bundles.toLocaleString();
 }

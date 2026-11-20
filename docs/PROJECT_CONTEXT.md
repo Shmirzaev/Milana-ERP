@@ -41,6 +41,16 @@ See [exact images, evidence and skipped gates](archive/ACCESSORY_BATCH_NUMBERS_Q
 
 ## Cutting remaining-balance fix deployed (20 November)
 
+Follow-up: the owner rejected "Needs count" and explicitly chose "Show pieces and
+original label count". The candidate shows exact remaining pieces beside distinct
+unaccepted original labels for batches that still have pieces. Original labels are
+clearly distinguished from physical bundles. Snapshot:69,563 pieces and1,095 labels
+(MIL22,908/334; BST46,655/761). Quantities, acceptance and reconciliation stay unchanged.
+Source-only independent review passed; no further tests under the owner's direct
+deployment instruction. Baseline is the completed accessories release045400 above.
+This display follow-up is prepared for deployment; the evidence below belongs to
+the earlier Cutting release.
+
 The owner requested removal of sewn/packed unaccepted work, including partial
 batches, and chose "Needs count" for uncertain physical bundle counts. The read-only
 projection reconciles actual stage ledgers and package source allocations at exact

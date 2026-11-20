@@ -2,7 +2,7 @@ import type { Lang } from "@/lib/i18n";
 
 const en = {
   cutting: "Cutting dashboard", printing: "Printing dashboard", warehouse: "Warehouse dashboard",
-  cuttingHelp: "Bundle balances by destination factory. Activity follows the selected period.",
+  cuttingHelp: "Remaining pieces by destination factory. Activity follows the selected period.",
   printingHelp: "Ready for collection from Cutting · model and print artwork",
   warehouseHelp: "Received warehouse stock and dispatched shipments",
   current: "Remaining now", period: "Selected period", today: "Daily", week: "Weekly", month: "Monthly",
@@ -11,8 +11,9 @@ const en = {
   error: "Could not load the dashboard.", loading: "Loading dashboard…", empty: "No activity in this period.",
   factory: "Destination factory", unassigned: "Unassigned", all: "All factories", bundles: "Bundles", pieces: "Pieces",
   orders: "Production orders", works: "Cutting work orders", created: "Created", transferred: "Received downstream",
-  balanceHelp: "Remaining pieces include earlier batches and deduct recorded downstream work, even without bundle acceptance. Partial batches with uncertain bundle identities show Needs count.",
+  balanceHelp: "Remaining pieces include earlier batches and deduct recorded downstream work, even without bundle acceptance. Original labels count the source labels of the remaining batches, not physical bundles left.",
   needsCount: "Needs count", needsReconciliation: "Needs reconciliation", originalLabels: "Original labels",
+  labelsHelp: "Unaccepted source labels for remaining batches",
   remainingBatch: "Batch remaining", labelQuantity: "Original label quantity",
   waste: "Cutting fabric waste", wasteHelp: "Recorded in the selected period. Different units are kept separate.",
   noWaste: "No cutting waste recorded in this period.", records: "records", inventory: "Open bundle inventory",
@@ -29,7 +30,7 @@ const en = {
 type Copy = typeof en;
 const ru: Copy = {
   cutting: "Панель раскроя", printing: "Панель печати", warehouse: "Панель склада",
-  cuttingHelp: "Остатки пачек по фабрикам назначения. Движение за выбранный период.",
+  cuttingHelp: "Остаток изделий по фабрикам назначения. Движение за выбранный период.",
   printingHelp: "Готово к получению из раскроя · модель и рисунок печати", warehouseHelp: "Принятые остатки склада и отправленные отгрузки",
   current: "Остаток сейчас", period: "Выбранный период", today: "День", week: "Неделя", month: "Месяц", end: "Конец периода",
   screen: "Большой экран", exit: "Выйти из большого экрана", refresh: "Обновить", updated: "Обновлено",
@@ -37,8 +38,9 @@ const ru: Copy = {
   error: "Не удалось загрузить панель.", loading: "Загрузка панели…", empty: "За этот период нет движения.",
   factory: "Фабрика назначения", unassigned: "Не назначено", all: "Все фабрики", bundles: "Пачки", pieces: "Изделия",
   orders: "Производственные заказы", works: "Рабочие задания раскроя", created: "Создано", transferred: "Принято следующим цехом",
-  balanceHelp: "Остаток учитывает предыдущие настилы и вычитает выполненную работу следующих цехов, даже без приёмки пачек. Если пачки в частичном остатке не определены, требуется пересчёт.",
+  balanceHelp: "Остаток учитывает предыдущие настилы и вычитает выполненную работу следующих цехов, даже без приёмки пачек. Исходные этикетки — это этикетки оставшихся настилов, а не физические пачки в остатке.",
   needsCount: "Нужен пересчёт", needsReconciliation: "Нужна сверка", originalLabels: "Исходные этикетки",
+  labelsHelp: "Непринятые исходные этикетки настилов с остатком",
   remainingBatch: "Остаток настила", labelQuantity: "Количество на исходной этикетке",
   waste: "Отходы ткани раскроя", wasteHelp: "За выбранный период. Разные единицы измерения показаны отдельно.",
   noWaste: "За этот период отходы раскроя не зарегистрированы.", records: "записей", inventory: "Открыть остатки пачек",
@@ -54,7 +56,7 @@ const ru: Copy = {
 };
 const uz: Copy = {
   cutting: "Bichish paneli", printing: "Bosma paneli", warehouse: "Ombor paneli",
-  cuttingHelp: "Qabul qiluvchi fabrikalar bo‘yicha bog‘lam qoldiqlari. Tanlangan davrdagi harakat.",
+  cuttingHelp: "Qabul qiluvchi fabrikalar bo‘yicha dona qoldiqlari. Tanlangan davrdagi harakat.",
   printingHelp: "Bichishdan qabul qilishga tayyor · model va bosma rasmi", warehouseHelp: "Omborga qabul qilingan qoldiq va jo‘natmalar",
   current: "Hozirgi qoldiq", period: "Tanlangan davr", today: "Kunlik", week: "Haftalik", month: "Oylik", end: "Davr oxiri",
   screen: "Katta ekran", exit: "Katta ekrandan chiqish", refresh: "Yangilash", updated: "Yangilandi",
@@ -62,8 +64,9 @@ const uz: Copy = {
   error: "Panelni yuklab bo‘lmadi.", loading: "Panel yuklanmoqda…", empty: "Bu davrda harakat yo‘q.",
   factory: "Qabul qiluvchi fabrika", unassigned: "Belgilanmagan", all: "Barcha fabrikalar", bundles: "Bog‘lamlar", pieces: "Dona",
   orders: "Ishlab chiqarish buyurtmalari", works: "Bichish ish topshiriqlari", created: "Yaratilgan", transferred: "Keyingi bo‘lim qabul qilgan",
-  balanceHelp: "Qoldiq oldingi nastillarni ham hisobga oladi va bog‘lam qabul qilinmagan bo‘lsa ham keyingi bo‘limlarda bajarilgan ishni ayiradi. Qisman qoldiqdagi bog‘lamlar aniqlanmagan bo‘lsa, qayta sanash kerak.",
+  balanceHelp: "Qoldiq oldingi nastillarni ham hisobga oladi va bog‘lam qabul qilinmagan bo‘lsa ham keyingi bo‘limlarda bajarilgan ishni ayiradi. Asl yorliqlar qoldiqli nastillarning yorliqlari soni, qolgan jismoniy bog‘lamlar soni emas.",
   needsCount: "Qayta sanash kerak", needsReconciliation: "Solishtirish kerak", originalLabels: "Asl yorliqlar",
+  labelsHelp: "Qoldiqli nastillarning qabul qilinmagan asl yorliqlari",
   remainingBatch: "Nastil qoldig‘i", labelQuantity: "Asl yorliqdagi miqdor",
   waste: "Bichish mato chiqindisi", wasteHelp: "Tanlangan davrda qayd etilgan. O‘lchov birliklari alohida ko‘rsatiladi.",
   noWaste: "Bu davrda bichish chiqindisi qayd etilmagan.", records: "ta qayd", inventory: "Bog‘lam qoldig‘ini ochish",
