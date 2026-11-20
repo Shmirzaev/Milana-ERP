@@ -15,6 +15,23 @@ Last updated 2026-11-20. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
+## Cutting remaining-balance candidate (20 November; not deployed)
+
+The owner requested removal of sewn/packed unaccepted work, including partial
+batches, and chose "Needs count" for uncertain physical bundle counts. The read-only
+candidate reconciles actual stage ledgers and package source allocations at exact
+order/Nastil scope, without fabricating receipts or altering labels. Ambiguous
+receipt/output overlap remains a range rather than an invented exact amount.
+The frozen live-data oracle and PostgreSQL projection agree on MIL 22,908 and
+BST 46,655 remaining pieces; label counts need reconciliation in 1 MIL/21 BST
+batches. These are audit-snapshot figures, not an applied production change.
+129 handoff regressions, frontend build and independent calculation review passed.
+Visual inspection was skipped by owner instruction after preview startup was
+blocked; full backend collection fails in an unchanged identity test. The candidate
+is not merged, deployed or fully AI-verified. Source is based on the verified CEO release below,
+including its deployed material-collapse follow-up. See
+[scope, evidence and remaining gates](archive/CUTTING_EXACT_BALANCE_20261120.md).
+
 ## CEO dashboard access/presentation deployed (20 November)
 
 The owner requested superadmin access, removal of Waiting for handoff, repaired
