@@ -16,7 +16,7 @@ import { useT } from "@/lib/i18n";
 import { orderReference, rawOrderReference } from "@/lib/orderRef";
 import CuttingFactorySummary from "@/components/dashboard/CuttingFactorySummary";
 import { departmentMessages } from "@/components/dashboard/departmentMessages";
-import { cuttingBundlesText, cuttingPiecesText, type CuttingBalance } from "@/lib/cuttingBalance";
+import { cuttingLabelsText, cuttingPiecesText, type CuttingBalance } from "@/lib/cuttingBalance";
 
 type Department = { id: number; name: string; code: string };
 
@@ -197,7 +197,6 @@ export default function CuttingInventoryPage() {
   const totalBundles = Number(pageData?.total || 0);
   const totalQuantity = pageData ? cuttingPiecesText({ pieces: pageData.total_quantity,
     pieces_min: pageData.total_quantity_min, pieces_max: pageData.total_quantity_max }) : "—";
-  const physicalBundles = pageData ? cuttingBundlesText({ bundles: pageData.total_bundle_count }, copy.needsCount) : "—";
   const totalOrders = Number(pageData?.total_orders || 0);
 
   return (
@@ -227,8 +226,9 @@ export default function CuttingInventoryPage() {
           <div className="mt-1 text-2xl font-semibold text-slate-900">{totalOrders.toLocaleString()}</div>
         </div>
         <div className="card p-4">
-          <div className="text-sm text-slate-500">{t("page.cuttingInventory.bundles")}</div>
-          <div className="mt-1 text-2xl font-semibold text-slate-900">{physicalBundles}</div>
+          <div className="text-sm text-slate-500">{copy.originalLabels}</div>
+          <div className="mt-1 text-2xl font-semibold text-slate-900">{pageData ? totalBundles.toLocaleString() : "—"}</div>
+          <div className="text-xs text-slate-500">{copy.labelsHelp}</div>
         </div>
         <div className="card p-4">
           <div className="text-sm text-slate-500">{t("page.cuttingInventory.pieces")}</div>
@@ -314,7 +314,7 @@ export default function CuttingInventoryPage() {
                           />
                           <div className="min-w-0">
                             <div className="truncate font-medium">{group.items[0]?.model_code || group.items[0]?.model_id || "-"}</div>
-                            <div className="text-xs text-slate-500">{group.balance ? cuttingBundlesText(group.balance, copy.needsCount) : group.items.length} {group.balance?.bundles === null ? "" : t("nav.bundles")}</div>
+                            <div className="text-xs text-slate-500">{group.balance ? cuttingLabelsText(group.balance) : group.items.length} {copy.originalLabels}</div>
                           </div>
                         </div>
                       </td>

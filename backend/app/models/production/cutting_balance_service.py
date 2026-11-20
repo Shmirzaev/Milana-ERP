@@ -221,7 +221,8 @@ def balance_totals(groups: list[CuttingBalanceGroup]) -> dict:
     capacity_min, capacity_max = _bundle_bounds([qty for group in groups for qty in group.bundle_quantities.values()],
                                                pieces_min, pieces_max)
     bundles_min, bundles_max = max(bundles_min, capacity_min), min(bundles_max, capacity_max)
-    return {"pieces": pieces_min if pieces_min == pieces_max else None,
+    return {"source_bundles": len({bid for group in groups for bid in group.bundle_quantities}),
+            "pieces": pieces_min if pieces_min == pieces_max else None,
             "pieces_min": pieces_min, "pieces_max": pieces_max,
             "bundles": bundles_min if bundles_min == bundles_max else None,
             "bundles_min": bundles_min, "bundles_max": bundles_max,
