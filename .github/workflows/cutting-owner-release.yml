@@ -1,7 +1,7 @@
 name: Owner requested Cutting balances artifacts without tests
 on:
   push:
-    branches: [codex/cutting-owner-publish-20261120]
+    branches: [codex/cutting-labels-publish-20261120]
 permissions:
   contents: read
   packages: write
@@ -10,12 +10,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      SOURCE_SHA: ac83508dbbacc1608e80b6422159b51985d9d35d
-      RELEASE_ID: '20261120_044200'
+      SOURCE_SHA: e44d7930cae4c88aa51404ab1ac4759d03f2c5ce
+      RELEASE_ID: '20261120_050400'
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ac83508dbbacc1608e80b6422159b51985d9d35d
+          ref: e44d7930cae4c88aa51404ab1ac4759d03f2c5ce
           fetch-depth: 0
       - uses: actions/setup-python@v7
         with:
@@ -25,11 +25,8 @@ jobs:
       - name: Prepare build-only recipes
         run: |
           cat > "$RUNNER_TEMP/backend.Dockerfile" <<'EOF'
-          FROM ghcr.io/shmirzaev/milana-erp-backend@sha256:712de119f15634879a75b196c379832136c8ac4648f76d6d9b30b30571a76898
-          COPY backend/app/api/routes/bundles.py /app/app/api/routes/bundles.py
-          COPY backend/app/models/department_dashboards_service.py /app/app/models/department_dashboards_service.py
+          FROM ghcr.io/shmirzaev/milana-erp-backend@sha256:133472684c6c5189b330e2055579bcf41ad444cf8f229d5b5ba66428c670451b
           COPY backend/app/models/production/cutting_balance_service.py /app/app/models/production/cutting_balance_service.py
-          COPY backend/app/libs/types/cutting_balance.py /app/app/libs/types/cutting_balance.py
           EOF
           python - <<'PY'
           import os
@@ -79,7 +76,7 @@ jobs:
           echo 'Owner explicitly requested deployment without tests. Test suites, browser QA, scans, performance sampling and timed observation are skipped, not passed. Images use exact application source; no production VM builds. This job publishes artifacts only.' >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         with:
-          name: cutting-owner-release-20261120_044200
+          name: cutting-owner-release-20261120_050400
           path: |
-            ${{ runner.temp }}/milana-erp-20261120_044200.tar.gz*
+            ${{ runner.temp }}/milana-erp-20261120_050400.tar.gz*
             ${{ runner.temp }}/deployment.json
