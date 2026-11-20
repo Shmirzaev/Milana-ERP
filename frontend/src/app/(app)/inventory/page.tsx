@@ -267,7 +267,7 @@ function optionalNumber(value: string) {
   return trimmed === "" ? null : Number(trimmed);
 }
 
-function batchPayload(form: BatchForm) {
+function batchPayload(form: BatchForm, group: InventoryGroup) {
   return {
     item_id: Number(form.item_id),
     batch_no: form.batch_no.trim(),
@@ -287,7 +287,7 @@ function batchPayload(form: BatchForm) {
     image_url: form.image_url.trim() || null,
     received_date: form.received_date ? new Date(form.received_date).toISOString() : null,
     warehouse_id: Number(form.warehouse_id),
-    qc_status: form.qc_status,
+    ...(group === "materials" ? { qc_status: form.qc_status } : {}),
   };
 }
 
@@ -781,7 +781,7 @@ export default function InventoryPage() {
       { label: t("field.gramaj"), value: fmtDecimal(batch.gsm, 6) },
       { label: t("field.pieceCount"), value: batch.available_piece_count ?? batch.piece_count },
       { label: t("field.processes"), value: batch.processes },
-      { label: t("page.receiveStock.qcStatus"), value: qcLabel(batch.qc_status) },
+      ...(group === "materials" ? [{ label: t("page.receiveStock.qcStatus"), value: qcLabel(batch.qc_status) }] : []),
       { label: t("field.received"), value: receivedDateLabel(batch.received_date) },
     ].filter((detail) => textOrDash(detail.value) !== "-");
   }
@@ -1151,7 +1151,7 @@ export default function InventoryPage() {
     setEditMessage("");
     try {
       if (editingBatch) {
-        await api.patch(`/api/inventory/batches/${editingBatch.id}?force=true`, batchPayload(batchForm));
+        await api.patch(`/api/inventory/batches/${editingBatch.id}?force=true`, batchPayload(batchForm, group));
       } else {
         await api.patch(`/api/inventory/items/${editingItem.id}`, itemPayload(itemForm));
         await api.patch(`/api/inventory/stock/${editingItem.id}?force=true`, { quantity: stockQuantity, unit: itemForm.unit });
@@ -1392,7 +1392,7 @@ export default function InventoryPage() {
                 <th>{t("field.unit")}</th>
                 <th>{t("field.cost")}</th>
                 <th>{t("field.supplier")} / {t("field.warehouse")}</th>
-                <th>{t("field.orderNo")} / {t("page.receiveStock.qcStatus")}</th>
+                <th>{t("field.orderNo")}{group === "materials" && <> / {t("page.receiveStock.qcStatus")}</>}</th>
                 {(group === "materials" || canEditItems || canDeleteBatches) && <th>{t("field.actions")}</th>}
               </tr>
             </thead>
@@ -1682,7 +1682,7 @@ export default function InventoryPage() {
                     {(warehouses || []).map((warehouse) => <option key={warehouse.id} value={warehouse.id}>{warehouse.name}</option>)}
                   </select>
                 </div>
-                <div>
+                {group === "materials" && <div>
                   <label className="label">{t("page.receiveStock.qcStatus")}</label>
                   <select
                     className="input"
@@ -1694,7 +1694,7 @@ export default function InventoryPage() {
                   >
                     {INVENTORY_QC_STATUSES.map((status) => <option key={status} value={status}>{qcLabel(status)}</option>)}
                   </select>
-                </div>
+                </div>}
                 <div>
                   <label className="label">{t("field.materialColor")}</label>
                   <input className="input" value={batchForm.color} onChange={(event) => setBatchForm({ ...batchForm, color: event.target.value })} />
