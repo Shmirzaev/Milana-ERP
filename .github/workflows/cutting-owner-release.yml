@@ -1,6 +1,7 @@
 name: Owner requested Cutting balances artifacts without tests
 on:
-  workflow_dispatch:
+  push:
+    branches: [codex/cutting-owner-publish-20261120]
 permissions:
   contents: read
   packages: write
