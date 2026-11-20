@@ -28,6 +28,11 @@ preflighted the complete set. The writer stages only `InvoiceStatus.VOID` and a
 zero amount in the supplied Session, with no policy check, flush, audit or
 commit. Shipment and stock writes remain outside this Finance helper.
 
+Shipment issuance uses [shipment_invoice_persistence.py](shipment_invoice_persistence.py)
+to stage an already-decided invoice without flushing; frozen delivery uses its
+amount setter before the coordinator's existing flush. Queries, numbering,
+rounding, audits and transaction ownership remain with the callers.
+
 These links follow business ownership; some point to mixed files in another group
 or shared core.py. Keep one authoritative mapping per table. Moving individual
 classes out of mixed files is a separate approved change.

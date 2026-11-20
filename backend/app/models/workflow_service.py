@@ -29,6 +29,7 @@ from app.schemas import (
 )
 from app.models.audit_service import log_action
 from app.models.numbering_service import next_invoice_no
+from app.schemas.finance.shipment_invoice_persistence import stage_shipment_invoice
 from app.libs.enums.finance import InvoiceStatus
 from app.models.passport_nastil_service import has_pending_passport_batches
 
@@ -782,7 +783,8 @@ def ensure_invoice_for_delivered_shipment(
         return existing
     now = datetime.now(timezone.utc)
     due = now + timedelta(days=14)
-    inv = Invoice(
+    return stage_shipment_invoice(
+        db,
         sales_order_id=sales_order_id,
         invoice_no=next_invoice_no(db),
         amount=float(so.total_amount or 0),
@@ -790,5 +792,3 @@ def ensure_invoice_for_delivered_shipment(
         issued_at=now,
         due_date=due,
     )
-    db.add(inv)
-    return inv

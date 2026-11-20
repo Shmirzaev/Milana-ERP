@@ -230,11 +230,10 @@ enum, DDL or API behavior.
 - The customer-payment parent lock is implemented: `record_customer_payment`
   calls `lock_sales_order` before invoice lookup. Its automatic invoice,
   invoice-payment and customer-advance writes use Finance schema persistence
-  operations. Other invoice writers remain separate work:
-  `workflow_service.ensure_invoice_for_delivered_shipment` constructs an
-  Invoice directly, and `shipment_review_service.invoice_for_frozen_delivery`
-  directly reconciles `Invoice.amount`. Candidate visual and human gates remain
-  open.
+  operations. Shipment issuance and frozen-delivery amount reconciliation now
+  delegate their invoice writes to Finance schema persistence; the shipment
+  coordinator's other writes remain separate work. Candidate visual and human
+  gates remain open.
 - The branded-stock-value and waste-report envelopes stay in the router, because
   moving an envelope alone would add a pass-through layer instead of an
   extraction. Their values come from `finance_service`.
