@@ -97,3 +97,15 @@ with their helper containers before source/staging mutation; successful V2 keepe
 held both real locks through closing. This is coordination evidence, not a test.
 The existing owner disk exception is retained; no blanket cleanup. Automatic
 deployment remains disabled. Legacy checkout and business data are preserved.
+
+## Follow-up: collapse material detail
+
+The owner identified the expanded search/unit/material-row block and requested it
+be collapsible. Reuse the existing native Details component, closed by default,
+labelled with the existing EN/RU/UZ material-breakdown text. Unit totals remain
+visible; search/filter/load-more and warehouse details retain their behavior.
+Two JSX wrapper tags change; no styles, API, permission, database or quantities
+change. The same task worktree/owners/source reviewer and prior no-further-tests
+deployment instruction apply. Fresh origin/production/baseline reconciliation
+agreed at `97259b9de` integration / `981308213` live source, blue040300, before
+this edit. Build-only publication and follow-up deployment are pending.
