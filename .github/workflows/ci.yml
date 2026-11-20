@@ -8,6 +8,7 @@ on:
       - clone_main
       # Worktree pushes validate on hosted runners; QA runtime authorization stays exact.
       - codex/**
+      - '!codex/ceo-collapse-publish-20261120'
       - codex/ismail-finance-pilot-20261025
       - codex/ismail-brand-feedback-20261028
       - codex/ismail-combined-review-20261028
