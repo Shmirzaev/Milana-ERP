@@ -30,8 +30,15 @@ Both fresh source links/manifests agree; schema0159 unchanged. This accessories
 task has made no application deployment or shared-branch merge.
 Accessory QC controls/labels are removed in the candidate and its payloads omit
 QC; fabric QC and existing stored statuses remain. This UI change is not live.
-Focused form/payload checks, hosted lint and strict typing passed; full build
-and candidate-browser acceptance remain pending. See [evidence and open gates](archive/ACCESSORY_BATCH_NUMBERS_QC_20261120.md).
+Exact-dependency form/payload checks, lint, full/strict typing and optimized
+production build passed. Source candidate f0790b056 is pushed, unmerged.
+CI44675585763 has failed: the unchanged sewing browser auth mock lacks the new
+CEO capability export; unchanged backend auth characterization expectations also
+fail. Actual candidate-browser verification is BLOCKED: the owner could not start
+the preview, and an explicitly authorized retry was again rejected by automatic
+approval review as “blocked by policy”. The temporary fixture server is stopped.
+No candidate-browser pass, feature completion or deployment is claimed. See
+[evidence and open gates](archive/ACCESSORY_BATCH_NUMBERS_QC_20261120.md).
 
 ## CEO dashboard access/presentation deployed (20 November)
 

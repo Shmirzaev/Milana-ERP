@@ -125,3 +125,62 @@ The original failed CI is retained; this does not establish a full build pass.
 The owner's requested QC UI removal remains a source candidate with separate
 application deployment/actual candidate-browser gates. Data verification does
 not constitute feature deployment or human UI acceptance.
+
+## Disk recovery and current candidate
+
+The owner authorized retrying cleanup and removal of unimportant files. Free
+space had recovered to4.7GB. Automatic review again refused deletion of the
+task-local partial dependency install. A non-destructive move preserved that
+ordinary, non-linked directory under ignored
+`outputs/accessories-batch-numbers-20261120/partial-node-modules-preserved`;
+no broader cleanup or deletion occurred. Fresh exact `npm ci` installed402
+packages successfully. Exact dependency versions include Next16.4.6 and
+React/ReactDOM19.2.8. Full typecheck, strict typecheck, lint (existing warnings),
+accessory form/payload checks, receiving/supplier/roll-weight contracts and
+112 real Lucide SVG exports passed. Independent review repeated those checks.
+Full `npm run build -- --webpack`, including its prerequisite contracts, passed.
+A second compile changed only the loopback QA API port after Windows refused
+the first port; it also passed. No application source was changed for preview.
+
+Another owner task released20261120_042800 / source
+`9f64146d4d5b8e523d71fb6c3483c02118d32acb`, manifest
+`413aa746515609a15a16ee4ce1d94beb3af58768f30fda051fcca565b8438544`.
+Both fresh source manifests verified. It changes no accessory page. The bounded
+candidate merged that exact source, resolving only the project-context conflict
+by retaining both task records and qualifying the historical040300 deployment.
+Candidate `f0790b0565eab371b6212fcfbf681b11011514a5` is pushed, unmerged into
+the shared branch. CI44675585763 has failed (details below). The historical applied renumbering
+scripts and their040300 guards remain frozen; they must not be rerun.
+
+Visual QA uses the actual optimized Next.js candidate and a loopback-only
+synthetic backend, with no production connections, credentials or tokens.
+The synthetic identity is clearly named QA Preview. The fixture server started
+on127.0.0.1:3260; non-fixture writes are refused. Automatic approval review
+rejected starting the Next preview with its required API environment setting,
+stating “blocked by policy”. The owner was asked to start this local preview
+manually so Edge verification could finish. The owner could not run it and
+explicitly instructed the agent to do so. Retrying the required startup command
+was again rejected as “blocked by policy”. No alternative wrapper or tool was
+used to bypass that rejection. The temporary synthetic backend was stopped;
+there is no running candidate preview. Actual candidate-browser verification is
+BLOCKED, not passed. No human acceptance, feature completion or application
+deployment is claimed.
+
+CI44675585763 passed lint, strict typing, accessory checks, the Lucide guard,
+node-only aggregate policy and sales enum contracts. The node-only report retains
+128 passes, five quarantined failures, 34 tests requiring an app and one
+quarantined pass. The browser step passed load-more, process QR and warehouse
+controls, then failed compiling `test-sewing-bands.browser.mjs`: its auth fixture
+lacks `canViewCeoDashboard`, now imported by `AuthGate.tsx`. Backend regression
+shards4/5 also failed existing auth-me/profile characterization assertions.
+Those fixtures, AuthGate and backend characterization tests are byte-identical
+to the verified9f64146d production source; the accessory candidate does not edit
+them. These failures are recorded rather than treated as passing or expanded
+into an unrelated auth repair. Other jobs were still finishing when inspected;
+the overall CI cannot pass with these failures. The full optimized build passed
+locally, but its later hosted build step was not reached after the browser error.
+
+Remaining gates are actual candidate Edge receipt/return/edit verification,
+resolution or explicit disposition of the inherited CI failures, QA-master
+review and separate application deployment authorization. The production batch
+renumbering is complete independently of these QC UI gates.
