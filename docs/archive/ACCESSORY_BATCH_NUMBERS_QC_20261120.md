@@ -198,3 +198,56 @@ manifest af2c5f2520ecb8be476d2d34e0fa6e13e677921046585b1c2df01ad1842f502f.
 The candidate merges current clone_main348948478 to preserve the deployed Cutting
 changes; only the project-context document conflicted. Existing owner disk
 exception remains; no blanket cleanup is authorized by this deployment.
+
+
+## Deployed result
+
+PR [574](https://github.com/Shmirzaev/Milana-ERP/pull/574) merged to clone_main
+at3a33b7c5ebd4116a2a7565eb6dca93f04a068e7d, with the identical tree as runtime
+source78c8aa5b086d056966d21f1d01fa56eb15ab2f65. Build-only Actions
+[44677453647](https://github.com/Shmirzaev/Milana-ERP/actions/runs/44677453647)
+published release20261120_045400. The queued helper-branch validation was
+cancelled by the owner's no-further-tests instruction. The publisher branch
+codex/accessories-owner-publish-20261120, commit99560843a, is separate and unmerged;
+its sparse worktree is C:\ERP\.codex-work\accessories-owner-publish-20261120.
+
+Archive6,845,496bytes, SHA256
+93fa710b32e2e1754f4849bb8319bdd602e785d030f65ebeb3233effcfced585.
+Source manifest c7d955135511446f23665748b33b83ffa167e2c8afcae268dce00a507012c692.
+Backend ghcr.io/shmirzaev/milana-erp-backend@sha256:133472684c6c5189b330e2055579bcf41ad444cf8f229d5b5ba66428c670451b.
+Frontend ghcr.io/shmirzaev/milana-erp-frontend@sha256:27bc52a2adcf1be99fbd3ef334160088709456e795689b0ff9e1743287af4f51.
+Backend adds only the reviewed unused schema-owned batch-identity helper over the
+exact live backend image; inventory business behavior is otherwise unchanged.
+Frontend uses locked dependencies and actual Next production compilation without
+test scripts. No production-host build/install, migration or intentional business
+write occurred. The historical renumbering operation was not rerun.
+
+Fresh mode0600 backup /opt/milana-erp/shared/backups/auto_pre_20261120_045400.dump,
+133,690,585bytes,1,403 restore objects, SHA256
+e8ad85c514ac52f63ef9e81e2650ccbf94fb7672b318d66d9519bf977afb7255;
+restore-list SHA256 cb3a261500f2fac15a5cc6eaf2af7d8399e17cc3744fb6d1935634354bee8b09.
+Hash/list verified, not fully restored. Schema0159 and fingerprint
+c1830a0f72eddbcf82a76da559bf04da16477ffce29625574a9d28e6e450ca9f unchanged.
+
+Both roles active green20261120_045400; blue20261120_044200 retained running
+for rollback. Backend activated04:58:06UTC and frontend04:58:33UTC. Four required
+internal/public health/login endpoints returned200; both health responses report
+20261120_045400. Both source manifests and runtime identities agree. Owned real
+flock keepers held both deployment locks; reservations/leases were released after
+closing identity readback. Protected plan/completed journals are on both hosts
+under /opt/milana-erp/shared/deployment-evidence/20261120_045400/.
+
+A first backup call arrived while its own reserve process still held the operation
+lock; it refused before backup/write and the subsequent call succeeded after
+reservation readback. A closing diagnostic used docker top without a PID column;
+Docker rejected that diagnostic. The V2 read-only closing check uses pid,args;
+earlier failure evidence is retained, not overwritten. Neither diagnostic
+changed routing, application code or business records. No test/browser/benchmark/
+scan/timed-observation pass is claimed. Existing owner disk exception retained;
+no blanket cleanup. Automatic deployment remains inactive. Later human workflow
+acceptance can use the retained receipt/return/edit/fabric checklist.
+
+Closing operational readback confirmed both candidates have zero restarts/OOM and
+tracebacks, active routers and valid HAProxy configuration. Backend has exactly two
+workers; PostgreSQL has39/100 connections, zero invalid indexes and revision0159.
+These are operational checks, not the skipped workflow tests or human acceptance.

@@ -15,33 +15,29 @@ Last updated 2026-11-20. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
-## Accessories: four-digit batch labels applied; QC UI candidate (20 November)
+## Accessories: four-digit batch numbers and QC UI deployed (20 November)
 
-Owner-authorized correction renamed all759 opening-import batches to unique
-four-digit labels1000–1818, skipping60 occupied batch/internal labels. Stock,
-items, movements, reservations, QC and provenance were preserved;760 linked
-audit rows verified, completion292390. Full backup, restored-copy refusal/
-rollback/apply/readback/retry QA, independent review, actual Edge readback and
-four HTTP200 health checks passed. The correction ran on20261120_040300.
-The current baseline is20261120_044200, source
-ac83508dbbacc1608e80b6422159b51985d9d35d, manifest
-af2c5f2520ecb8be476d2d34e0fa6e13e677921046585b1c2df01ad1842f502f.
-Both fresh source links/manifests agree; schema0159 unchanged. This accessories
-task has made no application deployment or shared-branch merge.
-Accessory QC controls/labels are removed in the candidate and its payloads omit
-QC; fabric QC and existing stored statuses remain. This UI change is not live.
-Exact-dependency form/payload checks, lint, full/strict typing and optimized
-production build passed. Source candidate f0790b056 is pushed, unmerged.
-CI44675585763 has failed: the unchanged sewing browser auth mock lacks the new
-CEO capability export; unchanged backend auth characterization expectations also
-fail. Actual candidate-browser verification is BLOCKED: the owner could not start
-the preview, and an explicitly authorized retry was again rejected by automatic
-approval review as “blocked by policy”. The temporary fixture server is stopped.
-The owner now explicitly requests “deploy fast without test”. Further tests/CI,
-browser QA, scans, performance gates, QA-master review and timed observation are
-skipped for this release, not passed. Immutable builds, source reconciliation,
-backup and operational health checks remain. Deployment is in progress. See
-[evidence and open gates](archive/ACCESSORY_BATCH_NUMBERS_QC_20261120.md).
+All759 opening-import batches have unique four-digit labels1000–1818, with
+stock, QC, provenance and inventory relationships preserved; completion audit292390.
+That data correction ran on040300 with backup/restored-copy QA and Edge readback.
+The owner then requested “deploy fast without test” for the QC UI change.
+Further tests/CI, browser QA, scans, performance gates, QA-master review and timed
+observation were skipped, not passed. Earlier inherited CI failures and blocked
+preview evidence remain in the archive. No human acceptance is claimed.
+
+Both hosts now serve green `20261120_045400`, runtime source
+`78c8aa5b086d056966d21f1d01fa56eb15ab2f65`, manifest
+`c7d955135511446f23665748b33b83ffa167e2c8afcae268dce00a507012c692`.
+PR574 merged to clone_main at3a33b7c5e with the identical source tree, preserving
+the deployed Cutting changes. Accessory edit/receipt/return forms hide QC and
+omit qc_status; fabric QC and stored statuses remain. The four-digit labels persist.
+Build-only Actions44677453647 published immutable images outside production.
+Fresh133,690,585-byte backup hash/list verified (1,403 objects), not fully restored.
+No migration or intentional business write. Schema0159 is unchanged. Backend
+activated04:58:06UTC; frontend04:58:33UTC. All four health endpoints returned200.
+Blue `20261120_044200` remains running as rollback; owned leases/reservations are
+released and automatic deployment remains inactive. Existing disk exception retained.
+See [exact images, evidence and skipped gates](archive/ACCESSORY_BATCH_NUMBERS_QC_20261120.md).
 
 ## Cutting remaining-balance fix deployed (20 November)
 
@@ -59,7 +55,7 @@ blocked; full backend collection fails in an unchanged identity test. The candid
 was not fully AI-verified. The owner then explicitly requested "deploy deirectly
 without test". Further tests/CI, browser QA, scans, performance gates and timed
 observation were skipped, not passed. PR #573 is merged at `03e14d02e`.
-Both hosts now serve blue `20261120_044200`, runtime source `ac83508db`, manifest
+The Cutting release, now blue rollback, is `20261120_044200`, runtime source `ac83508db`, manifest
 `af2c5f2520ecb8be476d2d34e0fa6e13e677921046585b1c2df01ad1842f502f`.
 Backend switched04:46:24UTC, frontend04:46:41UTC. All four deployment health
 checks returned200; two backend workers started, zero candidate restarts/OOM.
@@ -81,12 +77,12 @@ deployment "directly without any tests". Further tests/CI validation, browser QA
 scans, performance gates and timed observation are skipped for this release,
 not recorded as passed. Earlier access-only checks predate the presentation edits.
 The owner's follow-up made the material detail/search/filter/list collapsible,
-closed by default, with unit totals visible. Its release, now green rollback, is
+closed by default, with unit totals visible. Its historical follow-up release is
 `20261120_042800`, source `9f64146d4d5b8e523d71fb6c3483c02118d32acb`, manifest
 `413aa746515609a15a16ee4ce1d94beb3af58768f30fda051fcca565b8438544`.
 Backend switched04:31:43UTC, frontend04:32:12UTC. All four operational health checks
-returned200; zero candidate restarts/OOM. Blue `20261120_040300` remains running
-as rollback. Schema0159 is unchanged. Fresh133,536,381-byte backup
+returned200; zero candidate restarts/OOM. Blue `20261120_040300` was retained
+as rollback at that point. Schema0159 is unchanged. Fresh133,536,381-byte backup
 hash/list verified (1,403 objects), not fully restored. No migration or intentional
 business writes/users/role assignments/snapshots. Both reservations/leases released;
 automatic deploy stays disabled. Runtime source is pushed/merged to clone_main.
