@@ -119,7 +119,7 @@ type AccessoryIssueSummaryRow = {
   returnable_quantity?: number;
 };
 
-// The create receipt screen offers these three QC values and starts on
+// Fabric receiving offers these three QC values and starts on
 // `passed`. Membership in the canonical vocabulary does not widen this list.
 const RECEIPT_QC_STATUSES = [
   InventoryQcStatus.PENDING,
@@ -197,7 +197,7 @@ function toReceivePayload(form: ReceiveFormState, deriveRollWeights = false) {
     unit: deriveRollWeights && isMeterUnit(form.unit) ? "m" : form.unit,
     cost_per_unit: numberOrZero(form.cost_per_unit),
     warehouse_id: form.warehouse_id,
-    qc_status: form.qc_status,
+    ...(deriveRollWeights ? { qc_status: form.qc_status } : {}),
     supplier_id: form.supplier_id || null,
     old_code: form.old_code.trim() || null,
     color_code: form.color_code.trim() || null,
@@ -543,7 +543,7 @@ function StockForm({
           {warehouses?.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
         </select>
       </div>
-      <div>
+      {showFabricDetails && <div>
         <label className="label">{t("page.receiveStock.qcStatus")}</label>
         <select
           className="input"
@@ -557,7 +557,7 @@ function StockForm({
             <option key={status} value={status}>{t(`qc.${status}`)}</option>
           ))}
         </select>
-      </div>
+      </div>}
 
       <button className={`btn btn-primary ${spanClass}`}>{submitLabel}</button>
       {message && <div className={`text-sm ${spanClass}`}>{message}</div>}

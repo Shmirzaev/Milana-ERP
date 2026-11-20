@@ -9,7 +9,7 @@ import { fetcher } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import { departmentMessages } from "./departmentMessages";
 import { businessDate } from "./types";
-import { cuttingBundlesText, cuttingPiecesText, type CuttingBalanceTotals } from "@/lib/cuttingBalance";
+import { cuttingLabelsText, cuttingPiecesText, type CuttingBalanceTotals } from "@/lib/cuttingBalance";
 
 type Totals = { bundles: number; pieces: number; orders: number; work_orders: number };
 type FactoryBalance = CuttingBalanceTotals & { factory: string; created_bundles: number; created_pieces: number; transferred_bundles: number; transferred_pieces: number };
@@ -115,13 +115,13 @@ export default function DepartmentDashboard({ mode }: { mode: Mode }) {
     {isLoading && !data && <p role="status" className="mb-5 text-[#6c6556]">{c.loading}</p>}
     {mode === "cutting" && <>
       <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <Metric label={c.bundles} value={cuttingBundlesText(cutting?.totals, c.needsCount)} note={c.current} accent /><Metric label={c.pieces} value={cuttingPiecesText(cutting?.totals)} note={cutting?.totals.unresolved_batches ? c.needsReconciliation : c.current} />
+        <Metric label={c.pieces} value={cuttingPiecesText(cutting?.totals)} note={cutting?.totals.unresolved_batches ? c.needsReconciliation : c.current} accent /><Metric label={c.originalLabels} value={cuttingLabelsText(cutting?.totals)} note={c.labelsHelp} />
         <Metric label={c.orders} value={cutting?.totals.orders} note={c.current} /><Metric label={c.works} value={cutting?.totals.work_orders} note={c.current} />
       </div>
       <section className="mb-5 overflow-x-auto rounded-lg border border-[#e3dfd3] bg-[#fdfcf8]">
         <div className="p-5"><h2 className="text-xl font-semibold">{c.factory}</h2><p className="mt-2 text-sm text-[#6c6556]">{c.balanceHelp}</p></div>
-        <table className="table min-w-[750px]"><thead><tr><th>{c.factory}</th><th>{c.current} · {c.bundles}</th><th>{c.current} · {c.pieces}</th><th>{c.orders}</th><th>{c.created} · {c.period}</th><th>{c.transferred} · {c.period}</th></tr></thead>
-          <tbody>{cutting?.factories.map(row => <tr key={row.factory}><td className="font-semibold"><Link className="hover:underline" href={`/cutting-inventory?cutting_department=${department}&destination_factory=${row.factory}`}>{names[row.factory] || c.unassigned}</Link></td><td className="text-2xl font-semibold tabular-nums">{cuttingBundlesText(row, c.needsCount)}</td><td className="text-2xl font-semibold tabular-nums">{cuttingPiecesText(row)}{row.unresolved_batches > 0 && <div className="text-xs font-normal">{c.needsReconciliation}</div>}</td><td>{format(row.orders)}</td><td>{format(row.created_bundles)} {c.bundles} / {format(row.created_pieces)} {c.pieces}</td><td>{format(row.transferred_bundles)} {c.bundles} / {format(row.transferred_pieces)} {c.pieces}</td></tr>)}</tbody></table>
+        <table className="table min-w-[750px]"><thead><tr><th>{c.factory}</th><th>{c.originalLabels}</th><th>{c.current} · {c.pieces}</th><th>{c.orders}</th><th>{c.created} · {c.period}</th><th>{c.transferred} · {c.period}</th></tr></thead>
+          <tbody>{cutting?.factories.map(row => <tr key={row.factory}><td className="font-semibold"><Link className="hover:underline" href={`/cutting-inventory?cutting_department=${department}&destination_factory=${row.factory}`}>{names[row.factory] || c.unassigned}</Link></td><td className="text-2xl font-semibold tabular-nums">{cuttingLabelsText(row)}</td><td className="text-2xl font-semibold tabular-nums">{cuttingPiecesText(row)}{row.unresolved_batches > 0 && <div className="text-xs font-normal">{c.needsReconciliation}</div>}</td><td>{format(row.orders)}</td><td>{format(row.created_bundles)} {c.bundles} / {format(row.created_pieces)} {c.pieces}</td><td>{format(row.transferred_bundles)} {c.bundles} / {format(row.transferred_pieces)} {c.pieces}</td></tr>)}</tbody></table>
       </section>
       <section className="rounded-lg border border-[#e3dfd3] bg-[#fdfcf8] p-5"><h2 className="text-xl font-semibold">{c.waste}</h2><p className="mt-2 text-sm text-[#6c6556]">{c.wasteHelp}</p>
         <div className="mt-5 flex flex-wrap gap-8">{cutting?.waste.map(row => <div key={row.unit}><div className="text-4xl font-semibold tabular-nums">{format(row.quantity)} <span className="text-xl text-[#6c6556]">{row.unit}</span></div><p className="mt-2 text-xs text-[#8a8472]">{row.records} {c.records}</p></div>)}{cutting && !cutting.waste.length && <p>{c.noWaste}</p>}</div>
