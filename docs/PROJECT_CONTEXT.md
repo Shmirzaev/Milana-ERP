@@ -15,6 +15,13 @@ Last updated 2026-11-20. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
+## UzumPilot moved to VM 108 (20 November)
+
+- UzumPilot is served from `172.16.10.9:8765` on Proxmox VM `108`. Nginx Proxy Manager host `15` forwards `analytics.milanapremium.uz` to the new VM with the existing TLS and proxy settings. Cutover completed at 12:28:54 UTC (17:28:54 Tashkent).
+- The existing 100 GiB virtual disk was expanded inside the guest. Docker runs the same `7.54.0-calendar-fix` image and runtime settings with the new bind address. Twelve image tags, the application directory and backups, and the live Docker volume were copied over SSH. The final volume checksum comparison found no differences after stopping the original container. SQLite opened 55 tables on the new VM and checkpointed its copied write-ahead log before application startup.
+- Public login and API ping returned HTTP 200. The new container reported healthy with zero restarts in postflight, and the collector accepted a heartbeat and a market capture. VM `108` was added to the existing nightly Proxmox backup job. Its first scheduled backup is pending.
+- The old UzumPilot container on `172.16.10.4` is stopped, with its data, images, and backups retained for rollback. Temporary transfer keys were removed. The ERP backend root disk still had 4.9 GiB free after cutover. ERP release `20261120_050400` stayed active, and all four ERP health and login endpoints returned HTTP 200. No ERP deployment or database change was made.
+
 ## Accessories: four-digit batch numbers and QC UI deployed (20 November)
 
 All759 opening-import batches have unique four-digit labels1000–1818, with
