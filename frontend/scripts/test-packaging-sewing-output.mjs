@@ -17,12 +17,6 @@ const availabilityLibrary = {};
 new Function("exports", ts.transpileModule(fs.readFileSync(new URL("../src/lib/packagingAvailabilityText.ts", import.meta.url), "utf8"), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
 }).outputText)(availabilityLibrary);
-const traceEditor = {};
-new Function("exports", "React", "require", ts.transpileModule(fs.readFileSync(new URL("../src/components/PackageBatchBreakdownEditor.tsx", import.meta.url), "utf8"), {
-  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.React },
-}).outputText)(traceEditor, React, name => {
-  assert.equal(name, "@/lib/packageBatchTrace"); return traceLibrary;
-});
 const compiled = ts.transpileModule(source, { compilerOptions: {
   module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.React,
 } }).outputText;
@@ -57,7 +51,6 @@ function render(sewn, remaining, batched = true, events = {}) {
     "@/lib/multiNastilPackaging": multiNastil,
     "@/lib/packageBatchTrace": traceLibrary,
     "@/lib/packagingAvailabilityText": availabilityLibrary,
-    "@/components/PackageBatchBreakdownEditor": traceEditor,
     "@/lib/errorMessages": { localizeError: value => value },
     "@/lib/batchSerial": { formatBatchLabel: row => row.name, formatBatchSerial: row => row.batch_no },
     "@/lib/packageWorkflow": { postPackageWorkflow: async (_path, body) => { (events.createdRequests ??= []).push(body); events.created = body; if (_path === "/api/packages/record-damage") return { id: 2, damaged_qty: body.damaged_qty }; return { id: 1, count: body.packages.length, package_ids: [1], run_no: "PRN-1" }; } },
@@ -105,39 +98,24 @@ assert.equal(merged.created.work_order_id, 3);
 assert.equal(merged.created.packages.length, 2);
 assert.deepEqual(merged.created.packages.map(pack => pack.items.reduce((sum, item) => sum + item.quantity, 0)), [60, 15]);
 assert.deepEqual(merged.created.packages.flatMap(pack => pack.batch_allocations.map(row => [row.production_batch_id, row.quantity])), [[1, 35], [2, 25], [2, 15]]);
-assert.deepEqual(merged.created.packages[0].batch_allocations.map(row => row.item_breakdown), [
-  [{ model_id: 1, color: "white", size: "M", quantity: 35 }],
-  [{ model_id: 1, color: "white", size: "M", quantity: 25 }],
-]);
-// Ambiguous mixed contents require actual operator attribution. A matching grand
-// total alone is insufficient: swapping size totals must still stop the write.
+assert.ok(merged.created.packages.every(pack => pack.batch_allocations.every(row => row.item_breakdown === undefined)));
+// Sizes still describe the package as a whole. Operators may change only batch totals.
 const mixedItems = [{ model_id: 1, color: "white", size: "M", quantity: 30 }, { model_id: 1, color: "white", size: "L", quantity: 30 }];
-const mixedPlans = [{ items: mixedItems, batch_allocations: [{ production_batch_id: 1, quantity: 35, label: "Nastil A" }, { production_batch_id: 2, quantity: 40, label: "Nastil B" }] }];
-const traceKey = traceLibrary.packageTracePlanKey(mixedPlans);
-function mixedEvents(values = {}, key = traceKey) {
-  return { ...merged, created: undefined, states: { 1: mixedItems.map(({ size, quantity }) => ({ size, quantity })), 6: 1, 8: true, 9: [1, 2], 16: { key, values } } };
-}
-const missingTrace = mixedEvents();
-assert.match(render(75, 0, true, missingTrace), /Contents by Nastil and size/);
-await missingTrace.submitPackage({ preventDefault() {} });
-assert.equal(missingTrace.created, undefined);
-const cells = {};
-for (const [batch, m, l] of [[1, 10, 25], [2, 20, 5]]) {
-  cells[traceLibrary.traceCellKey(0, batch, mixedItems[0])] = String(m);
-  cells[traceLibrary.traceCellKey(0, batch, mixedItems[1])] = String(l);
-}
-const exactTrace = mixedEvents(cells);
-render(75, 0, true, exactTrace);
-await exactTrace.submitPackage({ preventDefault() {} });
-assert.deepEqual(exactTrace.created.packages[0].batch_allocations.map(row => row.item_breakdown.map(item => [item.size, item.quantity])), [[ ["M", 10], ["L", 25] ], [ ["M", 20], ["L", 5] ]]);
-const actualSources = mixedEvents({
-  [traceLibrary.traceCellKey(0, 1, mixedItems[0])]: "30",
-  [traceLibrary.traceCellKey(0, 2, mixedItems[1])]: "30",
-});
-render(75, 0, true, actualSources); await actualSources.submitPackage({ preventDefault() {} });
-assert.deepEqual(actualSources.created.packages[0].batch_allocations.map(row => [row.production_batch_id, row.quantity]), [[1, 30], [2, 30]], "Actual source sizes must not be forced into the scalar FIFO suggestion 35+25");
-for (const event of [mixedEvents(cells, "stale-plan"), mixedEvents({ ...cells, [traceLibrary.traceCellKey(0, 1, mixedItems[0])]: "11" })]) {
-  render(75, 0, true, event); await event.submitPackage({ preventDefault() {} }); assert.equal(event.created, undefined);
+const mixedEvent = { ...merged, created: undefined,
+  states: { 1: mixedItems.map(({ size, quantity }) => ({ size, quantity })), 6: 1, 8: true, 9: [1, 2] } };
+const mixedHtml = render(75, 0, true, mixedEvent);
+assert.doesNotMatch(mixedHtml, /Contents by Nastil and size/);
+assert.match(mixedHtml, /Adjust quantities by Nastil/);
+await mixedEvent.submitPackage({ preventDefault() {} });
+assert.deepEqual(mixedEvent.created.packages[0].items, mixedItems);
+assert.deepEqual(mixedEvent.created.packages[0].batch_allocations.map(row => [row.production_batch_id, row.quantity]), [[1, 35], [2, 25]]);
+const draftSources = [{ id: 1, available: 35, label: "A" }, { id: 2, available: 40, label: "B" }];
+const plans = [{ items: mixedItems, batch_allocations: mixedEvent.created.packages[0].batch_allocations }];
+const adjusted = multiNastil.applyNastilQuantities(plans, draftSources, { 0: { 1: "30", 2: "30" } });
+assert.equal(adjusted.valid, true);
+assert.deepEqual(adjusted.plans[0].batch_allocations.map(row => row.quantity), [30, 30]);
+for (const quantities of [{ 1: "10", 2: "40" }, { 1: "20", 2: "41" }, { 1: "29.5", 2: "30.5" }]) {
+  assert.equal(multiNastil.applyNastilQuantities(plans, draftSources, { 0: quantities }).valid, false);
 }
 const onePack = { ...merged, states: { 6: 1, 8: true, 9: [1, 2] }, created: undefined };
 render(75, 0, true, onePack);

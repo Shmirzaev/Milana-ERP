@@ -63,3 +63,30 @@ export function planSelectedNastils(items: PackagePlanItem[], sources: NastilPac
     pendingAllocations, crossBatchCount: mixed.length,
     previewLines: mixed.slice(0, 3).map(plan => plan.batch_allocations!.map(source => `${source.label}: ${source.quantity}`).join(" + ")) };
 }
+
+export type NastilQuantityDraft = Record<number, Record<number, string>>;
+
+export function applyNastilQuantities(plans: PackagePlan[], sources: NastilPackageSource[], draft: NastilQuantityDraft) {
+  const used = new Map<number, number>();
+  let valid = true;
+  const result = plans.map((plan, index) => {
+    const expected = plan.items.reduce((total, item) => total + item.quantity, 0);
+    const quantities = draft[index];
+    const allocations = quantities ? sources.flatMap(source => {
+      const quantity = Number(quantities[source.id] ?? 0);
+      if (!Number.isInteger(quantity) || quantity < 0 || quantity > source.available) valid = false;
+      return quantity > 0 ? [{ production_batch_id: source.id, quantity, label: source.label }] : [];
+    }) : plan.batch_allocations ?? [];
+    if (allocations.reduce((total, row) => total + row.quantity, 0) !== expected) valid = false;
+    for (const row of allocations) used.set(row.production_batch_id, (used.get(row.production_batch_id) ?? 0) + row.quantity);
+    return { ...plan, batch_allocations: allocations };
+  });
+  if (sources.some(source => (used.get(source.id) ?? 0) > source.available)) valid = false;
+  return { plans: result, valid };
+}
+
+export const nastilQuantityText = {
+  en: { adjust: "Adjust quantities by Nastil", invalid: "Each package must match its total and stay within the available Nastil quantities." },
+  ru: { adjust: "Изменить количество по настилам", invalid: "Сумма по настилам должна совпадать с количеством в упаковке и не превышать доступный остаток." },
+  uz: { adjust: "Nastil bo‘yicha miqdorlarni o‘zgartirish", invalid: "Nastil miqdorlari qadoqdagi jami donaga teng va mavjud qoldiqdan oshmasligi kerak." },
+};

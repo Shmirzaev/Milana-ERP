@@ -1,6 +1,6 @@
 "use client";
 import { formatModelVariantCode } from "@/lib/variantDisplay";
-import { localizeError } from "@/lib/errorMessages";
+import { ApiError, localizeError } from "@/lib/errorMessages";
 import { formatOrderReference } from "@/lib/orderRef";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
@@ -369,9 +369,8 @@ export default function PlanningDashboard() {
   const [brandedErr, setBrandedErr] = useState("");
   const [brandedSuccess, setBrandedSuccess] = useState<{ id: number; orderNo: string } | null>(null);
   const [selectedBrandedOrderId, setSelectedBrandedOrderId] = useState(0);
-  const [newBrandedOrderSaving, setNewBrandedOrderSaving] = useState(false);
   const [newBrandedOrderOpen, setNewBrandedOrderOpen] = useState(false);
-  const [newBrandedOrderErr, setNewBrandedOrderErr] = useState("");
+  const [newBrandedCustomerId, setNewBrandedCustomerId] = useState<number | null | undefined>(undefined);
   const [brandedPrintingInstructions, setBrandedPrintingInstructions] = useState("");
   const [brandedPrintingAttachments, setBrandedPrintingAttachments] = useState<PrintingAttachment[]>([]);
   const [brandedUploadingPrintFile, setBrandedUploadingPrintFile] = useState(false);
@@ -911,23 +910,17 @@ export default function PlanningDashboard() {
     }
   }
 
-  async function createBrandedPlanningOrder(customerId: number | null) {
-    if (newBrandedOrderSaving) return;
-    setNewBrandedOrderErr("");
-    setNewBrandedOrderSaving(true);
-    try {
-      const order = await api.post<BrandedPlanningOrder>("/api/planning/branded-orders", customerId ? { ordered_for_type: BrandedPlanningOrderType.CUSTOMER, customer_id: customerId } : {});
-      await mutateBrandedOrders();
-      setNewBrandedOrderOpen(false);
-      selectBrandedOrderForProduction(order.id);
-    } catch (e: any) {
-      setNewBrandedOrderErr(e?.message || t("page.warehouseMap.actionFailed"));
-    } finally {
-      setNewBrandedOrderSaving(false);
-    }
+  function startBrandedOrder(customerId: number | null) {
+    setNewBrandedCustomerId(customerId);
+    setNewBrandedOrderOpen(false);
+    setSelectedBrandedOrderId(0);
+    setBrandedErr("");
+    setBrandedSuccess(null);
+    setBrandedDialogOpen(true);
   }
 
   function selectBrandedOrderForProduction(orderId: number) {
+    setNewBrandedCustomerId(undefined);
     setSelectedBrandedOrderId(orderId);
     setBrandedErr("");
     setBrandedSuccess(null);
@@ -936,6 +929,7 @@ export default function PlanningDashboard() {
 
   async function createBranded(e: React.FormEvent) {
     e.preventDefault();
+    if (brandedSaving) return;
     setBrandedErr("");
     if (!brandedForm.model_id) {
       setBrandedErr(t("newso.selectModel"));
@@ -969,7 +963,7 @@ export default function PlanningDashboard() {
       setBrandedErr(t("page.planning.duplicateFabric"));
       return;
     }
-    if (!selectedBrandedOrderId) {
+    if (!selectedBrandedOrderId && newBrandedCustomerId === undefined) {
       setBrandedErr(t("page.planning.selectBrandedOrderError"));
       return;
     }
@@ -995,7 +989,10 @@ export default function PlanningDashboard() {
     try {
       const po = await api.post("/api/planning/create-branded-production", {
         production_type: "branded_stock",
-        planning_order_id: selectedBrandedOrderId,
+        planning_order_id: selectedBrandedOrderId || null,
+        ...(newBrandedCustomerId != null ? { branded_order: {
+          ordered_for_type: BrandedPlanningOrderType.CUSTOMER, customer_id: newBrandedCustomerId,
+        } } : {}),
         model_id: brandedForm.model_id,
         brand_id: brandedForm.brand_id,
         ...primaryFabricSourceInput(primaryMaterial.batch!.id),
@@ -1018,6 +1015,10 @@ export default function PlanningDashboard() {
       if (brandedForm.deadline) {
         try { await api.post(`/api/production-orders/${po.id}/cascade-deadlines`); } catch {}
       }
+      if (po.planning_order_id) {
+        setSelectedBrandedOrderId(po.planning_order_id);
+        setNewBrandedCustomerId(undefined);
+      }
       setBrandedSuccess({ id: po.id, orderNo: po.order_no || po.production_no || `#${po.id}` });
       setBrandedSelectorKey((key) => key + 1);
       setBrandedForm((prev) => ({
@@ -1033,8 +1034,9 @@ export default function PlanningDashboard() {
       setBrandedPrintingInstructions("");
       setBrandedPrintingAttachments([]);
       await Promise.all([mutateBrandedOrders(), mutateProductionOrders()]);
-    } catch (e: any) {
-      setBrandedErr(e?.message || t("page.warehouseMap.actionFailed"));
+    } catch (error) {
+      setBrandedErr(error instanceof ApiError ? localizeError(error.rawDetail, error.status)
+        : error instanceof Error ? error.message : t("page.warehouseMap.actionFailed"));
     } finally {
       setBrandedSaving(false);
     }
@@ -1612,25 +1614,25 @@ export default function PlanningDashboard() {
         orders={brandedOrders || []}
         models={[]}
         activeOrderId={selectedBrandedOrderId}
-        creating={newBrandedOrderSaving}
-        error={newBrandedOrderErr}
-        onNewOrder={() => { setNewBrandedOrderErr(""); setNewBrandedOrderOpen(true); }}
+        creating={brandedSaving}
+        error=""
+        onNewOrder={() => setNewBrandedOrderOpen(true)}
         onAddProduction={selectBrandedOrderForProduction}
       />
 
-      {newBrandedOrderOpen && <BrandedCustomerDialog busy={newBrandedOrderSaving} error={newBrandedOrderErr}
-        onClose={() => setNewBrandedOrderOpen(false)} onCreate={createBrandedPlanningOrder} />}
-      {selectedBrandedOrder ? (
-      <Modal open={brandedDialogOpen} onClose={() => { if (!brandedSaving && !newBrandTarget) setBrandedDialogOpen(false); }} title={`${t("page.planning.addBrandedProduction")} — ${selectedBrandedOrder.order_no}`} full closeOnOutsideClick={false}>
+      {newBrandedOrderOpen && <BrandedCustomerDialog busy={false} error=""
+        onClose={() => setNewBrandedOrderOpen(false)} onCreate={startBrandedOrder} />}
+      {(selectedBrandedOrder || newBrandedCustomerId !== undefined || brandedSuccess) ? (
+      <Modal open={brandedDialogOpen} onClose={() => { if (!brandedSaving && !newBrandTarget) setBrandedDialogOpen(false); }} title={selectedBrandedOrder ? `${t("page.planning.addBrandedProduction")} — ${selectedBrandedOrder.order_no}` : t("page.planning.newOrder")} full closeOnOutsideClick={false}>
       <form id="branded-production-form" onSubmit={createBranded} className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
         <div className="space-y-4">
         <section className="card">
           <div className="flex items-center justify-between border-b border-[#ecebe3] px-5 py-4">
             <div>
               <h2 className="app-card-title">{t("page.planning.addBrandedProduction")}</h2>
-              <p className="mt-1 text-sm text-[#8a8472]">{t("page.planning.activeOrder")}: {selectedBrandedOrder.order_no}</p>
+              {selectedBrandedOrder && <p className="mt-1 text-sm text-[#8a8472]">{t("page.planning.activeOrder")}: {selectedBrandedOrder.order_no}</p>}
             </div>
-            <span className="mono text-sm font-semibold text-[#56503f]">{formatOrderReference(selectedBrandedOrder?.order_no || "—")}</span>
+            {selectedBrandedOrder && <span className="mono text-sm font-semibold text-[#56503f]">{formatOrderReference(selectedBrandedOrder.order_no)}</span>}
           </div>
           <div className="border-b border-[#ecebe3] px-5 py-4">
             <BrandedModelVariantSelect key={brandedSelectorKey} value={brandedForm.model_id} onChange={selectBrandedModel} />
@@ -2009,8 +2011,8 @@ export default function PlanningDashboard() {
                 <Link className="font-semibold underline" href={`/production-orders/${brandedSuccess.id}`}>{t("common.view")}</Link>
               </div>
             ) : null}
-            {brandedErr && <div className="rounded-md bg-red-50 p-3 text-sm text-red-700">{brandedErr}</div>}
-            <button className="btn btn-primary w-full" disabled={brandedSaving || !selectedBrandedOrderId || !brandedLinesHaveValidSizes}>
+            {brandedErr && <div role="alert" className="rounded-md bg-red-50 p-3 text-sm text-red-700">{brandedErr}</div>}
+            <button className="btn btn-primary w-full" disabled={brandedSaving || (!selectedBrandedOrderId && newBrandedCustomerId === undefined) || !brandedLinesHaveValidSizes}>
               {brandedSaving ? t("newso.creating") : t("page.planning.addProduction")}
             </button>
           </div>

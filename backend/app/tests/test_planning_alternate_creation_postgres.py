@@ -11,8 +11,9 @@ from sqlalchemy.orm import sessionmaker
 
 from app.core.config import settings
 from app.libs.dto.production.production import ProductionOrderIn
-from app.models.planning import production_planning_service as service
+from app.models.planning import branded_orders_service as branded_orders, production_planning_service as service
 from app.schemas import AuditLog, BrandedPlanningOrder, Department, Model, ProductionBatch, ProductionOrder, ProductionOrderItem, User, WorkOrder
+from app.tests.branded_production_fixture import attach_test_qolip
 from app.tests.pg_approved_instance import (
     ApprovedInstanceUnavailable, create_target_database, finalize_target, load_approved_instance,
     owned_target_name, preflight_connection, require_or_skip, target_engine,
@@ -69,7 +70,7 @@ def seed(sessions):
                 db.add(Department(code=code, name=f"Synthetic {code}"))
         actor = User(name="Synthetic planning actor", email=f"planning-{marker}@example.test", password_hash="unused")
         model = Model(code=f"PLANNING-{marker}", name="Synthetic planning model", status="approved")
-        db.add_all([actor, model]); db.commit()
+        db.add_all([actor, model]); attach_test_qolip(db, model); db.commit()
         return actor.id, model.id
 
 
@@ -97,7 +98,7 @@ def test_pg_alternate_create_and_existing_order_handoff(sessions, seed):
         assert len(po.batches) == 1 and po.batches[0].production_order_id == po_id
         assert any(wo.operation == "cutting" and wo.production_order_id == po_id for wo in po.work_orders)
         assert db.query(AuditLog).filter_by(entity_type="ProductionOrder", entity_id=po_id, action="create").count() == 1
-        assert db.query(AuditLog).filter_by(entity_type="BrandedPlanningOrder", entity_id=order_id, action="create").count() == 0
+        assert db.query(AuditLog).filter_by(entity_type="BrandedPlanningOrder", entity_id=order_id, action="create").count() == 1
         existing = BrandedPlanningOrder(order_no=f"EXISTING-{uuid4().hex}", ordered_for_type="eco_cotton",
                                        ordered_for_name="Eco Cotton", status="open", notes="preserve")
         db.add(existing); db.commit(); existing_id = existing.id
@@ -136,14 +137,15 @@ def test_pg_alternate_postflush_and_audit_failure_rollback_retry(sessions, seed,
     actor_id, model_id = seed
     with sessions() as db:
         before = counts(db)
-    original = getattr(service, hook)
+    owner = branded_orders if hook == "insert_branded_planning_order" else service
+    original = getattr(owner, hook)
 
     def fail_after_write(*args, **kwargs):
         original(*args, **kwargs)
         raise RuntimeError("injected after participant write")
 
     with monkeypatch.context() as patch:
-        patch.setattr(service, hook, fail_after_write)
+        patch.setattr(owner, hook, fail_after_write)
         with sessions() as db:
             with pytest.raises(RuntimeError, match="injected after participant write"):
                 service.create_branded_stock_production(db, payload(model_id), db.get(User, actor_id))

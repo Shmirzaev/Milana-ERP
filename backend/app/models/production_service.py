@@ -156,6 +156,15 @@ def create_production_order(
         raise HTTPException(404, "Model not found")
     if production_type == "branded_stock" and model.status != "approved":
         raise HTTPException(400, "Branded stock production requires an approved model")
+    if production_type == "branded_stock":
+        from app.models.production.branded_pattern_service import require_branded_pattern
+        require_branded_pattern(db, model)
+        item_model_ids = {int(row["model_id"]) for row in normalized_items if row.get("model_id")} - {model.id}
+        item_models = db.query(Model).filter(Model.id.in_(item_model_ids)).all() if item_model_ids else []
+        if len(item_models) != len(item_model_ids) or any(row.catalog_scope != "standard" for row in item_models):
+            raise HTTPException(404, "Model not found")
+        for item_model in item_models:
+            require_branded_pattern(db, item_model)
     if production_type == "client_order" and not sales_order_id:
         raise HTTPException(400, "Client order production requires sales_order_id")
 

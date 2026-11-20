@@ -21,13 +21,21 @@ export function systemLanguage(): Lang {
   return "en";
 }
 const messages: Record<string, [string, string]> = {
+  "A Nastil sent to Sewing cannot be deleted from Cutting.": ["Отправленный в пошив настил нельзя удалить из раскроя.", "Tikuvga jo‘natilgan nastilni bichimdan o‘chirib bo‘lmaydi."],
+  "A Nastil in transit cannot change Sewing destination.": ["Назначение настила в пути изменить нельзя.", "Yo‘ldagi nastilning tikuv fabrikasini o‘zgartirib bo‘lmaydi."],
+  "This Nastil is no longer ready to send to Sewing.": ["Этот настил больше не готов к отправке в швейный цех. Обновите список настилов.", "Bu nastil tikuvga jo‘natish uchun tayyor emas. Nastillar ro‘yxatini yangilang."],
+  "The selected Nastil quantities cannot supply the package sizes.": ["Выбранные количества по настилам не покрывают размеры упаковки. Проверьте выбранные настилы и состав упаковки.", "Tanlangan nastillardagi miqdor qadoq o‘lchamlariga yetmaydi. Nastillar va qadoq tarkibini tekshiring."],
+  "Select a model with a Qolip number and file to create a BSO.": ["Выберите модель с номером и файлом лекала, чтобы создать BSO.", "BSO yaratish uchun qolip raqami va fayli bor modelni tanlang."],
+  "Enter the Qolip number and attach the Qolip file to this model before creating a BSO.": ["Чтобы создать BSO, укажите номер лекала и прикрепите файл лекала к этой модели.", "BSO yaratishdan oldin ushbu modelga qolip raqamini kiriting va qolip faylini biriktiring."],
+  "Enter the Qolip number on this model before creating a BSO.": ["Чтобы создать BSO, укажите номер лекала для этой модели.", "BSO yaratishdan oldin ushbu modelga qolip raqamini kiriting."],
+  "Attach the Qolip file to this model before creating a BSO.": ["Чтобы создать BSO, прикрепите файл лекала к этой модели.", "BSO yaratishdan oldin ushbu modelga qolip faylini biriktiring."],
   "Finance must enter the printing cost before confirmation": ["Финансовый отдел должен указать стоимость печати перед подтверждением.", "Tasdiqlashdan oldin moliya bo‘limi bosma narxini kiritishi kerak."],
   "Invalid source item breakdown": ["Проверьте состав по настилам, цветам и размерам.", "Nastil, rang va o‘lcham bo‘yicha tarkibni tekshiring."],
   "Every repeated source row requires its item breakdown": ["Для каждой строки настила укажите состав по цветам и размерам.", "Nastilning har bir qatori uchun rang va o‘lcham tarkibini kiriting."],
   "Source item breakdown must match package contents": ["Состав настила должен совпадать с содержимым упаковки.", "Nastil tarkibi qadoq tarkibiga mos bo‘lishi kerak."],
   "Source item breakdown must equal its batch quantity": ["Сумма по цветам и размерам должна совпадать с количеством настила.", "Rang va o‘lcham yig‘indisi nastil miqdoriga teng bo‘lishi kerak."],
   "Source item breakdowns must conserve every package model, color and size": ["Проверьте суммы по моделям, цветам и размерам во всех настилах упаковки.", "Qadoqning barcha nastillarida model, rang va o‘lcham yig‘indilarini tekshiring."],
-  "Package size quantity exceeds actual passed Sewing for this batch; legacy unknown allocations may reserve its size balance": ["Не хватает подтверждённого выпуска этого размера в выбранном настиле. Проверьте старые смешанные упаковки без состава по размерам.", "Tanlangan nastilda bu o‘lchamning tasdiqlangan tikuv miqdori yetarli emas. O‘lcham tarkibi qayd etilmagan eski aralash qadoqlarni tekshiring."],
+  "Package size quantity exceeds actual passed Sewing for this batch; unknown allocations may reserve its size balance": ["Не хватает подтверждённого выпуска этого размера в выбранном настиле. Проверьте старые смешанные упаковки без состава по размерам.", "Tanlangan nastilda bu o‘lchamning tasdiqlangan tikuv miqdori yetarli emas. O‘lcham tarkibi qayd etilmagan eski aralash qadoqlarni tekshiring."],
   "Authentication is temporarily unavailable. Try again later.": ["Вход и восстановление пароля временно недоступны. Повторите попытку позже.", "Tizimga kirish va parolni tiklash vaqtincha mavjud emas. Keyinroq qayta urinib ko‘ring."],
   "Admin access required": ["Требуется доступ администратора.", "Administrator ruxsati talab qilinadi."],
   "Shipment customer must match the sales order customer": ["Клиент отгрузки должен совпадать с клиентом заказа.", "Jo‘natma mijozi buyurtma mijoziga mos kelishi kerak."],

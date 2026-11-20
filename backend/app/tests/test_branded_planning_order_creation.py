@@ -33,7 +33,7 @@ from app.libs.enums.planning import (
     BrandedPlanningOrderStatus,
     BrandedPlanningOrderType,
 )
-from app.models.planning import branded_orders_service
+from app.models.planning import branded_orders_service, production_planning_service
 from app.schemas import (
     AuditLog,
     BrandedPlanningOrder,
@@ -81,6 +81,11 @@ def _stored_order(order_id: int) -> BrandedPlanningOrder:
 def _planning_orders() -> list[BrandedPlanningOrder]:
     with TestSessionLocal() as db:
         return db.query(BrandedPlanningOrder).order_by(BrandedPlanningOrder.id).all()
+
+
+def _create_order(client, *, headers, json=None):
+    return client.post("/api/planning/branded-orders", headers=headers,
+                       json={"production": _alternate_payload(), **(json or {})})
 
 
 # --- the input contract is enum typed ---------------------------------------
@@ -182,7 +187,7 @@ def test_http_responses_publish_the_used_nested_enum_contract():
 def test_http_response_validation_rejects_invalid_fixed_vocabulary(client, auth_headers, monkeypatch):
     from fastapi.exceptions import ResponseValidationError
 
-    created = client.post("/api/planning/branded-orders", json={}, headers=auth_headers)
+    created = _create_order(client, json={}, headers=auth_headers)
     assert created.status_code == 201
     invalid_output = created.json()
     invalid_output["status"] = "production-only-state"
@@ -273,7 +278,7 @@ def test_the_output_contract_keeps_the_wire_payload_keys():
 
 def test_create_branded_order_declares_the_dto_it_actually_returns():
     """The declared contract must match the used result, not reshape it."""
-    assert get_type_hints(branded_orders_service.create_branded_order)["return"] is (
+    assert get_type_hints(production_planning_service.create_branded_order)["return"] is (
         BrandedPlanningOrderOut
     )
 
@@ -285,7 +290,7 @@ def test_list_branded_orders_declares_the_list_of_dtos_it_actually_returns():
 
 
 def test_the_create_operation_really_returns_the_declared_dto(client, auth_headers):
-    response = client.post("/api/planning/branded-orders", json={}, headers=auth_headers)
+    response = _create_order(client, json={}, headers=auth_headers)
 
     assert response.status_code == 201, response.text
     assert response.json()["status"] == "open"
@@ -463,7 +468,7 @@ def test_create_branded_order_defaults_to_milana_and_open(client, auth_headers):
     before_orders = _order_count()
     before_audits = _audit_count()
 
-    response = client.post("/api/planning/branded-orders", json={}, headers=auth_headers)
+    response = _create_order(client, json={}, headers=auth_headers)
 
     assert response.status_code == 201, response.text
     body = response.json()
@@ -486,9 +491,7 @@ def test_create_branded_order_defaults_to_milana_and_open(client, auth_headers):
 
 
 def test_create_branded_order_normalizes_party_case_and_whitespace(client, auth_headers):
-    response = client.post(
-        "/api/planning/branded-orders",
-        json={"ordered_for_type": "  Eco_Cotton  "},
+    response = _create_order(client, json={"ordered_for_type": "  Eco_Cotton  "},
         headers=auth_headers,
     )
 
@@ -501,9 +504,7 @@ def test_create_branded_order_normalizes_party_case_and_whitespace(client, auth_
 def test_create_branded_order_accepts_a_customer(client, auth_headers):
     customer_id = _customer("Branded Order Customer")
 
-    response = client.post(
-        "/api/planning/branded-orders",
-        json={"ordered_for_type": "customer", "customer_id": customer_id},
+    response = _create_order(client, json={"ordered_for_type": "customer", "customer_id": customer_id},
         headers=auth_headers,
     )
 
@@ -517,9 +518,7 @@ def test_create_branded_order_accepts_a_customer(client, auth_headers):
 def test_create_branded_order_ignores_a_customer_id_for_a_company_party(client, auth_headers):
     customer_id = _customer("Ignored For A Party")
 
-    response = client.post(
-        "/api/planning/branded-orders",
-        json={"ordered_for_type": "besttex", "customer_id": customer_id},
+    response = _create_order(client, json={"ordered_for_type": "besttex", "customer_id": customer_id},
         headers=auth_headers,
     )
 
@@ -531,18 +530,14 @@ def test_create_branded_order_ignores_a_customer_id_for_a_company_party(client, 
 
 
 def test_create_branded_order_normalizes_notes(client, auth_headers):
-    response = client.post(
-        "/api/planning/branded-orders",
-        json={"notes": "  call the factory  "},
+    response = _create_order(client, json={"notes": "  call the factory  "},
         headers=auth_headers,
     )
     assert response.status_code == 201, response.text
     stored = _stored_order(int(response.json()["id"]))
     assert stored.notes == "call the factory"
 
-    blank = client.post(
-        "/api/planning/branded-orders",
-        json={"notes": "   "},
+    blank = _create_order(client, json={"notes": "   "},
         headers=auth_headers,
     )
     assert blank.status_code == 201, blank.text
@@ -551,7 +546,7 @@ def test_create_branded_order_normalizes_notes(client, auth_headers):
 
 
 def test_create_branded_order_writes_one_create_audit_row(client, auth_headers):
-    response = client.post("/api/planning/branded-orders", json={}, headers=auth_headers)
+    response = _create_order(client, json={}, headers=auth_headers)
     assert response.status_code == 201, response.text
     order_id = int(response.json()["id"])
 
@@ -619,9 +614,7 @@ def test_create_branded_order_refuses_an_unsupported_party_without_writing(
     before_orders = _order_count()
     before_audits = _audit_count()
 
-    response = client.post(
-        "/api/planning/branded-orders",
-        json={"ordered_for_type": supplied},
+    response = _create_order(client, json={"ordered_for_type": supplied},
         headers=auth_headers,
     )
 
@@ -634,9 +627,7 @@ def test_create_branded_order_refuses_a_missing_customer_without_writing(client,
     before_orders = _order_count()
     before_audits = _audit_count()
 
-    response = client.post(
-        "/api/planning/branded-orders",
-        json={"ordered_for_type": "customer"},
+    response = _create_order(client, json={"ordered_for_type": "customer"},
         headers=auth_headers,
     )
 
@@ -650,9 +641,7 @@ def test_create_branded_order_refuses_an_unknown_customer_without_writing(client
     before_orders = _order_count()
     before_audits = _audit_count()
 
-    response = client.post(
-        "/api/planning/branded-orders",
-        json={"ordered_for_type": "customer", "customer_id": 2147483647},
+    response = _create_order(client, json={"ordered_for_type": "customer", "customer_id": 2147483647},
         headers=auth_headers,
     )
 
@@ -671,7 +660,7 @@ def test_the_service_still_refuses_a_non_member_ordered_for_type():
     with TestSessionLocal() as db:
         actor = db.query(User).filter_by(email="admin@example.com").one()
         with pytest.raises(HTTPException) as refusal:
-            branded_orders_service.create_branded_order(db, payload, actor)
+            branded_orders_service.open_branded_order(db, payload, actor)
 
     assert refusal.value.status_code == 400
     assert refusal.value.detail == "Choose Milana, Eco Cotton, Besttex, or a customer"
@@ -685,7 +674,7 @@ def test_create_branded_order_requires_authentication(client):
 
 
 def test_list_branded_orders_defaults_to_the_open_status(client, auth_headers):
-    created = client.post("/api/planning/branded-orders", json={}, headers=auth_headers)
+    created = _create_order(client, json={}, headers=auth_headers)
     assert created.status_code == 201, created.text
 
     default_list = client.get("/api/planning/branded-orders", headers=auth_headers)
@@ -823,15 +812,13 @@ def test_a_failure_after_a_write_rolls_back_every_participant(
 
     monkeypatch.setattr(branded_orders_service, hook, fail_after_write)
     with pytest.raises(RuntimeError, match="injected failure"):
-        client.post(
-            "/api/planning/branded-orders", headers=auth_headers, json={"notes": "rollback"}
+        _create_order(client, headers=auth_headers, json={"notes": "rollback"}
         )
 
     assert _participant_counts() == before
 
     monkeypatch.setattr(branded_orders_service, hook, original)
-    response = client.post(
-        "/api/planning/branded-orders", headers=auth_headers, json={"notes": "rollback"}
+    response = _create_order(client, headers=auth_headers, json={"notes": "rollback"}
     )
 
     assert response.status_code == 201, response.text
@@ -857,9 +844,7 @@ def _alternate_counts():
 
 
 def test_alternate_writer_uses_typed_same_session_and_preserves_handoff(client, auth_headers, monkeypatch):
-    from app.models.planning import production_planning_service as service
-
-    original = service.insert_branded_planning_order
+    original = branded_orders_service.insert_branded_planning_order
     calls = []
 
     def observe(db, command):
@@ -870,7 +855,7 @@ def test_alternate_writer_uses_typed_same_session_and_preserves_handoff(client, 
         calls.append(order.id)
         return order
 
-    monkeypatch.setattr(service, "insert_branded_planning_order", observe)
+    monkeypatch.setattr(branded_orders_service, "insert_branded_planning_order", observe)
     before = _order_count()
     response = client.post("/api/planning/create-branded-production", headers=auth_headers, json=_alternate_payload())
     assert response.status_code == 201, response.text
@@ -885,7 +870,7 @@ def test_alternate_writer_uses_typed_same_session_and_preserves_handoff(client, 
         assert po.planning_order_id == order.id and len(po.batches) == 1
         assert any(wo.operation == "cutting" for wo in po.work_orders)
         assert db.query(AuditLog).filter_by(entity_type="ProductionOrder", entity_id=po.id, action="create").count() == 1
-        assert db.query(AuditLog).filter_by(entity_type="BrandedPlanningOrder", entity_id=order.id, action="create").count() == 0
+        assert db.query(AuditLog).filter_by(entity_type="BrandedPlanningOrder", entity_id=order.id, action="create").count() == 1
     reused = client.post("/api/planning/create-branded-production", headers=auth_headers,
                          json=_alternate_payload(planning_order_id=calls[0]))
     assert reused.status_code == 201, reused.text
@@ -913,17 +898,18 @@ def test_alternate_writer_failure_rolls_back_and_retry_succeeds(client, auth_hea
     from app.models.planning import production_planning_service as service
 
     before = _alternate_counts()
-    original = getattr(service, hook)
+    owner = branded_orders_service if hook == "insert_branded_planning_order" else service
+    original = getattr(owner, hook)
 
     def fail_after_write(*args, **kwargs):
         original(*args, **kwargs)
         raise RuntimeError("injected alternate writer failure")
 
-    monkeypatch.setattr(service, hook, fail_after_write)
+    monkeypatch.setattr(owner, hook, fail_after_write)
     with pytest.raises(RuntimeError, match="injected alternate writer failure"):
         client.post("/api/planning/create-branded-production", headers=auth_headers, json=_alternate_payload())
     assert _alternate_counts() == before
-    monkeypatch.setattr(service, hook, original)
+    monkeypatch.setattr(owner, hook, original)
     response = client.post("/api/planning/create-branded-production", headers=auth_headers, json=_alternate_payload())
     assert response.status_code == 201, response.text
     after = _alternate_counts()

@@ -49,6 +49,9 @@ def _change(db, work, factory, current):
         row.sewing_factory_code == factory for row in live_bundles
     ):
         return {"sewing_factory_code": factory, "changed": False}
+    if any(b.status == "sent_to_sewing" and b.current_department_id is None
+           and b.sewing_factory_code != factory for b in live_bundles):
+        raise HTTPException(409, "A Nastil in transit cannot change Sewing destination.")
     # Old factory payroll/packaging evidence must never follow a routing edit.
     for model in (Package, PayrollQrLabel, PayrollRecord, PackagingReceipt):
         if db.query(model.id).filter(model.production_order_id == order.id).first():

@@ -123,7 +123,8 @@ def test_planning_customer_lookup_and_create(client, auth_headers):
     response = client.get('/api/planning/branded-order-customers', headers=auth_headers)
     assert response.status_code == 200 and cid in [row['id'] for row in response.json()]
     response = client.post('/api/planning/branded-orders', headers=auth_headers,
-                           json={'ordered_for_type': 'customer', 'customer_id': cid})
+                           json={'ordered_for_type': 'customer', 'customer_id': cid,
+                                 'production': {'production_type': 'branded_stock', 'model_id': 1}})
     assert response.status_code == 201 and response.json()['customer_id'] == cid
 
 

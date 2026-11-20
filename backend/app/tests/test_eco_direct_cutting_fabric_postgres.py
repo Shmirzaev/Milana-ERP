@@ -14,7 +14,7 @@ from sqlalchemy.orm import sessionmaker
 from app.api.router import api_router
 from app.db.base import Base
 from app.db.session import get_db
-from app.schemas import CuttingRecord, MaterialReservation, StockBatch, StockMovement, WorkOrder
+from app.schemas import BrandedPlanningOrder, CuttingRecord, MaterialReservation, StockBatch, StockMovement, WorkOrder
 from app.schemas.inventory.eco_inventory import EcoMaterialBatch, EcoMaterialMovement
 from app.tests.eco_fabric_fixture import make_eco_fabric_case, planning_payload
 from app.tests.pg_approved_instance import (
@@ -79,8 +79,12 @@ def save_for_cut(app, sessions, case, quantity):
 def test_four_competing_identity_registrations_create_one_zero_balance_bridge(eco_postgres):
     sessions, app = eco_postgres
     case = make_eco_fabric_case(sessions)
-    planning_order = post(app, "/api/planning/branded-orders", case["mil_headers"], {"ordered_for_type": "milana"})
-    assert planning_order.status_code == 201, planning_order.text
+    with sessions.begin() as db:
+        planning_order = BrandedPlanningOrder(order_no="ECO-QA-HISTORY", ordered_for_type="milana",
+                                             ordered_for_name="Milana", status="open")
+        db.add(planning_order)
+        db.flush()
+        planning_id = planning_order.id
     barrier = Barrier(4)
     # Share an existing BSO so its numbering lock cannot serialize these requests
     # before receipt registration. Force all four initial mapping reads to finish
@@ -91,7 +95,7 @@ def test_four_competing_identity_registrations_create_one_zero_balance_bridge(ec
             barrier.wait(timeout=8)
     def create():
         return post(app, "/api/planning/create-branded-production", case["mil_headers"],
-                    planning_payload(case, planning_order_id=planning_order.json()["id"]))
+                    planning_payload(case, planning_order_id=planning_id))
     event.listen(engine, "before_cursor_execute", before_receipt_lock)
     try:
         with ThreadPoolExecutor(max_workers=4) as pool:

@@ -9,6 +9,7 @@ from sqlalchemy.exc import OperationalError
 
 from app.db.base import Base
 from app.schemas import (
+    AuditLog,
     Bundle, CuttingRecord, MaterialReservation, ProductionBatch, ProductionOrder,
     SewingAssignment, StockBatch, StockMovement, WasteRecord, WasteSale, WorkOrder,
 )
@@ -70,6 +71,10 @@ def _delete_cutting_batch(db, work, batch_id, current):
         scan.scan_type not in {"created", "sent_sewing", "received_sewing"} for scan in row.scan_logs
     ) for row in bundles):
         raise HTTPException(409, "This batch has processing history that cannot be reversed by Cutting")
+    if db.query(AuditLog.id).filter_by(
+        action="dispatch_cutting_batch", entity_type="ProductionBatch", entity_id=batch.id,
+    ).first():
+        raise HTTPException(409, "A Nastil sent to Sewing cannot be deleted from Cutting.")
     receipt_changes = []
     received = sum(row.quantity for row in bundles if row.status == "received_sewing")
     if received:

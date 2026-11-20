@@ -48,7 +48,7 @@ particular operation and every caller/write before choosing what belongs here.
 - records: one `branded_planning_orders` row and one `BrandedPlanningOrder`
   audit row per creation; the list keeps the batched model and cutting work
   order loads
-- transaction owner: `create_branded_order`
+- transaction owner: `create_branded_stock_production`
 
 The first operation uses [schema-owned insertion](../../schemas/planning/branded_order_persistence.py)
 and the supplied Session. Numbering and audit remain participants in the same outer
@@ -57,9 +57,9 @@ the insertion command and the actual history frontend; derived cutting progress
 is distinct from stored Production/WorkOrder status. Optional frontend progress
 fields retain their not-started display fallback.
 
-The alternate writer in `create_branded_stock_production` uses the same typed
-schema insertion when no planning order is supplied; its service keeps numbering,
-production coordination, audit and the outer transaction. This covers the Planning
+New order creation requires the first production payload. Both entry points
+use the same schema insertion and outer transaction. The production operation
+validates the Qolip number and pattern attachment for every branded model. This covers the Planning
 order row writer only: ProductionOrder, Item, Batch and WorkOrder writes remain in
 production_service.py and are not migrated by this slice. Production status, costing
 status, forecasting and other Planning tables remain separate work.

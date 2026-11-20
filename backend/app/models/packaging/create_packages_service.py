@@ -156,7 +156,8 @@ def create_packages_run(db: Session, current: User, payload: PrintRunCreatePacka
     for index, row in enumerate(payload.packages):
         data = {**row.model_dump(), "packaging_department_code": owners[index].value,
                 "user_id": current.id, "is_admin": False, "override_capacity": False}
-        package = create_package(db, **data, _write_context=context, _package_no=numbers[index], _sync_production=False)
+        package = create_package(db, **data, _write_context=context, _package_no=numbers[index],
+                                 _sync_production=False, _allow_unattributed_sources=payload.work_order_id is not None)
         log_action(db, current, "create", "Package", package.id, new_value={"package_no": package.package_no})
         packages.append(package)
     sync_production_order_status(db, order.id)

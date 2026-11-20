@@ -45,7 +45,7 @@ def test_cutting_factory_totals_full_not_paginated_and_distinct_work(client, aut
         bundle(db, po, rec, "BOARD-UNKNOWN", factory=None)
         db.commit()
         result = cutting_board(db, "CUT", DAY, DAY)
-        assert result["totals"] == {"bundles": 56, "pieces": 560, "orders": 1, "work_orders": 1,
+        assert result["totals"] == {"source_bundles": 56, "bundles": 56, "pieces": 560, "orders": 1, "work_orders": 1,
             "pieces_min": 560, "pieces_max": 560, "bundles_min": 56, "bundles_max": 56,
             "unconfirmed_batches": 0, "unresolved_batches": 0}
         factories = {r["factory"]: r for r in result["factories"]}

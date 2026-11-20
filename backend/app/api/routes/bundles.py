@@ -2,11 +2,12 @@ from app.models.variant_display_service import format_model_variant_code
 from app.core.order_reference import order_reference_contains
 
 from fastapi import APIRouter, HTTPException, Depends, Query
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel
 from sqlalchemy import func, or_
 from sqlalchemy.orm import selectinload, noload
 from sqlalchemy.orm.attributes import set_committed_value
+from datetime import date
 import base64
 import hashlib
 from functools import lru_cache
@@ -53,7 +54,10 @@ from app.models.department_dashboards_service import cutting_inventory_condition
 from app.models.production.cutting_balance_service import inventory_balance_selection
 from typing import Literal
 
+from app.libs.dto.production.cutting_handoff import CuttingHandoffIn
+from app.libs.enums.production import CuttingHandoffFactory
 from app.libs.dto.production.sewing_manual_receive import SewingManualReceiveIn
+from app.models.production import cutting_handoff_service
 from app.models.production.sewing_receipt_service import (
     accept_sewing_batch as accept_sewing_batch_receipt,
     receive_manual_sewing,
@@ -653,6 +657,54 @@ def cutting_inventory(
         "page": safe_page,
         "page_size": safe_size,
     }
+
+
+@router.get("/cutting-storage-by-order")
+def cutting_storage_by_order(
+    db: DbSession,
+    current: User = Depends(require_permissions("cutting.bundles", "cutting.records", "planning.production", "*")),
+    cutting_department_code: str | None = None,
+):
+    return cutting_handoff_service.cutting_storage_by_order(db, current, cutting_department_code)
+
+
+@router.get("/cutting-dispatch-options")
+def cutting_dispatch_options(
+    db: DbSession, destination_factory: CuttingHandoffFactory,
+    current: User = Depends(require_permissions("cutting.bundles", "*")),
+    cutting_department_code: str | None = None,
+    q: Annotated[str, Query(max_length=100)] = "",
+):
+    return cutting_handoff_service.cutting_dispatch_options(db, current, cutting_department_code, destination_factory, q)
+
+
+@router.post("/cutting-dispatch", status_code=201)
+def cutting_dispatch(
+    payload: CuttingHandoffIn, db: DbSession,
+    current: User = Depends(require_permissions("cutting.bundles", "*")),
+    cutting_department_code: str | None = None,
+):
+    return cutting_handoff_service.dispatch_cutting_batch(db, current, cutting_department_code, payload)
+
+
+@router.get("/cutting-handoffs")
+def cutting_handoffs(
+    db: DbSession, day: date,
+    current: User = Depends(require_permissions("cutting.bundles", "cutting.records", "planning.production", "*")),
+    cutting_department_code: str | None = None, pending: bool = False,
+):
+    return cutting_handoff_service.cutting_handoffs(db, current, cutting_department_code, day, pending=pending)
+
+
+@router.get("/cutting-handoffs/export.csv")
+def export_cutting_handoffs(
+    db: DbSession, day: date,
+    current: User = Depends(require_permissions("cutting.bundles", "cutting.records", "planning.production", "*")),
+    cutting_department_code: str | None = None,
+):
+    rows = cutting_handoff_service.cutting_handoffs(db, current, cutting_department_code, day)
+    return Response(cutting_handoff_service.cutting_handoff_csv(rows), media_type="text/csv",
+                    headers={"Content-Disposition": f'attachment; filename="cutting-handoffs-{day.isoformat()}.csv"'})
 
 
 @router.get("/sewing-receive-options")

@@ -8,9 +8,9 @@ remain nullable, and ambiguous receipt/output overlap yields a piece range.
 from collections import Counter, defaultdict
 from dataclasses import replace
 
-from sqlalchemy import Boolean, DateTime, Integer, JSON, String, and_, case, func, literal, select, union_all
+from sqlalchemy import Boolean, DateTime, Integer, JSON, String, and_, case, func, literal, or_, select, union_all
 
-from app.libs.enums.production import CuttingDepartmentCode, SewingFactoryCode, WorkOrderStatus
+from app.libs.enums.production import CuttingDepartmentCode, CuttingHandoffFactory, SewingFactoryCode, WorkOrderStatus
 from app.libs.types.cutting_balance import CuttingBalanceGroup
 from app.schemas import (
     Bundle, BundleScanLog, CuttingRecord, Department, Package, PackageBatchAllocation,
@@ -28,11 +28,23 @@ def _event(kind, **values):
     ])
 
 
-def _evidence_statement():
+def cutting_storage_condition():
     receipt = Bundle.id.in_(select(BundleScanLog.bundle_id).where(
         BundleScanLog.scan_type.in_(("received_printing", "received_sewing"))))
-    pending = and_(Bundle.status.in_(("created", "sent_to_printing", "sent_to_sewing")), ~receipt)
-    pending_orders = select(Bundle.production_order_id).where(pending).distinct().cte("cutting_balance_orders")
+    dedicated_handoff = func.coalesce(func.upper(func.trim(Bundle.sewing_factory_code)), "").in_(
+        tuple(CuttingHandoffFactory))
+    return and_(~receipt, or_(
+        Bundle.status.in_(("created", "sent_to_printing")),
+        and_(Bundle.status == "sent_to_sewing", ~dedicated_handoff),
+    ))
+
+
+def _evidence_statement(order_id: int | None = None):
+    pending = cutting_storage_condition()
+    order_query = select(Bundle.production_order_id).where(pending)
+    if order_id is not None:
+        order_query = order_query.where(Bundle.production_order_id == order_id)
+    pending_orders = order_query.distinct().cte("cutting_balance_orders")
     orders = select(pending_orders.c.production_order_id)
     eco_orders = select(WorkOrder.production_order_id).join(Department).where(
         WorkOrder.operation == "cutting", Department.code == "ECT").correlate(None)
@@ -181,8 +193,8 @@ def reconcile_cutting_evidence(events) -> list[CuttingBalanceGroup]:
     return result
 
 
-def cutting_balances(db) -> list[CuttingBalanceGroup]:
-    return reconcile_cutting_evidence(db.execute(_evidence_statement()).mappings())
+def cutting_balances(db, *, order_id: int | None = None) -> list[CuttingBalanceGroup]:
+    return reconcile_cutting_evidence(db.execute(_evidence_statement(order_id)).mappings())
 
 
 def select_balance_groups(groups: list[CuttingBalanceGroup], bundle_ids: set[int]) -> list[CuttingBalanceGroup]:

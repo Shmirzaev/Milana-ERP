@@ -544,6 +544,7 @@ def create_package(
     _write_context: PackageWriteContext | None = None,
     _package_no: str | None = None,
     _sync_production: bool = True,
+    _allow_unattributed_sources: bool = False,
 ) -> Package:
     if _write_context is not None:
         _write_context.bind(db)
@@ -669,7 +670,9 @@ def create_package(
     elif has_batches:
         raise HTTPException(400, "Select a production batch for this package")
 
-    normalized_allocations = normalize_matrix(normalized_allocations, items, raw_allocations=batch_allocations)
+    allow_unattributed = _allow_unattributed_sources and stock_kind == "standard"
+    normalized_allocations = normalize_matrix(normalized_allocations, items, raw_allocations=batch_allocations,
+                                              allow_unattributed=allow_unattributed)
     _enforce_packaged_quantity_available(
         db,
         production_order_id=production_order_id,
@@ -692,7 +695,8 @@ def create_package(
     enforce_size_allocation(db, po, batch_id, items, normalized_allocations, first_grade=stock_kind in {"first_grade", "second_grade"}, cache=_write_context.size_allocation if _write_context is not None else None)
 
     enforce_source_sizes(db, po, normalized_allocations, items,
-                         cache=_write_context.size_allocation if _write_context is not None else None)
+                         cache=_write_context.size_allocation if _write_context is not None else None,
+                         validate_unattributed=allow_unattributed)
 
     resolved_sales_order_id = sales_order_id if sales_order_id is not None else po.sales_order_id
     resolved_brand_id, resolved_collection_id = infer_brand_and_collection(

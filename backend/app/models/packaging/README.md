@@ -44,16 +44,15 @@ Finished-goods accounting rows retain existing package receipt/stock eligibility
 actual cumulative Sewing sizes when complete authoritative evidence exists. Missing
 actual sizes retain the ordinary operator recipe, without treating planned ratios as
 actual output. Grade paths retain strict size confirmation and mixed-batch guards.
-`allocation_items_service.py` now requires explicit operator-confirmed
-`item_breakdown` (model/color/size/positive quantity) on every new mixed source.
-It conserves each scalar source total and the complete package item identities;
-single-source contents have one unique attribution and can be derived. Historical
-mixed NULL remains unknown: metadata edits/read/labels never invent its matrix.
-All create/direct/bulk and edit/approval/returned-correction paths validate the
-same matrix. Approval rechecks under the PO lock. Exact cells consume original
+Direct work-order Packaging accepts per-Nastil totals and the complete package
+contents. When those totals do not uniquely identify sizes by Nastil, the
+allocation stores NULL and checks whether known Sewing sizes can supply the
+package. Verified source sizes that admit exactly one split preserve that split.
+Explicit evidence must conserve every item and source total. Other create and physical correction paths retain their exact
+attribution requirements. Approval rechecks under the PO lock. Exact cells consume original
 production source sizes regardless of package lifecycle state; only deletion
 releases production allocation. Adjusted legacy items cannot be treated as original
-source evidence. Unknown historical mixed sizes reserve the greatest possible
+source evidence. Unknown mixed sizes reserve the greatest possible
 consumption per source/size, which may conservatively refuse further packaging.
 A complete actual Sewing size breakdown is enforced when available; missing sizes
 retain the operator-confirmed recipe with `actual_size_verified=false`. Sewing does

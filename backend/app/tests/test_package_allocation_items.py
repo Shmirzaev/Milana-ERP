@@ -34,18 +34,68 @@ def mixed(facts):
          "item_breakdown": [item(facts, "M", 5), item(facts, "L", 20)]}])
 
 
-@pytest.mark.parametrize("path", ["/api/packages", "/api/packages/bulk", PATH])
-def test_every_create_path_requires_exact_mixed_attribution(client, auth_headers, path):
+@pytest.mark.parametrize("path", ["/api/packages", "/api/packages/bulk"])
+def test_legacy_create_requires_exact_mixed_attribution(client, auth_headers, path):
     facts = matrix_facts()
     row = mixed(facts)
     for allocation in row["batch_allocations"]:
         allocation.pop("item_breakdown")
-    request = body(facts, [row]) if path == PATH else row
-    response = client.post(path, headers=auth_headers, json=request)
+    response = client.post(path, headers=auth_headers, json=row)
     assert response.status_code == 409, response.text
     assert response.json()["detail"] == "MIXED_PACKAGE_ITEM_BREAKDOWN_REQUIRED"
     with TestSessionLocal() as db:
         assert db.query(Package).filter_by(production_order_id=facts["order_id"]).count() == 0
+
+
+@pytest.mark.parametrize("possible", [True, False])
+def test_direct_create_records_nastil_totals_and_checks_known_sizes(client, auth_headers, possible):
+    facts = matrix_facts()
+    row = mixed(facts)
+    for allocation in row["batch_allocations"]:
+        allocation.pop("item_breakdown")
+    if not possible:
+        with TestSessionLocal.begin() as db:
+            records = db.query(SewingRecord).filter_by(work_order_id=facts["sewing_work_order_id"]).order_by(
+                SewingRecord.production_batch_id).all()
+            records[0].size_quantities = [{"size": "M", "quantity": 80}]
+            records[1].size_quantities = [{"size": "L", "quantity": 70}]
+    request = body(facts, [row])
+    response = client.post(PATH, headers=auth_headers, json=request)
+    with TestSessionLocal() as db:
+        saved = db.query(Package).filter_by(production_order_id=facts["order_id"]).all()
+        if possible:
+            assert response.status_code == 201, response.text
+            assert len(saved) == 1
+            assert sorted((allocation.quantity, allocation.item_breakdown) for allocation in saved[0].batch_allocations) == [
+                (25, None), (35, None),
+            ]
+            assert response.json()["packages"][0]["items"]
+        else:
+            assert response.status_code == 409, response.text
+            assert "cannot supply the package sizes" in response.json()["detail"]
+            assert saved == []
+    if possible:
+        assert client.post(PATH, headers=auth_headers, json=request).json() == response.json()
+
+
+def test_direct_packaging_keeps_known_leftovers_when_source_sizes_are_forced(client, auth_headers):
+    facts = matrix_facts()
+    first, second, _ = facts["batch_ids"]
+    with TestSessionLocal.begin() as db:
+        records = db.query(SewingRecord).filter_by(work_order_id=facts["sewing_work_order_id"]).order_by(
+            SewingRecord.production_batch_id).all()
+        records[0].size_quantities = [{"size": "M", "quantity": 5}, {"size": "L", "quantity": 75}]
+        records[1].size_quantities = [{"size": "L", "quantity": 70}]
+    row = package(facts, 10, batch_id=None, items=[item(facts, "M", 5), item(facts, "L", 5)],
+                  batch_allocations=[{"production_batch_id": first, "quantity": 5},
+                                     {"production_batch_id": second, "quantity": 5}])
+    response = client.post(PATH, headers=auth_headers, json=body(facts, [row]))
+    assert response.status_code == 201, response.text
+    allocations = response.json()["packages"][0]["batch_allocations"]
+    assert [source["item_breakdown"] for source in allocations] == [[item(facts, "M", 5)], [item(facts, "L", 5)]]
+    leftover = package(facts, 75, batch_id=first, capacity=75, items=[item(facts, "L", 75)])
+    follow_up = client.post(PATH, headers=auth_headers, json=body(facts, [leftover]))
+    assert follow_up.status_code == 201, follow_up.text
 
 
 def test_exact_matrix_survives_readback_print_receipt_and_grade_balance(client, auth_headers):

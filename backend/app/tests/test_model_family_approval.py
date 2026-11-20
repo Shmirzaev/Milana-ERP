@@ -1,5 +1,6 @@
 from app.db.session import SessionLocal
 from app.schemas import Item, Model, ModelBOM
+from app.tests.branded_production_fixture import attach_test_qolip
 
 
 def family():
@@ -12,6 +13,7 @@ def family():
                         details_json={"general": {"model_no": "APPROVAL900", "variant_no": variant}})
             db.add(row)
             db.flush()
+            attach_test_qolip(db, row)
             db.add(ModelBOM(model_id=row.id, item_id=fabric.id, quantity_per_piece=1, unit="kg", waste_percent=0))
             ids.append(row.id)
         db.commit()
