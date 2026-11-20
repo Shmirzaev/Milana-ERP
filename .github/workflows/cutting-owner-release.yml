@@ -1,0 +1,84 @@
+name: Owner requested Cutting balances artifacts without tests
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  packages: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SOURCE_SHA: ac83508dbbacc1608e80b6422159b51985d9d35d
+      RELEASE_ID: '20261120_044200'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ac83508dbbacc1608e80b6422159b51985d9d35d
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+      - name: Package exact immutable source
+        run: python scripts/package_release.py --release "$RELEASE_ID" --output "$RUNNER_TEMP/milana-erp-$RELEASE_ID.tar.gz"
+      - name: Prepare build-only recipes
+        run: |
+          cat > "$RUNNER_TEMP/backend.Dockerfile" <<'EOF'
+          FROM ghcr.io/shmirzaev/milana-erp-backend@sha256:712de119f15634879a75b196c379832136c8ac4648f76d6d9b30b30571a76898
+          COPY backend/app/api/routes/bundles.py /app/app/api/routes/bundles.py
+          COPY backend/app/models/department_dashboards_service.py /app/app/models/department_dashboards_service.py
+          COPY backend/app/models/production/cutting_balance_service.py /app/app/models/production/cutting_balance_service.py
+          COPY backend/app/libs/types/cutting_balance.py /app/app/libs/types/cutting_balance.py
+          EOF
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          source = Path('frontend/Dockerfile').read_text()
+          if source.count('RUN npm run build') != 1:
+              raise SystemExit('Unexpected frontend recipe')
+          Path(os.environ['RUNNER_TEMP'], 'frontend.Dockerfile').write_text(
+              source.replace('RUN npm run build', 'RUN node node_modules/next/dist/bin/next build'))
+          PY
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish backend on exact live base
+        id: backend
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ runner.temp }}/backend.Dockerfile
+          push: true
+          tags: ghcr.io/shmirzaev/milana-erp-backend:${{ env.RELEASE_ID }}
+          labels: org.opencontainers.image.revision=${{ env.SOURCE_SHA }}
+      - name: Build and publish frontend without test scripts
+        id: frontend
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ runner.temp }}/frontend.Dockerfile
+          push: true
+          tags: ghcr.io/shmirzaev/milana-erp-frontend:${{ env.RELEASE_ID }}
+          labels: org.opencontainers.image.revision=${{ env.SOURCE_SHA }}
+          build-args: |
+            NEXT_PUBLIC_API_URL=https://erp.milanapremium.uz
+            API_URL=http://172.16.10.4:8000
+          cache-from: type=gha,scope=security-frontend-v1
+      - name: Bind images and source manifest
+        env:
+          BACKEND_IMAGE: ghcr.io/shmirzaev/milana-erp-backend@${{ steps.backend.outputs.digest }}
+          FRONTEND_IMAGE: ghcr.io/shmirzaev/milana-erp-frontend@${{ steps.frontend.outputs.digest }}
+        run: |
+          cp "$RUNNER_TEMP/milana-erp-$RELEASE_ID.tar.gz.json" .
+          GITHUB_SHA="$SOURCE_SHA" python scripts/prepare_release_manifest.py
+          cp deployment.json "$RUNNER_TEMP/deployment.json"
+          echo 'Owner explicitly requested deployment without tests. Test suites, browser QA, scans, performance sampling and timed observation are skipped, not passed. Images use exact application source; no production VM builds. This job publishes artifacts only.' >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cutting-owner-release-20261120_044200
+          path: |
+            ${{ runner.temp }}/milana-erp-20261120_044200.tar.gz*
+            ${{ runner.temp }}/deployment.json
