@@ -91,3 +91,37 @@ unchanged. Application release/deployment approval remains separate.
 
 Worktree: C:\ERP\.codex-work\accessories-batch-numbers-20261120.
 Branch: codex/accessories-batch-numbers-20261120.
+
+## Applied data correction and UI candidate status
+
+The reviewed patch was rebased onto exact live source98130821354f487767a9b79f56482f1788ac4c40
+without an inventory source conflict; operation commit
+`c5b75a429cabd2877a65c388214750edf0a2d496` is pushed, unmerged. Git converted
+new operational files to CRLF, so their raw hash bindings changed. Full isolated
+restored-copy QA was repeated against these committed bytes and passed before
+production apply. No receipt/hash was edited to reuse earlier evidence.
+
+Live apply succeeded once:759 numbers changed; completion audit292390. Immediate
+read-only verification confirmed759 unique targets, no old import labels,760
+valid linked audit rows, and the same complete preserved inventory fingerprints
+as before. Edge showed zipper labels1522,1544,1649,1493 with original900/600/500/1900
+piece balances, zero costs, source keys and warehouse. Screenshot retained at
+`outputs/accessories-batch-numbers-20261120/live-four-digit-batches.png`.
+Current production still shows QC labels, as the UI candidate is not deployed.
+Captured console errors were browser-extension M_ID failures, not ERP scripts.
+All four internal/public health/login checks returned HTTP200. Active/rollback
+application files and traffic were untouched by this correction.
+
+Hosted CI44673085261 passed exact locked-dependency lint, strict typecheck and
+the new accessory test. Its node-only frontend step failed an inherited Lucide
+namespace guard: the current baseline includes the CEO test fixture's namespace
+import, but the guard only permits the Besttex test fixture. Both involved files
+were unchanged by the accessory patch. The narrow follow-up adds that exact
+existing fixture to the test-only exception list and normalizes Windows path
+separators; application namespace bans and SVG export/render checks remain.
+Local verification rendered112 real SVG exports from421 imports successfully.
+The original failed CI is retained; this does not establish a full build pass.
+
+The owner's requested QC UI removal remains a source candidate with separate
+application deployment/actual candidate-browser gates. Data verification does
+not constitute feature deployment or human UI acceptance.

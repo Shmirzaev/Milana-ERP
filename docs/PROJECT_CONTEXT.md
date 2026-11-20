@@ -15,6 +15,21 @@ Last updated 2026-11-20. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
+## Accessories: four-digit batch labels applied; QC UI candidate (20 November)
+
+Owner-authorized correction renamed all759 opening-import batches to unique
+four-digit labels1000–1818, skipping60 occupied batch/internal labels. Stock,
+items, movements, reservations, QC and provenance were preserved;760 linked
+audit rows verified, completion292390. Full backup, restored-copy refusal/
+rollback/apply/readback/retry QA, independent review, actual Edge readback and
+four HTTP200 health checks passed. Source release remains20261120_040300,
+commit98130821354f487767a9b79f56482f1788ac4c40, manifest7e888254a16e7c8ff277d99c4eff29a8a0f40c149aa3229987074232badcabb7;
+schema0159 unchanged. No deployment/merge occurred in this task.
+Accessory QC controls/labels are removed in the candidate and its payloads omit
+QC; fabric QC and existing stored statuses remain. This UI change is not live.
+Focused form/payload checks, hosted lint and strict typing passed; full build
+and candidate-browser acceptance remain pending. See [evidence and open gates](archive/ACCESSORY_BATCH_NUMBERS_QC_20261120.md).
+
 ## CEO dashboard access/presentation candidate (20 November; not yet deployed)
 
 The owner requested superadmin access, removal of Waiting for handoff, repaired
