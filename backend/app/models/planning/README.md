@@ -58,8 +58,9 @@ is distinct from stored Production/WorkOrder status. Optional frontend progress
 fields retain their not-started display fallback.
 
 New order creation requires the first production payload. Both entry points
-use the same schema insertion and outer transaction. The production operation
-validates the Qolip number and pattern attachment for every branded model. This covers the Planning
+use the same schema insertion and outer transaction. Each branded model needs a
+Qolip number. A pattern file can come from the selected variant or another member
+of its catalog model family. This covers the Planning
 order row writer only: ProductionOrder, Item, Batch and WorkOrder writes remain in
 production_service.py and are not migrated by this slice. Production status, costing
 status, forecasting and other Planning tables remain separate work.
