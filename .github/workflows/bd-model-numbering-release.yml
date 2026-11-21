@@ -1,0 +1,97 @@
+name: Build BD model numbering release
+on:
+  push:
+    branches: [release/bd-numbering-20261121-072759]
+permissions:
+  contents: read
+  packages: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SOURCE_SHA: e0649666abb5f018c5e70cc98447820a8d8c93e1
+      BASE_SOURCE_SHA: 2382b7e3b56b2ea51b08501a73e50694c8991690
+      RELEASE_ID: '20261121_072759'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: e0649666abb5f018c5e70cc98447820a8d8c93e1
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+      - name: Package reviewed source and prepare image overlays
+        run: |
+          python scripts/package_release.py --release "$RELEASE_ID" --output "$RUNNER_TEMP/milana-erp-$RELEASE_ID.tar.gz"
+          git diff --exit-code "$BASE_SOURCE_SHA" "$SOURCE_SHA" -- frontend backend/alembic backend/Dockerfile
+          python - <<'PY'
+          import os
+          import shutil
+          import subprocess
+          from pathlib import Path
+
+          temp = Path(os.environ["RUNNER_TEMP"])
+          backend = temp / "backend-overlay"
+          frontend = temp / "frontend-overlay"
+          frontend.mkdir()
+          changed = subprocess.check_output([
+              "git", "diff", "--name-status", "--no-renames",
+              os.environ["BASE_SOURCE_SHA"], "HEAD", "--", "backend",
+          ], text=True).splitlines()
+          for line in changed:
+              status, name = line.split("\t", 1)
+              if name.endswith("/README.md"):
+                  continue
+              source = Path(name)
+              if status != "M" or name not in {"backend/app/tests/test_catalog_numbering.py", "backend/data/catalog-numbering-20260930.json"}:
+                  raise SystemExit(f"Cannot apply backend overlay: {line}")
+              destination = backend / source.relative_to("backend")
+              destination.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copy2(source, destination)
+          (backend / "Dockerfile").write_text(
+              "FROM ghcr.io/shmirzaev/milana-erp-backend@sha256:8cd7eed4ccab36f6f76ca64b4c497ae26a9b05379788369f2e2e8c1df03d87a1\n"
+              "COPY --chown=appuser:appuser app/ /app/app/\nCOPY --chown=appuser:appuser data/ /app/data/\n"
+          )
+          (frontend / "Dockerfile").write_text(
+              "FROM ghcr.io/shmirzaev/milana-erp-frontend@sha256:ba3de6706ab7bdaecfd57212858e9fccec870e1a2b2e4a1613ad7c52e42f0ac9\n"
+          )
+          PY
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish backend
+        id: backend
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ runner.temp }}/backend-overlay
+          push: true
+          tags: ghcr.io/shmirzaev/milana-erp-backend:${{ env.RELEASE_ID }}
+          labels: org.opencontainers.image.revision=${{ env.SOURCE_SHA }}
+      - name: Publish unchanged frontend runtime
+        id: frontend
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ runner.temp }}/frontend-overlay
+          push: true
+          tags: ghcr.io/shmirzaev/milana-erp-frontend:${{ env.RELEASE_ID }}
+          labels: org.opencontainers.image.revision=${{ env.SOURCE_SHA }}
+      - name: Bind source and image digests
+        env:
+          BACKEND_IMAGE: ghcr.io/shmirzaev/milana-erp-backend@${{ steps.backend.outputs.digest }}
+          FRONTEND_IMAGE: ghcr.io/shmirzaev/milana-erp-frontend@${{ steps.frontend.outputs.digest }}
+        run: |
+          cp "$RUNNER_TEMP/milana-erp-$RELEASE_ID.tar.gz.json" .
+          GITHUB_SHA="$SOURCE_SHA" python scripts/prepare_release_manifest.py
+          cp deployment.json "$RUNNER_TEMP/deployment.json"
+          echo 'Build only at owner request. Automated tests were skipped.' >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bd-model-numbering-release
+          path: |
+            ${{ runner.temp }}/milana-erp-20261121_072759.tar.gz*
+            ${{ runner.temp }}/deployment.json
+
