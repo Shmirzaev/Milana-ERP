@@ -15,6 +15,10 @@ Last updated 2026-11-21. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
+## Purchasing binding rates (candidate, 21 November)
+
+Binding and Other binding remain visible with their Cutting Passport consumption. The candidate removes their Purchasing rate fields and excludes them from unapproved cost totals. Fabric and Ribana retain separate rates. Approved price snapshots retain their recorded costs. Production remains on release `20261121_083559` with `20261121_072759` available for rollback.
+
 ## Separate Purchasing material rates deployed (21 November)
 
 Purchasing price requests have a USD rate beside each material's consumption, including fabrics with duplicate names and separate binding rows. Each rate is saved by its passport material key. Finance sums the cost of every row using its saved rate and consumption. This release required no schema migration and the deployment made no business-data changes.

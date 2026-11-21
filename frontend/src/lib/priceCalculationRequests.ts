@@ -50,7 +50,7 @@ export type PriceCalculationRequest = {
   factory_code: string | null;
   catalog_scope: "standard" | "usluga";
   revision: number;
-  materials: { key: string; name: string; unit: "kg" | "m"; consumption: number | null; rate: number | null; cost: number | null }[];
+  materials: { key: string; name: string; unit: "kg" | "m"; consumption: number | null; requires_rate?: boolean; rate: number | null; cost: number | null }[];
   purchasing_submitted_at: string | null;
   accessories_submitted_at: string | null;
   no_accessories_reason: string | null;

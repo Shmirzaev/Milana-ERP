@@ -17,7 +17,7 @@ from app.models import price_calculation_service as pricing
 from app.models.audit_service import log_action
 from app.models.factory_scope_service import available_factory_codes, selected_factory_code
 from app.models.passport_sizes_service import passport_order_sizes, size_count_from_range
-from app.models.planning.price_workflow_calculation import amount, number, ready_for_finance, purchasing_ready, accessories_ready, printing_ready
+from app.models.planning.price_workflow_calculation import amount, number, ready_for_finance, purchasing_ready, accessories_ready, printing_ready, requires_material_rate
 from app.models.planning import variant_pricing_policy as policy
 from app.models.user_access_service import permission_denied
 from app.schemas import CuttingPassport, Model, ProductionOrder, User, WorkOrder, Department
@@ -116,6 +116,9 @@ def serialize(request, user):
             "printing_required", "fabric_consumption", "consumption_cost", "binding_price", "difference", "margin_percentage", "packaging_cost"):
             if field in snapshot:
                 result[field] = snapshot[field]
+        result["materials"] = [
+            {**row, "requires_rate": requires_material_rate(row["key"])} for row in result["materials"]
+        ]
     result["can_approve"] = can_approve(user)
     return result
 
@@ -231,7 +234,7 @@ def snapshot_passport(db, request, passport):
     evidence = passport_evidence(passport)
     if (request.passport_snapshot_json or {}).get("fingerprint") == evidence["fingerprint"]:
         return False
-    old_rates = {row["key"]: row.get("rate") for row in request.materials_json or []}
+    old_rates = {row["key"]: row.get("rate") for row in request.materials_json or [] if requires_material_rate(row["key"])}
     rows = [{**row, "rate": old_rates.get(row["key"])} for row in evidence["materials"]]
     correction = {"correction_team": None, "correction_reason": None} if request.correction_team == PriceContributionTeam.CUTTING else {}
     apply_workflow_fields(db, request, **correction, cutting_passport_id=passport.id, kroy_no=passport.passport_no,

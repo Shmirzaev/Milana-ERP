@@ -65,6 +65,78 @@ def test_pg_distinct_rates_cover_all_rows_of_large_passport(customer_pg_sessions
         assert request.materials_json == [{**row, "rate": rate["rate"]} for row, rate in zip(materials, rates, strict=True)]
 
 
+def test_pg_binding_needs_no_rate_and_saved_cost_omits_it(customer_pg_sessions):
+    sessions = customer_pg_sessions
+    _, request_id, users = ready_case(sessions)
+    priced = [
+        {"key": "101", "name": "Jersey", "unit": "kg", "consumption": 0.8, "rate": 7},
+        {"key": "102", "name": "Jersey", "unit": "kg", "consumption": 0.4, "rate": 9},
+        {"key": "102:ribana_per_piece_kg", "name": "Ribana", "unit": "kg", "consumption": 0.025, "rate": None},
+    ]
+    bindings = [
+        {"key": "101:beka_per_piece_kg", "name": "Binding", "unit": "kg", "consumption": 0.01, "rate": 50},
+        {"key": "102:other_beka_per_piece_kg", "name": "Other binding", "unit": "kg", "consumption": 0.02, "rate": 60},
+        {"key": "manual:binding", "name": "Binding", "unit": "kg", "consumption": 0.03, "rate": None},
+    ]
+    with sessions.begin() as db:
+        request = db.get(PriceCalculationRequest, request_id)
+        apply_workflow_fields(db, request, materials_json=priced + bindings)
+        revision = request.revision
+    endpoint = f"/api/price-calculation/requests/{request_id}"
+    purchasing = auth(users["purchasing"])
+    with TestClient(app_for(sessions)) as client:
+        current = client.get("/api/price-calculation/requests", headers=purchasing).json()
+        displayed = next(row for row in current if row["id"] == request_id)
+        assert [row["rate"] for row in displayed["materials"]] == [7, 9, None, None, None, None]
+        incomplete = client.post(endpoint + "/submit/purchasing", headers=purchasing, json={"expected_revision": revision})
+        assert incomplete.status_code == 409, incomplete.text
+        rates = [{"key": row["key"], "rate": row["rate"]} for row in priced[:2]] + [{"key": priced[2]["key"], "rate": 4}]
+        for material_rates in (rates, rates + [{"key": row["key"], "rate": 99} for row in bindings]):
+            draft = client.patch(endpoint + "/purchasing", headers=purchasing, json={
+                "expected_revision": revision, "materials": material_rates,
+            })
+            assert draft.status_code == 200, draft.text
+            body = draft.json()
+            revision = body["revision"]
+            assert [row["requires_rate"] for row in body["materials"]] == [True] * 3 + [False] * 3
+            assert [row["rate"] for row in body["materials"]] == [7, 9, 4, None, None, None]
+
+        submitted = client.post(endpoint + "/submit/purchasing", headers=purchasing, json={"expected_revision": revision})
+        assert submitted.status_code == 200, submitted.text
+        ready = client.post(endpoint + "/submit/accessories", headers=auth(users["accessories"]), json={
+            "expected_revision": submitted.json()["revision"],
+        })
+        assert ready.status_code == 200, ready.text
+        assert ready.json()["consumption_cost"] == 9.3
+        assert ready.json()["cost_price"] == 9.9
+        assert [row["consumption"] for row in ready.json()["materials"]] == [0.8, 0.4, 0.025, 0.01, 0.02, 0.03]
+
+    with sessions() as db:
+        request = db.get(PriceCalculationRequest, request_id)
+        assert [row["rate"] for row in request.materials_json] == [7, 9, 4, None, None, None]
+        assert request.model.selling_price is None
+
+
+def test_pg_historical_approval_keeps_its_recorded_binding_cost(customer_pg_sessions):
+    sessions = customer_pg_sessions
+    _, request_id, users = ready_case(sessions)
+    materials = [
+        {"key": "101", "name": "Jersey", "unit": "kg", "consumption": 0.8, "rate": 2, "cost": 1.6},
+        {"key": "101:beka_per_piece_kg", "name": "Binding", "unit": "kg", "consumption": 0.1, "rate": 4, "cost": 0.4},
+    ]
+    snapshot = {"materials": materials, "consumption_cost": 2, "cost_price": 2.6}
+    with sessions.begin() as db:
+        request = db.get(PriceCalculationRequest, request_id)
+        apply_workflow_fields(db, request, materials_json=materials, active_model_id=None,
+                              workflow_state="approved", approval_snapshot_json=snapshot)
+    with TestClient(app_for(sessions)) as client:
+        response = client.get("/api/price-calculation/requests", headers=auth(users["finance"]))
+    assert response.status_code == 200, response.text
+    approved = next(row for row in response.json() if row["id"] == request_id)
+    assert approved["materials"][1] == {**materials[1], "requires_rate": False}
+    assert approved["consumption_cost"] == 2 and approved["cost_price"] == 2.6
+
+
 def test_pg_concurrent_creation_one_slot_audit_and_team_notice(customer_pg_sessions):
     sessions = customer_pg_sessions
     model_id, users = seed(sessions)

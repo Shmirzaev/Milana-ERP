@@ -12,7 +12,7 @@ from app.libs.enums.catalog import CatalogScope
 from app.models import price_calculation_service as pricing
 from app.models.audit_service import log_action
 from app.models.planning import variant_pricing_service as workflow
-from app.models.planning.price_workflow_calculation import amount, number
+from app.models.planning.price_workflow_calculation import amount, number, requires_material_rate
 from app.schemas import User
 from app.schemas.planning.price_calculation_persistence import apply_finance_contribution, apply_workflow_fields
 
@@ -55,7 +55,7 @@ def update_cutting_details(db: Session, request_id: int, payload: PriceCalculati
         binding = amount(request.binding_kg_per_piece) or Decimal(0)
         rows = [{"key": "manual", "name": "Fabric", "unit": "kg", "consumption": number(quantity, "0.000001"), "rate": request.fabric_price and float(request.fabric_price)}]
         if binding > 0:
-            rows.append({"key": "manual:binding", "name": "Binding", "unit": "kg", "consumption": number(binding, "0.000001"), "rate": request.fabric_price and float(request.fabric_price)})
+            rows.append({"key": "manual:binding", "name": "Binding", "unit": "kg", "consumption": number(binding, "0.000001"), "rate": None})
         corrected = {"correction_team": None, "correction_reason": None} if request.correction_team == PriceContributionTeam.CUTTING and rows != request.materials_json else {}
         apply_workflow_fields(db, request, **corrected, materials_json=rows, passport_snapshot_json={"has_print": False, "manual": True},
             purchasing_submitted_at=None, accessories_submitted_at=None, workflow_state="collecting")
@@ -86,19 +86,24 @@ def update_purchasing_details(db: Session, request_id: int, payload: PriceCalcul
     values = payload.model_dump(exclude_unset=True, exclude={"expected_revision", "materials"})
     rates = {row.key: row.rate for row in payload.materials} if payload.materials is not None else None
     rows = request.materials_json or []
+    keys = {row["key"] for row in rows}
+    priced_keys = {key for key in keys if requires_material_rate(key)}
     if rates is not None:
-        keys = {row["key"] for row in rows}
-        if len(rates) != len(payload.materials) or set(rates) != keys:
+        if len(rates) != len(payload.materials) or not priced_keys <= rates.keys() <= keys:
             raise HTTPException(409, "Fabric rows changed; refresh and price every material")
-        rows = [{**row, "rate": rates[row["key"]]} for row in rows]
-    elif "fabric_price" in payload.model_fields_set:
-        # The operator supplies one rate for all passport fabric/binding rows.
-        # Keep each recorded consumption and the existing costing formula.
-        rows = [{**row, "rate": payload.fabric_price} for row in rows]
-    apply_workflow_fields(db, request, **values, materials_json=rows, purchasing_updated_by_id=current.id,
+    elif "fabric_price" in values:
+        rates = dict.fromkeys(priced_keys, payload.fabric_price)
+    materials = []
+    for row in rows:
+        key = row["key"]
+        rate = None
+        if key in priced_keys:
+            rate = rates[key] if rates is not None else row.get("rate")
+        materials.append({**row, "rate": rate})
+    apply_workflow_fields(db, request, **values, materials_json=materials, purchasing_updated_by_id=current.id,
         revision=request.revision + 1)
     log_action(db, current, "save_purchasing_price_draft", "PriceCalculationRequest", request.id,
-        new_value={**values, "materials": rows})
+        new_value={**values, "materials": materials})
     db.commit()
     return workflow.serialize(request, current)
 

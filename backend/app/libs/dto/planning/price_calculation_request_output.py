@@ -12,6 +12,7 @@ class PriceMaterialOut(BaseModel):
     name: str
     unit: PriceMaterialUnit
     consumption: float | None = None
+    requires_rate: bool = True
     rate: float | None = None
     cost: float | None = None
 

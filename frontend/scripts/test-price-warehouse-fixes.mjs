@@ -46,8 +46,9 @@ const Finance = load("src/app/(app)/finance/price-calculation/page.tsx", pricing
 request.materials = [
   { key: "fabric-first", name: "Jersey", unit: "kg", consumption: 0.213607, rate: 7.25 },
   { key: "fabric-second", name: "Jersey", unit: "kg", consumption: 0.269978, rate: 9.5 },
-  { key: "binding-first", name: "Binding", unit: "m", consumption: 0.01, rate: 0 },
-  { key: "binding-second", name: "Binding", unit: "m", consumption: 0.004, rate: null },
+  { key: "fabric-first:beka_per_piece_kg", name: "Binding", unit: "m", consumption: 0.01, requires_rate: false, rate: 4 },
+  { key: "fabric-second:other_beka_per_piece_kg", name: "Other binding", unit: "kg", consumption: 0.004, requires_rate: false, rate: null },
+  { key: "fabric-second:ribana_per_piece_kg", name: "Ribana", unit: "kg", consumption: 0.02, requires_rate: true, rate: 0 },
 ];
 const purchasing = render(React.createElement(Department, { team: "purchasing" }));
 assert.ok(!purchasing.includes("Printing USD"));
@@ -55,7 +56,13 @@ assert.ok(!purchasing.includes("Fabric price USD"));
 for (const material of request.materials) {
   const label = `${material.name} · ${material.consumption} ${material.unit} · Rate USD / ${material.unit}`;
   const input = purchasing.match(/<input[^>]+>/g)?.find(tag => tag.includes(`aria-label="${label}"`));
-  assert.ok(input?.includes(`value="${material.rate ?? ""}"`), `Missing saved rate for ${label}`);
+  if (material.requires_rate === false) {
+    const row = purchasing.match(/<tr[^>]*>.*?<\/tr>/g)?.find(tag => tag.includes(`>${material.name}</th>`));
+    assert.ok(row?.includes(`${material.consumption} ${material.unit}`), `Missing consumption for ${material.name}`);
+    assert.ok(!input, `Unexpected rate field for ${material.name}`);
+  } else {
+    assert.ok(input?.includes(`value="${material.rate ?? ""}"`), `Missing saved rate for ${label}`);
+  }
 }
 assert.ok(!render(React.createElement(Department, { team: "accessories" })).includes("Rate USD"));
 assert.ok(render(React.createElement(Finance)).includes("Printing USD / piece"));

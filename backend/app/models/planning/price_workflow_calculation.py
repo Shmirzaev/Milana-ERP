@@ -28,8 +28,12 @@ def cutting_ready(request):
     return bool(rows) and all(amount(row.get("consumption")) is not None and amount(row.get("consumption")) >= 0 for row in rows)
 
 
+def requires_material_rate(key: str) -> bool:
+    return key != "manual:binding" and not key.endswith((":beka_per_piece_kg", ":other_beka_per_piece_kg"))
+
+
 def purchasing_ready(request):
-    rows = request.materials_json or []
+    rows = [row for row in request.materials_json or [] if requires_material_rate(row["key"])]
     sewing = amount(request.sewing_cost)
     return bool(rows) and all(amount(row.get("rate")) is not None and amount(row.get("rate")) >= 0 for row in rows) and sewing is not None and sewing >= 0
 
@@ -52,14 +56,19 @@ def ready_for_finance(request):
 
 def projection(request):
     materials = []
+    material_cost = Decimal(0)
     for row in request.materials_json or []:
-        quantity, rate = amount(row.get("consumption")), amount(row.get("rate"))
-        materials.append({**row, "cost": number(quantity * rate) if quantity is not None and rate is not None else None})
+        requires_rate = requires_material_rate(row["key"])
+        quantity = amount(row.get("consumption"))
+        rate = amount(row.get("rate")) if requires_rate else None
+        row_cost = quantity * rate if quantity is not None and rate is not None else None
+        if row_cost is not None:
+            material_cost += row_cost
+        materials.append({**row, "requires_rate": requires_rate, "rate": row.get("rate") if requires_rate else None, "cost": number(row_cost)})
     ready = ready_for_finance(request)
     cost = None
     if ready and printing_ready(request):
-        cost = sum((amount(row["consumption"]) * amount(row["rate"]) for row in materials), Decimal(0))
-        cost += amount(request.sewing_cost) + Decimal("0.1")
+        cost = material_cost + amount(request.sewing_cost) + Decimal("0.1")
         cost += sum((amount(row.get("price")) for row in request.accessories_json or []), Decimal(0))
         cost += amount(request.printing_cost) or Decimal(0)
     selling, exchange = amount(request.selling_price), amount(request.exchange_rate)
@@ -97,7 +106,7 @@ def projection(request):
         "overall_status": PriceCalculationStatus.COMPLETE if request.workflow_state == PriceWorkflowState.APPROVED else PriceCalculationStatus.IN_PROGRESS,
         "cost_price": number(cost),
         "cost_price_uzs": number(cost * exchange, "0.01") if cost is not None and exchange is not None and exchange > 0 else None,
-        "consumption_cost": number(sum((amount(row["consumption"]) * amount(row["rate"]) for row in materials), Decimal(0))) if ready else None,
+        "consumption_cost": number(material_cost) if ready else None,
         "binding_price": None,
         "fabric_consumption": materials[0]["consumption"] if materials else None,
         "difference": number(selling - cost) if selling is not None and cost is not None else None,
