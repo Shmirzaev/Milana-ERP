@@ -26,7 +26,8 @@ jobs:
           python scripts/package_release.py --release "$RELEASE_ID" --output "$RUNNER_TEMP/milana-erp-$RELEASE_ID.tar.gz"
           git diff --exit-code "$BASE_SOURCE_SHA" "$SOURCE_SHA" -- frontend backend/alembic backend/Dockerfile backend/requirements.txt
           path=app/models/production/branded_pattern_service.py
-          test "$(git diff --name-only "$BASE_SOURCE_SHA" "$SOURCE_SHA" -- backend/app ':!backend/app/tests')" = "backend/$path"
+          changed_code=$(git diff --name-only "$BASE_SOURCE_SHA" "$SOURCE_SHA" -- backend/app ':!backend/app/tests' ':!backend/app/models/planning/README.md')
+          test "$changed_code" = "backend/$path"
           overlay="$RUNNER_TEMP/bso-backend"
           install -D "backend/$path" "$overlay/$path"
           cat > "$overlay/Dockerfile" <<'DOCKERFILE'
