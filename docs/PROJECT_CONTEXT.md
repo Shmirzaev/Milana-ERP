@@ -15,6 +15,16 @@ Last updated 2026-11-21. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
+## Separate Purchasing material rates deployed (21 November)
+
+Purchasing price requests have a USD rate beside each material's consumption, including fabrics with duplicate names and separate binding rows. Each rate is saved by its passport material key. Finance sums the cost of every row using its saved rate and consumption. This release required no schema migration and the deployment made no business-data changes.
+
+Both hosts serve `20261121_083559` in blue, with `20261121_072759` in green for rollback. The runtime commit is `16fe127e39b6a67e07b324bc8bf9313d5f5a0b28`, integrated into `clone_main` at `018b23392` with the identical tree. Source manifest SHA-256 `cc67a7cde37a5b060fecf3f8de32955026b39aab51a0fca0baf1775d5736f40b`. Backend image `ghcr.io/shmirzaev/milana-erp-backend@sha256:4802119a9a3f8220cdcde633cf4a4de10db7e1e4b789ec49480360389f498f16`. Frontend image `ghcr.io/shmirzaev/milana-erp-frontend@sha256:317a67df4435a9d3804eddf766c1df00cd7537c88a047a421480a548028e9256`. [Build-only publication](https://github.com/Shmirzaev/Milana-ERP/actions/runs/44885666098).
+
+The verified PostgreSQL backup is `/opt/milana-erp/shared/backups/auto_pre_20261121_083559.dump` with 136,022,585 bytes, 1,403 restore-list objects, dump SHA-256 `d039dcc91f2312ae88713932a2eeca9cf9eb264337ce48899558432165f72b2a` and restore-list SHA-256 `f073dae2c22b0e1e7a5ef09781ea180bcaa63d53de7707cc9f9163d06b6acf10`. Database revision remains `0159_ceo_balance_snapshots` with 0 invalid indexes. Both routers validated and all four health and login checks returned HTTP 200. The active backend has 2 workers and 0 restarts.
+
+At the owner's request the release ran build-only publication and skipped new test suites, browser QA, security scans, performance checks and timed observation. The earlier branch verification covered local pricing suites, a 128-row PostgreSQL regression, and a Chrome save, reopen and Finance handoff on isolated PostgreSQL.
+
 ## BD model numbering deployed (21 November)
 
 The Models numbering selector now includes **BD**. Its first available number is **BD101001**, followed by **BD101002**. The existing allocator skips occupied model numbers and reserves on save. The deployment created no production model or other business record and required no migration.
