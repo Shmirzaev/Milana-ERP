@@ -15,6 +15,22 @@ Last updated 2026-11-21. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
+## Catalogue prices imported from 20-11.xlsx (21 November)
+
+The production catalogue import filled 114 missing standard-variant prices at
+09:03:30 Asia/Tashkent. All 114 matched the workbook model and variant. The import
+used the USD base price in column F plus $0.30, verified against column G, and
+skipped blank base prices. Existing variant prices and provenance were preserved.
+The import closed 19 matching active requests and retained their cost history.
+Persisted readback verified all prices and the exact remaining queue of 114
+requests (111 Milana and 3 Eco Cotton).
+
+The database change ran on release `20261121_035130` with rollback release
+`20261120_092044`. Schema revision remains `0159_ceo_balance_snapshots`.
+The pre-import backup `auto_pre_prices20_11_20261121_040259.dump` has 135,468,067
+bytes and 1,403 restore-list objects. The import manifest hash is
+`62d2151826e5327c87828f24d57b573fb099c783833345b0ef40c37703b16075`.
+
 ## Reversible Cutting Inventory exclusion (21 November, deployed)
 
 - The owner approved the exact standard-order labels from the revised Cutting reconciliation, keeping labels and history and excluding Usluga from the correction. Audit event `299999` records the activation. A read-only production snapshot verified all **995 labels across 145 standard orders** still exist and all 995 are absent from the inventory projection. The remaining visible label set exactly matched the original set less the approved labels.
