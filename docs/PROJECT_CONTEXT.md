@@ -15,12 +15,15 @@ Last updated 2026-11-21. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
-## Shared BSO qolip attachments (21 November, source change)
+## Shared BSO qolip attachments (21 November, deployed)
 
-Branded production checks the selected variant's qolip number and accepts a
-pattern attached to that variant or another member of the same catalog model
-family. PM7012-V-6413 can use the pattern attached to PM7012-V-6679 after
-deployment. Production remains on `20261121_084644`.
+Branded production checks the selected variant's qolip number and accepts a pattern attached to that variant or another member of the same catalog model family. BSO 0094 can add PM7012-V-6413 using the pattern already on PM7012-V-6679. Cutting's attachment panel lists the selected variant's own files. Deployment applied no migration and created no business records.
+
+Both hosts serve `20261121_092525` in blue. `20261121_084644` is running in green for rollback. `clone_main` runtime commit `1770f06252d873f64c237fdd9041533472f9151e` has source manifest SHA-256 `dc8280c528c53f982fcaff4b689b1dcb630b12899805644b7e82247cd6b65295`. Backend image `ghcr.io/shmirzaev/milana-erp-backend@sha256:aa4862f6d1d687bf75dd85b9d2b9570671c71fde69113a7950e4e16f8eeebd34`. Frontend image `ghcr.io/shmirzaev/milana-erp-frontend@sha256:fbabaf2add0bcb524b896c18e48038d004aee2d3e8be469b0cc102fd54401217` reused the previous immutable frontend layers because frontend source was identical. [Build-only publication](https://github.com/Shmirzaev/Milana-ERP/actions/runs/44889596137).
+
+The verified pre-release PostgreSQL backup `/opt/milana-erp/shared/backups/auto_pre_20261121_092525.dump` contains 136,112,076 bytes and 1,403 restore-list objects. Dump SHA-256 `5a03b02749993a98aafee3338d7a23fab0d25dd6cf6488343a5d4528cbcfb6b7`. Restore-list SHA-256 `2faadb52a3ba445989158d6829c495eda6419bb8abb20e71948c33366e21e060`. Database revision remains `0159_ceo_balance_snapshots`. All four health and login endpoints returned HTTP 200, both routers validated, and the backend had two workers and zero restarts.
+
+The owner requested an expedited deployment without tests. This deployment skipped test suites, candidate browser QA, security scans, performance checks, and timed observation. Prior branch verification included focused backend and Planning checks, a read-only PostgreSQL validation, and an isolated Chrome save and reopen with Cutting work order readback.
 
 ## Purchasing binding rates removed in production (21 November)
 
