@@ -11,9 +11,17 @@ this checkout, a new combined candidate or deployed production. Inspect current
 code and the operation ledger before advancing a gate. Schema-owned writers,
 system-wide enum/type adoption and human acceptance remain incomplete.
 
-Last updated 2026-11-20. Keep this file short: current decisions, release pointers and
+Last updated 2026-11-21. Keep this file short: current decisions, release pointers and
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
+
+## Reversible Cutting Inventory exclusion (21 November, deployed)
+
+- The owner approved the exact standard-order labels from the revised Cutting reconciliation, keeping labels and history and excluding Usluga from the correction. Audit event `299999` records the activation. A read-only production snapshot verified all **995 labels across 145 standard orders** still exist and all 995 are absent from the inventory projection. The remaining visible label set exactly matched the original set less the approved labels.
+- The dashboard, storage summary and inventory list use the reversible `cutting_inventory_exclusions` setting. No bundle status, scan, workflow receipt, production plan, Usluga record or schema was edited. The verified manifest is in the protected backend deployment evidence directory for this release. The versioned `scripts/configure_cutting_inventory_exclusions.py restore <manifest>` command deactivates the exclusion and appends an audit event. Approved manifest SHA-256 is `68ca69313699b84eb4f21a46224a58f000c489a0ad6aceab3a7fac21e6d581fa`.
+- Both application hosts serve `20261121_035130` in blue. The previous release `20261120_092044` remains in green for rollback. The runtime source is `2382b7e3b56b2ea51b08501a73e50694c8991690` on `clone_main`. Source manifest SHA-256 is `d5c99f3a34b0d7dec0a29e4534d2f023616c7e7e831b5f4b999fa1ad2e485564`. [Build-only publication](https://github.com/Shmirzaev/Milana-ERP/actions/runs/44863234542) produced the immutable backend and frontend images. Database revision is `0159_ceo_balance_snapshots`.
+- Verified pre-change backup `/opt/milana-erp/shared/backups/auto_pre_20261121_035130.dump` has 135,454,716 bytes and 1,403 restore-list objects. Dump SHA-256 is `489a9257bd699fe11c2bad82684a65f04d4391b8894308cd2d8b893fa18120ed`. All four public and internal health/login checks returned HTTP 200. Postflight verified both source manifests, routing configuration, two backend workers, zero container restarts, and zero invalid PostgreSQL indexes.
+- The owner explicitly requested a fast deployment without tests. Automated tests, signed browser QA, security scans, performance profiling and timed observation were skipped. The backup, deployment health checks and read-only inventory verification were completed.
 
 ## Cutting to Sewing and BSO pattern validation (20 November, deployed)
 
