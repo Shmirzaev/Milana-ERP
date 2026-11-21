@@ -12,7 +12,9 @@ from app.schemas import (
 )
 from app.models.model_images_service import model_preview_image_url
 from app.models.production.floor_print_images_service import floor_print_image_url
-from app.models.production.cutting_balance_service import balance_totals, cutting_balances, cutting_storage_condition
+from app.models.production.cutting_balance_service import (
+    balance_totals, cutting_inventory_balances, cutting_storage_condition,
+)
 
 FACTORIES = ("MIL", "BST", "ECO", "UNASSIGNED")
 BUSINESS_TZ = ZoneInfo("Asia/Tashkent")
@@ -67,7 +69,7 @@ def inventory_totals(db, query):
 def cutting_board(db, department: str, start: date, end: date):
     lower, upper = period_bounds(start, end)
     base = db.query(Bundle).filter(cutting_origin_condition(db, department), Bundle.status != "cancelled")
-    balances = [group for group in cutting_balances(db) if group.department == department]
+    balances = [group for group in cutting_inventory_balances(db) if group.department == department]
     destination = destination_column()
     by_factory = {code: {"factory": code, **balance_totals([group for group in balances if group.factory == code]),
                          "created_bundles": 0, "created_pieces": 0,

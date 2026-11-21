@@ -1,5 +1,20 @@
 # Production execution
 
+## Cutting Inventory exclusions
+
+The Cutting balance on the dashboard, storage summary and inventory list can
+exclude existing standard-order bundle labels via the
+`cutting_inventory_exclusions` system setting. Handoff validation uses the
+operational balance. Bundle identity, quantities, scan history, stage status and
+Usluga stock follow the existing workflow.
+
+With a verified backup and the reviewed bundle-identity JSON manifest, an
+authorized production operator can run
+`scripts/configure_cutting_inventory_exclusions.py apply <manifest>` in the
+production backend runtime. Use `restore` with the same manifest to reverse
+that setting. Both actions are audited. The manifest contains `id`,
+`bundle_no`, `order_no` and `batch_id` for each exact bundle.
+
 ## Optional sewing line at manual receipt
 
 `sewing_receipt_service.py` owns manual receipt and the existing batch-QR acceptance

@@ -16,7 +16,7 @@ from app.models.bundles_service import format_batch_passport
 from app.models.department_dashboards_service import BUSINESS_TZ, cutting_origin_condition, destination_column, period_bounds
 from app.models.factory_scope_service import cutting_department_scope
 from app.models.inventory_service import ensure_accessories_issued_for_sewing
-from app.models.production.cutting_balance_service import balance_totals, cutting_balances
+from app.models.production.cutting_balance_service import balance_totals, cutting_balances, cutting_inventory_balances
 from app.models.workflow_service import notify_department, sync_production_order_status
 from app.schemas import (
     AuditLog, BrandedPlanningOrder, Bundle, BundleScanLog, CuttingRecord, Department, ProductionBatch,
@@ -31,7 +31,7 @@ def _order_reference(production_no: str, sales_no: str | None) -> str:
 
 def cutting_storage_by_order(db: Session, current: User, department: str | None) -> list[dict]:
     scope = cutting_department_scope(current, department)
-    groups = [group for group in cutting_balances(db)
+    groups = [group for group in cutting_inventory_balances(db)
               if group.department == scope and group.factory in tuple(CuttingHandoffFactory)]
     references = db.query(ProductionOrder.id, ProductionOrder.production_no, SalesOrder.order_no,
                           BrandedPlanningOrder.order_no).outerjoin(

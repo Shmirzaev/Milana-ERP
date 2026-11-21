@@ -14,8 +14,10 @@ from app.libs.enums.production import CuttingDepartmentCode, CuttingHandoffFacto
 from app.libs.types.cutting_balance import CuttingBalanceGroup
 from app.schemas import (
     Bundle, BundleScanLog, CuttingRecord, Department, Package, PackageBatchAllocation,
-    PackagingRecord, PrintingRecord, SewingRecord, WorkOrder,
+    PackagingRecord, PrintingRecord, ProductionOrder, SewingRecord, SystemSetting, WorkOrder,
 )
+
+CUTTING_INVENTORY_EXCLUSIONS = "cutting_inventory_exclusions"
 
 
 def _event(kind, **values):
@@ -39,8 +41,16 @@ def cutting_storage_condition():
     ))
 
 
-def _evidence_statement(order_id: int | None = None):
+def _evidence_statement(order_id: int | None = None, *, excluded_bundle_ids: tuple[int, ...] = ()):
     pending = cutting_storage_condition()
+    if excluded_bundle_ids:
+        # Keep these labels in downstream allocation evidence while omitting
+        # them from the inventory projection's pending balance.
+        standard_orders = select(ProductionOrder.id).where(ProductionOrder.source_type == "standard")
+        pending = and_(pending, ~and_(
+            Bundle.id.in_(excluded_bundle_ids),
+            Bundle.production_order_id.in_(standard_orders),
+        ))
     order_query = select(Bundle.production_order_id).where(pending)
     if order_id is not None:
         order_query = order_query.where(Bundle.production_order_id == order_id)
@@ -197,6 +207,20 @@ def cutting_balances(db, *, order_id: int | None = None) -> list[CuttingBalanceG
     return reconcile_cutting_evidence(db.execute(_evidence_statement(order_id)).mappings())
 
 
+def cutting_inventory_balances(db) -> list[CuttingBalanceGroup]:
+    """Project displayed stock separately from operational handoff validation."""
+    setting = db.scalar(select(SystemSetting.value_json).where(
+        SystemSetting.key == CUTTING_INVENTORY_EXCLUSIONS,
+    ))
+    if not isinstance(setting, dict) or setting.get("active") is not True:
+        return cutting_balances(db)
+    bundle_ids = setting.get("bundle_ids")
+    if not isinstance(bundle_ids, list) or any(type(bid) is not int or bid <= 0 for bid in bundle_ids):
+        return cutting_balances(db)
+    statement = _evidence_statement(excluded_bundle_ids=tuple(bundle_ids))
+    return reconcile_cutting_evidence(db.execute(statement).mappings())
+
+
 def select_balance_groups(groups: list[CuttingBalanceGroup], bundle_ids: set[int]) -> list[CuttingBalanceGroup]:
     """Search exact labels normally; adjusted batches remain indivisible facts."""
     selected = []
@@ -251,7 +275,7 @@ def inventory_balance_selection(db, query, scoped_query):
     a batch fact, never an invented residual on an arbitrary barcode.
     """
     matched = set(db.scalars(query.with_entities(Bundle.id).statement))
-    groups = cutting_balances(db)
+    groups = cutting_inventory_balances(db)
     selected = select_balance_groups(groups, matched)
     ids = {bid for group in selected for bid in group.bundle_quantities}
     selected_query = scoped_query.filter(Bundle.id.in_(ids))
