@@ -15,6 +15,13 @@ Last updated 2026-11-21. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
+## Shared BSO qolip attachments (21 November, source change)
+
+Branded production checks the selected variant's qolip number and accepts a
+pattern attached to that variant or another member of the same catalog model
+family. PM7012-V-6413 can use the pattern attached to PM7012-V-6679 after
+deployment. Production remains on `20261121_084644`.
+
 ## Purchasing binding rates removed in production (21 November)
 
 Binding and Other binding show their Cutting Passport consumption without a Purchasing rate. These rows are excluded from new cost totals. Fabric and Ribana retain separate rates, and approved price snapshots keep their recorded costs. The release required no migration and wrote no business data.
