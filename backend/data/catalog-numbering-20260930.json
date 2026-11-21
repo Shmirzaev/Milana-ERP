@@ -5,6 +5,10 @@
   "variants_sha256": "7c773bd1a287aff581a2b9a052dcba869a4598bc3b17a1cbae8bbdae80c16456",
   "variant_last_assigned": 6427,
   "models": {
+    "BD": {
+      "number": 101000,
+      "source_id": null
+    },
     "BJ": {
       "number": 5036,
       "source_id": 3346

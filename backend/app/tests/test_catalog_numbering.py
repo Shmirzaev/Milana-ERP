@@ -36,7 +36,7 @@ def test_model_prefix_stream_skips_existing_variants_and_keeps_other_prefixes():
         assert next_model_no(db, "PJ") == "PJ1254"
 
 
-@pytest.mark.parametrize(("prefix", "start"), [("XJ", 3201), ("XD", 109001), ("FG", 202001)])
+@pytest.mark.parametrize(("prefix", "start"), [("XJ", 3201), ("XD", 109001), ("FG", 202001), ("BD", 101001)])
 def test_model_create_reserves_server_number_even_after_stale_preview(client, auth_headers, prefix, start):
     preview = client.get(f"/api/models/next-number?prefix={prefix}", headers=auth_headers)
     assert preview.status_code == 200, preview.text
