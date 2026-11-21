@@ -1,0 +1,77 @@
+name: Build purchasing binding exclusion release
+on:
+  push:
+    branches: [release/purchasing-no-binding-rates-20261121-084644]
+permissions:
+  contents: read
+  packages: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SOURCE_SHA: acbb3d5a67dec27d56e859c1a30220c9e83bb160
+      BASE_SOURCE_SHA: 16fe127e39b6a67e07b324bc8bf9313d5f5a0b28
+      RELEASE_ID: '20261121_084644'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: acbb3d5a67dec27d56e859c1a30220c9e83bb160
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+      - name: Package reviewed source and prepare build recipes
+        run: |
+          python scripts/package_release.py --release "$RELEASE_ID" --output "$RUNNER_TEMP/milana-erp-$RELEASE_ID.tar.gz"
+          git diff --exit-code "$BASE_SOURCE_SHA" "$SOURCE_SHA" -- backend/alembic backend/Dockerfile backend/requirements.txt
+          overlay="$RUNNER_TEMP/purchasing-backend"
+          for path in app/libs/dto/planning/price_calculation_request_output.py app/models/planning/costing_service.py app/models/planning/price_workflow_calculation.py app/models/planning/variant_pricing_service.py; do
+            install -D "backend/$path" "$overlay/$path"
+          done
+          cat > "$overlay/Dockerfile" <<'DOCKERFILE'
+          FROM ghcr.io/shmirzaev/milana-erp-backend@sha256:4802119a9a3f8220cdcde633cf4a4de10db7e1e4b789ec49480360389f498f16
+          COPY --chown=appuser:appuser app/ /app/app/
+          DOCKERFILE
+          grep -Fxq 'RUN npm run build' frontend/Dockerfile
+          sed 's/^RUN npm run build$/RUN .\/node_modules\/\.bin\/next build/' frontend/Dockerfile > "$RUNNER_TEMP/purchasing-frontend.Dockerfile"
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish backend
+        id: backend
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ runner.temp }}/purchasing-backend
+          push: true
+          tags: ghcr.io/shmirzaev/milana-erp-backend:${{ env.RELEASE_ID }}
+          labels: org.opencontainers.image.revision=${{ env.SOURCE_SHA }}
+      - name: Publish frontend
+        id: frontend
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ runner.temp }}/purchasing-frontend.Dockerfile
+          push: true
+          tags: ghcr.io/shmirzaev/milana-erp-frontend:${{ env.RELEASE_ID }}
+          labels: org.opencontainers.image.revision=${{ env.SOURCE_SHA }}
+          build-args: NEXT_PUBLIC_API_URL=https://erp.milanapremium.uz
+          cache-from: type=gha,scope=security-frontend-v1
+      - name: Bind source and image digests
+        env:
+          BACKEND_IMAGE: ghcr.io/shmirzaev/milana-erp-backend@${{ steps.backend.outputs.digest }}
+          FRONTEND_IMAGE: ghcr.io/shmirzaev/milana-erp-frontend@${{ steps.frontend.outputs.digest }}
+        run: |
+          cp "$RUNNER_TEMP/milana-erp-$RELEASE_ID.tar.gz.json" .
+          GITHUB_SHA="$SOURCE_SHA" python scripts/prepare_release_manifest.py
+          cp deployment.json "$RUNNER_TEMP/deployment.json"
+          echo 'Build only at owner request. Automated tests were skipped.' >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: purchasing-no-binding-rates-release
+          path: |
+            ${{ runner.temp }}/milana-erp-20261121_084644.tar.gz*
+            ${{ runner.temp }}/deployment.json
