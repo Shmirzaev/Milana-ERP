@@ -1,0 +1,97 @@
+name: Build Cutting Inventory exclusion release
+on:
+  push:
+    branches: [release/cutting-inventory-exclusion-20261121]
+permissions:
+  contents: read
+  packages: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SOURCE_SHA: 2382b7e3b56b2ea51b08501a73e50694c8991690
+      BASE_SOURCE_SHA: 6ebfc7a31f1500e0699779b23266948f8638b50f
+      RELEASE_ID: '20261121_035130'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: 2382b7e3b56b2ea51b08501a73e50694c8991690
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+      - name: Package reviewed source and prepare image overlays
+        run: |
+          python scripts/package_release.py --release "$RELEASE_ID" --output "$RUNNER_TEMP/milana-erp-$RELEASE_ID.tar.gz"
+          git diff --exit-code "$BASE_SOURCE_SHA" "$SOURCE_SHA" -- frontend backend/alembic backend/Dockerfile
+          python - <<'PY'
+          import os
+          import shutil
+          import subprocess
+          from pathlib import Path
+
+          temp = Path(os.environ["RUNNER_TEMP"])
+          backend = temp / "backend-overlay"
+          frontend = temp / "frontend-overlay"
+          frontend.mkdir()
+          changed = subprocess.check_output([
+              "git", "diff", "--name-status", "--no-renames",
+              os.environ["BASE_SOURCE_SHA"], "HEAD", "--", "backend",
+          ], text=True).splitlines()
+          for line in changed:
+              status, name = line.split("\t", 1)
+              if name.endswith("/README.md"):
+                  continue
+              source = Path(name)
+              if status not in {"A", "M"} or not name.startswith("backend/app/"):
+                  raise SystemExit(f"Cannot apply backend overlay: {line}")
+              destination = backend / source.relative_to("backend")
+              destination.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copy2(source, destination)
+          (backend / "Dockerfile").write_text(
+              "FROM ghcr.io/shmirzaev/milana-erp-backend@sha256:5f04dd52f99c27584046e657e696208b403681f690ae39758105a951cf2af45b\n"
+              "COPY --chown=appuser:appuser app/ /app/app/\n"
+          )
+          (frontend / "Dockerfile").write_text(
+              "FROM ghcr.io/shmirzaev/milana-erp-frontend@sha256:fb559bdebf9716605a1a8c7f3e13a4b563a3cd215fed9108dc8e52a8e6a3e01b\n"
+          )
+          PY
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish backend
+        id: backend
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ runner.temp }}/backend-overlay
+          push: true
+          tags: ghcr.io/shmirzaev/milana-erp-backend:${{ env.RELEASE_ID }}
+          labels: org.opencontainers.image.revision=${{ env.SOURCE_SHA }}
+      - name: Publish unchanged frontend runtime
+        id: frontend
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ runner.temp }}/frontend-overlay
+          push: true
+          tags: ghcr.io/shmirzaev/milana-erp-frontend:${{ env.RELEASE_ID }}
+          labels: org.opencontainers.image.revision=${{ env.SOURCE_SHA }}
+      - name: Bind source and image digests
+        env:
+          BACKEND_IMAGE: ghcr.io/shmirzaev/milana-erp-backend@${{ steps.backend.outputs.digest }}
+          FRONTEND_IMAGE: ghcr.io/shmirzaev/milana-erp-frontend@${{ steps.frontend.outputs.digest }}
+        run: |
+          cp "$RUNNER_TEMP/milana-erp-$RELEASE_ID.tar.gz.json" .
+          GITHUB_SHA="$SOURCE_SHA" python scripts/prepare_release_manifest.py
+          cp deployment.json "$RUNNER_TEMP/deployment.json"
+          echo 'Build only at owner request. Automated tests were skipped.' >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cutting-inventory-exclusion-release
+          path: |
+            ${{ runner.temp }}/milana-erp-20261121_035130.tar.gz*
+            ${{ runner.temp }}/deployment.json
+
