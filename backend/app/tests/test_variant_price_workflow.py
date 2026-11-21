@@ -111,11 +111,11 @@ def test_full_handoff_draft_submit_approve_and_order_conservation(client, auth_h
     assert any(row["id"] == request["id"] for row in pending_accessories.json())
     request = submit(client, data, "accessories", request)
     assert request["workflow_state"] == "awaiting_finance"
-    assert request["cost_price"] == pytest.approx(4.7)  # 0.8 kg * 5 + 0.01 binding * 5 + .5 + .1 + .05
+    assert request["cost_price"] == pytest.approx(4.65)  # 0.8 kg * 5 + .5 + .1 + .05
     base = f"/api/price-calculation/requests/{request['id']}"
     draft = client.patch(base + "/finance", headers=data["finance"], json={"selling_price": 6, "exchange_rate": 12500, "expected_revision": request["revision"]})
     assert draft.status_code == 200, draft.text
-    assert draft.json()["cost_price_uzs"] == 58750
+    assert draft.json()["cost_price_uzs"] == 58125
     with SessionLocal() as db:
         assert db.get(Model, data["model_id"]).selling_price is None
         assert protected_facts(db) == before
@@ -132,7 +132,7 @@ def test_full_handoff_draft_submit_approve_and_order_conservation(client, auth_h
         assert db.get(Model, data["model_id"]).selling_price == Decimal("6.0000")
         stored = db.get(PriceCalculationRequest, request["id"])
         assert stored.active_model_id is None
-        assert stored.approval_snapshot_json["cost_price"] == pytest.approx(4.7)
+        assert stored.approval_snapshot_json["cost_price"] == pytest.approx(4.65)
     assert client.patch(base + "/finance", headers=data["finance"], json={"selling_price": 9}).status_code == 409
     repeated = client.post("/api/cutting-passports", headers=data["cutting"], json=data["payload"] | {"passport_no": "PRICED-REUSE"})
     assert repeated.status_code == 201
@@ -447,7 +447,7 @@ def test_cached_passport_relation_uses_new_order_identity_and_printing(client):
 
 
 @pytest.mark.parametrize("rate", [0, 5])
-def test_one_fabric_price_covers_all_consumption_and_binding_rows(client, rate):
+def test_shared_fabric_price_only_applies_to_priced_materials(client, rate):
     data = setup(client, f"shared-rate-{rate}")
     with SessionLocal() as db:
         passport = db.get(CuttingPassport, data["passport"]["id"])
@@ -467,7 +467,7 @@ def test_one_fabric_price_covers_all_consumption_and_binding_rows(client, rate):
     saved = client.patch(base + "/purchasing", headers=data["purchasing"], json={
         "expected_revision": request["revision"], "fabric_price": rate, "sewing_cost": .5})
     assert saved.status_code == 200, saved.text
-    assert all(row["rate"] == rate for row in saved.json()["materials"])
+    assert [row["rate"] for row in saved.json()["materials"]] == [rate, None, rate, None]
     assert saved.json()["cost_price"] is None
     stale = client.patch(base + "/purchasing", headers=data["purchasing"], json={"expected_revision": request["revision"], "fabric_price": 99})
     assert stale.status_code == 409
@@ -476,8 +476,8 @@ def test_one_fabric_price_covers_all_consumption_and_binding_rows(client, rate):
     assert saved.status_code == 200
     request = submit(client, data, "purchasing", saved.json())
     request = submit(client, data, "accessories", request)
-    assert request["consumption_cost"] == pytest.approx(1.23 * rate)
-    assert request["cost_price"] == pytest.approx(1.23 * rate + .6)
+    assert request["consumption_cost"] == pytest.approx(1.2 * rate)
+    assert request["cost_price"] == pytest.approx(1.2 * rate + .6)
     with SessionLocal() as db:
         assert db.get(Model, data["model_id"]).selling_price is None
         assert protected_facts(db) == before

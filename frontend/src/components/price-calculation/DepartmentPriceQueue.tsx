@@ -16,7 +16,8 @@ type Draft = { revision: number; materialRates: Record<string, string>; sewing: 
 const numeric = (value: string) => value.trim() ? Number(value) : null;
 function draftOf(request: PriceCalculationRequest): Draft {
   return { revision: request.revision,
-    materialRates: Object.fromEntries(request.materials.map(row => [row.key, numberInputValue(row.rate)])),
+    materialRates: Object.fromEntries(request.materials.filter(row => row.requires_rate !== false)
+      .map(row => [row.key, numberInputValue(row.rate)])),
     sewing: numberInputValue(request.sewing_cost),
     accessories: request.accessories.length ? request.accessories.map(row => ({ name: row.name || "", price: numberInputValue(row.price) })) : [{ name: "", price: "" }],
     noAccessories: Boolean(request.no_accessories_reason), reason: request.no_accessories_reason || "" };
@@ -89,7 +90,7 @@ export default function DepartmentPriceQueue({ team }: { team: Team }) {
                   <th scope="row" className="py-2 text-left font-normal">{material.name}</th>
                   <td className="py-2 text-right tabular-nums">{consumption}</td>
                   <td className="py-1 pl-3">
-                    <div className="flex items-center justify-end gap-1">
+                    {material.requires_rate === false ? <span className="block text-right text-[var(--erp-text-muted)]">—</span> : <div className="flex items-center justify-end gap-1">
                       <input
                         className="input text-right tabular-nums"
                         aria-label={`${material.name} · ${consumption} · ${m.rate} / ${material.unit}`}
@@ -98,7 +99,7 @@ export default function DepartmentPriceQueue({ team }: { team: Team }) {
                         onChange={event => update(request.id, { materialRates: { ...row.materialRates, [material.key]: event.target.value } })}
                       />
                       <span className="w-7 shrink-0 text-right text-xs text-[var(--erp-text-muted)]" aria-hidden="true">/ {material.unit}</span>
-                    </div>
+                    </div>}
                   </td>
                 </tr>;
               })}</tbody>

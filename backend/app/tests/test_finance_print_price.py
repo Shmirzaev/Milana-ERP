@@ -31,7 +31,7 @@ def test_finance_owns_print_price_and_approval_requires_it(client, auth_headers,
     assert saved.status_code == 200, saved.text
     result = saved.json()
     assert result["printing_cost"] == printing_cost
-    assert result["cost_price"] == pytest.approx(4.7 + printing_cost)
+    assert result["cost_price"] == pytest.approx(4.65 + printing_cost)
     assert "printing_costs" not in result["calculation_issues"]
     assert client.patch(base + "/finance", headers=data["finance"], json={"expected_revision": request["revision"], "printing_cost": 99}).status_code == 409
     cleared = client.patch(base + "/finance", headers=data["finance"], json={"expected_revision": result["revision"], "printing_cost": None})

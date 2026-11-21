@@ -33,17 +33,17 @@ def test_pg_shared_fabric_price_preserves_consumption_and_requires_submission(cu
         row = db.get(PriceCalculationRequest, targets[0].request_id)
         row.workflow_state = "collecting"; row.purchasing_submitted_at = None
         row.materials_json = [{"key": key, "name": key, "unit": "kg", "consumption": consumption, "rate": None}
-                              for key, consumption in [("main", .8), ("main:binding", .01), ("contrast", .4), ("contrast:binding", .02)]]
+                              for key, consumption in [("main", .8), ("main:beka_per_piece_kg", .01), ("contrast", .4), ("contrast:beka_per_piece_kg", .02)]]
     with sessions() as db:
         actor = db.get(User, actor_id)
         saved = update_purchasing_details(db, targets[0].request_id,
             PriceCalculationPurchasingIn(expected_revision=targets[0].expected_revision, fabric_price=5, sewing_cost=.5), actor)
         assert [row["consumption"] for row in saved["materials"]] == [.8, .01, .4, .02]
-        assert all(row["rate"] == 5 for row in saved["materials"])
+        assert [row["rate"] for row in saved["materials"]] == [5, None, 5, None]
         assert saved["cost_price"] is None and db.get(Model, model_ids[0]).selling_price is None
         submitted = workflow.submit_contribution(db, saved["id"], PriceContributionTeam.PURCHASING,
             PriceWorkflowActionIn(expected_revision=saved["revision"]), actor)
-        assert submitted["cost_price"] == pytest.approx(6.85)  # 1.23*5 + .5 + .1 packaging + .1 label
+        assert submitted["cost_price"] == pytest.approx(6.7)  # 1.2*5 + .5 + .1 packaging + .1 label
         assert db.get(Model, model_ids[0]).selling_price is None
 
 
