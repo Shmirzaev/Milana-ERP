@@ -15,6 +15,14 @@ Last updated 2026-11-21. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
+## BD model numbering deployed (21 November)
+
+The Models numbering selector now includes **BD**. Its first available number is **BD101001**, followed by **BD101002**. The existing allocator skips occupied model numbers and reserves on save. The deployment created no production model or other business record and required no migration.
+
+Both hosts serve `20261121_072759` in green, with `20261121_035130` in blue for rollback. Runtime source `e0649666abb5f018c5e70cc98447820a8d8c93e1` was merged into `clone_main` at `37cb3838b`. Source manifest SHA-256 `1280fc69bcaab8ae801b5914ab49316ab87cd9986858e51ceb4af98f54068863`. Backend image `ghcr.io/shmirzaev/milana-erp-backend@sha256:e9dda77f67ecbce9c889b32e78259a958ad8199521ae46d6cc70ce41b2f0252c`. Frontend image `ghcr.io/shmirzaev/milana-erp-frontend@sha256:e677c174f144e8f3c8924e452ba32b9053b66a8e86ba2f25b16d30c3d16dce4c`. [Build-only publication](https://github.com/Shmirzaev/Milana-ERP/actions/runs/44880394835).
+
+A fresh PostgreSQL backup was verified at `/opt/milana-erp/shared/backups/auto_pre_20261121_072759.dump`. The dump contains 136,008,733 bytes and 1,403 restore-list objects, with SHA-256 `cc951d7ae3bbf9e7d9540da7efcef1aab19d5a06fea2f80d285c21808703515f`. The schema remains `0159_ceo_balance_snapshots`. All four internal/public health and login endpoints returned HTTP 200, both active slots and source manifests matched, and the backend had two workers and zero restarts. At the owner's request this deployment skipped new test suites, browser QA, security scans, performance checks and timed observation. The earlier branch verification covered 32 numbering tests and an isolated browser save and reopen.
+
 ## Reversible Cutting Inventory exclusion (21 November, deployed)
 
 - The owner approved the exact standard-order labels from the revised Cutting reconciliation, keeping labels and history and excluding Usluga from the correction. Audit event `299999` records the activation. A read-only production snapshot verified all **995 labels across 145 standard orders** still exist and all 995 are absent from the inventory projection. The remaining visible label set exactly matched the original set less the approved labels.
