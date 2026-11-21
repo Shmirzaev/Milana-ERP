@@ -43,7 +43,21 @@ const pricing = {
 };
 const Department = load("src/components/price-calculation/DepartmentPriceQueue.tsx", pricing).default;
 const Finance = load("src/app/(app)/finance/price-calculation/page.tsx", pricing).default;
-assert.ok(!render(React.createElement(Department, { team: "purchasing" })).includes("Printing USD"));
+request.materials = [
+  { key: "fabric-first", name: "Jersey", unit: "kg", consumption: 0.213607, rate: 7.25 },
+  { key: "fabric-second", name: "Jersey", unit: "kg", consumption: 0.269978, rate: 9.5 },
+  { key: "binding-first", name: "Binding", unit: "m", consumption: 0.01, rate: 0 },
+  { key: "binding-second", name: "Binding", unit: "m", consumption: 0.004, rate: null },
+];
+const purchasing = render(React.createElement(Department, { team: "purchasing" }));
+assert.ok(!purchasing.includes("Printing USD"));
+assert.ok(!purchasing.includes("Fabric price USD"));
+for (const material of request.materials) {
+  const label = `${material.name} · ${material.consumption} ${material.unit} · Rate USD / ${material.unit}`;
+  const input = purchasing.match(/<input[^>]+>/g)?.find(tag => tag.includes(`aria-label="${label}"`));
+  assert.ok(input?.includes(`value="${material.rate ?? ""}"`), `Missing saved rate for ${label}`);
+}
+assert.ok(!render(React.createElement(Department, { team: "accessories" })).includes("Rate USD"));
 assert.ok(render(React.createElement(Finance)).includes("Printing USD / piece"));
 assert.match(render(React.createElement(Finance)), /disabled=""[^>]*>Confirm price/);
 request.printing_required = false;

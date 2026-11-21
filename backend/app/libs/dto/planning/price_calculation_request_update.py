@@ -21,7 +21,8 @@ class PriceCalculationFinanceIn(BaseModel):
 class PriceCalculationPurchasingIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     expected_revision: int | None = Field(default=None, gt=0)
-    materials: list[PriceMaterialRateIn] | None = Field(default=None, max_length=100)
+    # The service requires exactly the stored passport's material keys.
+    materials: list[PriceMaterialRateIn] | None = None
     fabric_price: float | None = Field(
         default=None, ge=0, le=9_999_999_999.9999, allow_inf_nan=False,
     )

@@ -37,6 +37,34 @@ def ready_case(sessions):
     return model_id, response["id"], users
 
 
+def test_pg_distinct_rates_cover_all_rows_of_large_passport(customer_pg_sessions):
+    sessions = customer_pg_sessions
+    _, request_id, users = ready_case(sessions)
+    materials = [
+        {"key": f"batch-{index}", "name": "Jersey", "unit": "kg", "consumption": 0.01, "rate": None}
+        for index in range(128)
+    ]
+    rates = [{"key": row["key"], "rate": index / 100} for index, row in enumerate(materials)]
+    with sessions.begin() as db:
+        request = db.get(PriceCalculationRequest, request_id)
+        apply_workflow_fields(db, request, materials_json=materials)
+        revision = request.revision
+
+    endpoint = f"/api/price-calculation/requests/{request_id}/purchasing"
+    headers = auth(users["purchasing"])
+    with TestClient(app_for(sessions)) as client:
+        invalid = rates[:-1] + [{"key": "not-on-passport", "rate": 1.27}]
+        refused = client.patch(endpoint, headers=headers, json={"expected_revision": revision, "materials": invalid})
+        assert refused.status_code == 409, refused.text
+        saved = client.patch(endpoint, headers=headers, json={"expected_revision": revision, "materials": rates})
+        assert saved.status_code == 200, saved.text
+        assert [{"key": row["key"], "rate": row["rate"]} for row in saved.json()["materials"]] == rates
+    with sessions() as db:
+        request = db.get(PriceCalculationRequest, request_id)
+        assert request.revision == revision + 1
+        assert request.materials_json == [{**row, "rate": rate["rate"]} for row, rate in zip(materials, rates, strict=True)]
+
+
 def test_pg_concurrent_creation_one_slot_audit_and_team_notice(customer_pg_sessions):
     sessions = customer_pg_sessions
     model_id, users = seed(sessions)
