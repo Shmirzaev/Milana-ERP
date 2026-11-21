@@ -15,9 +15,15 @@ Last updated 2026-11-21. Keep this file short: current decisions, release pointe
 unresolved risks. Detailed history belongs in [the archive](archive/README.md),
 not appended here. This summary does not replace live release verification.
 
-## Purchasing binding rates (candidate, 21 November)
+## Purchasing binding rates removed in production (21 November)
 
-Binding and Other binding remain visible with their Cutting Passport consumption. The candidate removes their Purchasing rate fields and excludes them from unapproved cost totals. Fabric and Ribana retain separate rates. Approved price snapshots retain their recorded costs. Production remains on release `20261121_083559` with `20261121_072759` available for rollback.
+Binding and Other binding show their Cutting Passport consumption without a Purchasing rate. These rows are excluded from new cost totals. Fabric and Ribana retain separate rates, and approved price snapshots keep their recorded costs. The release required no migration and wrote no business data.
+
+Both hosts serve `20261121_084644` in green, with `20261121_083559` in blue for rollback. Runtime commit `acbb3d5a67dec27d56e859c1a30220c9e83bb160` integrated as `8756f07e1` in `clone_main` with the identical tree. Source manifest SHA-256 `916a2ee9b2a0aab66c1cb41551ff4fc7921c889287b8539670517bcfcb1132e7`. Backend image `ghcr.io/shmirzaev/milana-erp-backend@sha256:5d3c63c34f3d93471ce2dca203d61e8b11f52d829bb09d8bf1d566793f043740`. Frontend image `ghcr.io/shmirzaev/milana-erp-frontend@sha256:c5750fdf8148d30a8a64cf0720ce52bba1fe6bdf8104fc29462f5668bbcfca2f`. [Build-only publication](https://github.com/Shmirzaev/Milana-ERP/actions/runs/44886484394).
+
+The verified backup is `/opt/milana-erp/shared/backups/auto_pre_20261121_084644.dump` with 136,032,186 bytes and 1,403 restore-list objects. Dump SHA-256 `0e8d2174280aecfa5907cde9de67f0292ffc694be7a12837d9aa23faa87093df`. Restore-list SHA-256 `4d6a6e03da88b63ae0817f861582a4d104a8251725414f8560793f18a8ce4b4f`. PostgreSQL remains at `0159_ceo_balance_snapshots` with zero invalid indexes. All four health and login endpoints returned HTTP 200, both routers validated, and the backend had two workers and zero restarts.
+
+At the owner's request this deployment skipped new test suites, browser QA, security scans, performance checks and timed observation. Prior candidate verification covered 44 focused backend tests, the production frontend build, and an isolated Chrome save, reopen and Finance handoff on desktop and mobile.
 
 ## Separate Purchasing material rates deployed (21 November)
 

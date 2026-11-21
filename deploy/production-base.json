@@ -1,6 +1,6 @@
 {
-  "release": "20261121_083559",
-  "source_manifest_sha256": "cc67a7cde37a5b060fecf3f8de32955026b39aab51a0fca0baf1775d5736f40b",
+  "release": "20261121_084644",
+  "source_manifest_sha256": "916a2ee9b2a0aab66c1cb41551ff4fc7921c889287b8539670517bcfcb1132e7",
   "database_revision": "0159_ceo_balance_snapshots",
-  "git_baseline_commit": "16fe127e39b6a67e07b324bc8bf9313d5f5a0b28"
+  "git_baseline_commit": "acbb3d5a67dec27d56e859c1a30220c9e83bb160"
 }
